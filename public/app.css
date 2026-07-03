@@ -1,0 +1,74 @@
+/* Nalanda — small layer over Pico.css. No build step; keep it boring. */
+
+.brand { font-weight: 700; text-decoration: none; }
+nav a.active { text-decoration: underline; }
+.inline { display: inline; }
+.inline-form { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.inline-form input, .inline-form select, .inline-form button { width: auto; margin-bottom: 0; }
+button.linklike { background: none; border: none; color: var(--pico-primary); padding: 0; cursor: pointer; }
+button.slim { padding: 0.15rem 0.6rem; font-size: 0.85rem; }
+button.danger { background: #b71c1c; border-color: #b71c1c; color: #fff; }
+.muted { color: var(--pico-muted-color); }
+.error { color: #b71c1c; }
+.notice { background: var(--pico-card-sectioning-background-color, rgba(128,128,128,.08));
+  border-left: 4px solid var(--pico-primary); padding: 0.5rem 0.75rem; border-radius: 4px; }
+.prewrap { white-space: pre-line; }
+
+/* library cards */
+.library-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.75rem; margin-bottom: 1rem; }
+.library-card { display: flex; flex-direction: column; padding: 1rem; border: 1px solid var(--pico-muted-border-color);
+  border-radius: 8px; text-decoration: none; }
+.library-card:hover { border-color: var(--pico-primary); }
+
+/* item grid + cards */
+.item-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 1rem; }
+.item-card { display: flex; flex-direction: column; gap: 0.35rem; text-decoration: none; }
+.item-cover { aspect-ratio: 2 / 3; border-radius: 6px; overflow: hidden;
+  background: var(--pico-card-sectioning-background-color, rgba(128,128,128,.1)); }
+.cover-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cover-fallback { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; }
+.item-meta { display: flex; flex-direction: column; line-height: 1.25; }
+.item-meta strong { font-size: 0.9rem; }
+.item-meta small { font-size: 0.75rem; }
+
+/* item detail */
+.item-detail { display: grid; grid-template-columns: minmax(140px, 220px) 1fr; gap: 1.5rem; }
+.item-detail-cover .cover-fallback { font-size: 4rem; aspect-ratio: 2 / 3; border-radius: 8px; }
+.item-detail-cover img { border-radius: 8px; width: 100%; }
+@media (max-width: 640px) { .item-detail { grid-template-columns: 1fr; } .item-detail-cover { max-width: 200px; } }
+.actions { display: flex; gap: 0.5rem; align-items: center; margin-top: 1rem; }
+.details-list { display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 1rem; font-size: 0.9rem; }
+.details-list dt { color: var(--pico-muted-color); }
+.details-list dd { margin: 0; }
+
+/* badges, tags, stars */
+.badge { display: inline-block; font-size: 0.7rem; padding: 0.1rem 0.5rem; border-radius: 999px;
+  background: var(--pico-primary); color: var(--pico-primary-inverse); vertical-align: middle; }
+.badge.warn { background: #b26a00; }
+.tag { display: inline-block; margin-right: 0.5rem; text-decoration: none; }
+.tag-cloud { line-height: 2; }
+.rating { color: #c9a227; letter-spacing: 1px; }
+
+/* filters, pagination */
+.filter-bar { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+.filter-bar select, .filter-bar button { width: auto; margin-bottom: 0; }
+.pagination { display: flex; justify-content: space-between; align-items: center; margin: 1rem 0; }
+
+/* add flow */
+.tab-bar { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+.tab { width: auto; }
+.tab.active { outline: 2px solid var(--pico-primary); }
+.tab-panel[hidden] { display: none; }
+#scanner-video { width: 100%; max-height: 45vh; border-radius: 8px; background: #000; display: none; }
+#scanner-video.live { display: block; }
+.candidate { display: grid; grid-template-columns: 90px 1fr; gap: 1rem; padding: 0.75rem; margin: 0.75rem 0; }
+.candidate-cover img, .candidate-cover .cover-fallback { width: 90px; aspect-ratio: 2 / 3; object-fit: cover;
+  border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 2rem;
+  background: var(--pico-card-sectioning-background-color, rgba(128,128,128,.1)); }
+.candidate-save { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+.candidate-save select, .candidate-save button { width: auto; margin-bottom: 0; }
+
+/* auth + share */
+.auth-card { max-width: 420px; margin: 3rem auto; }
+.share-panel { margin: 1rem 0; }
+.share-footer { margin-top: 3rem; }
