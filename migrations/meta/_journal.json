@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1783040146812,
+      "tag": "0000_rapid_winter_soldier",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1783040157858,
+      "tag": "0001_fts",
+      "breakpoints": true
+    }
+  ]
+}
