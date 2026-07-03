@@ -11,9 +11,14 @@ add.get('/add', async (c) => {
   const libs = await listLibraries(c.env.DB);
   return page(
     c,
-    'Add',
+    'Add items',
     <>
-      <h1>Add to your library</h1>
+      <div class="page-head">
+        <div>
+          <h1>Add items</h1>
+          <span class="sub">SCAN · SEARCH · MANUAL ENTRY</span>
+        </div>
+      </div>
       <div role="group" class="tab-bar">
         <button type="button" class="tab active" data-tab="scan">
           📷 Scan
@@ -36,7 +41,7 @@ add.get('/add', async (c) => {
           <button type="button" id="scanner-start">
             Start camera
           </button>
-          <button type="button" id="scanner-stop" class="secondary" hidden>
+          <button type="button" id="scanner-stop" class="btn" hidden>
             Stop
           </button>
         </div>
@@ -48,7 +53,7 @@ add.get('/add', async (c) => {
           hx-swap="innerHTML"
         >
           <input name="barcode" placeholder="…or type the barcode digits" inputmode="numeric" />
-          <button type="submit" class="secondary">
+          <button type="submit" class="btn">
             Look up
           </button>
         </form>

@@ -7,27 +7,33 @@ import { page } from '../views/layout';
 const account = new Hono<AppEnv>();
 
 const Form = ({ mustChange, error, ok }: { mustChange: boolean; error?: string; ok?: boolean }) => (
-  <article class="auth-card">
-    <h1>Your account</h1>
-    {mustChange ? <p class="notice">Set your own password to continue (you logged in with a temporary one).</p> : null}
-    {error ? <p class="error">{error}</p> : null}
-    {ok ? <p class="notice">Password changed.</p> : null}
-    <form method="post" action="/account/password">
-      <label>
-        Current password
-        <input type="password" name="current" required autocomplete="current-password" />
-      </label>
-      <label>
-        New password <small class="muted">(at least 8 characters)</small>
-        <input type="password" name="next" required minlength={8} autocomplete="new-password" />
-      </label>
-      <label>
-        Confirm new password
-        <input type="password" name="confirm" required autocomplete="new-password" />
-      </label>
-      <button type="submit">Change password</button>
-    </form>
-  </article>
+  <>
+    <div class="page-head">
+      <h1>Account</h1>
+    </div>
+    <article class="panel form-card">
+      {mustChange ? (
+        <p class="notice">Set your own password to continue — you logged in with a temporary one.</p>
+      ) : null}
+      {error ? <p class="error">{error}</p> : null}
+      {ok ? <p class="notice">Password changed.</p> : null}
+      <form method="post" action="/account/password">
+        <label>
+          Current password
+          <input type="password" name="current" required autocomplete="current-password" />
+        </label>
+        <label>
+          New password <small>(at least 8 characters)</small>
+          <input type="password" name="next" required minlength={8} autocomplete="new-password" />
+        </label>
+        <label>
+          Confirm new password
+          <input type="password" name="confirm" required autocomplete="new-password" />
+        </label>
+        <button type="submit">Change password</button>
+      </form>
+    </article>
+  </>
 );
 
 account.get('/account', (c) => {
@@ -48,7 +54,9 @@ account.post('/account/password', async (c) => {
     return page(c, 'Account', <Form mustChange={user.mustChangePassword} error="Current password is wrong." />);
   }
   if (next.length < 8) {
-    return page(c, 'Account', <Form mustChange={user.mustChangePassword} error="New password must be at least 8 characters." />);
+    return page(c, 'Account', (
+      <Form mustChange={user.mustChangePassword} error="New password must be at least 8 characters." />
+    ));
   }
   if (next !== confirm) {
     return page(c, 'Account', <Form mustChange={user.mustChangePassword} error="New passwords do not match." />);

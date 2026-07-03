@@ -30,11 +30,34 @@ export const STATUS_LABEL: Record<ItemStatus, string> = {
   abandoned: 'Abandoned',
 };
 
+const STATUS_PILL_CLASS: Record<ItemStatus, string> = {
+  not_started: 'pill',
+  in_progress: 'pill progress',
+  completed: 'pill done',
+  abandoned: 'pill dropped',
+};
+
 /** rating is stored as half-stars 0–10, rendered as ★★★½ */
 export function stars(rating: number | null | undefined): string {
   if (!rating) return '';
   return '★'.repeat(Math.floor(rating / 2)) + (rating % 2 ? '½' : '');
 }
+
+/** The registrar's accession number: № 000142 */
+export function accNo(id: number): string {
+  return `№ ${String(id).padStart(6, '0')}`;
+}
+
+/** First 4-digit year in a fuzzy published string, or the string itself if short. */
+export function yearOf(published: string | null): string {
+  if (!published) return '';
+  const m = published.match(/\d{4}/);
+  return m ? m[0] : published;
+}
+
+export const StatusPill: FC<{ status: ItemStatus }> = ({ status }) => (
+  <span class={STATUS_PILL_CLASS[status]}>{STATUS_LABEL[status]}</span>
+);
 
 export const Cover: FC<{ coverKey: string | null; title: string; mediaType: MediaType }> = ({
   coverKey,
@@ -49,18 +72,19 @@ export const Cover: FC<{ coverKey: string | null; title: string; mediaType: Medi
     </div>
   );
 
-export const ItemCard: FC<{ item: Item; onLoan?: boolean }> = ({ item, onLoan }) => (
-  <a href={`/items/${item.id}`} class="item-card">
+export const ItemCard: FC<{ item: Item; onLoan?: boolean; href?: string }> = ({ item, onLoan, href }) => (
+  <a href={href ?? `/items/${item.id}`} class="item-card">
     <div class="item-cover">
       <Cover coverKey={item.coverKey} title={item.title} mediaType={item.mediaType} />
     </div>
     <div class="item-meta">
       <strong>{item.title}</strong>
       {item.creators ? <small>{item.creators}</small> : null}
-      <small class="muted">
-        {MEDIA_ICON[item.mediaType]} {stars(item.rating)}
-        {onLoan ? <span class="badge">on loan</span> : null}
-      </small>
+      <span class="mline">
+        <small class="acc-no">{accNo(item.id)}</small>
+        {item.rating ? <span class="rating">{stars(item.rating)}</span> : null}
+        {onLoan ? <span class="pill lent">Lent</span> : null}
+      </span>
     </div>
   </a>
 );
@@ -70,6 +94,79 @@ export const ItemGrid: FC<{ items: Item[]; onLoanIds?: Set<number> }> = ({ items
     {items.map((item) => (
       <ItemCard item={item} onLoan={onLoanIds?.has(item.id)} />
     ))}
+  </div>
+);
+
+/** The default library view: a proper registry table. */
+export const ItemTable: FC<{
+  items: Item[];
+  onLoanIds?: Set<number>;
+  tagsMap?: Map<number, string[]>;
+  libraryNames?: Map<number, string>;
+}> = ({ items, onLoanIds, tagsMap, libraryNames }) => (
+  <div class="data-table">
+    <table>
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Type</th>
+          {libraryNames ? <th class="hide-sm">Shelf</th> : null}
+          <th class="hide-sm">Year</th>
+          <th>Rating</th>
+          <th>Status</th>
+          {tagsMap ? <th class="hide-sm">Tags</th> : null}
+          <th class="hide-sm">№</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((item) => (
+          <tr>
+            <td>
+              <span class="cell-title">
+                {item.coverKey ? (
+                  <img class="thumb" src={`/covers/${item.coverKey}`} alt="" loading="lazy" />
+                ) : (
+                  <span class="thumb-fallback" aria-hidden="true">
+                    {MEDIA_ICON[item.mediaType]}
+                  </span>
+                )}
+                <span class="t">
+                  <a href={`/items/${item.id}`}>{item.title}</a>
+                  {item.creators ? <small>{item.creators}</small> : null}
+                </span>
+              </span>
+            </td>
+            <td class="num">{MEDIA_LABEL[item.mediaType]}</td>
+            {libraryNames ? <td class="num hide-sm">{libraryNames.get(item.libraryId) ?? ''}</td> : null}
+            <td class="num hide-sm">{yearOf(item.published)}</td>
+            <td>{item.rating ? <span class="rating">{stars(item.rating)}</span> : <span class="muted">—</span>}</td>
+            <td>
+              <StatusPill status={item.status} />{' '}
+              {onLoanIds?.has(item.id) ? <span class="pill lent">Lent</span> : null}
+            </td>
+            {tagsMap ? (
+              <td class="hide-sm">
+                {(tagsMap.get(item.id) ?? []).slice(0, 3).map((t) => (
+                  <a href={`/tags/${encodeURIComponent(t)}`} class="tag">
+                    {t}
+                  </a>
+                ))}
+              </td>
+            ) : null}
+            <td class="hide-sm">
+              <span class="acc-no">{accNo(item.id)}</span>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
+export const Stat: FC<{ n: number | string; label: string; warn?: boolean }> = ({ n, label, warn }) => (
+  <div class="stat">
+    <div class={warn ? 'stat-n warn' : 'stat-n'}>{n}</div>
+    <div class="stat-label">{label}</div>
   </div>
 );
 
@@ -95,10 +192,10 @@ export const ItemForm: FC<{
   tags?: string[];
   selectedLibraryId?: number;
 }> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId }) => (
-  <form method="post" action={action} class="item-form">
+  <form method="post" action={action} class="form-card">
     <div class="grid">
       <label>
-        Library
+        Shelf
         <select name="libraryId" required>
           {libraries.map((l) => (
             <option value={String(l.id)} selected={(item?.libraryId ?? selectedLibraryId) === l.id}>
@@ -112,7 +209,7 @@ export const ItemForm: FC<{
         <select name="mediaType">
           {MEDIA_TYPES.map((t) => (
             <option value={t} selected={(item?.mediaType ?? 'book') === t}>
-              {MEDIA_ICON[t]} {MEDIA_LABEL[t]}
+              {MEDIA_LABEL[t]}
             </option>
           ))}
         </select>
@@ -123,7 +220,7 @@ export const ItemForm: FC<{
       <input name="title" required value={item?.title ?? ''} />
     </label>
     <label>
-      Creators <small class="muted">(authors / designers / artists)</small>
+      Creators <small>(authors / designers / artists)</small>
       <input name="creators" value={item?.creators ?? ''} />
     </label>
     <div class="grid">
@@ -146,7 +243,7 @@ export const ItemForm: FC<{
         <input name="published" value={item?.published ?? ''} placeholder="2019 or 2019-05-01" />
       </label>
       <label>
-        Length <small class="muted">(pages / minutes / tracks)</small>
+        Length <small>(pages / minutes / tracks)</small>
         <input name="length" value={item?.length?.toString() ?? ''} inputmode="numeric" />
       </label>
     </div>
@@ -187,7 +284,7 @@ export const ItemForm: FC<{
       </label>
     </div>
     <label>
-      Tags <small class="muted">(comma-separated)</small>
+      Tags <small>(comma-separated)</small>
       <input name="tags" value={tags?.join(', ') ?? ''} />
     </label>
     <label>
@@ -197,13 +294,13 @@ export const ItemForm: FC<{
       </textarea>
     </label>
     <label>
-      Private notes <small class="muted">(never shown on share pages)</small>
+      Private notes <small>(never shown on share pages)</small>
       <textarea name="notes" rows={3}>
         {item?.notes ?? ''}
       </textarea>
     </label>
     <label>
-      Cover image URL <small class="muted">(fetched once into storage on save)</small>
+      Cover image URL <small>(fetched once into storage on save)</small>
       <input name="coverUrl" placeholder="https://…" />
     </label>
     {item?.coverKey ? (
@@ -221,7 +318,7 @@ export const ItemForm: FC<{
   </form>
 );
 
-/** A lookup result with a one-click "add to library" form. */
+/** A lookup result with a one-click "add to shelf" form. */
 export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[] }> = ({ candidate, libraries }) => (
   <article class="candidate">
     <div class="candidate-cover">
@@ -253,12 +350,12 @@ export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[] }> =
         <input type="hidden" name="isbn10Upc" value={candidate.isbn10Upc ?? ''} />
         <input type="hidden" name="coverUrl" value={candidate.coverUrl ?? ''} />
         <input type="hidden" name="details" value={JSON.stringify(candidate.details)} />
-        <select name="libraryId" aria-label="Library">
+        <select name="libraryId" aria-label="Shelf">
           {libraries.map((l) => (
             <option value={String(l.id)}>{l.name}</option>
           ))}
         </select>
-        <button type="submit">Add</button>
+        <button type="submit">Add to shelf</button>
       </form>
     </div>
   </article>

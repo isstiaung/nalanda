@@ -16,7 +16,7 @@ import {
   SESSION_TTL_SECONDS,
   verifyPassword,
 } from '../lib/auth';
-import { page } from '../views/layout';
+import { Brand, page } from '../views/layout';
 
 const auth = new Hono<AppEnv>();
 
@@ -32,7 +32,8 @@ function setSessionCookie(c: Parameters<typeof setCookie>[0], token: string, sec
 
 const LoginForm = ({ error }: { error?: string }) => (
   <article class="auth-card">
-    <h1>Nalanda</h1>
+    <Brand />
+    <h1>Log in</h1>
     {error ? <p class="error">{error}</p> : null}
     <form method="post" action="/auth/login">
       <label>
@@ -79,8 +80,9 @@ auth.post('/auth/logout', (c) => {
 
 const SetupForm = ({ error }: { error?: string }) => (
   <article class="auth-card">
-    <h1>Welcome to Nalanda</h1>
-    <p>Create the admin account. Family member accounts can be added later under Settings.</p>
+    <Brand />
+    <h1>Welcome</h1>
+    <p class="muted">Create the admin account. Family members can be added later under Members.</p>
     {error ? <p class="error">{error}</p> : null}
     <form method="post" action="/setup">
       <label>
@@ -88,7 +90,7 @@ const SetupForm = ({ error }: { error?: string }) => (
         <input name="username" required autofocus autocomplete="username" />
       </label>
       <label>
-        Password <small class="muted">(at least 8 characters)</small>
+        Password <small>(at least 8 characters)</small>
         <input type="password" name="password" required minlength={8} autocomplete="new-password" />
       </label>
       <label>

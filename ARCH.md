@@ -29,7 +29,7 @@ links, and import/export everything as CSV.
 | Interactivity | htmx (vendored) + small vanilla JS | No SPA, no client bundler, no framework churn (see §17 for the full rationale) |
 | Database | D1 (Cloudflare's SQLite) + **Drizzle ORM** | Free 5 GB; schema as TypeScript, typed queries, plain-SQL migrations out (§5) |
 | Object storage | R2 for cover art | Free 10 GB, zero egress fees |
-| Styling | Pico.css (classless) + one custom stylesheet | Looks decent with no CSS build step |
+| Styling | Hand-written design system (`public/app.css`) | "Accession ledger" identity: ink/green palette, mono data type, dark mode — no framework, no build step |
 | Barcode scanning | Browser `BarcodeDetector` API, ZXing-WASM fallback | Runs on the phone, costs the server nothing |
 | Metadata | Open Library + Google Books (books) · BoardGameGeek (board games) · Discogs (vinyl) | All free — see §7 |
 | Auth | Built-in multi-user (admin + members), WebCrypto PBKDF2 + signed session cookie | Family accounts with no email infra and no paid services (§8) |

@@ -25,9 +25,15 @@ structural changes, update it (incl. §16 decision log) when a decision changes.
   Open Library + Google Books (books, both keyless-capable), BoardGameGeek XML API2 (board
   games — no barcode lookup, name search only), Discogs (vinyl, **has** barcode search,
   needs `DISCOGS_TOKEN`).
-- Pico.css + `public/app.css`. htmx, Pico, and ZXing-WASM are pinned as devDependencies and
-  copied to `public/vendor/` by `scripts/vendor.mjs` (runs on postinstall) — never
-  hotlinked from a CDN, never imported into the Worker bundle.
+- Styling is the hand-written design system in `public/app.css` — no CSS framework. The
+  visual identity is "the accession ledger, modernized": ink/paper palette with a deep
+  bankers-lamp green accent, stamp red reserved for circulation/danger, monospace for all
+  data (counts, ISBNs, dates, pills, accession numbers via `accNo()`), serif for page
+  titles only, light + dark via `prefers-color-scheme`. Extend it with the existing
+  tokens/components (`.pill`, `.data-table`, `.props`, `.eyebrow`) — don't add frameworks.
+- htmx and ZXing-WASM are pinned as devDependencies and copied to `public/vendor/` by
+  `scripts/vendor.mjs` (runs on postinstall) — never hotlinked from a CDN, never imported
+  into the Worker bundle.
 - Tests: Vitest + `@cloudflare/vitest-pool-workers` (runs in real workerd; migrations are
   applied to a fresh D1 in `test/apply-migrations.ts`).
 - Runtime npm deps: `hono`, `drizzle-orm`, `fast-xml-parser` (BGG is XML; Workers has no

@@ -17,12 +17,12 @@ import type { AppEnv } from '../env';
 import { deleteCover, storeCover } from '../lib/covers';
 import { parseDetails } from '../lib/share';
 import {
+  accNo,
   Cover,
   DetailsList,
   ItemForm,
-  MEDIA_ICON,
   MEDIA_LABEL,
-  STATUS_LABEL,
+  StatusPill,
   stars,
 } from '../views/components';
 import { page } from '../views/layout';
@@ -87,11 +87,20 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
   };
 }
 
+const LENGTH_UNIT: Partial<Record<MediaType, string>> = {
+  book: 'pages',
+  boardgame: 'min play time',
+  vinyl: 'tracks',
+  movie: 'min',
+  music: 'tracks',
+  videogame: 'hours',
+};
+
 items.post('/items', async (c) => {
   const parsed = parseItemForm(await c.req.parseBody());
-  if (!parsed) return c.text('Title and library are required.', 400);
+  if (!parsed) return c.text('Title and shelf are required.', 400);
   const lib = await getLibrary(c.env.DB, parsed.values.libraryId);
-  if (!lib) return c.text('No such library.', 400);
+  if (!lib) return c.text('No such shelf.', 400);
 
   const coverKey = await storeCover(c.env.COVERS, parsed.coverUrl);
   const item = await createItem(c.env.DB, {
@@ -114,6 +123,8 @@ items.get('/items/:id', async (c) => {
     item.addedBy ? getUserById(c.env.DB, item.addedBy) : Promise.resolve(null),
   ]);
   const today = new Date().toISOString().slice(0, 10);
+  const overdue = !!(loan?.dueOn && loan.dueOn < today);
+  const details = parseDetails(item.details);
 
   return page(
     c,
@@ -125,82 +136,148 @@ items.get('/items/:id', async (c) => {
       <div class="item-detail-body">
         <hgroup>
           <h1>{item.title}</h1>
-          <p>{item.creators}</p>
+          {item.creators ? <p>{item.creators}</p> : null}
         </hgroup>
-        <p class="muted">
-          {MEDIA_ICON[item.mediaType]} {MEDIA_LABEL[item.mediaType]}
-          {lib ? (
-            <>
-              {' · '}
-              <a href={`/libraries/${lib.id}`}>{lib.name}</a>
-            </>
-          ) : null}
-          {item.published ? ` · ${item.published}` : ''}
-          {item.publisher ? ` · ${item.publisher}` : ''}
-          {item.length ? ` · ${item.length}` : ''}
-          {item.copies > 1 ? ` · ${item.copies} copies` : ''}
-        </p>
-        <p>
-          <span class="badge">{STATUS_LABEL[item.status]}</span>{' '}
-          {item.rating ? <span class="rating">{stars(item.rating)}</span> : null}
-          {loan ? <span class="badge warn">on loan to {loan.borrower}</span> : null}
-        </p>
         {tags.length ? (
           <p>
             {tags.map((t) => (
               <a href={`/tags/${encodeURIComponent(t)}`} class="tag">
-                #{t}
+                {t}
               </a>
             ))}
           </p>
         ) : null}
+
+        <dl class="props">
+          <dt>Accession</dt>
+          <dd class="mono">{accNo(item.id)}</dd>
+          <dt>Shelf</dt>
+          <dd>{lib ? <a href={`/libraries/${lib.id}`}>{lib.name}</a> : '—'}</dd>
+          <dt>Type</dt>
+          <dd>{MEDIA_LABEL[item.mediaType]}</dd>
+          <dt>Status</dt>
+          <dd>
+            <StatusPill status={item.status} />
+            {loan ? <span class={overdue ? 'pill overdue' : 'pill lent'}>{overdue ? 'Overdue' : 'Lent'}</span> : null}
+          </dd>
+          {item.rating ? (
+            <>
+              <dt>Rating</dt>
+              <dd>
+                <span class="rating">{stars(item.rating)}</span>
+              </dd>
+            </>
+          ) : null}
+          {item.published ? (
+            <>
+              <dt>Published</dt>
+              <dd>{item.published}</dd>
+            </>
+          ) : null}
+          {item.publisher ? (
+            <>
+              <dt>Publisher</dt>
+              <dd>{item.publisher}</dd>
+            </>
+          ) : null}
+          {item.length ? (
+            <>
+              <dt>Length</dt>
+              <dd class="mono">
+                {item.length} {LENGTH_UNIT[item.mediaType] ?? ''}
+              </dd>
+            </>
+          ) : null}
+          {item.isbn13 ? (
+            <>
+              <dt>ISBN-13</dt>
+              <dd class="mono">{item.isbn13}</dd>
+            </>
+          ) : null}
+          {item.isbn10Upc ? (
+            <>
+              <dt>ISBN-10 / UPC</dt>
+              <dd class="mono">{item.isbn10Upc}</dd>
+            </>
+          ) : null}
+          {item.copies > 1 ? (
+            <>
+              <dt>Copies</dt>
+              <dd class="mono">{item.copies}</dd>
+            </>
+          ) : null}
+          {item.beganOn ? (
+            <>
+              <dt>Began</dt>
+              <dd class="mono">{item.beganOn}</dd>
+            </>
+          ) : null}
+          {item.completedOn ? (
+            <>
+              <dt>Completed</dt>
+              <dd class="mono">{item.completedOn}</dd>
+            </>
+          ) : null}
+          <dt>Added</dt>
+          <dd class="mono">
+            {item.addedAt.slice(0, 10)}
+            {addedBy ? ` · ${addedBy.username}` : ''}
+          </dd>
+        </dl>
+
         {item.description ? <p class="prewrap">{item.description}</p> : null}
-        <DetailsList details={parseDetails(item.details)} />
-        {item.review ? (
-          <section>
-            <h4>Review</h4>
-            <p class="prewrap">{item.review}</p>
-          </section>
-        ) : null}
-        {item.notes ? (
-          <section>
-            <h4>
-              Private notes <small class="muted">(never on share pages)</small>
-            </h4>
-            <p class="prewrap">{item.notes}</p>
-          </section>
+
+        {Object.keys(details).length ? (
+          <div class="detail-section">
+            <p class="eyebrow">Details</p>
+            <DetailsList details={details} />
+          </div>
         ) : null}
 
-        <section>
+        {item.review ? (
+          <div class="detail-section">
+            <p class="eyebrow">Review</p>
+            <p class="prewrap">{item.review}</p>
+          </div>
+        ) : null}
+
+        {item.notes ? (
+          <div class="detail-section">
+            <p class="eyebrow">Private notes — never on share pages</p>
+            <p class="prewrap">{item.notes}</p>
+          </div>
+        ) : null}
+
+        <div class={loan ? 'circulation' : 'circulation free'}>
+          <p class="eyebrow">Circulation</p>
           {loan ? (
             <form method="post" action={`/loans/${loan.id}/return`} class="inline-form">
-              <span class={loan.dueOn && loan.dueOn < today ? 'error' : 'muted'}>
-                Lent to {loan.borrower} on {loan.loanedOn}
-                {loan.dueOn ? `, due ${loan.dueOn}` : ''}
+              <span class={overdue ? 'error' : undefined}>
+                Lent to <strong>{loan.borrower}</strong> on <span class="mono">{loan.loanedOn}</span>
+                {loan.dueOn ? (
+                  <>
+                    , due <span class="mono">{loan.dueOn}</span>
+                  </>
+                ) : null}
               </span>
-              <button type="submit" class="secondary">
+              <button type="submit" class="btn">
                 Mark returned
               </button>
             </form>
           ) : (
-            <details>
-              <summary>Lend this out</summary>
-              <form method="post" action={`/items/${item.id}/loan`} class="inline-form">
-                <input name="borrower" placeholder="Who?" required />
-                <input name="contact" placeholder="Contact (optional)" />
-                <input type="date" name="dueOn" aria-label="Due date" />
-                <button type="submit">Lend</button>
-              </form>
-            </details>
+            <form method="post" action={`/items/${item.id}/loan`} class="inline-form">
+              <input name="borrower" placeholder="Borrower" required />
+              <input name="contact" placeholder="Contact (optional)" />
+              <input type="date" name="dueOn" aria-label="Due date" />
+              <button type="submit" class="btn">
+                Lend
+              </button>
+            </form>
           )}
-        </section>
+        </div>
 
-        <p class="muted">
-          Added {item.addedAt}
-          {addedBy ? ` by ${addedBy.username}` : ''}
-        </p>
         <div class="actions">
-          <a href={`/items/${item.id}/edit`} role="button" class="secondary">
+          <a href={`/items/${item.id}/edit`} role="button">
             Edit
           </a>
           <form
@@ -209,7 +286,7 @@ items.get('/items/:id', async (c) => {
             class="inline"
             onsubmit="return confirm('Delete this item?')"
           >
-            <button type="submit" class="danger">
+            <button type="submit" class="btn-danger">
               Delete
             </button>
           </form>
@@ -228,7 +305,12 @@ items.get('/items/:id/edit', async (c) => {
     c,
     `Edit · ${item.title}`,
     <>
-      <h1>Edit item</h1>
+      <div class="page-head">
+        <div>
+          <h1>Edit item</h1>
+          <span class="sub mono">{accNo(item.id)}</span>
+        </div>
+      </div>
       <ItemForm libraries={libs} action={`/items/${id}`} submitLabel="Save changes" item={item} tags={tags} />
     </>,
   );
@@ -239,7 +321,7 @@ items.post('/items/:id', async (c) => {
   const existing = await getItem(c.env.DB, id);
   if (!existing) return c.notFound();
   const parsed = parseItemForm(await c.req.parseBody());
-  if (!parsed) return c.text('Title and library are required.', 400);
+  if (!parsed) return c.text('Title and shelf are required.', 400);
 
   let coverKey = existing.coverKey;
   if (parsed.removeCover) {

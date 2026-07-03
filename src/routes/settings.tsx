@@ -24,76 +24,89 @@ const UsersPage = ({
   error?: string;
 }) => (
   <>
-    <h1>Family members</h1>
+    <div class="page-head">
+      <div>
+        <h1>Members</h1>
+        <span class="sub">
+          {users.length} {users.length === 1 ? 'ACCOUNT' : 'ACCOUNTS'}
+        </span>
+      </div>
+    </div>
     {error ? <p class="error">{error}</p> : null}
     {minted ? (
       <article class="notice">
         <strong>Temporary password for “{minted.username}”:</strong> <code>{minted.password}</code>
         <br />
-        <small>Shown once — share it now. They'll be asked to set their own password on first login.</small>
+        <small class="muted">
+          Shown once — share it now. They'll set their own password at first login.
+        </small>
       </article>
     ) : null}
-    <table>
-      <thead>
-        <tr>
-          <th>Username</th>
-          <th>Role</th>
-          <th>Since</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {users.map((u) => (
+    <div class="data-table">
+      <table>
+        <thead>
           <tr>
-            <td>
-              {u.username}
-              {u.id === self ? <small class="muted"> (you)</small> : null}
-              {u.mustChangePassword ? <small class="muted"> · temp password pending</small> : null}
-            </td>
-            <td>{u.role}</td>
-            <td>{u.createdAt.slice(0, 10)}</td>
-            <td class="actions">
-              <form method="post" action={`/settings/users/${u.id}/reset`} class="inline">
-                <button class="secondary slim" type="submit">
-                  Reset password
-                </button>
-              </form>
-              {u.id !== self ? (
-                <form
-                  method="post"
-                  action={`/settings/users/${u.id}/delete`}
-                  class="inline"
-                  onsubmit={`return confirm('Remove ${u.username}? They will be logged out immediately.')`}
-                >
-                  <button class="danger slim" type="submit">
-                    Remove
-                  </button>
-                </form>
-              ) : null}
-            </td>
+            <th>Username</th>
+            <th>Role</th>
+            <th class="hide-sm">Since</th>
+            <th class="actions-cell"></th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {users.map((u) => (
+            <tr>
+              <td>
+                <strong>{u.username}</strong>
+                {u.id === self ? <small class="muted"> (you)</small> : null}
+                {u.mustChangePassword ? <span class="pill progress"> Temp password</span> : null}
+              </td>
+              <td class="num">{u.role}</td>
+              <td class="date hide-sm">{u.createdAt.slice(0, 10)}</td>
+              <td class="actions-cell">
+                <form method="post" action={`/settings/users/${u.id}/reset`} class="inline">
+                  <button class="btn" type="submit">
+                    Reset password
+                  </button>
+                </form>{' '}
+                {u.id !== self ? (
+                  <form
+                    method="post"
+                    action={`/settings/users/${u.id}/delete`}
+                    class="inline"
+                    onsubmit={`return confirm('Remove ${u.username}? They will be logged out immediately.')`}
+                  >
+                    <button class="btn-danger" type="submit">
+                      Remove
+                    </button>
+                  </form>
+                ) : null}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
 
-    <h3>Add a member</h3>
-    <form method="post" action="/settings/users" class="inline-form">
-      <input name="username" placeholder="username" required />
-      <select name="role" aria-label="Role">
-        <option value="member">member</option>
-        <option value="admin">admin</option>
-      </select>
-      <button type="submit">Create</button>
-    </form>
-    <p class="muted">
-      No email needed: you get a one-time temporary password to hand over; they set their own at first login.
-    </p>
+    <section style="margin-top:1.5rem">
+      <p class="eyebrow">Add a member</p>
+      <form method="post" action="/settings/users" class="inline-form">
+        <input name="username" placeholder="username" required />
+        <select name="role" aria-label="Role">
+          <option value="member">member</option>
+          <option value="admin">admin</option>
+        </select>
+        <button type="submit">Create account</button>
+      </form>
+      <p class="muted">
+        No email needed: you get a one-time temporary password to hand over; they set their own at first login.
+      </p>
+    </section>
   </>
 );
 
 settings.get('/settings/users', async (c) => {
   const users = await listUsers(c.env.DB);
-  return page(c, 'Settings · Users', <UsersPage users={users} self={c.get('user').id} />);
+  return page(c, 'Members', <UsersPage users={users} self={c.get('user').id} />);
 });
 
 settings.post('/settings/users', async (c) => {
@@ -101,7 +114,7 @@ settings.post('/settings/users', async (c) => {
   const username = String(body['username'] ?? '').trim();
   const role = body['role'] === 'admin' ? 'admin' : 'member';
   const render = async (opts: { minted?: { username: string; password: string }; error?: string }) =>
-    page(c, 'Settings · Users', (
+    page(c, 'Members', (
       <UsersPage users={await listUsers(c.env.DB)} self={c.get('user').id} minted={opts.minted} error={opts.error} />
     ));
 
@@ -126,7 +139,7 @@ settings.post('/settings/users/:id/reset', async (c) => {
   if (!user) return c.notFound();
   const temp = tempPassword();
   await setPassword(c.env.DB, id, await hashPassword(temp), true);
-  return page(c, 'Settings · Users', (
+  return page(c, 'Members', (
     <UsersPage
       users={await listUsers(c.env.DB)}
       self={c.get('user').id}

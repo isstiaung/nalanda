@@ -13,77 +13,94 @@ loans.get('/loans', async (c) => {
     c,
     'Loans',
     <>
-      <h1>Loans</h1>
+      <div class="page-head">
+        <div>
+          <h1>Loans</h1>
+          <span class="sub">
+            {active.length} OUT · {history.length} RETURNED
+          </span>
+        </div>
+      </div>
+
       <section>
-        <h2>Out now</h2>
+        <p class="eyebrow">Out now</p>
         {active.length ? (
-          <table>
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th>Borrower</th>
-                <th>Since</th>
-                <th>Due</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {active.map((l) => (
+          <div class="data-table">
+            <table>
+              <thead>
                 <tr>
-                  <td>
-                    <a href={`/items/${l.itemId}`}>{l.itemTitle}</a>
-                  </td>
-                  <td>
-                    {l.borrower}
-                    {l.contact ? <small class="muted"> · {l.contact}</small> : null}
-                  </td>
-                  <td>{l.loanedOn}</td>
-                  <td class={l.dueOn && l.dueOn < today ? 'error' : undefined}>
-                    {l.dueOn ?? '—'}
-                    {l.dueOn && l.dueOn < today ? ' (overdue)' : ''}
-                  </td>
-                  <td>
-                    <form method="post" action={`/loans/${l.id}/return`}>
-                      <button type="submit" class="secondary slim">
-                        Returned
-                      </button>
-                    </form>
-                  </td>
+                  <th>Item</th>
+                  <th>Borrower</th>
+                  <th class="hide-sm">Since</th>
+                  <th>Due</th>
+                  <th class="actions-cell"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {active.map((l) => {
+                  const overdue = !!(l.dueOn && l.dueOn < today);
+                  return (
+                    <tr>
+                      <td>
+                        <a href={`/items/${l.itemId}`}>
+                          <strong>{l.itemTitle}</strong>
+                        </a>
+                      </td>
+                      <td>
+                        {l.borrower}
+                        {l.contact ? <small class="muted"> · {l.contact}</small> : null}
+                      </td>
+                      <td class="date hide-sm">{l.loanedOn}</td>
+                      <td class="date">
+                        {overdue ? <span class="pill overdue">Overdue</span> : (l.dueOn ?? '—')}
+                      </td>
+                      <td class="actions-cell">
+                        <form method="post" action={`/loans/${l.id}/return`}>
+                          <button type="submit" class="btn">
+                            Mark returned
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         ) : (
-          <p class="muted">Nothing is out on loan.</p>
+          <p class="muted">Nothing is out on loan. Lend items from their detail page.</p>
         )}
       </section>
+
       <section>
-        <h2>History</h2>
+        <p class="eyebrow">History</p>
         {history.length ? (
-          <table>
-            <thead>
-              <tr>
-                <th>Item</th>
-                <th>Borrower</th>
-                <th>Lent</th>
-                <th>Returned</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.map((l) => (
+          <div class="data-table">
+            <table>
+              <thead>
                 <tr>
-                  <td>
-                    <a href={`/items/${l.itemId}`}>{l.itemTitle}</a>
-                  </td>
-                  <td>{l.borrower}</td>
-                  <td>{l.loanedOn}</td>
-                  <td>{l.returnedOn}</td>
+                  <th>Item</th>
+                  <th>Borrower</th>
+                  <th class="hide-sm">Lent</th>
+                  <th>Returned</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {history.map((l) => (
+                  <tr>
+                    <td>
+                      <a href={`/items/${l.itemId}`}>{l.itemTitle}</a>
+                    </td>
+                    <td>{l.borrower}</td>
+                    <td class="date hide-sm">{l.loanedOn}</td>
+                    <td class="date">{l.returnedOn}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
-          <p class="muted">No loan history yet.</p>
+          <p class="muted">No returns recorded yet.</p>
         )}
       </section>
     </>,

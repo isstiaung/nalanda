@@ -9,11 +9,12 @@ import {
   listItems,
   renameLibrary,
   setShareToken,
+  tagsForItems,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { deleteCover } from '../lib/covers';
 import { newShareToken } from '../lib/share';
-import { ItemGrid, MEDIA_LABEL, Pagination, STATUS_LABEL } from '../views/components';
+import { ItemGrid, ItemTable, MEDIA_LABEL, Pagination, STATUS_LABEL } from '../views/components';
 import { page } from '../views/layout';
 
 const libraries = new Hono<AppEnv>();
@@ -37,6 +38,7 @@ libraries.get('/libraries/:id', async (c) => {
     ? (q['status'] as ItemStatus)
     : undefined;
   const sort = q['sort'] === 'title' || q['sort'] === 'rating' ? q['sort'] : 'added';
+  const view = q['view'] === 'grid' ? 'grid' : 'table';
   const pageNum = Number.parseInt(q['page'] ?? '1', 10) || 1;
 
   const { items, total, page: current, pages } = await listItems(c.env.DB, id, {
@@ -45,13 +47,18 @@ libraries.get('/libraries/:id', async (c) => {
     sort,
     page: pageNum,
   });
-  const onLoanIds = await activeLoanItemIds(c.env.DB, items.map((i) => i.id));
+  const ids = items.map((i) => i.id);
+  const [onLoanIds, tagsMap] = await Promise.all([
+    activeLoanItemIds(c.env.DB, ids),
+    view === 'table' ? tagsForItems(c.env.DB, ids) : Promise.resolve(undefined),
+  ]);
 
-  const makeHref = (p: number) => {
+  const makeHref = (p: number, v = view) => {
     const params = new URLSearchParams();
     if (mediaType) params.set('type', mediaType);
     if (status) params.set('status', status);
     if (sort !== 'added') params.set('sort', sort);
+    if (v !== 'table') params.set('view', v);
     if (p > 1) params.set('page', String(p));
     const qs = params.toString();
     return `/libraries/${id}${qs ? `?${qs}` : ''}`;
@@ -64,14 +71,23 @@ libraries.get('/libraries/:id', async (c) => {
     c,
     lib.name,
     <>
-      <hgroup>
-        <h1>{lib.name}</h1>
-        <p class="muted">
-          {total} {total === 1 ? 'item' : 'items'}
-        </p>
-      </hgroup>
+      <div class="page-head">
+        <div>
+          <h1>{lib.name}</h1>
+          <span class="sub">
+            {total} {total === 1 ? 'ITEM' : 'ITEMS'}
+            {lib.shareToken ? ' · SHARED' : ''}
+          </span>
+        </div>
+        <div class="page-actions">
+          <a href="/add" role="button">
+            Add items
+          </a>
+        </div>
+      </div>
 
-      <form method="get" action={`/libraries/${id}`} class="filter-bar">
+      <form method="get" action={`/libraries/${id}`} class="toolbar">
+        {view !== 'table' ? <input type="hidden" name="view" value={view} /> : null}
         <select name="type" aria-label="Type">
           <option value="">All types</option>
           {MEDIA_TYPES.map((t) => (
@@ -99,19 +115,36 @@ libraries.get('/libraries/:id', async (c) => {
             Highest rated
           </option>
         </select>
-        <button type="submit" class="secondary">
+        <button type="submit" class="btn">
           Apply
         </button>
+        <span class="spacer"></span>
+        <span class="view-toggle">
+          <a href={makeHref(1, 'table')} class={view === 'table' ? 'active' : undefined}>
+            Table
+          </a>
+          <a href={makeHref(1, 'grid')} class={view === 'grid' ? 'active' : undefined}>
+            Covers
+          </a>
+        </span>
       </form>
 
-      {items.length ? <ItemGrid items={items} onLoanIds={onLoanIds} /> : <p class="muted">No items match.</p>}
-      <Pagination page={current} pages={pages} makeHref={makeHref} />
+      {items.length ? (
+        view === 'table' ? (
+          <ItemTable items={items} onLoanIds={onLoanIds} tagsMap={tagsMap} />
+        ) : (
+          <ItemGrid items={items} onLoanIds={onLoanIds} />
+        )
+      ) : (
+        <p class="muted">No items match these filters.</p>
+      )}
+      <Pagination page={current} pages={pages} makeHref={(p) => makeHref(p)} />
 
       <details>
-        <summary>Library settings</summary>
+        <summary>Shelf settings</summary>
         <form method="post" action={`/libraries/${id}`} class="inline-form">
           <input name="name" value={lib.name} required />
-          <button type="submit" class="secondary">
+          <button type="submit" class="btn">
             Rename
           </button>
         </form>
@@ -121,20 +154,22 @@ libraries.get('/libraries/:id', async (c) => {
             {shareUrl ? (
               <>
                 <p>
-                  <a href={shareUrl}>{shareUrl}</a>
+                  <a href={shareUrl} class="mono">
+                    {shareUrl}
+                  </a>
                 </p>
                 <form method="post" action={`/libraries/${id}/share`} class="inline-form">
-                  <button name="action" value="rotate" class="secondary">
+                  <button name="action" value="rotate" class="btn">
                     Rotate link
                   </button>
-                  <button name="action" value="disable" class="secondary">
-                    Disable
+                  <button name="action" value="disable" class="btn">
+                    Disable link
                   </button>
                 </form>
               </>
             ) : (
               <form method="post" action={`/libraries/${id}/share`}>
-                <button name="action" value="enable" class="secondary">
+                <button name="action" value="enable" class="btn">
                   Publish read-only link
                 </button>
               </form>
@@ -144,13 +179,14 @@ libraries.get('/libraries/:id', async (c) => {
             </small>
           </div>
         ) : null}
+        <hr />
         <form
           method="post"
           action={`/libraries/${id}/delete`}
           onsubmit={`return confirm('Delete “${lib.name}” and all ${total} items in it? This cannot be undone.')`}
         >
-          <button type="submit" class="danger">
-            Delete library
+          <button type="submit" class="btn-danger">
+            Delete shelf
           </button>
         </form>
       </details>

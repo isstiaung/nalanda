@@ -1,4 +1,4 @@
-// Tab switching on /add. Everything else is plain forms or htmx.
+// Small vanilla helpers: add-page tab switching + mobile sidebar toggle.
 document.addEventListener('DOMContentLoaded', () => {
   const tabs = document.querySelectorAll('.tab[data-tab]');
   tabs.forEach((tab) => {
@@ -11,4 +11,12 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
   });
+
+  const navToggle = document.getElementById('nav-toggle');
+  if (navToggle) {
+    navToggle.addEventListener('click', () => document.body.classList.toggle('nav-open'));
+    document.getElementById('sidebar')?.addEventListener('click', (e) => {
+      if (e.target.closest('a, button')) document.body.classList.remove('nav-open');
+    });
+  }
 });

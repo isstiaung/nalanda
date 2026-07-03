@@ -12,17 +12,22 @@ tags.get('/tags', async (c) => {
     c,
     'Tags',
     <>
-      <h1>Tags</h1>
+      <div class="page-head">
+        <div>
+          <h1>Tags</h1>
+          <span class="sub">{all.length} TAGS</span>
+        </div>
+      </div>
       {all.length ? (
         <p class="tag-cloud">
           {all.map((t) => (
             <a href={`/tags/${encodeURIComponent(t.name)}`} class="tag">
-              #{t.name} <small>({t.n})</small>
+              {t.name} · {t.n}
             </a>
           ))}
         </p>
       ) : (
-        <p class="muted">No tags yet — add some on any item.</p>
+        <p class="muted">No tags yet — add some on any item's edit form.</p>
       )}
     </>,
   );
@@ -34,10 +39,17 @@ tags.get('/tags/:name', async (c) => {
   const onLoanIds = await activeLoanItemIds(c.env.DB, items.map((i) => i.id));
   return page(
     c,
-    `#${name}`,
+    `Tag: ${name}`,
     <>
-      <h1>#{name}</h1>
-      {items.length ? <ItemGrid items={items} onLoanIds={onLoanIds} /> : <p class="muted">No items with this tag.</p>}
+      <div class="page-head">
+        <div>
+          <h1>{name}</h1>
+          <span class="sub">
+            TAG · {items.length} {items.length === 1 ? 'ITEM' : 'ITEMS'}
+          </span>
+        </div>
+      </div>
+      {items.length ? <ItemGrid items={items} onLoanIds={onLoanIds} /> : <p class="muted">No items carry this tag.</p>}
     </>,
   );
 });

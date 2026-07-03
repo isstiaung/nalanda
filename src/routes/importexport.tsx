@@ -13,14 +13,24 @@ importexport.get('/import', async (c) => {
   const libs = await listLibraries(c.env.DB);
   return page(
     c,
-    'Import',
+    'Import / export',
     <>
-      <h1>Import from libib</h1>
+      <div class="page-head">
+        <div>
+          <h1>Import / export</h1>
+          <span class="sub">LIBIB CSV IN · FULL CSV OUT</span>
+        </div>
+        <div class="page-actions">
+          <a href="/export.csv" role="button">
+            Export everything as CSV
+          </a>
+        </div>
+      </div>
       <p class="muted">
         Export your libib collection as CSV, drop it here. The file is parsed in your browser and uploaded in
         small batches; columns we don't recognize are kept losslessly in each item's details.
       </p>
-      <form id="import-form" onsubmit="return false">
+      <form id="import-form" onsubmit="return false" class="panel form-card">
         <label>
           CSV file
           <input type="file" id="import-file" accept=".csv,text/csv" required />
@@ -58,12 +68,7 @@ importexport.get('/import', async (c) => {
           </button>
         </div>
       </form>
-      <div id="import-status" class="prewrap muted" aria-live="polite"></div>
-      <p>
-        <a href="/export.csv" role="button" class="secondary">
-          Export everything as CSV
-        </a>
-      </p>
+      <div id="import-status" class="prewrap muted mono" aria-live="polite"></div>
       <script src="/import.js" defer></script>
     </>,
   );
