@@ -1,5 +1,5 @@
 // All D1 access lives here (plus src/lib/covers.ts for R2) — ARCH.md §13.
-import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import * as s from './schema';
 import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, User } from './schema';
@@ -347,10 +347,11 @@ export async function pageItems(
 
 // ---------- cover backfill ----------
 
-const backfillable = () =>
-  and(isNull(s.items.coverKey), or(isNotNull(s.items.isbn13), isNotNull(s.items.isbn10Upc)));
+// Every coverless item qualifies: barcode pass needs an ISBN/UPC, but the
+// title-and-author pass works for identifier-less items too.
+const backfillable = () => isNull(s.items.coverKey);
 
-/** Items that could get a cover: no cover yet, but an ISBN/UPC to look up. */
+/** Items that could get a cover. */
 export async function countBackfillable(d1: D1Database): Promise<number> {
   const [row] = await db(d1).select({ n: count() }).from(s.items).where(backfillable());
   return row?.n ?? 0;

@@ -13,6 +13,7 @@
     let after = 0;
     let tried = 0;
     let found = 0;
+    let byTitle = 0;
     backfillStatus.textContent = 'Fetching covers…';
     for (;;) {
       let res;
@@ -33,12 +34,16 @@
       const d = await res.json();
       tried += d.tried;
       found += d.found;
+      byTitle += d.byTitle ?? 0;
       after = d.lastId;
       backfillStatus.textContent = `Scanned ${tried} items — ${found} covers added…`;
       if (d.done) break;
       await new Promise((r) => setTimeout(r, 300)); // politeness gap between batches
     }
-    backfillStatus.textContent = `Done: ${found} covers added, ${tried - found} without a match at the providers. Safe to re-run any time.`;
+    backfillStatus.textContent =
+      `Done: ${found} covers added` +
+      (byTitle ? ` (${byTitle} matched by title/author — worth a quick skim)` : '') +
+      `, ${tried - found} still without a match. Safe to re-run any time.`;
     backfillBtn.disabled = false;
   });
 })();

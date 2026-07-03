@@ -443,11 +443,20 @@ file hosting (calibre-web's territory), background jobs of any kind.
 7. Rendering approach: **Hono SSR + htmx confirmed** over Next.js / Vite+React SPA (§17).
 
 **2026-07-03 — after the first real import (315 books):**
-8. Cover backfill shipped in v1: `POST /api/backfill-covers` walks coverless items that
-   have an ISBN/UPC, in client-driven batches of 8 (same pattern as import, for the same
-   subrequest/CPU reasons), trying Open Library → Google Books (→ Discogs for non-ISBN
-   barcodes). Placeholder images are rejected: OL cover URLs use `?default=false` and
-   `storeCover()` enforces a minimum size.
+8. Cover backfill shipped in v1: `POST /api/backfill-covers` walks coverless items in
+   client-driven batches (same pattern as import, for the same subrequest/CPU reasons).
+   Placeholder images are rejected: OL cover URLs use `?default=false` and `storeCover()`
+   enforces a minimum size.
+9. Backfill extended after the first run left 41 misses. Pass 1 (exact, by ISBN/UPC):
+   OL search → OL edition record → Google Books → iTunes Search (keyless); Discogs →
+   MusicBrainz/Cover Art Archive (keyless) for music barcodes. Pass 2 (title + author):
+   OL/GB for books, BGG for board games, Discogs for vinyl — also covers items with no
+   identifier at all. **Identity guards are mandatory for unattended matching** (learned
+   live: a polluted-but-checksum-valid ISBN pulled a stranger's cover, and GB
+   fuzzy-matches unknown ISBNs): a cover is stored only if the source's title matches the
+   item (`titlesMatch`) or its identifiers echo the query, and title-pass candidates must
+   also pass `creatorsMatch`. iTunes/MusicBrainz are cover-art-only helpers, not full
+   metadata providers.
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

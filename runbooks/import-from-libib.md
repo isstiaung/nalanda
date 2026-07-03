@@ -40,15 +40,25 @@ Rows without a title are skipped and counted; nothing is silently dropped.
 ## Covers
 
 libib CSVs contain no cover images or URLs, so imported items start coverless. Fix it in
-one click: **/import → Cover backfill**. It walks every item that has an ISBN/UPC but no
-cover — in small batches, with live progress — looking each one up on Open Library, then
-Google Books (Discogs for barcoded vinyl), and stores what it finds in R2.
+one click: **/import → Cover backfill**. It walks every coverless item in small batches
+with live progress, trying two passes per item:
+
+1. **Exact, by ISBN/UPC** — Open Library (search + raw edition record), Google Books,
+   iTunes; Discogs and the MusicBrainz Cover Art Archive for music barcodes. All keyless
+   except Discogs.
+2. **By title + author** — catches items whose ISBN no provider knows (and items with no
+   ISBN at all). A different *edition's* cover may be used; matches are flagged in the
+   final count as "matched by title/author — worth a quick skim".
+
+Wrong covers are treated as worse than missing covers: a cover is stored only when the
+source record's title or identifiers agree with the item, so junk ISBN records and
+Google's fuzzy ISBN matching can't attach a stranger's artwork.
 
 - Safe to re-run any time: it only touches items that still lack covers.
-- Items with no match at any provider stay coverless — add those manually (item → Edit →
-  paste a cover URL) or rescan the barcode.
+- Whatever remains after both passes needs a human: item → Edit → paste a cover URL, or
+  rescan the barcode.
 - Provider quotas are respected by design (sequential lookups, small batches); a 300-book
-  backfill takes a couple of minutes.
+  backfill takes a few minutes.
 
 ## Verify afterwards
 

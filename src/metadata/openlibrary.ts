@@ -43,6 +43,22 @@ function toCandidate(doc: OlDoc, isbn13?: string): Candidate | null {
   };
 }
 
+/**
+ * Deeper dig than the search index: the raw edition record at /isbn/{isbn}.json
+ * sometimes carries cover ids for editions the search API misses. Returns the
+ * record's title too — callers must verify it (junk ISBN ranges have junk records).
+ */
+export async function olEditionCover(isbn: string): Promise<{ coverUrl: string; title: string } | null> {
+  const res = await fetch(`https://openlibrary.org/isbn/${isbn}.json`, {
+    headers: { 'User-Agent': USER_AGENT },
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { covers?: number[]; title?: string };
+  const id = data.covers?.find((c) => c > 0);
+  if (!id || !data.title) return null;
+  return { coverUrl: `https://covers.openlibrary.org/b/id/${id}-L.jpg`, title: data.title };
+}
+
 export const openLibrary: MetadataProvider = {
   id: 'openlibrary',
   mediaTypes: ['book'],

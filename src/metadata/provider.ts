@@ -29,3 +29,37 @@ export type LookupResult = {
   /** Human-readable hints, e.g. "Set DISCOGS_TOKEN to enable vinyl lookups." */
   notices: string[];
 };
+
+/** Lowercased, unaccented, punctuation-free — for comparing titles across providers. */
+export function normTitle(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** True when titles are the same book modulo case/punctuation/subtitle. */
+export function titlesMatch(a: string, b: string): boolean {
+  const na = normTitle(a);
+  const nb = normTitle(b);
+  if (na.length < 3 || nb.length < 3) return false;
+  return na === nb || na.startsWith(nb) || nb.startsWith(na);
+}
+
+/**
+ * Same-creator check for title matching: the subject's first creator's surname must
+ * appear in the candidate's creators. Different books share titles constantly —
+ * a title match with the wrong author is a wrong cover.
+ */
+export function creatorsMatch(subject: string | null | undefined, candidate: string | null | undefined): boolean {
+  if (!subject) return true; // nothing to check against — accept the title match
+  if (!candidate) return false; // subject names an author, candidate doesn't — too risky
+  const surname = normTitle(subject.split(',')[0] ?? '')
+    .split(' ')
+    .pop();
+  if (!surname || surname.length < 2) return true;
+  return normTitle(candidate).includes(surname);
+}

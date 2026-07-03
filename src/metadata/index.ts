@@ -1,12 +1,16 @@
 // Provider chain + barcode routing. Nothing outside src/metadata/ calls external APIs.
 import type { Bindings } from '../env';
+import type { MediaType } from '../db/schema';
 import { bgg } from './bgg';
 import { discogs } from './discogs';
 import { googleBooks } from './googlebooks';
-import { openLibrary } from './openlibrary';
-import type { Candidate, LookupResult } from './provider';
+import { itunesCoverByIsbn } from './itunes';
+import { caaCoverByBarcode } from './musicbrainz';
+import { olEditionCover, openLibrary } from './openlibrary';
+import { creatorsMatch, titlesMatch, type Candidate, type LookupResult } from './provider';
 
 export type { Candidate, LookupResult } from './provider';
+export { creatorsMatch, normTitle, titlesMatch } from './provider';
 
 export type BarcodeKind = 'isbn13' | 'upc';
 
@@ -69,32 +73,93 @@ export async function lookupByBarcode(env: Bindings, raw: string): Promise<Looku
   };
 }
 
+export type CoverSubject = {
+  barcode?: string | null;
+  title: string;
+  creators?: string | null;
+  mediaType: MediaType;
+};
+
+export type CoverResult = {
+  key: string;
+  /** 'barcode' = exact edition; 'title' = matched by title/author (possibly another edition) */
+  method: 'barcode' | 'title';
+};
+
 /**
- * Cover backfill: find and store cover art for a barcode, trying providers lazily
- * (Open Library, then Google Books; Discogs for non-ISBN barcodes). Storage is
- * injected so this module stays the only place that talks to provider APIs.
+ * Cover backfill: try providers lazily until one yields a storable image.
+ * Pass 1 (exact, by barcode): Open Library search → OL edition record → Google Books
+ *   → iTunes for ISBNs; Discogs → MusicBrainz/Cover Art Archive for other barcodes.
+ * Pass 2 (by title + author, guarded by titlesMatch): OL/Google Books for books,
+ *   BGG for board games, Discogs for vinyl — a different edition's cover may be used.
+ * Storage is injected so this module stays the only place that talks to provider APIs.
  */
 export async function findCover(
   env: Bindings,
-  raw: string,
+  subject: CoverSubject,
   store: (url: string) => Promise<string | null>,
-): Promise<string | null> {
-  const classified = classifyBarcode(raw);
-  if (!classified) return null;
+): Promise<CoverResult | null> {
+  const tryStore = async (url: string | null | undefined) => (url ? store(url) : null);
 
-  if (classified.kind === 'isbn13') {
-    const ol = await openLibrary.lookupByBarcode(classified.code).catch(() => null);
-    if (ol?.coverUrl) {
-      const key = await store(ol.coverUrl);
-      if (key) return key;
+  const classified = subject.barcode ? classifyBarcode(subject.barcode) : null;
+  if (classified?.kind === 'isbn13') {
+    // Unattended rule: never store a cover whose record title doesn't match the item.
+    // ISBN indexes contain junk (typos, recycled/polluted ranges) and Google Books
+    // fuzzy-matches unknown ISBNs as keywords — a title check catches both.
+    const isbn = classified.code;
+    const titleOk = (t: string | null | undefined) => !!t && titlesMatch(t, subject.title);
+
+    const ol = await openLibrary.lookupByBarcode(isbn).catch(() => null);
+    let key = ol && titleOk(ol.title) ? await tryStore(ol.coverUrl) : null;
+    if (key) return { key, method: 'barcode' };
+
+    const edition = await olEditionCover(isbn).catch(() => null);
+    key = edition && titleOk(edition.title) ? await tryStore(edition.coverUrl) : null;
+    if (key) return { key, method: 'barcode' };
+
+    const gb = await googleBooks(env.GOOGLE_BOOKS_KEY).lookupByBarcode(isbn).catch(() => null);
+    if (gb && (gb.isbn13 === isbn || gb.isbn10Upc === isbn || titleOk(gb.title))) {
+      key = await tryStore(gb.coverUrl);
+      if (key) return { key, method: 'barcode' };
     }
-    const gb = await googleBooks(env.GOOGLE_BOOKS_KEY).lookupByBarcode(classified.code).catch(() => null);
-    return gb?.coverUrl ? store(gb.coverUrl) : null;
+
+    key = await tryStore(await itunesCoverByIsbn(isbn, subject.title).catch(() => null));
+    if (key) return { key, method: 'barcode' };
+  } else if (classified) {
+    if (env.DISCOGS_TOKEN) {
+      const release = await discogs(env.DISCOGS_TOKEN).lookupByBarcode(classified.code).catch(() => null);
+      const key = await tryStore(release?.coverUrl);
+      if (key) return { key, method: 'barcode' };
+    }
+    const key = await tryStore(await caaCoverByBarcode(classified.code).catch(() => null));
+    if (key) return { key, method: 'barcode' };
   }
 
-  if (!env.DISCOGS_TOKEN) return null;
-  const release = await discogs(env.DISCOGS_TOKEN).lookupByBarcode(classified.code).catch(() => null);
-  return release?.coverUrl ? store(release.coverUrl) : null;
+  // pass 2: title match guarded by creator match — same-title-different-author
+  // is the classic wrong-cover failure
+  const { title, creators, mediaType } = subject;
+  const firstCreator = creators?.split(',')[0]?.trim();
+  const pick = (candidates: Candidate[] | null) =>
+    candidates?.find((c) => c.coverUrl && titlesMatch(c.title, title) && creatorsMatch(creators, c.creators))
+      ?.coverUrl ?? null;
+
+  if (mediaType === 'boardgame') {
+    const key = await tryStore(pick(await bgg.search(title).catch(() => null)));
+    return key ? { key, method: 'title' } : null;
+  }
+  if (mediaType === 'vinyl' || mediaType === 'music') {
+    if (!env.DISCOGS_TOKEN) return null;
+    const q = firstCreator ? `${firstCreator} ${title}` : title;
+    const key = await tryStore(pick(await discogs(env.DISCOGS_TOKEN).search(q).catch(() => null)));
+    return key ? { key, method: 'title' } : null;
+  }
+
+  const olQuery = firstCreator ? `title:"${title}" author:"${firstCreator}"` : `title:"${title}"`;
+  let key = await tryStore(pick(await openLibrary.search(olQuery).catch(() => null)));
+  if (key) return { key, method: 'title' };
+  const gbQuery = firstCreator ? `intitle:"${title}" inauthor:"${firstCreator}"` : `intitle:"${title}"`;
+  key = await tryStore(pick(await googleBooks(env.GOOGLE_BOOKS_KEY).search(gbQuery).catch(() => null)));
+  return key ? { key, method: 'title' } : null;
 }
 
 export type SearchType = 'book' | 'boardgame' | 'vinyl';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyBarcode, mergeBookCandidates } from '../src/metadata';
+import { classifyBarcode, creatorsMatch, mergeBookCandidates, titlesMatch } from '../src/metadata';
 import type { Candidate } from '../src/metadata';
 
 describe('barcode routing', () => {
@@ -54,5 +54,27 @@ describe('book candidate merging', () => {
     expect(mergeBookCandidates(ol, null)?.provider).toBe('openlibrary');
     expect(mergeBookCandidates(null, gb)?.provider).toBe('googlebooks');
     expect(mergeBookCandidates(null, null)).toBeNull();
+  });
+});
+
+describe('title matching (cover backfill pass 2 guard)', () => {
+  it('accepts the same book across case, punctuation, and subtitles', () => {
+    expect(titlesMatch('The Dispossessed', 'the dispossessed')).toBe(true);
+    expect(titlesMatch('The Dispossessed: An Ambiguous Utopia', 'The Dispossessed')).toBe(true);
+    expect(titlesMatch('Café Europa', 'Cafe Europa')).toBe(true);
+  });
+
+  it('rejects different books and too-short titles', () => {
+    expect(titlesMatch('Dune', 'Neuromancer')).toBe(false);
+    expect(titlesMatch('It', 'It')).toBe(false); // <3 chars normalized — deliberately cautious
+  });
+
+  it('requires the author surname to appear in the candidate creators', () => {
+    expect(creatorsMatch('Italo Calvino', 'Italo Calvino')).toBe(true);
+    expect(creatorsMatch('F. Scott Fitzgerald', 'Francis Scott Fitzgerald')).toBe(true);
+    expect(creatorsMatch('Ursula K. Le Guin, David Mitchell', 'Ursula K. Le Guin')).toBe(true);
+    expect(creatorsMatch('Italo Calvino', 'Алёна Четвертакова')).toBe(false); // the live bug this guards
+    expect(creatorsMatch('Italo Calvino', undefined)).toBe(false);
+    expect(creatorsMatch(null, 'Anyone At All')).toBe(true); // no author on file — title match stands alone
   });
 });

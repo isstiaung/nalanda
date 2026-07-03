@@ -85,9 +85,11 @@ importexport.get('/import', async (c) => {
         {backfillable > 0 ? (
           <>
             <p class="muted">
-              {backfillable} {backfillable === 1 ? 'item has' : 'items have'} an ISBN/UPC but no cover art
-              (libib exports carry none). Backfill fetches covers from Open Library and Google Books — and
-              Discogs for barcoded vinyl — in small batches, straight into your cover storage.
+              {backfillable} {backfillable === 1 ? 'item is' : 'items are'} missing cover art. Backfill
+              matches by ISBN/UPC first (Open Library, Google Books, iTunes; Discogs and the Cover Art
+              Archive for music barcodes), then by title and author — a different edition's cover may be
+              used, but never a different book's: covers are stored only when the source's title or
+              identifiers agree with the item. Only coverless items are touched; re-run any time.
             </p>
             <button type="button" id="backfill-run">
               Backfill {backfillable} {backfillable === 1 ? 'cover' : 'covers'}
@@ -95,7 +97,7 @@ importexport.get('/import', async (c) => {
             <div id="backfill-status" class="prewrap muted mono" aria-live="polite"></div>
           </>
         ) : (
-          <p class="muted">Every item with an ISBN/UPC already has cover art. Import more and come back.</p>
+          <p class="muted">Every item already has cover art. Import more and come back.</p>
         )}
       </section>
       <script src="/import.js" defer></script>
@@ -168,10 +170,10 @@ importexport.post('/api/import', async (c) => {
 
 /**
  * Cover backfill, one small batch per request — the browser loops (like /api/import).
- * Batch stays small to respect the free plan's 50-subrequest budget: each item costs
- * 1-2 provider lookups + 1 cover fetch + 1 R2 put + 1 D1 update.
+ * The batch stays small to respect the free plan's 50-subrequest budget: a full-chain
+ * miss costs up to ~9 outbound fetches per item (see findCover).
  */
-const BACKFILL_BATCH = 8;
+const BACKFILL_BATCH = 4;
 
 importexport.post('/api/backfill-covers', async (c) => {
   const body = await c.req.json<{ after?: number }>().catch(() => ({}) as { after?: number });
@@ -179,19 +181,28 @@ importexport.post('/api/backfill-covers', async (c) => {
 
   const batch = await nextBackfillable(c.env.DB, after, BACKFILL_BATCH);
   let found = 0;
+  let byTitle = 0;
   for (const item of batch) {
     // sequential on purpose: polite to providers, predictable subrequest count
-    const barcode = item.isbn13 ?? item.isbn10Upc;
-    if (!barcode) continue;
-    const key = await findCover(c.env, barcode, (url) => storeCover(c.env.COVERS, url));
-    if (key) {
-      await updateItem(c.env.DB, item.id, { coverKey: key });
+    const result = await findCover(
+      c.env,
+      {
+        barcode: item.isbn13 ?? item.isbn10Upc,
+        title: item.title,
+        creators: item.creators,
+        mediaType: item.mediaType,
+      },
+      (url) => storeCover(c.env.COVERS, url),
+    );
+    if (result) {
+      await updateItem(c.env.DB, item.id, { coverKey: result.key });
       found++;
+      if (result.method === 'title') byTitle++;
     }
   }
 
   const lastId = batch.length ? batch[batch.length - 1]!.id : after;
-  return c.json({ tried: batch.length, found, lastId, done: batch.length < BACKFILL_BATCH });
+  return c.json({ tried: batch.length, found, byTitle, lastId, done: batch.length < BACKFILL_BATCH });
 });
 
 importexport.get('/export.csv', async (c) => {
