@@ -39,10 +39,16 @@ Rows without a title are skipped and counted; nothing is silently dropped.
 
 ## Covers
 
-libib CSVs contain no cover images or URLs, so imported items start coverless. To add
-covers: open an item → Edit → paste a cover URL (the app fetches and stores it in R2), or
-re-add high-value items via barcode scan and delete the imported duplicate. A bulk
-"backfill covers by ISBN" pass is a natural v1.x feature if the gap annoys you.
+libib CSVs contain no cover images or URLs, so imported items start coverless. Fix it in
+one click: **/import → Cover backfill**. It walks every item that has an ISBN/UPC but no
+cover — in small batches, with live progress — looking each one up on Open Library, then
+Google Books (Discogs for barcoded vinyl), and stores what it finds in R2.
+
+- Safe to re-run any time: it only touches items that still lack covers.
+- Items with no match at any provider stay coverless — add those manually (item → Edit →
+  paste a cover URL) or rescan the barcode.
+- Provider quotas are respected by design (sequential lookups, small batches); a 300-book
+  backfill takes a couple of minutes.
 
 ## Verify afterwards
 

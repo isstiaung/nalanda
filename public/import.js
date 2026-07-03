@@ -1,5 +1,48 @@
 // libib CSV import: parse the file HERE in the browser (RFC 4180, handles quoted
 // newlines), then POST small JSON batches — the Worker never parses CSV (10 ms CPU cap).
+
+// Cover backfill: same client-drives-the-loop pattern; each request handles a small
+// batch so the Worker stays inside its subrequest budget.
+(() => {
+  const backfillBtn = document.getElementById('backfill-run');
+  const backfillStatus = document.getElementById('backfill-status');
+  if (!backfillBtn || !backfillStatus) return;
+
+  backfillBtn.addEventListener('click', async () => {
+    backfillBtn.disabled = true;
+    let after = 0;
+    let tried = 0;
+    let found = 0;
+    backfillStatus.textContent = 'Fetching covers…';
+    for (;;) {
+      let res;
+      try {
+        res = await fetch('/api/backfill-covers', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ after }),
+        });
+      } catch {
+        res = null;
+      }
+      if (!res || !res.ok) {
+        backfillStatus.textContent += `\nStopped: request failed${res ? ` (${res.status})` : ''}. Click again to continue from where it left off.`;
+        backfillBtn.disabled = false;
+        return;
+      }
+      const d = await res.json();
+      tried += d.tried;
+      found += d.found;
+      after = d.lastId;
+      backfillStatus.textContent = `Scanned ${tried} items — ${found} covers added…`;
+      if (d.done) break;
+      await new Promise((r) => setTimeout(r, 300)); // politeness gap between batches
+    }
+    backfillStatus.textContent = `Done: ${found} covers added, ${tried - found} without a match at the providers. Safe to re-run any time.`;
+    backfillBtn.disabled = false;
+  });
+})();
+
 (() => {
   const fileInput = document.getElementById('import-file');
   const previewBtn = document.getElementById('import-preview');

@@ -402,7 +402,8 @@ multi-user auth (admin + family members) · libraries · items CRUD (every media
 manual entry) · barcode scan with auto-routing (ISBN → books, other EAN/UPC → Discogs) ·
 name search (Open Library / Google Books / **BGG** / **Discogs**) · covers in R2 · tags ·
 ratings, reviews, status · loans · FTS5 search, filter, sort · **public share links per
-library** · libib CSV import (lossless, dry-run) + full CSV export · responsive UI
+library** · libib CSV import (lossless, dry-run) + full CSV export · cover backfill for
+imported items (client-driven batches, OL → Google Books → Discogs) · responsive UI
 (phone-first for scanning).
 
 **v1.x — candidates:**
@@ -440,6 +441,13 @@ file hosting (calibre-web's territory), background jobs of any kind.
 6. ORM: **Drizzle adopted** — schema in TS, typed queries, generates plain-SQL migrations
    applied by wrangler; raw-SQL custom migrations for FTS5 + triggers (§5).
 7. Rendering approach: **Hono SSR + htmx confirmed** over Next.js / Vite+React SPA (§17).
+
+**2026-07-03 — after the first real import (315 books):**
+8. Cover backfill shipped in v1: `POST /api/backfill-covers` walks coverless items that
+   have an ISBN/UPC, in client-driven batches of 8 (same pattern as import, for the same
+   subrequest/CPU reasons), trying Open Library → Google Books (→ Discogs for non-ISBN
+   barcodes). Placeholder images are rejected: OL cover URLs use `?default=false` and
+   `storeCover()` enforces a minimum size.
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

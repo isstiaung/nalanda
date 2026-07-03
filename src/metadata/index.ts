@@ -69,6 +69,34 @@ export async function lookupByBarcode(env: Bindings, raw: string): Promise<Looku
   };
 }
 
+/**
+ * Cover backfill: find and store cover art for a barcode, trying providers lazily
+ * (Open Library, then Google Books; Discogs for non-ISBN barcodes). Storage is
+ * injected so this module stays the only place that talks to provider APIs.
+ */
+export async function findCover(
+  env: Bindings,
+  raw: string,
+  store: (url: string) => Promise<string | null>,
+): Promise<string | null> {
+  const classified = classifyBarcode(raw);
+  if (!classified) return null;
+
+  if (classified.kind === 'isbn13') {
+    const ol = await openLibrary.lookupByBarcode(classified.code).catch(() => null);
+    if (ol?.coverUrl) {
+      const key = await store(ol.coverUrl);
+      if (key) return key;
+    }
+    const gb = await googleBooks(env.GOOGLE_BOOKS_KEY).lookupByBarcode(classified.code).catch(() => null);
+    return gb?.coverUrl ? store(gb.coverUrl) : null;
+  }
+
+  if (!env.DISCOGS_TOKEN) return null;
+  const release = await discogs(env.DISCOGS_TOKEN).lookupByBarcode(classified.code).catch(() => null);
+  return release?.coverUrl ? store(release.coverUrl) : null;
+}
+
 export type SearchType = 'book' | 'boardgame' | 'vinyl';
 
 export async function searchByName(env: Bindings, q: string, type: SearchType): Promise<LookupResult> {

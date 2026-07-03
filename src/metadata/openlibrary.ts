@@ -23,10 +23,11 @@ async function searchOl(q: string, limit: number): Promise<OlDoc[]> {
 
 function toCandidate(doc: OlDoc, isbn13?: string): Candidate | null {
   if (!doc.title) return null;
+  // ?default=false makes OL 404 instead of serving a 1px placeholder for unknown ISBNs
   const coverUrl = doc.cover_i
     ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`
     : isbn13
-      ? `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg`
+      ? `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg?default=false`
       : undefined;
   return {
     mediaType: 'book',

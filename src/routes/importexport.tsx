@@ -1,16 +1,26 @@
 import { Hono } from 'hono';
 import type { MediaType } from '../db/schema';
 import { MEDIA_TYPES } from '../db/schema';
-import { importItems, listLibraries, pageItems, tagsForItems } from '../db/queries';
+import {
+  countBackfillable,
+  importItems,
+  listLibraries,
+  nextBackfillable,
+  pageItems,
+  tagsForItems,
+  updateItem,
+} from '../db/queries';
 import type { AppEnv } from '../env';
+import { storeCover } from '../lib/covers';
 import { csvLine, EXPORT_COLUMNS, itemToCsvLine, mapLibibRow, type ImportOptions } from '../lib/csv';
+import { findCover } from '../metadata';
 import { MEDIA_LABEL } from '../views/components';
 import { page } from '../views/layout';
 
 const importexport = new Hono<AppEnv>();
 
 importexport.get('/import', async (c) => {
-  const libs = await listLibraries(c.env.DB);
+  const [libs, backfillable] = await Promise.all([listLibraries(c.env.DB), countBackfillable(c.env.DB)]);
   return page(
     c,
     'Import / export',
@@ -69,6 +79,25 @@ importexport.get('/import', async (c) => {
         </div>
       </form>
       <div id="import-status" class="prewrap muted mono" aria-live="polite"></div>
+
+      <section style="margin-top:2rem">
+        <p class="eyebrow">Cover backfill</p>
+        {backfillable > 0 ? (
+          <>
+            <p class="muted">
+              {backfillable} {backfillable === 1 ? 'item has' : 'items have'} an ISBN/UPC but no cover art
+              (libib exports carry none). Backfill fetches covers from Open Library and Google Books — and
+              Discogs for barcoded vinyl — in small batches, straight into your cover storage.
+            </p>
+            <button type="button" id="backfill-run">
+              Backfill {backfillable} {backfillable === 1 ? 'cover' : 'covers'}
+            </button>
+            <div id="backfill-status" class="prewrap muted mono" aria-live="polite"></div>
+          </>
+        ) : (
+          <p class="muted">Every item with an ISBN/UPC already has cover art. Import more and come back.</p>
+        )}
+      </section>
       <script src="/import.js" defer></script>
     </>,
   );
@@ -135,6 +164,34 @@ importexport.post('/api/import', async (c) => {
     mapped.map((m) => ({ item: { ...m.item, libraryId, addedBy: userId }, tags: m.tags })),
   );
   return c.json({ inserted, skipped });
+});
+
+/**
+ * Cover backfill, one small batch per request — the browser loops (like /api/import).
+ * Batch stays small to respect the free plan's 50-subrequest budget: each item costs
+ * 1-2 provider lookups + 1 cover fetch + 1 R2 put + 1 D1 update.
+ */
+const BACKFILL_BATCH = 8;
+
+importexport.post('/api/backfill-covers', async (c) => {
+  const body = await c.req.json<{ after?: number }>().catch(() => ({}) as { after?: number });
+  const after = Number.isInteger(body.after) && body.after! >= 0 ? body.after! : 0;
+
+  const batch = await nextBackfillable(c.env.DB, after, BACKFILL_BATCH);
+  let found = 0;
+  for (const item of batch) {
+    // sequential on purpose: polite to providers, predictable subrequest count
+    const barcode = item.isbn13 ?? item.isbn10Upc;
+    if (!barcode) continue;
+    const key = await findCover(c.env, barcode, (url) => storeCover(c.env.COVERS, url));
+    if (key) {
+      await updateItem(c.env.DB, item.id, { coverKey: key });
+      found++;
+    }
+  }
+
+  const lastId = batch.length ? batch[batch.length - 1]!.id : after;
+  return c.json({ tried: batch.length, found, lastId, done: batch.length < BACKFILL_BATCH });
 });
 
 importexport.get('/export.csv', async (c) => {

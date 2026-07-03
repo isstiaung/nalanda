@@ -1,5 +1,5 @@
 // All D1 access lives here (plus src/lib/covers.ts for R2) — ARCH.md §13.
-import { and, asc, count, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, or, sql, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import * as s from './schema';
 import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, User } from './schema';
@@ -343,6 +343,27 @@ export async function pageItems(
     .orderBy(asc(s.items.id))
     .limit(opts.limit)
     .offset(opts.offset);
+}
+
+// ---------- cover backfill ----------
+
+const backfillable = () =>
+  and(isNull(s.items.coverKey), or(isNotNull(s.items.isbn13), isNotNull(s.items.isbn10Upc)));
+
+/** Items that could get a cover: no cover yet, but an ISBN/UPC to look up. */
+export async function countBackfillable(d1: D1Database): Promise<number> {
+  const [row] = await db(d1).select({ n: count() }).from(s.items).where(backfillable());
+  return row?.n ?? 0;
+}
+
+/** Cursor-paged (by id) so the client can walk the whole catalog in small batches. */
+export async function nextBackfillable(d1: D1Database, afterId: number, limit: number): Promise<Item[]> {
+  return db(d1)
+    .select()
+    .from(s.items)
+    .where(and(backfillable(), gt(s.items.id, afterId)))
+    .orderBy(asc(s.items.id))
+    .limit(limit);
 }
 
 // ---------- bulk import ----------

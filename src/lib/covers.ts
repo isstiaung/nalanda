@@ -11,7 +11,8 @@ export async function storeCover(covers: R2Bucket, url: string | null | undefine
     if (!contentType.startsWith('image/')) return null;
     // Buffer instead of streaming: R2 put() needs a known length, covers are ~30-100 KB.
     const body = await res.arrayBuffer();
-    if (body.byteLength === 0 || body.byteLength > 5 * 1024 * 1024) return null;
+    // < 500 bytes is a tracking pixel or provider placeholder, not cover art
+    if (body.byteLength < 500 || body.byteLength > 5 * 1024 * 1024) return null;
     const key = crypto.randomUUID();
     await covers.put(key, body, { httpMetadata: { contentType } });
     return key;
