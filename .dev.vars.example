@@ -1,0 +1,7 @@
+# Copy to .dev.vars for local development (gitignored).
+# Production values are set with `wrangler secret put <NAME>`.
+SESSION_SECRET=change-me-to-anything-long-and-random
+# Discogs personal access token (free account) — enables vinyl barcode/name lookup.
+# DISCOGS_TOKEN=
+# Optional: raises Google Books quota; books work keyless without it.
+# GOOGLE_BOOKS_KEY=

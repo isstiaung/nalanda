@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nalanda",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-01",
+  "assets": {
+    "directory": "./public"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nalanda",
+      // Placeholder — replace with the id printed by `wrangler d1 create nalanda`.
+      // Local dev and tests work fine with the placeholder.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "COVERS",
+      "bucket_name": "nalanda-covers"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "nalanda",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "wrangler d1 migrations apply nalanda --local",
+    "db:migrate:remote": "wrangler d1 migrations apply nalanda --remote",
+    "deploy": "npm run db:migrate:remote && wrangler deploy",
+    "backup": "mkdir -p backups && wrangler d1 export nalanda --remote --output=backups/nalanda-$(date +%F).sql",
+    "vendor": "node scripts/vendor.mjs",
+    "postinstall": "node scripts/vendor.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.44.0",
+    "fast-xml-parser": "^5.0.0",
+    "hono": "^4.6.0"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.8.0",
+    "@cloudflare/workers-types": "^4.20250801.0",
+    "@picocss/pico": "^2.0.0",
+    "drizzle-kit": "^0.31.0",
+    "htmx.org": "^2.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "~3.2.0",
+    "wrangler": "^4.0.0",
+    "zxing-wasm": "^2.0.0"
+  }
+}
