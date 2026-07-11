@@ -458,6 +458,16 @@ file hosting (calibre-web's territory), background jobs of any kind.
    also pass `creatorsMatch`. iTunes/MusicBrainz are cover-art-only helpers, not full
    metadata providers.
 
+**2026-07-11 — production readiness:**
+10. Backups are per-table, data-only exports (`scripts/backup.mjs`): D1 refuses to export
+    any database containing virtual tables, so a whole-db dump is impossible with FTS5.
+    Schema restores from migrations; the FTS index rebuilds via triggers on data insert.
+    Rehearsed end-to-end (315 items, local → scratch instance), and the same procedure
+    doubles as the local→production data migration (deploy runbook).
+11. Hardening: `secureHeaders()` (no CSP — inline onsubmit confirms), `robots.txt`
+    disallow-all (share pages already carry noindex), logo + PWA manifest + icons so the
+    app installs to phone home screens (relevant: the barcode scanner).
+
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
 The honest comparison, since it was asked:

@@ -10,7 +10,12 @@ const Head: FC<{ title: string }> = ({ title }) => (
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f6f3" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#121412" media="(prefers-color-scheme: dark)" />
     <title>{title} · Nalanda</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="stylesheet" href="/app.css" />
     <script src="/vendor/htmx.min.js" defer></script>
     <script src="/app.js" defer></script>

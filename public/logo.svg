@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Nalanda mark: monogram N over the catalog card's double red rule,
+       on the bankers-lamp green of the design system. Content sits inside
+       the maskable-icon safe zone. -->
+  <rect width="512" height="512" rx="100" fill="#1e5c46"/>
+  <path d="M150 140 h44 L318 308 V140 h44 V372 h-44 L194 204 V372 h-44 Z" fill="#f6f6f3"/>
+  <rect x="150" y="398" width="212" height="12" fill="#a8352c"/>
+  <rect x="150" y="418" width="212" height="5" fill="#a8352c" opacity="0.6"/>
+</svg>

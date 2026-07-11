@@ -15,7 +15,10 @@ const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string }>> = ({ 
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       <meta name="robots" content="noindex" />
+      <meta name="theme-color" content="#f6f6f3" media="(prefers-color-scheme: light)" />
+      <meta name="theme-color" content="#121412" media="(prefers-color-scheme: dark)" />
       <title>{title}</title>
+      <link rel="icon" href="/logo.svg" type="image/svg+xml" />
       <link rel="stylesheet" href="/app.css" />
     </head>
     <body>
