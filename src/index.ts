@@ -20,16 +20,24 @@ import tagRoutes from './routes/tags';
 
 const app = new Hono<AppEnv>();
 
-// nosniff, frame denial, HSTS, referrer policy — defaults only, no CSP (we use
-// inline onsubmit= confirms; revisit if that changes)
-app.use(secureHeaders());
+// nosniff, frame denial, HSTS — no CSP (we use inline onsubmit= confirms).
+// Referrer policy must NOT be no-referrer: browsers apply referrer policy to the
+// Origin header too, sending `Origin: null` on same-origin form posts — which
+// would make our own CSRF check reject every login.
+app.use(secureHeaders({ referrerPolicy: 'strict-origin-when-cross-origin' }));
 
-// CSRF: SameSite=Lax cookies + same-origin check on every mutation (ARCH.md §8).
+// CSRF: SameSite=Lax cookies + same-site check on every mutation (ARCH.md §8).
+// Sec-Fetch-Site is the primary signal (sent by all modern browsers, immune to
+// referrer-policy quirks); the Origin comparison is the legacy fallback.
 app.use(async (c, next) => {
   const method = c.req.method;
   if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
+    const site = c.req.header('sec-fetch-site');
     const origin = c.req.header('origin');
-    if (origin && origin !== new URL(c.req.url).origin) return c.text('Forbidden', 403);
+    const allowed = site
+      ? site === 'same-origin' || site === 'none' // none = direct user navigation
+      : !origin || origin === new URL(c.req.url).origin;
+    if (!allowed) return c.text('Forbidden', 403);
   }
   await next();
 });
