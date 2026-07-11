@@ -35,6 +35,48 @@ npm test && npm run deploy
 
 Migrations are append-only and applied automatically before the Worker code goes live.
 
+## Taking your local data to production
+
+Been cataloging against local dev? Your catalog is a real SQLite database under
+`.wrangler/state/` and comes with you. (This procedure is rehearsed: rows and the search
+index restore cleanly; covers are re-fetched.)
+
+1. Do **First deploy** steps 1–2 (create resources, set secrets), then apply the schema:
+   ```sh
+   npx wrangler d1 migrations apply nalanda --remote
+   ```
+2. Export local data and load it into production (FK-safe order):
+   ```sh
+   npm run backup:local
+   for t in users libraries items tags item_tags loans; do
+     npx wrangler d1 execute nalanda --remote --file=backups/local-<date>/$t.sql
+   done
+   ```
+3. `npm run deploy`, then log in at the production URL — same username and password.
+4. **Covers**: the image files live in local R2 emulation and don't transfer. Clear the
+   stale references and re-fetch once:
+   ```sh
+   npx wrangler d1 execute nalanda --remote --command "UPDATE items SET cover_key = NULL"
+   ```
+   then production `/import` → **Cover backfill** (a few minutes).
+5. From here, treat production as the source of truth. Local dev keeps its own separate
+   copy — reset it whenever with `rm -rf .wrangler/state && npm run db:migrate`.
+
+## Go-live checklist
+
+- [ ] `npx wrangler d1 create nalanda` → paste the `database_id` into `wrangler.jsonc`
+- [ ] `npx wrangler r2 bucket create nalanda-covers`
+- [ ] `npx wrangler secret put SESSION_SECRET` (`openssl rand -base64 32`)
+- [ ] `npx wrangler secret put DISCOGS_TOKEN` (vinyl lookups)
+- [ ] optional: `npx wrangler secret put GOOGLE_BOOKS_KEY`
+- [ ] data: migrate the local catalog (section above) — or start fresh via `/setup`
+- [ ] `npm test && npm run deploy`
+- [ ] smoke: log in, scan one barcode, open a share link in a private window
+- [ ] if migrated: run **Cover backfill** on production
+- [ ] first production backup: `npm run backup`
+- [ ] add family members (Members page)
+- [ ] later, optional: custom domain · Cloudflare Access in front
+
 ## Rollback
 
 - **Code**: `npx wrangler rollback` reverts the Worker to the previous deployment.
