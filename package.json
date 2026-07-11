@@ -9,7 +9,8 @@
     "db:migrate": "wrangler d1 migrations apply nalanda --local",
     "db:migrate:remote": "wrangler d1 migrations apply nalanda --remote",
     "deploy": "npm run db:migrate:remote && wrangler deploy",
-    "backup": "mkdir -p backups && wrangler d1 export nalanda --remote --output=backups/nalanda-$(date +%F).sql",
+    "backup": "node scripts/backup.mjs",
+    "backup:local": "node scripts/backup.mjs --local",
     "vendor": "node scripts/vendor.mjs",
     "postinstall": "node scripts/vendor.mjs",
     "typecheck": "tsc --noEmit"

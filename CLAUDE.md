@@ -68,7 +68,10 @@ npm run db:generate        # drizzle-kit generate — schema.ts → migrations/*
 npm run db:migrate         # wrangler d1 migrations apply nalanda --local
 npm run db:migrate:remote  # same, against production
 npm run deploy             # remote migrations, then wrangler deploy
-npm run backup             # wrangler d1 export nalanda --remote → backups/<date>.sql
+npm run backup             # per-table data-only export → backups/remote-<date>/
+                           # (D1 cannot dump databases with FTS5 virtual tables;
+                           #  schema comes from migrations/ — see backup runbook)
+npm run backup:local       # same, for the local dev database
 npm run vendor             # re-copy vendored assets after bumping htmx/pico/zxing versions
 ```
 
