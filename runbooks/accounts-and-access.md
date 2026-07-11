@@ -22,17 +22,25 @@ still exists, so their session dies on their next click.
 
 ## Admin lockout (you forgot the admin password)
 
-You can reset any password from the CLI. From the project directory:
+You can reset any password from the CLI. **The hash contains `$` characters — never paste
+it inside a double-quoted shell string (zsh/bash will expand the `$…` runs and silently
+corrupt it).** The shell-safe pattern:
 
 ```sh
-node scripts/hash-password.mjs 'your-new-password'
-# prints something like: pbkdf2$100000$…$…
-
-npx wrangler d1 execute nalanda --remote --command \
-  "UPDATE users SET password_hash='<paste the hash>', must_change_password=0 WHERE username='<admin username>'"
+HASH=$(node scripts/hash-password.mjs 'your-new-password')
+echo "UPDATE users SET password_hash='$HASH', must_change_password=0 WHERE username='<admin username>';" > reset.sql
+npx wrangler d1 execute nalanda --remote --file=reset.sql && rm reset.sql
 ```
 
-Log in with the new password. (For local dev, same command with `--local`.)
+(Expanding `$HASH` is fine — shells don't re-expand a variable's *value*.) For local dev,
+same commands with `--local`.
+
+Log in with the new password. If you racked up failed attempts first, either wait 10
+minutes or clear the throttle:
+
+```sh
+npx wrangler d1 execute nalanda --remote --command "DELETE FROM login_attempts"
+```
 
 ## Log everyone out everywhere
 
