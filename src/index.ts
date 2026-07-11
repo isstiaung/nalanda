@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
+import { secureHeaders } from 'hono/secure-headers';
 import { countUsers, getUserById } from './db/queries';
 import type { AppEnv } from './env';
 import { SESSION_COOKIE, verifySessionToken } from './lib/auth';
@@ -18,6 +19,10 @@ import shareRoutes from './routes/share';
 import tagRoutes from './routes/tags';
 
 const app = new Hono<AppEnv>();
+
+// nosniff, frame denial, HSTS, referrer policy — defaults only, no CSP (we use
+// inline onsubmit= confirms; revisit if that changes)
+app.use(secureHeaders());
 
 // CSRF: SameSite=Lax cookies + same-origin check on every mutation (ARCH.md §8).
 app.use(async (c, next) => {
