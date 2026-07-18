@@ -16,10 +16,11 @@ link appears on the same page when it's ready. One CSV covers everything.
 2. Pick the CSV and the destination library. (The Goodreads format is auto-detected —
    the "default type" and "music as vinyl" options don't apply and are ignored.)
    The destination only affects **new** entries; matched books stay on their shelf.
-3. **Preview** — shows, for the first 200 rows, how many map cleanly, how many **match
-   books already in Nalanda** (their reviews will merge), and how many are **new**
-   (added as "Not owned"). Nothing is written yet.
-4. **Import** — uploads in batches of 200 with live progress.
+3. **Preview (dry run, optional)** — shows, for the first 200 rows, how many map
+   cleanly, how many **match books already in Nalanda** (their reviews will merge), and
+   how many are **new** (added as "Not owned"). Nothing is written yet.
+4. **Import** — uploads in batches of 200 with live progress. Works directly without a
+   preview.
 
 Unlike the libib import, **re-running is safe**: rows imported last time match by ISBN
 (or title + author) on the next run and merge instead of duplicating. The rare exception

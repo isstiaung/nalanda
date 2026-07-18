@@ -58,6 +58,9 @@
   const BATCH = 200;
   let rows = null;
 
+  // picking a different file invalidates previously parsed rows
+  fileInput.addEventListener('change', () => { rows = null; });
+
   const say = (msg) => { status.textContent = msg; };
   const append = (msg) => { status.textContent += `\n${msg}`; };
 
@@ -133,11 +136,11 @@
       append(`  · [${s.mediaType}] ${s.title}${s.creators ? ` — ${s.creators}` : ''}${s.tags.length ? ` (${s.tags.join(', ')})` : ''}`);
     }
     append(`Ready to import all ${rows.length} rows.`);
-    runBtn.disabled = false;
   });
 
   runBtn.addEventListener('click', async () => {
-    if (!rows) return;
+    if (!rows) rows = await loadRows(); // Preview is optional — load directly
+    if (!rows) return; // loadRows already explained what's missing
     runBtn.disabled = true;
     previewBtn.disabled = true;
     let inserted = 0;
@@ -162,5 +165,6 @@
       (inserted ? ' New items arrive without covers — reload this page and run the cover backfill.' : ' Head to your library →'),
     );
     previewBtn.disabled = false;
+    runBtn.disabled = false;
   });
 })();

@@ -83,10 +83,10 @@ importexport.get('/import', async (c) => {
           Treat libib “music” items as vinyl
         </label>
         <div class="inline-form">
-          <button type="button" id="import-preview">
-            Preview
+          <button type="button" id="import-preview" class="btn">
+            Preview (dry run)
           </button>
-          <button type="button" id="import-run" disabled>
+          <button type="button" id="import-run" class="btn-primary">
             Import
           </button>
         </div>

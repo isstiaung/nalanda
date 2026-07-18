@@ -221,6 +221,7 @@ section { margin-bottom: 2rem; }
   transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 .btn:hover, button:hover, [role='button']:hover { background: var(--surface-2); text-decoration: none; color: var(--ink); }
+.btn:disabled, button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 button[type='submit'], .btn-primary {
   background: var(--accent);

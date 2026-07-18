@@ -13,10 +13,11 @@ over. (libib exports one CSV per library.)
      often don't).
    - **Treat libib "music" as vinyl** — libib files vinyl under "music"; leave this on if
      your music collection is records.
-3. **Preview** — parses the file in your browser and shows how the first rows map: how
-   many rows map cleanly, type counts, and a sample. Nothing is written yet.
-4. **Import** — uploads in batches of 200 with live progress. A few thousand rows take a
-   handful of seconds.
+3. **Preview (dry run, optional)** — parses the file in your browser and shows how the
+   first rows map: how many rows map cleanly, type counts, and a sample. Nothing is
+   written yet.
+4. **Import** — uploads in batches of 200 with live progress; works directly without a
+   preview. A few thousand rows take a handful of seconds.
 
 Re-running an import creates duplicates (there's no upsert) — import into an empty library
 so a do-over is just delete-and-retry.
