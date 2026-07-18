@@ -98,10 +98,16 @@ const LENGTH_UNIT: Partial<Record<MediaType, string>> = {
 };
 
 items.post('/items', async (c) => {
-  const parsed = parseItemForm(await c.req.parseBody());
+  const body = await c.req.parseBody();
+  const parsed = parseItemForm(body);
   if (!parsed) return c.text('Title and shelf are required.', 400);
   const lib = await getLibrary(c.env.DB, parsed.values.libraryId);
   if (!lib) return c.text('No such shelf.', 400);
+
+  // "Log — not owned" on scan/search results: a copies=0 reading-log entry,
+  // landing on the edit form so rating/review/status go in immediately.
+  const logOnly = body['logOnly'] === '1';
+  if (logOnly) parsed.values.copies = 0;
 
   const coverKey = await storeCover(c.env.COVERS, parsed.coverUrl);
   const item = await createItem(c.env.DB, {
@@ -110,7 +116,7 @@ items.post('/items', async (c) => {
     addedBy: c.get('user').id,
   });
   if (parsed.tags.length) await setItemTags(c.env.DB, item.id, parsed.tags);
-  return c.redirect(`/items/${item.id}`);
+  return c.redirect(logOnly ? `/items/${item.id}/edit` : `/items/${item.id}`);
 });
 
 items.get('/items/:id', async (c) => {

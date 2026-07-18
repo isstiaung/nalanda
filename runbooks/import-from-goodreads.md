@@ -56,6 +56,13 @@ subtitles after ":", and initials spacing are ignored). On a match:
 
 Rows without a title are skipped and counted; nothing is silently dropped.
 
+## Going forward (no more Goodreads)
+
+Finished a book that isn't in the catalog? **/add** → scan its ISBN or search the title →
+**Log — not owned** on the result card. It creates the entry with `copies = 0` and drops
+you straight into the edit form to set rating, review, status, and read date. If you own
+the book, use **Add to shelf** as usual and add the review from its Edit page.
+
 ## After the import
 
 - **Covers**: new entries arrive coverless (Goodreads CSVs carry no images). Reload

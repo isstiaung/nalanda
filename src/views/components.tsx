@@ -274,7 +274,7 @@ export const ItemForm: FC<{
         <RatingSelect value={item?.rating} />
       </label>
       <label>
-        Copies
+        Copies <small>(0 = not owned)</small>
         <input name="copies" value={item?.copies?.toString() ?? '1'} inputmode="numeric" />
       </label>
     </div>
@@ -361,6 +361,9 @@ export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[] }> =
           ))}
         </select>
         <button type="submit">Add to shelf</button>
+        <button type="submit" name="logOnly" value="1" class="btn" title="Catalog as read/reviewed without owning a copy — opens the edit form for your rating and review">
+          Log — not owned
+        </button>
       </form>
     </div>
   </article>

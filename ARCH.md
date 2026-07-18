@@ -506,6 +506,10 @@ file hosting (calibre-web's territory), background jobs of any kind.
     shelves → abandoned); ISBNs are unwrapped from Excel guards (`="…"`). Format is
     auto-detected server-side per batch, so /api/import needs no format flag and the
     same endpoint serves both importers.
+15. **"Log — not owned" on scan/search results** — the ongoing Goodreads replacement:
+    every add-flow candidate card gets a second submit that presets `copies = 0` and
+    redirects to the edit form (not the detail page) so rating/review/status/read date
+    go in immediately. Same `POST /items` handler, one extra form field.
 
 The honest comparison, since it was asked:
 
