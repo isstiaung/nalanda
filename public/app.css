@@ -308,7 +308,8 @@ p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px sol
 
 /* ── data table ───────────────────────────────────────────────────────────── */
 
-.data-table { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+/* overflow-x: long content scrolls within the panel instead of clipping columns */
+.data-table { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow-x: auto; }
 .data-table table { width: 100%; }
 .data-table th {
   font-family: var(--mono);
@@ -329,7 +330,9 @@ p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px sol
 .data-table .num, .data-table .date { font-family: var(--mono); font-size: 12px; color: var(--ink-2); white-space: nowrap; }
 .data-table .actions-cell { text-align: right; white-space: nowrap; }
 
-.cell-title { display: flex; align-items: center; gap: 0.65rem; min-width: 0; }
+/* max-width caps the title column under auto table layout so a long title
+   truncates with an ellipsis instead of crowding every other column out */
+.cell-title { display: flex; align-items: center; gap: 0.65rem; min-width: 0; max-width: 420px; }
 .cell-title .thumb { flex: none; width: 26px; height: 39px; border-radius: 3px; object-fit: cover; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); }
 .cell-title .thumb-fallback { flex: none; width: 26px; height: 39px; border-radius: 3px; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; justify-content: center; font-size: 13px; }
 .cell-title .t { min-width: 0; }

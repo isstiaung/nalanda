@@ -135,7 +135,9 @@ export const ItemTable: FC<{
                   </span>
                 )}
                 <span class="t">
-                  <a href={`/items/${item.id}`}>{item.title}</a>
+                  <a href={`/items/${item.id}`} title={item.title}>
+                    {item.title}
+                  </a>
                   {item.creators ? <small>{item.creators}</small> : null}
                 </span>
               </span>
