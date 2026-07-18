@@ -5,3 +5,4 @@ backups/
 public/vendor/
 *.log
 .DS_Store
+goodreads_library_export.csv

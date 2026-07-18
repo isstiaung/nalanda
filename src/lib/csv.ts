@@ -263,6 +263,10 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
 
   const shelves = (r['bookshelves'] ?? '').split(',').map((t) => t.trim()).filter(Boolean);
   const exclusive = r['exclusive_shelf'] ?? '';
+  // Custom shelves — including a custom *exclusive* shelf like "to-re-read" — become
+  // tags. Only the three built-ins are dropped: status captures them fully.
+  const tagShelves = new Set(shelves);
+  if (exclusive) tagShelves.add(exclusive);
 
   const details: Record<string, string> = {};
   for (const [k, v] of Object.entries(r)) {
@@ -290,6 +294,6 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
       completedOn: isoDate(r['date_read']),
       details: Object.keys(details).length ? JSON.stringify(details) : '{}',
     },
-    tags: shelves.filter((sh) => !EXCLUSIVE_SHELVES.has(sh) && sh !== exclusive),
+    tags: [...tagShelves].filter((sh) => !EXCLUSIVE_SHELVES.has(sh)),
   };
 }

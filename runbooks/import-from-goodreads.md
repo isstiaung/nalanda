@@ -49,7 +49,7 @@ subtitles after ":", and initials spacing are ignored). On a match:
 | `Private Notes` | private notes |
 | `Date Read` | completed date |
 | `Number of Pages`, `Year Published` | length, published |
-| `Bookshelves` (minus the three exclusive shelves) | tags |
+| `Bookshelves` + any custom exclusive shelf (e.g. `to-re-read`) | tags — only the three built-ins (`read`, `currently-reading`, `to-read`) are dropped, since status captures them |
 | `Owned Copies` | copies — 0 (the Goodreads default) = "Not owned" reading-log entry |
 | `Book Id` | `goodreads_book_id` in details |
 | anything else (`Average Rating`, `Binding`, `Read Count`, …) | kept losslessly in the item's details JSON |

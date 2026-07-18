@@ -133,4 +133,13 @@ describe('goodreads row mapping', () => {
     expect(mapGoodreadsRow({ ...base, 'Bookshelves': 'to-read, dnf' })!.item.status).toBe('abandoned');
     expect(mapGoodreadsRow({ ...base, 'Owned Copies': '1' })!.item.copies).toBe(1);
   });
+
+  it('keeps custom exclusive shelves as tags (only the three built-ins are dropped)', () => {
+    const m = mapGoodreadsRow({ 'Title': 'X', 'Exclusive Shelf': 'to-re-read', 'Bookshelves': 'sci-fi' })!;
+    expect(m.item.status).toBe('not_started'); // unknown exclusive shelf → not started
+    expect(m.tags).toEqual(['sci-fi', 'to-re-read']); // shelf preserved, not lost
+    const dnf = mapGoodreadsRow({ 'Title': 'Y', 'Exclusive Shelf': 'dnf', 'Bookshelves': '' })!;
+    expect(dnf.item.status).toBe('abandoned');
+    expect(dnf.tags).toEqual(['dnf']); // status set AND shelf kept as a tag
+  });
 });
