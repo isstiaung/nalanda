@@ -59,6 +59,9 @@ export const StatusPill: FC<{ status: ItemStatus }> = ({ status }) => (
   <span class={STATUS_PILL_CLASS[status]}>{STATUS_LABEL[status]}</span>
 );
 
+/** copies = 0: in the ledger, not on the shelf — a reading-log entry. */
+export const NotOwnedPill: FC = () => <span class="pill ghost">Not owned</span>;
+
 export const Cover: FC<{ coverKey: string | null; title: string; mediaType: MediaType }> = ({
   coverKey,
   title,
@@ -83,6 +86,7 @@ export const ItemCard: FC<{ item: Item; onLoan?: boolean; href?: string }> = ({ 
       <span class="mline">
         <small class="acc-no">{accNo(item.id)}</small>
         {item.rating ? <span class="rating">{stars(item.rating)}</span> : null}
+        {item.copies === 0 ? <NotOwnedPill /> : null}
         {onLoan ? <span class="pill lent">Lent</span> : null}
       </span>
     </div>
@@ -142,6 +146,7 @@ export const ItemTable: FC<{
             <td>{item.rating ? <span class="rating">{stars(item.rating)}</span> : <span class="muted">—</span>}</td>
             <td>
               <StatusPill status={item.status} />{' '}
+              {item.copies === 0 ? <NotOwnedPill /> : null}
               {onLoanIds?.has(item.id) ? <span class="pill lent">Lent</span> : null}
             </td>
             {tagsMap ? (

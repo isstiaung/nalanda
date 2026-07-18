@@ -5,7 +5,7 @@ import type { Child, FC, PropsWithChildren } from 'hono/jsx';
 import { getItem, getLibraryByShareToken, listItems, tagsForItems } from '../db/queries';
 import type { AppEnv } from '../env';
 import { toPublicItem, type PublicItem } from '../lib/share';
-import { DetailsList, MEDIA_ICON, MEDIA_LABEL, Pagination, stars } from '../views/components';
+import { DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, stars } from '../views/components';
 
 const share = new Hono<AppEnv>();
 
@@ -51,6 +51,7 @@ const PublicCard: FC<{ item: PublicItem; token: string }> = ({ item, token }) =>
       <span class="mline">
         <small class="muted">{MEDIA_LABEL[item.mediaType]}</small>
         {item.rating ? <span class="rating">{stars(item.rating)}</span> : null}
+        {!item.inCollection ? <NotOwnedPill /> : null}
       </span>
     </div>
   </a>
@@ -125,6 +126,14 @@ share.get('/:token/items/:id', async (c) => {
         <dl class="props">
           <dt>Type</dt>
           <dd>{MEDIA_LABEL[pub.mediaType]}</dd>
+          {!pub.inCollection ? (
+            <>
+              <dt>Holding</dt>
+              <dd>
+                <NotOwnedPill /> read, not on these shelves
+              </dd>
+            </>
+          ) : null}
           {pub.rating ? (
             <>
               <dt>Rating</dt>

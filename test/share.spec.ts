@@ -43,8 +43,15 @@ describe('share whitelist', () => {
       coverKey: 'abc-123',
       rating: 10,
       review: 'A favorite.',
+      inCollection: true,
       details: { series: 'Earthsea' },
     });
+  });
+
+  it('exposes ownership only as a boolean, never the copies count', () => {
+    expect(toPublicItem({ ...item, copies: 0 }).inCollection).toBe(false);
+    expect(toPublicItem({ ...item, copies: 3 }).inCollection).toBe(true);
+    expect(toPublicItem(item)).not.toHaveProperty('copies');
   });
 
   it('never leaks private fields, even as keys', () => {

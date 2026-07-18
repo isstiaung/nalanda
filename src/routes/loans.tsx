@@ -111,6 +111,7 @@ loans.post('/items/:id/loan', async (c) => {
   const itemId = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, itemId);
   if (!item) return c.notFound();
+  if (item.copies === 0) return c.text('Not in the physical collection — nothing to lend.', 400);
   const body = await c.req.parseBody();
   const borrower = String(body['borrower'] ?? '').trim();
   if (borrower) {

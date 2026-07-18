@@ -14,6 +14,7 @@ export type PublicItem = {
   coverKey: string | null;
   rating: number | null;
   review: string | null;
+  inCollection: boolean; // derived from copies > 0 — the count itself stays private
   details: Record<string, unknown>;
 };
 
@@ -43,6 +44,7 @@ export function toPublicItem(item: Item): PublicItem {
     coverKey: item.coverKey,
     rating: item.rating,
     review: item.review,
+    inCollection: item.copies > 0,
     details: parseDetails(item.details),
   };
 }

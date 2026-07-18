@@ -54,8 +54,10 @@ structural changes, update it (incl. §16 decision log) when a decision changes.
 ## Privacy invariants (share links)
 - `/share/:token` pages render a **field whitelist** via `toPublicItem()` in
   `src/lib/share.ts` — never add fields there without checking ARCH.md §9.
-- **Never** render on share pages: private `notes`, loans/borrowers, `copies`, `added_by`,
-  usernames, or links into the authenticated app. Share pages get `noindex`.
+- **Never** render on share pages: private `notes`, loans/borrowers, the `copies` count,
+  `added_by`, usernames, or links into the authenticated app. (The derived boolean
+  `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge.)
+  Share pages get `noindex`.
 - Share tokens are random 128-bit; publish/rotate/disable is admin-only.
 - `/covers/:key` is intentionally public — keys are random UUIDs; never make them
   enumerable or derived from item data.
@@ -108,6 +110,9 @@ runbooks/          operational guides: deploy, backup/restore, accounts, libib i
 - Barcode routing lives in `src/metadata/index.ts`: EAN-13 starting `978`/`979` → book
   providers (Open Library + Google Books merged); any other EAN/UPC → Discogs.
 - Tags are normalized lowercase at write time; uniqueness is by exact string.
+- `copies = 0` = "in the catalog, not in the physical collection" (reading-log entries,
+  e.g. Goodreads imports). Not lendable; badged "Not owned" everywhere incl. share pages
+  (ARCH.md §16 #13).
 
 ## Ops guardrails
 - Develop against local D1. `--remote` is for deploy, remote migrate, and backup only.

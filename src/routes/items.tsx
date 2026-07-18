@@ -22,6 +22,7 @@ import {
   DetailsList,
   ItemForm,
   MEDIA_LABEL,
+  NotOwnedPill,
   StatusPill,
   stars,
 } from '../views/components';
@@ -76,7 +77,7 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
       rating: Number.isFinite(ratingNum) && ratingNum >= 1 && ratingNum <= 10 ? ratingNum : null,
       review: orNull(str('review')),
       notes: orNull(str('notes')),
-      copies: Number.isFinite(copiesNum) && copiesNum > 0 ? copiesNum : 1,
+      copies: Number.isFinite(copiesNum) && copiesNum >= 0 ? copiesNum : 1, // 0 = cataloged, not owned
       beganOn: orNull(str('beganOn')),
       completedOn: orNull(str('completedOn')),
       details,
@@ -158,6 +159,7 @@ items.get('/items/:id', async (c) => {
           <dt>Status</dt>
           <dd>
             <StatusPill status={item.status} />
+            {item.copies === 0 ? <NotOwnedPill /> : null}
             {loan ? <span class={overdue ? 'pill overdue' : 'pill lent'}>{overdue ? 'Overdue' : 'Lent'}</span> : null}
           </dd>
           {item.rating ? (
@@ -250,7 +252,9 @@ items.get('/items/:id', async (c) => {
 
         <div class={loan ? 'circulation' : 'circulation free'}>
           <p class="eyebrow">Circulation</p>
-          {loan ? (
+          {item.copies === 0 && !loan ? (
+            <p class="muted">Not in the physical collection — nothing to lend.</p>
+          ) : loan ? (
             <form method="post" action={`/loans/${loan.id}/return`} class="inline-form">
               <span class={overdue ? 'error' : undefined}>
                 Lent to <strong>{loan.borrower}</strong> on <span class="mono">{loan.loanedOn}</span>

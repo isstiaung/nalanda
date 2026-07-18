@@ -121,6 +121,7 @@ export const PAGE_SIZE = 60;
 export type ItemFilters = {
   mediaType?: MediaType;
   status?: ItemStatus;
+  owned?: boolean; // true = copies > 0, false = copies = 0 (reading-log entries)
   sort?: 'added' | 'title' | 'rating';
   page?: number; // 1-based
 };
@@ -134,6 +135,7 @@ export async function listItems(
   const conds: SQL[] = [eq(s.items.libraryId, libraryId)];
   if (f.mediaType) conds.push(eq(s.items.mediaType, f.mediaType));
   if (f.status) conds.push(eq(s.items.status, f.status));
+  if (f.owned !== undefined) conds.push(f.owned ? gt(s.items.copies, 0) : eq(s.items.copies, 0));
   const where = and(...conds);
 
   const order =
@@ -183,6 +185,12 @@ export async function deleteItem(d1: D1Database, id: number): Promise<void> {
 
 export async function recentItems(d1: D1Database, limit = 12): Promise<Item[]> {
   return db(d1).select().from(s.items).orderBy(desc(s.items.addedAt), desc(s.items.id)).limit(limit);
+}
+
+/** Reading-log entries: cataloged (reviewed, rated) but not physically owned. */
+export async function countNotOwned(d1: D1Database): Promise<number> {
+  const [row] = await db(d1).select({ n: count() }).from(s.items).where(eq(s.items.copies, 0));
+  return row?.n ?? 0;
 }
 
 // ---------- tags ----------

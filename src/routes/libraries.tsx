@@ -37,6 +37,7 @@ libraries.get('/libraries/:id', async (c) => {
   const status = (ITEM_STATUSES as readonly string[]).includes(q['status'] ?? '')
     ? (q['status'] as ItemStatus)
     : undefined;
+  const owned = q['owned'] === '1' ? true : q['owned'] === '0' ? false : undefined;
   const sort = q['sort'] === 'title' || q['sort'] === 'rating' ? q['sort'] : 'added';
   const view = q['view'] === 'grid' ? 'grid' : 'table';
   const pageNum = Number.parseInt(q['page'] ?? '1', 10) || 1;
@@ -44,6 +45,7 @@ libraries.get('/libraries/:id', async (c) => {
   const { items, total, page: current, pages } = await listItems(c.env.DB, id, {
     mediaType,
     status,
+    owned,
     sort,
     page: pageNum,
   });
@@ -57,6 +59,7 @@ libraries.get('/libraries/:id', async (c) => {
     const params = new URLSearchParams();
     if (mediaType) params.set('type', mediaType);
     if (status) params.set('status', status);
+    if (owned !== undefined) params.set('owned', owned ? '1' : '0');
     if (sort !== 'added') params.set('sort', sort);
     if (v !== 'table') params.set('view', v);
     if (p > 1) params.set('page', String(p));
@@ -103,6 +106,15 @@ libraries.get('/libraries/:id', async (c) => {
               {STATUS_LABEL[st]}
             </option>
           ))}
+        </select>
+        <select name="owned" aria-label="Holding">
+          <option value="">Owned + logged</option>
+          <option value="1" selected={owned === true}>
+            In collection
+          </option>
+          <option value="0" selected={owned === false}>
+            Not owned
+          </option>
         </select>
         <select name="sort" aria-label="Sort">
           <option value="added" selected={sort === 'added'}>

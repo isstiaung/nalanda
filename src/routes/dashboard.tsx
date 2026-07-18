@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { activeLoans, listLibraries, recentItems } from '../db/queries';
+import { activeLoans, countNotOwned, listLibraries, recentItems } from '../db/queries';
 import type { AppEnv } from '../env';
 import { ItemGrid, Stat } from '../views/components';
 import { page } from '../views/layout';
@@ -7,10 +7,11 @@ import { page } from '../views/layout';
 const dashboard = new Hono<AppEnv>();
 
 dashboard.get('/', async (c) => {
-  const [libraries, recent, loans] = await Promise.all([
+  const [libraries, recent, loans, notOwned] = await Promise.all([
     listLibraries(c.env.DB),
     recentItems(c.env.DB, 12),
     activeLoans(c.env.DB),
+    countNotOwned(c.env.DB),
   ]);
   const today = new Date().toISOString().slice(0, 10);
   const overdue = loans.filter((l) => l.dueOn && l.dueOn < today).length;
@@ -35,7 +36,8 @@ dashboard.get('/', async (c) => {
 
       <section>
         <div class="stat-row">
-          <Stat n={totalItems} label="Items" />
+          <Stat n={totalItems - notOwned} label="Items" />
+          {notOwned > 0 ? <Stat n={notOwned} label="Read, not owned" /> : null}
           <Stat n={libraries.length} label="Shelves" />
           <Stat n={loans.length} label="On loan" />
           <Stat n={overdue} label="Overdue" warn={overdue > 0} />

@@ -179,7 +179,7 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
       rating: mapRating(r['rating']) ?? null,
       review: r['review'] || null,
       notes: r['notes'] || null,
-      copies: Number.isFinite(copiesNum) && copiesNum > 0 ? copiesNum : 1,
+      copies: Number.isFinite(copiesNum) && copiesNum >= 0 ? copiesNum : 1, // 0 = cataloged, not owned
       beganOn: r['began'] || null,
       completedOn: r['completed'] || null,
       details: Object.keys(details).length ? JSON.stringify(details) : '{}',

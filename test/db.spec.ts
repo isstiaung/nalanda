@@ -58,6 +58,18 @@ describe('items + FTS', () => {
     expect(vinylOnly.total).toBe(1);
     expect(vinylOnly.items[0]?.title).toBe('A Record');
   });
+
+  it('filters by ownership: copies = 0 is a reading-log entry', async () => {
+    const lib = await seedLibrary();
+    await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'Owned', copies: 1, details: '{}' });
+    await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'Logged', copies: 0, details: '{}' });
+
+    const owned = await listItems(env.DB, lib.id, { owned: true });
+    expect(owned.items.map((i) => i.title)).toEqual(['Owned']);
+    const logged = await listItems(env.DB, lib.id, { owned: false });
+    expect(logged.items.map((i) => i.title)).toEqual(['Logged']);
+    expect((await listItems(env.DB, lib.id, {})).total).toBe(2);
+  });
 });
 
 describe('tags', () => {

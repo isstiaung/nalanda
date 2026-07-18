@@ -282,9 +282,11 @@ portable, and makes share routes trivially public. CF Access remains available l
   `GET /share/:token` (library view) and `GET /share/:token/items/:id` (item view) render
   read-only pages with **no login**.
 - **Field whitelist, not blacklist**: share pages render only title, creators, cover,
-  publisher/label, published date, description, media details, tags, rating, review.
-  **Never**: private notes, loans/borrowers, copies, added_by, or any nav into the
-  authenticated app. The whitelist lives in one view module so it can't drift.
+  publisher/label, published date, description, media details, tags, rating, review, and
+  a derived boolean `inCollection` (`copies > 0`) so reading-log entries (`copies = 0`)
+  carry a "Not owned" badge (§16 #13).
+  **Never**: private notes, loans/borrowers, the copies count, added_by, or any nav into
+  the authenticated app. The whitelist lives in one view module so it can't drift.
 - Pages carry `<meta name="robots" content="noindex">` — links are for people you send them
   to, not search engines.
 - Unpublish or regenerate the token any time; old URLs 404 immediately.
@@ -474,7 +476,17 @@ file hosting (calibre-web's territory), background jobs of any kind.
     `Sec-Fetch-Site` first (immune to referrer policy) with the Origin comparison as the
     legacy fallback. Regression-tested with browser-faithful headers (test/csrf.spec.ts).
 
-## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
+**2026-07-18 — reading log (Goodreads redundancy, phase 1):**
+13. **`copies = 0` means "in the catalog, not in the physical collection"** — the
+    representation for reviewed/rated books that were never owned (Goodreads history,
+    library loans, borrowed books). Chosen over a new `ownership` column (the count
+    already expresses it, and export/import round-trips it with zero new surface) and
+    over a separate "reading log" library (a book you later buy shouldn't have to move
+    shelves). Consequences: lending is blocked at `copies = 0` (UI + server), the
+    library view gains an owned/not-owned filter, and the dashboard "Items" stat counts
+    owned only, with a separate "Read, not owned" stat. Share pages *include* these
+    items — deliberate: share links double as the public reviews page — badged via a
+    whitelisted derived boolean (`inCollection`); the raw count stays private (§9).
 
 The honest comparison, since it was asked:
 

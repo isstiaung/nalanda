@@ -63,4 +63,8 @@ describe('libib row mapping', () => {
     expect(mapped!.item.length).toBeNull();
     expect(mapped!.item.copies).toBe(1);
   });
+
+  it('keeps an explicit copies of 0 (cataloged, not owned)', () => {
+    expect(mapLibibRow({ title: 'X', copies: '0' }, opts)!.item.copies).toBe(0);
+  });
 });
