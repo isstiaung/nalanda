@@ -545,17 +545,22 @@ file hosting (calibre-web's territory), background jobs of any kind.
     survived; `libraries.share_token` remains as a dead column (append-only
     migrations, no destructive change). 0003 is an intentional no-op — it was
     recorded as applied while still empty, and the harness requires ≥1 statement.
-19. **Share pages are burst-shielded by a 60 s per-isolate memory cache.** They are
-    the many-readers surface and D1's read quota is shared with the authenticated
-    app — a hot link must not degrade the household's own use. Mechanism chosen
-    over (a) edge Cache API / `s-maxage` — a **no-op on workers.dev domains** (no
-    zone; becomes a worthwhile second layer if a custom domain lands) — and over
-    (b) materializing view JSON to R2 — write amplification (every edit fans out
-    to every affected view × page), unbounded staleness on any missed
-    invalidation hook, and a second data store violating the D1-as-only-source
-    invariant. Accepted cost: rotation/removal and edits reach visitors within
-    60 s instead of instantly. `x-cache: hit|miss` header aids debugging;
-    regression-tested in test/items.spec.ts.
+19. **Share pages are burst-shielded by a per-isolate memory cache** (TTL 1 h,
+    raised from the initial 60 s by owner's call — public pages change rarely).
+    They are the many-readers surface and D1's read quota is shared with the
+    authenticated app — a hot link must not degrade the household's own use.
+    Mechanism chosen over (a) edge Cache API / `s-maxage` — a **no-op on
+    workers.dev domains** (no zone; becomes a worthwhile second layer if a custom
+    domain lands) — and over (b) materializing view JSON to R2 — write
+    amplification (every edit fans out to every affected view × page), unbounded
+    staleness on any missed invalidation hook, and a second data store violating
+    the D1-as-only-source invariant. **Writes invalidate, coarsely**: any
+    successful mutation clears the handling isolate's cache (index.ts →
+    `clearSharePageCache()`), so the household's own edits go public immediately;
+    untouched isolates converge within the TTL or on eviction. Accepted cost of
+    the long TTL: a rotated/removed link can keep serving from an untouched
+    isolate for **up to an hour**. `x-cache: hit|miss` header aids debugging;
+    hit/miss/bust regression-tested in test/items.spec.ts.
 
 The honest comparison, since it was asked:
 

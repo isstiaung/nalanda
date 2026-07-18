@@ -12,15 +12,24 @@ const share = new Hono<AppEnv>();
 /**
  * The public pages are the app's many-readers surface, and D1's read quota is
  * shared with the authenticated app — so rendered share HTML is served from a
- * per-isolate memory cache for 60 s. Memory (not the edge Cache API) because
- * the Cache API is a no-op on workers.dev domains; this shields bursts on any
- * domain, per colo isolate. Consequence: rotate/remove and data edits take up
- * to 60 s to reach visitors (ARCH.md §16 #19). Only 200s are cached; entries
- * are capped and evicted oldest-first.
+ * per-isolate memory cache. Memory (not the edge Cache API) because the Cache
+ * API is a no-op on workers.dev domains; this shields bursts on any domain,
+ * per colo isolate. Every successful mutation anywhere in the app clears this
+ * isolate's cache (see index.ts), so the household's own edits go public
+ * immediately; isolates the mutation never reached converge within the TTL or
+ * on isolate eviction, whichever comes first. Consequence of the long TTL:
+ * a ROTATED/REMOVED link can keep serving from an untouched isolate for up to
+ * an hour (ARCH.md §16 #19). Only 200s are cached; entries are capped and
+ * evicted oldest-first.
  */
-const PAGE_TTL_MS = 60_000;
+const PAGE_TTL_MS = 60 * 60_000; // 1 hour
 const PAGE_CACHE_MAX = 200;
 const pageCache = new Map<string, { body: string; headers: [string, string][]; expires: number }>();
+
+/** Called after any successful mutation — the "force cache update" hook. */
+export function clearSharePageCache(): void {
+  pageCache.clear();
+}
 
 share.use('*', async (c, next) => {
   if (c.req.method !== 'GET') return next();

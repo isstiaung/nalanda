@@ -15,7 +15,7 @@ import libraryRoutes from './routes/libraries';
 import loanRoutes from './routes/loans';
 import searchRoutes from './routes/search';
 import settingsRoutes from './routes/settings';
-import shareRoutes from './routes/share';
+import shareRoutes, { clearSharePageCache } from './routes/share';
 import tagRoutes from './routes/tags';
 
 const app = new Hono<AppEnv>();
@@ -40,6 +40,10 @@ app.use(async (c, next) => {
     if (!allowed) return c.text('Forbidden', 403);
   }
   await next();
+  // Writes invalidate, coarsely: any successful mutation clears this isolate's
+  // share-page cache so edits/rotations go public here immediately. Other
+  // isolates converge within the cache TTL (ARCH.md §16 #19).
+  if (method !== 'GET' && c.res.status < 400) clearSharePageCache();
 });
 
 // ---- public: setup/login/logout, share links, cover images ----

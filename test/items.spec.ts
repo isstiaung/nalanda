@@ -120,6 +120,12 @@ describe('add flow: Log — not owned', () => {
     expect(second.headers.get('x-cache')).toBe('hit');
     expect(await second.text()).toBe(await first.text());
     expect(await second.headers.get('content-type')).toContain('text/html');
+
+    // any successful mutation clears this isolate's cache — the edit goes public now
+    await post('/items', { title: 'Cache Buster', libraryId: String(lib.id), mediaType: 'book' }, cookie);
+    const third = await publicGet();
+    expect(third.headers.get('x-cache')).toBe('miss');
+    expect(await third.text()).toContain('Cache Buster');
   });
 
   it('refuses to lend a copies=0 entry', async () => {
