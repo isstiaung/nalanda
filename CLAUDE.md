@@ -92,7 +92,7 @@ public/            app.css, scanner.js, import.js, app.js + vendor/ (htmx, pico,
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke
 runbooks/          operational guides: deploy, backup/restore, accounts, libib import,
-                   troubleshooting — update when ops procedures change
+                   goodreads import, troubleshooting — update when ops procedures change
 ```
 
 ## Conventions
