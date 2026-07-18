@@ -276,13 +276,27 @@ input[type='search'] { font-size: 13px; }
 .form-card { max-width: 640px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0 1rem; }
 
-details { border: 1px solid var(--line); border-radius: var(--radius); padding: 0.6rem 0.9rem; margin: 0.75rem 0; background: var(--surface); }
+details { border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 0.6rem 0.9rem; margin: 0.75rem 0; background: var(--surface); }
 details summary { cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
 details[open] summary { margin-bottom: 0.75rem; }
 
 /* ── panels, notices ──────────────────────────────────────────────────────── */
 
-.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem 1.1rem; }
+/* the manuscript frame: every framed panel carries the same double rule that
+   the headstroke carries — a strong outer line with a hairline echo inside */
+.panel, .stat-row, .data-table, .auth-card, .candidate, details {
+  position: relative;
+}
+.panel::after, .stat-row::after, .data-table::after, .auth-card::after, .candidate::after, details::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) - 3px);
+  pointer-events: none;
+}
+
+.panel { background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 1rem 1.1rem; }
 
 .notice {
   font-size: 12.5px;
@@ -299,7 +313,7 @@ p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px sol
 
 /* ── stat row (ledger totals) ─────────────────────────────────────────────── */
 
-.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
 .stat { padding: 0.9rem 1.1rem; border-left: 1px solid var(--line); }
 .stat:first-child { border-left: none; }
 .stat-n { font-family: var(--mono); font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
@@ -309,7 +323,7 @@ p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px sol
 /* ── data table ───────────────────────────────────────────────────────────── */
 
 /* overflow-x: long content scrolls within the panel instead of clipping columns */
-.data-table { width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow-x: auto; }
+.data-table { width: 100%; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); overflow-x: auto; }
 .data-table table { width: 100%; }
 .data-table th {
   font-family: var(--mono);
@@ -455,7 +469,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 #scanner-video.live { display: block; margin-bottom: 0.75rem; }
 #scanner-status { font-family: var(--mono); font-size: 11.5px; }
 
-.candidate { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 1rem; padding: 0.9rem; margin: 0.75rem 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.candidate { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 1rem; padding: 0.9rem; margin: 0.75rem 0; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); }
 .candidate-cover img, .candidate-cover .cover-fallback { width: 84px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: var(--radius-sm); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; justify-content: center; font-size: 1.8rem; background: var(--surface-2); }
 .candidate-body strong { font-size: 14px; }
 .candidate-body small { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.03em; }
@@ -465,7 +479,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 /* ── auth (login / setup / account) ───────────────────────────────────────── */
 
 .auth-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.5rem; background: var(--paper); }
-.auth-card { width: 100%; max-width: 380px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.75rem 1.75rem 1.5rem; box-shadow: var(--shadow); }
+.auth-card { width: 100%; max-width: 380px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 1.75rem 1.75rem 1.5rem; box-shadow: var(--shadow); }
 .auth-card .brand-name { font-size: 15px; }
 .auth-card .brand { margin-bottom: 1.25rem; padding: 0; }
 .auth-card h1 { font-size: 18px; }
