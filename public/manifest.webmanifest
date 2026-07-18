@@ -4,8 +4,8 @@
   "description": "Home library registry — books, board games, vinyl.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f6f6f3",
-  "theme_color": "#1e5c46",
+  "background_color": "#f6f2e7",
+  "theme_color": "#35447e",
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },

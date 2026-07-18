@@ -23,6 +23,7 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.0",
     "@cloudflare/workers-types": "^4.20250801.0",
+    "@fontsource/eczar": "^5.2.8",
     "drizzle-kit": "^0.31.0",
     "htmx.org": "^2.0.0",
     "typescript": "^5.5.0",

@@ -15,6 +15,9 @@ const files = [
   ['node_modules/zxing-wasm/dist/es/reader/index.js', 'zxing/reader/index.js'],
   ['node_modules/zxing-wasm/dist/es/share.js', 'zxing/share.js'],
   ['node_modules/zxing-wasm/dist/reader/zxing_reader.wasm', 'zxing/zxing_reader.wasm'],
+  // Display face for titles/brand (Devanagari-first design, OFL) — see app.css.
+  ['node_modules/@fontsource/eczar/files/eczar-latin-600-normal.woff2', 'fonts/eczar-latin-600-normal.woff2'],
+  ['node_modules/@fontsource/eczar/files/eczar-latin-700-normal.woff2', 'fonts/eczar-latin-700-normal.woff2'],
 ];
 
 for (const [src, dest] of files) {

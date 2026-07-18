@@ -1,33 +1,53 @@
 /* ─────────────────────────────────────────────────────────────────────────────
-   Nalanda — "the accession ledger, modernized"
+   Nalanda — "the manuscript ledger"
    Hand-written design system. No framework, no build step.
-   Ink-on-paper palette, bankers-lamp green accent, stamp red for circulation.
-   Monospace is the registrar's voice: ids, counts, dates, stamps, labels.
+   Grounded in the Pala-era scriptorium of Nalanda itself: palm-leaf paper,
+   lampblack ink, indigo working accent, vermilion rubrication (red ink is for
+   circulation and danger — as in the manuscripts), turmeric gold for ratings.
+   Titles are Eczar, a Devanagari-first face whose Latin keeps the stroke energy;
+   the brand hangs from its headstroke (śirorekhā). Dark mode is the lamp-lit
+   reading room. Monospace stays the registrar's voice: ids, counts, dates.
    ──────────────────────────────────────────────────────────────────────────── */
 
+/* Vendored via @fontsource/eczar (scripts/vendor.mjs) — never a CDN. */
+@font-face {
+  font-family: 'Eczar';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/vendor/fonts/eczar-latin-600-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Eczar';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/vendor/fonts/eczar-latin-700-normal.woff2') format('woff2');
+}
+
 :root {
-  /* palette — light */
-  --paper: #f6f6f3;
-  --surface: #ffffff;
-  --surface-2: #efefeb;
-  --line: #e2e3dd;
-  --line-strong: #c9cbc2;
-  --ink: #1b1e1b;
-  --ink-2: #52564f;
-  --ink-3: #8a8e85;
-  --accent: #1e5c46;
-  --accent-strong: #174a38;
-  --accent-ink: #ffffff;
-  --accent-tint: rgba(30, 92, 70, 0.09);
-  --brass: #96702a;
-  --stamp: #a8352c;
-  --stamp-tint: rgba(168, 53, 44, 0.08);
-  --shadow: 0 1px 2px rgba(27, 30, 27, 0.06), 0 4px 16px rgba(27, 30, 27, 0.05);
+  /* palette — light: the prepared palm leaf */
+  --paper: #f6f2e7;
+  --surface: #fdfaf1;
+  --surface-2: #efe8d8;
+  --line: #e5ddc9;
+  --line-strong: #cdc2a6;
+  --ink: #221d14;
+  --ink-2: #5d564a;
+  --ink-3: #8f8672;
+  --accent: #35447e;
+  --accent-strong: #273766;
+  --accent-ink: #fdfaf1;
+  --accent-tint: rgba(53, 68, 126, 0.09);
+  --brass: #a8770f;
+  --stamp: #b93a1c;
+  --stamp-tint: rgba(185, 58, 28, 0.08);
+  --shadow: 0 1px 2px rgba(34, 29, 20, 0.06), 0 4px 16px rgba(34, 29, 20, 0.05);
 
   /* type */
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
-  --serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, ui-serif, serif;
+  --serif: 'Eczar', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, ui-serif, serif;
 
   --radius: 7px;
   --radius-sm: 5px;
@@ -36,21 +56,22 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #121412;
-    --surface: #191c19;
-    --surface-2: #202420;
-    --line: #262b26;
-    --line-strong: #39403a;
-    --ink: #e6e8e2;
-    --ink-2: #a4a89e;
-    --ink-3: #6f746a;
-    --accent: #4f9d7e;
-    --accent-strong: #66b294;
-    --accent-ink: #0d1410;
-    --accent-tint: rgba(79, 157, 126, 0.13);
-    --brass: #c9a45c;
-    --stamp: #d96a5e;
-    --stamp-tint: rgba(217, 106, 94, 0.12);
+    /* dark: the lamp-lit reading room — warm blacks, pigments glowing */
+    --paper: #171310;
+    --surface: #1e1915;
+    --surface-2: #272016;
+    --line: #2e2820;
+    --line-strong: #463d2e;
+    --ink: #ece4d2;
+    --ink-2: #ab9f88;
+    --ink-3: #746a55;
+    --accent: #8ba0d9;
+    --accent-strong: #a5b7e6;
+    --accent-ink: #10141f;
+    --accent-tint: rgba(139, 160, 217, 0.13);
+    --brass: #d3a02f;
+    --stamp: #e06a45;
+    --stamp-tint: rgba(224, 106, 69, 0.12);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.35);
   }
 }
@@ -75,7 +96,7 @@ body {
 }
 
 h1, h2, h3, h4 { margin: 0 0 0.5rem; line-height: 1.25; }
-h1 { font-family: var(--serif); font-size: 22px; font-weight: 600; letter-spacing: 0.01em; }
+h1 { font-family: var(--serif); font-size: 22px; font-weight: 600; letter-spacing: 0; }
 h2 { font-size: 14px; font-weight: 600; }
 h3 { font-size: 13.5px; font-weight: 600; }
 h4 { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
@@ -121,20 +142,26 @@ table { border-collapse: collapse; }
   overflow-y: auto;
 }
 
-/* brand block — the catalog card's red top-rule lives here, and only here */
+/* brand block — the śirorekhā: the wordmark hangs from its vermilion headstroke,
+   the way Devanagari letters hang from theirs. Doubles as the catalog card's
+   red top-rule. It lives here, and only here. */
 .brand { display: block; padding: 0 0.35rem; text-decoration: none; }
 .brand:hover { text-decoration: none; }
 .brand-name {
   font-family: var(--serif);
   font-size: 17px;
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+  line-height: 1.2;
   color: var(--ink);
 }
-.brand-sub { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; color: var(--ink-3); text-transform: uppercase; }
-.brand-rule { margin-top: 0.55rem; border-top: 2px solid var(--stamp); position: relative; }
+.brand-sub { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; color: var(--ink-3); text-transform: uppercase; margin-top: 0.1rem; }
+.brand-deva { font-family: var(--sans); font-size: 11px; letter-spacing: 0; }
+.brand-rule { margin-bottom: 0.2rem; border-top: 2px solid var(--stamp); position: relative; }
 .brand-rule::after { content: ''; position: absolute; left: 0; right: 0; top: 2px; border-top: 1px solid var(--stamp); opacity: 0.55; }
+/* the narrow sidebar needs a slightly denser sub-line to stay on one line */
+.sidebar .brand-sub { font-size: 9.5px; letter-spacing: 0.08em; }
 
 .nav-section { display: flex; flex-direction: column; gap: 1px; }
 .nav-eyebrow { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); padding: 0 0.45rem; margin-bottom: 0.35rem; }
@@ -436,7 +463,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .auth-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.5rem; background: var(--paper); }
 .auth-card { width: 100%; max-width: 380px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1.75rem 1.75rem 1.5rem; box-shadow: var(--shadow); }
 .auth-card .brand-name { font-size: 15px; }
-.auth-card .brand-rule { margin-bottom: 1.25rem; }
+.auth-card .brand { margin-bottom: 1.25rem; padding: 0; }
 .auth-card h1 { font-size: 18px; }
 
 /* ── share (public) ───────────────────────────────────────────────────────── */

@@ -29,7 +29,7 @@ links, and import/export everything as CSV.
 | Interactivity | htmx (vendored) + small vanilla JS | No SPA, no client bundler, no framework churn (see §17 for the full rationale) |
 | Database | D1 (Cloudflare's SQLite) + **Drizzle ORM** | Free 5 GB; schema as TypeScript, typed queries, plain-SQL migrations out (§5) |
 | Object storage | R2 for cover art | Free 10 GB, zero egress fees |
-| Styling | Hand-written design system (`public/app.css`) | "Accession ledger" identity: ink/green palette, mono data type, dark mode — no framework, no build step |
+| Styling | Hand-written design system (`public/app.css`) | "Manuscript ledger" identity (§16 #16): palm-leaf/indigo/vermilion palette, Eczar display type, mono data type, dark mode — no framework, no build step |
 | Barcode scanning | Browser `BarcodeDetector` API, ZXing-WASM fallback | Runs on the phone, costs the server nothing |
 | Metadata | Open Library + Google Books (books) · BoardGameGeek (board games) · Discogs (vinyl) | All free — see §7 |
 | Auth | Built-in multi-user (admin + members), WebCrypto PBKDF2 + signed session cookie | Family accounts with no email infra and no paid services (§8) |
@@ -510,6 +510,18 @@ file hosting (calibre-web's territory), background jobs of any kind.
     every add-flow candidate card gets a second submit that presets `copies = 0` and
     redirects to the edit form (not the detail page) so rating/review/status/read date
     go in immediately. Same `POST /items` handler, one extra form field.
+16. **Visual identity re-grounded in Nalanda itself: "the manuscript ledger."** The
+    accession-ledger bones stay; the materials become the Pala-era scriptorium's:
+    palm-leaf buff paper, lampblack ink, **indigo** working accent, **vermilion**
+    rubrication (red stays reserved for circulation/danger, exactly as red ink marked
+    critical annotations in the manuscripts), turmeric gold for ratings; dark mode is
+    the lamp-lit reading room (warm blacks). Display face is **Eczar** (OFL,
+    Devanagari-first design), vendored as woff2 via `@fontsource/eczar` +
+    `scripts/vendor.mjs` — never a CDN. Signature: the **śirorekhā** — the brand's
+    vermilion double rule sits *above* the wordmark, which hangs from it like
+    Devanagari letters from their headstroke; नालन्दा appears in the brand sub-line
+    and share footer (system Devanagari fonts, graceful fallback). Logo, PWA icons,
+    manifest, and theme-color metas follow the new palette.
 
 The honest comparison, since it was asked:
 

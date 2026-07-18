@@ -26,11 +26,15 @@ structural changes, update it (incl. §16 decision log) when a decision changes.
   games — no barcode lookup, name search only), Discogs (vinyl, **has** barcode search,
   needs `DISCOGS_TOKEN`).
 - Styling is the hand-written design system in `public/app.css` — no CSS framework. The
-  visual identity is "the accession ledger, modernized": ink/paper palette with a deep
-  bankers-lamp green accent, stamp red reserved for circulation/danger, monospace for all
-  data (counts, ISBNs, dates, pills, accession numbers via `accNo()`), serif for page
-  titles only, light + dark via `prefers-color-scheme`. Extend it with the existing
-  tokens/components (`.pill`, `.data-table`, `.props`, `.eyebrow`) — don't add frameworks.
+  visual identity is "the manuscript ledger" (ARCH.md §16 #16), grounded in Nalanda's
+  Pala-era scriptorium: palm-leaf buff paper, lampblack ink, indigo working accent,
+  vermilion rubrication reserved for circulation/danger, turmeric gold for ratings,
+  monospace for all data (counts, ISBNs, dates, pills, accession numbers via `accNo()`),
+  Eczar (vendored woff2, Devanagari-first face) for page titles and brand only, light +
+  dark (lamp-lit) via `prefers-color-scheme`. The brand hangs from its vermilion
+  headstroke (śirorekhā) — that rule lives in `.brand-rule` only. Extend with the
+  existing tokens/components (`.pill`, `.data-table`, `.props`, `.eyebrow`) — don't add
+  frameworks.
 - htmx and ZXing-WASM are pinned as devDependencies and copied to `public/vendor/` by
   `scripts/vendor.mjs` (runs on postinstall) — never hotlinked from a CDN, never imported
   into the Worker bundle.
