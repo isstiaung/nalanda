@@ -522,6 +522,13 @@ file hosting (calibre-web's territory), background jobs of any kind.
     Devanagari letters from their headstroke; नालन्दा appears in the brand sub-line
     and share footer (system Devanagari fonts, graceful fallback). Logo, PWA icons,
     manifest, and theme-color metas follow the new palette.
+17. **Mark: Ratnodadhi in brick.** The logo is Nalanda's nine-storey library tower
+    ("Ocean of Jewels") as it stood — red-brick storeys on palm-leaf buff, turmeric
+    jewel at the summit, lampblack plinth. Chosen over an indigo-ground version (the
+    app's *perceived* scheme is paper + red, indigo is seasoning) and over letterform
+    marks (Latin N, Devanagari न — rejected as not saying "library"). The exploration
+    lives in `options/` (kept in-repo deliberately); regenerate icons from
+    `public/logo.svg` via qlmanage + sips as before.
 
 The honest comparison, since it was asked:
 
