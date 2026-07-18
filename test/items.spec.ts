@@ -2,7 +2,7 @@
 // driven through the real app (session cookie + browser-faithful CSRF headers).
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
-import { createLibrary, createUser, getItem } from '../src/db/queries';
+import { createLibrary, createUser, getItem, listShares } from '../src/db/queries';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import app from '../src/index';
 
@@ -82,7 +82,6 @@ describe('add flow: Log — not owned', () => {
       cookie,
     );
     expect(create.status).toBe(302);
-    const { listShares } = await import('../src/db/queries');
     const [view] = await listShares(env.DB, lib.id);
     expect(view).toBeDefined();
 
@@ -101,6 +100,26 @@ describe('add flow: Log — not owned', () => {
 
     expect((await publicGet(`/share/${view!.token}/items/${loggedId}`)).status).toBe(200);
     expect((await publicGet(`/share/${view!.token}/items/${ownedId}`)).status).toBe(404); // no id-walking out of scope
+  });
+
+  it('share pages are served from the isolate memory cache on repeat reads', async () => {
+    const { lib, cookie } = await seedSession();
+    await post('/items', { title: 'Cached Once', libraryId: String(lib.id), mediaType: 'book' }, cookie);
+    await post('/shares', { libraryId: String(lib.id), name: 'Cache test', sort: 'title' }, cookie);
+    const [view] = await listShares(env.DB, lib.id);
+
+    const publicGet = async () => {
+      const ctx = createExecutionContext();
+      const res = await app.fetch(new Request(`http://nalanda.test/share/${view!.token}`), env, ctx);
+      await waitOnExecutionContext(ctx);
+      return res;
+    };
+    const first = await publicGet();
+    expect(first.headers.get('x-cache')).toBe('miss');
+    const second = await publicGet();
+    expect(second.headers.get('x-cache')).toBe('hit');
+    expect(await second.text()).toBe(await first.text());
+    expect(await second.headers.get('content-type')).toContain('text/html');
   });
 
   it('refuses to lend a copies=0 entry', async () => {

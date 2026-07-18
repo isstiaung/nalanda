@@ -64,7 +64,8 @@ structural changes, update it (incl. §16 decision log) when a decision changes.
   Share pages get `noindex`.
 - Share tokens are random 128-bit, **one per published view** (`shares` table — filters
   captured at publish time; `itemMatchesShare()` guards the public item route).
-  Publish/rotate/remove is admin-only.
+  Publish/rotate/remove is admin-only. Share pages are memory-cached 60 s per isolate
+  (burst shield — rotation/edits reach visitors within a minute, ARCH.md §16 #19).
 - `/covers/:key` is intentionally public — keys are random UUIDs; never make them
   enumerable or derived from item data.
 

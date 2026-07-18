@@ -9,6 +9,39 @@ import { DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, stars }
 
 const share = new Hono<AppEnv>();
 
+/**
+ * The public pages are the app's many-readers surface, and D1's read quota is
+ * shared with the authenticated app — so rendered share HTML is served from a
+ * per-isolate memory cache for 60 s. Memory (not the edge Cache API) because
+ * the Cache API is a no-op on workers.dev domains; this shields bursts on any
+ * domain, per colo isolate. Consequence: rotate/remove and data edits take up
+ * to 60 s to reach visitors (ARCH.md §16 #19). Only 200s are cached; entries
+ * are capped and evicted oldest-first.
+ */
+const PAGE_TTL_MS = 60_000;
+const PAGE_CACHE_MAX = 200;
+const pageCache = new Map<string, { body: string; headers: [string, string][]; expires: number }>();
+
+share.use('*', async (c, next) => {
+  if (c.req.method !== 'GET') return next();
+  const key = c.req.url;
+  const hit = pageCache.get(key);
+  if (hit && hit.expires > Date.now()) {
+    return new Response(hit.body, { headers: [...hit.headers, ['x-cache', 'hit']] });
+  }
+  await next();
+  if (c.res.status === 200) {
+    const headers: [string, string][] = [...c.res.headers.entries()];
+    const body = await c.res.text();
+    if (pageCache.size >= PAGE_CACHE_MAX) {
+      const oldest = pageCache.keys().next().value;
+      if (oldest !== undefined) pageCache.delete(oldest);
+    }
+    pageCache.set(key, { body, headers, expires: Date.now() + PAGE_TTL_MS });
+    c.res = new Response(body, { headers: [...headers, ['x-cache', 'miss']] });
+  }
+});
+
 const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string }>> = ({ title, shelf, children }) => (
   <html lang="en">
     <head>

@@ -64,6 +64,7 @@ have leaked.
   tags, rating, review, and the "Not owned" badge. **Never**: private notes,
   loans/borrowers, copy counts, who added it. A link can't be browsed beyond its
   filters, even by guessing item URLs. Pages carry `noindex`.
-- **Rotate** if a link spread further than intended — old URL 404s instantly, new one is
-  minted.
+- **Rotate** if a link spread further than intended — a new URL is minted and the old
+  one dies within a minute (public pages are cached for 60 s; same applies to edits
+  showing up on share pages).
 - **Remove** to unpublish that view; other links on the same shelf keep working.

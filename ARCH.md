@@ -217,7 +217,7 @@ confirm. Same confirm screen, different entry point.
 that's just a view with no filters) from the shelf page → each published view is a row
 in `shares` with its own random token, name, and captured filters → `/share/<token>` is
 a read-only, no-login page of exactly that view (§9, §16 #18). Rotate or remove any
-link independently; old URLs die instantly.
+link independently; old URLs die within a minute (§16 #19).
 
 **Import from libib or Goodreads**: both export CSV. The import page parses the CSV **in
 the browser** and posts JSON batches of ~200 rows (this sidesteps the Worker CPU budget,
@@ -302,7 +302,9 @@ portable, and makes share routes trivially public. CF Access remains available l
   the authenticated app. The whitelist lives in one view module so it can't drift.
 - Pages carry `<meta name="robots" content="noindex">` — links are for people you send them
   to, not search engines.
-- Unpublish or regenerate the token any time; old URLs 404 immediately.
+- Unpublish or regenerate the token any time; old URLs die within a minute (the
+  per-isolate page cache, §16 #19 — D1 stops being asked immediately, cached HTML
+  can outlive the token by up to its 60 s TTL).
 - **Covers**: share pages need cover images without auth, so `GET /covers/:key` is public
   with random-UUID keys (unguessable, no listing). Acceptable exposure: covers are public
   cover art by definition.
@@ -543,6 +545,17 @@ file hosting (calibre-web's territory), background jobs of any kind.
     survived; `libraries.share_token` remains as a dead column (append-only
     migrations, no destructive change). 0003 is an intentional no-op — it was
     recorded as applied while still empty, and the harness requires ≥1 statement.
+19. **Share pages are burst-shielded by a 60 s per-isolate memory cache.** They are
+    the many-readers surface and D1's read quota is shared with the authenticated
+    app — a hot link must not degrade the household's own use. Mechanism chosen
+    over (a) edge Cache API / `s-maxage` — a **no-op on workers.dev domains** (no
+    zone; becomes a worthwhile second layer if a custom domain lands) — and over
+    (b) materializing view JSON to R2 — write amplification (every edit fans out
+    to every affected view × page), unbounded staleness on any missed
+    invalidation hook, and a second data store violating the D1-as-only-source
+    invariant. Accepted cost: rotation/removal and edits reach visitors within
+    60 s instead of instantly. `x-cache: hit|miss` header aids debugging;
+    regression-tested in test/items.spec.ts.
 
 The honest comparison, since it was asked:
 
