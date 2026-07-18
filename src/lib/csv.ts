@@ -187,3 +187,109 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
     tags,
   };
 }
+
+// ---------- Goodreads import mapping ----------
+
+/**
+ * Columns we map onto item fields, plus pure duplicates we drop (author_l-f,
+ * bookshelves_with_positions). Everything else lands in `details` (lossless).
+ */
+const KNOWN_GOODREADS = new Set([
+  'book_id',
+  'title',
+  'author',
+  'author_l-f',
+  'additional_authors',
+  'isbn',
+  'isbn13',
+  'my_rating',
+  'publisher',
+  'number_of_pages',
+  'year_published',
+  'date_read',
+  'bookshelves',
+  'bookshelves_with_positions',
+  'exclusive_shelf',
+  'my_review',
+  'private_notes',
+  'owned_copies',
+]);
+
+/** Goodreads' three built-in exclusive shelves — they map to status, not tags. */
+const EXCLUSIVE_SHELVES = new Set(['read', 'currently-reading', 'to-read']);
+
+/** Goodreads wraps ISBNs in an Excel guard: ="9780…" (or ="" when absent). */
+function unguard(raw: string | undefined): string {
+  const v = (raw ?? '').trim();
+  return v.startsWith('=') ? v.slice(1).replace(/^"|"$/g, '') : v;
+}
+
+/** Goodreads dates are 2024/01/15; we store 2024-01-15. */
+function isoDate(raw: string | undefined): string | null {
+  const v = (raw ?? '').trim().replaceAll('/', '-');
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+}
+
+function goodreadsStatus(exclusive: string, shelves: string[]): ItemStatus {
+  const dnf = (v: string) => v === 'abandoned' || v === 'dnf' || v === 'did-not-finish';
+  if (dnf(exclusive)) return 'abandoned';
+  if (exclusive === 'read') return 'completed';
+  if (exclusive === 'currently-reading') return 'in_progress';
+  if (shelves.some(dnf)) return 'abandoned';
+  return 'not_started'; // to-read and anything unrecognized
+}
+
+/** A Goodreads export is recognized by its mandatory Exclusive Shelf column. */
+export function looksLikeGoodreads(headers: string[]): boolean {
+  return headers.some((h) => h.trim().toLowerCase().replace(/\s+/g, '_') === 'exclusive_shelf');
+}
+
+/** Maps one parsed Goodreads-export CSV row onto our item shape. Null if unusable. */
+export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
+  const r: Record<string, string> = {};
+  for (const [k, v] of Object.entries(row)) {
+    const key = k.trim().toLowerCase().replace(/\s+/g, '_');
+    if (key) r[key] = (v ?? '').trim();
+  }
+
+  const title = r['title'];
+  if (!title) return null;
+
+  const isbn13 = unguard(r['isbn13']).replace(/\D/g, '');
+  const isbn10 = unguard(r['isbn']).replace(/[^0-9Xx]/g, '');
+  const ratingNum = Number.parseInt(r['my_rating'] ?? '', 10); // 0–5 whole stars, 0 = unrated
+  const pages = Number.parseInt(r['number_of_pages'] ?? '', 10);
+  const ownedNum = Number.parseInt(r['owned_copies'] ?? '', 10);
+
+  const shelves = (r['bookshelves'] ?? '').split(',').map((t) => t.trim()).filter(Boolean);
+  const exclusive = r['exclusive_shelf'] ?? '';
+
+  const details: Record<string, string> = {};
+  for (const [k, v] of Object.entries(r)) {
+    if (!KNOWN_GOODREADS.has(k) && v) details[k] = v;
+  }
+  if (r['book_id']) details['goodreads_book_id'] = r['book_id'];
+
+  return {
+    item: {
+      mediaType: 'book',
+      title,
+      creators: [r['author'], r['additional_authors']].filter(Boolean).join(', ') || null,
+      isbn13: isbn13.length === 13 ? isbn13 : null,
+      isbn10Upc: isbn10 || null,
+      publisher: r['publisher'] || null,
+      published: r['year_published'] || r['original_publication_year'] || null,
+      description: null,
+      length: Number.isFinite(pages) && pages > 0 ? pages : null,
+      status: goodreadsStatus(exclusive, shelves),
+      rating: Number.isFinite(ratingNum) && ratingNum >= 1 && ratingNum <= 5 ? ratingNum * 2 : null,
+      review: r['my_review'] ? r['my_review'].replace(/<br\s*\/?>/gi, '\n') : null,
+      notes: r['private_notes'] || null,
+      copies: Number.isFinite(ownedNum) && ownedNum > 0 ? ownedNum : 0, // default: reading log, not owned
+      beganOn: null, // Goodreads doesn't export a start date
+      completedOn: isoDate(r['date_read']),
+      details: Object.keys(details).length ? JSON.stringify(details) : '{}',
+    },
+    tags: shelves.filter((sh) => !EXCLUSIVE_SHELVES.has(sh) && sh !== exclusive),
+  };
+}

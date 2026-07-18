@@ -122,8 +122,13 @@
     const res = await fetch('/api/import', options(true, rows.slice(0, 200)));
     if (!res.ok) { append(`Preview failed (${res.status}).`); return; }
     const data = await res.json();
-    append(`Sample of first ${Math.min(200, rows.length)} rows: ${data.mapped} map cleanly, ${data.skipped} would be skipped (no title).`);
-    append(`Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
+    const sampled = Math.min(200, rows.length);
+    append(`Sample of first ${sampled} rows: ${data.mapped} map cleanly, ${data.skipped} would be skipped (no title).`);
+    if (data.format === 'goodreads') {
+      append(`Goodreads export detected: ${data.merged} match books already here (rating/review/shelves will merge onto them — Goodreads wins), ${data.fresh} are new (added as “Not owned” reading-log entries).`);
+    } else {
+      append(`Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
+    }
     for (const s of data.sample) {
       append(`  · [${s.mediaType}] ${s.title}${s.creators ? ` — ${s.creators}` : ''}${s.tags.length ? ` (${s.tags.join(', ')})` : ''}`);
     }
@@ -136,21 +141,26 @@
     runBtn.disabled = true;
     previewBtn.disabled = true;
     let inserted = 0;
+    let merged = 0;
     let skipped = 0;
     say(`Importing ${rows.length} rows…`);
     for (let i = 0; i < rows.length; i += BATCH) {
       const res = await fetch('/api/import', options(false, rows.slice(i, i + BATCH)));
       if (!res.ok) {
-        append(`Batch at row ${i} failed (${res.status}) — stopped. ${inserted} imported so far; re-run after fixing.`);
+        append(`Batch at row ${i} failed (${res.status}) — stopped. ${inserted} imported so far; re-run after fixing (already-imported rows merge instead of duplicating).`);
         previewBtn.disabled = false;
         return;
       }
       const data = await res.json();
       inserted += data.inserted;
+      merged += data.merged ?? 0;
       skipped += data.skipped;
-      say(`Importing… ${Math.min(i + BATCH, rows.length)}/${rows.length} (${inserted} added)`);
+      say(`Importing… ${Math.min(i + BATCH, rows.length)}/${rows.length} (${inserted} added${merged ? `, ${merged} merged` : ''})`);
     }
-    say(`Done: ${inserted} items imported, ${skipped} rows skipped (no title). Head to your library →`);
+    say(
+      `Done: ${inserted} items added${merged ? `, ${merged} merged onto existing items` : ''}, ${skipped} rows skipped (no title).` +
+      (inserted ? ' New items arrive without covers — reload this page and run the cover backfill.' : ' Head to your library →'),
+    );
     previewBtn.disabled = false;
   });
 })();

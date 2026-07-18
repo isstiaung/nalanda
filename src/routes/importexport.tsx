@@ -5,6 +5,7 @@ import {
   countBackfillable,
   importItems,
   listLibraries,
+  mergeImportItems,
   nextBackfillable,
   pageItems,
   tagsForItems,
@@ -12,7 +13,15 @@ import {
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { storeCover } from '../lib/covers';
-import { csvLine, EXPORT_COLUMNS, itemToCsvLine, mapLibibRow, type ImportOptions } from '../lib/csv';
+import {
+  csvLine,
+  EXPORT_COLUMNS,
+  itemToCsvLine,
+  looksLikeGoodreads,
+  mapGoodreadsRow,
+  mapLibibRow,
+  type ImportOptions,
+} from '../lib/csv';
 import { findCover } from '../metadata';
 import { MEDIA_LABEL } from '../views/components';
 import { page } from '../views/layout';
@@ -28,7 +37,7 @@ importexport.get('/import', async (c) => {
       <div class="page-head">
         <div>
           <h1>Import / export</h1>
-          <span class="sub">LIBIB CSV IN · FULL CSV OUT</span>
+          <span class="sub">LIBIB · GOODREADS CSV IN · FULL CSV OUT</span>
         </div>
         <div class="page-actions">
           <a href="/export.csv" role="button">
@@ -37,8 +46,12 @@ importexport.get('/import', async (c) => {
         </div>
       </div>
       <p class="muted">
-        Export your libib collection as CSV, drop it here. The file is parsed in your browser and uploaded in
-        small batches; columns we don't recognize are kept losslessly in each item's details.
+        Export your libib collection or Goodreads library as CSV, drop it here — the format is
+        auto-detected. The file is parsed in your browser and uploaded in small batches; columns we
+        don't recognize are kept losslessly in each item's details. Goodreads rows that match a book
+        already on your shelves (by ISBN, then title + author) merge their rating, review, shelves,
+        and read date onto it — Goodreads wins. The rest are added as “Not owned” reading-log
+        entries.
       </p>
       <form id="import-form" onsubmit="return false" class="panel form-card">
         <label>
@@ -136,21 +149,30 @@ importexport.post('/api/import', async (c) => {
     musicAsVinyl: body.musicAsVinyl !== false,
   };
 
+  const isGoodreads = rows.length > 0 && looksLikeGoodreads(Object.keys(rows[0]!));
+
   const mapped = [];
   let skipped = 0;
   for (const row of rows) {
-    const m = mapLibibRow(row, opts);
+    const m = isGoodreads ? mapGoodreadsRow(row) : mapLibibRow(row, opts);
     if (m) mapped.push(m);
     else skipped++;
   }
 
+  const userId = c.get('user').id;
+  const withOwners = mapped.map((m) => ({ item: { ...m.item, libraryId, addedBy: userId }, tags: m.tags }));
+
   if (body.dryRun) {
     const byType: Record<string, number> = {};
     for (const m of mapped) byType[m.item.mediaType ?? 'book'] = (byType[m.item.mediaType ?? 'book'] ?? 0) + 1;
+    const match = isGoodreads ? await mergeImportItems(c.env.DB, withOwners, true) : null;
     return c.json({
+      format: isGoodreads ? 'goodreads' : 'libib',
       mapped: mapped.length,
       skipped,
       byType,
+      merged: match?.merged ?? 0,
+      fresh: match?.inserted ?? 0,
       sample: mapped.slice(0, 5).map((m) => ({
         title: m.item.title,
         mediaType: m.item.mediaType,
@@ -160,12 +182,12 @@ importexport.post('/api/import', async (c) => {
     });
   }
 
-  const userId = c.get('user').id;
-  const inserted = await importItems(
-    c.env.DB,
-    mapped.map((m) => ({ item: { ...m.item, libraryId, addedBy: userId }, tags: m.tags })),
-  );
-  return c.json({ inserted, skipped });
+  if (isGoodreads) {
+    const { inserted, merged } = await mergeImportItems(c.env.DB, withOwners);
+    return c.json({ inserted, merged, skipped });
+  }
+  const inserted = await importItems(c.env.DB, withOwners);
+  return c.json({ inserted, merged: 0, skipped });
 });
 
 /**

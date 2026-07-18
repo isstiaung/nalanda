@@ -217,11 +217,19 @@ confirm. Same confirm screen, different entry point.
 `/share/<token>` — a read-only, no-login view of that library (§9). Toggle off (or
 regenerate) and old links die instantly.
 
-**Import from libib**: libib exports CSV. The import page parses the CSV **in the browser**
-and posts JSON batches of ~200 rows (this sidesteps the Worker CPU budget, §12). Known libib
-columns map to real columns; `group` becomes a tag; anything unrecognized lands in `details`
-JSON so the import is lossless. A dry-run preview shows the mapping before anything is
-written. Export is the inverse: `GET /export.csv` streams every field back out.
+**Import from libib or Goodreads**: both export CSV. The import page parses the CSV **in
+the browser** and posts JSON batches of ~200 rows (this sidesteps the Worker CPU budget,
+§12); the format is auto-detected per batch (a Goodreads export always has an
+`Exclusive Shelf` column). Known columns map to real columns; anything unrecognized lands
+in `details` JSON so the import is lossless. libib rows always insert (`group` becomes a
+tag). Goodreads rows **match-and-merge** (§16 #14): a row matching an existing item — by
+ISBN-13, then ISBN-10, then normalized title + first-author surname — merges rating,
+review, status, read date, and shelves-as-tags onto it (Goodreads wins, but never blanks
+a field it has no value for, and never touches copies or bibliographic metadata);
+unmatched rows insert with `copies = 0` (reading-log entries, §16 #13) unless Goodreads'
+Owned Copies says otherwise. Re-runs are idempotent: previously inserted rows match on
+the next run. A dry-run preview shows mapping + match counts before anything is written.
+Export is the inverse: `GET /export.csv` streams every field back out.
 
 ## 7. Metadata providers
 
@@ -487,6 +495,17 @@ file hosting (calibre-web's territory), background jobs of any kind.
     owned only, with a separate "Read, not owned" stat. Share pages *include* these
     items — deliberate: share links double as the public reviews page — badged via a
     whitelisted derived boolean (`inCollection`); the raw count stays private (§9).
+14. **Goodreads CSV import is match-and-merge**, not insert-only like libib (§6): match
+    by ISBN-13 → ISBN-10 → normalized title + first-author surname (series suffixes,
+    subtitles, and initials-spacing stripped — Goodreads titles carry "(Series, #1)"
+    that provider-sourced titles don't). On match, **Goodreads wins** for rating,
+    review, status, read date, private notes (user's call — Goodreads is the current
+    source of truth), but absent values never blank existing ones and copies/metadata
+    are untouched. Ratings map 0–5 whole stars → half-star scale ×2 (0 = unrated);
+    `Exclusive Shelf` → status (read/currently-reading/to-read, custom dnf/abandoned
+    shelves → abandoned); ISBNs are unwrapped from Excel guards (`="…"`). Format is
+    auto-detected server-side per batch, so /api/import needs no format flag and the
+    same endpoint serves both importers.
 
 The honest comparison, since it was asked:
 

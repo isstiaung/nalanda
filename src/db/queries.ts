@@ -377,6 +377,24 @@ export async function nextBackfillable(d1: D1Database, afterId: number, limit: n
 
 // ---------- bulk import ----------
 
+/** Ensure tags exist and link them to items — additive, existing links kept. */
+async function linkTags(dbi: ReturnType<typeof db>, pairs: Array<{ itemId: number; tag: string }>): Promise<void> {
+  if (!pairs.length) return;
+  const names = [...new Set(pairs.map((p) => p.tag))];
+  await dbi.batch(
+    names.map((name) => dbi.insert(s.tags).values({ name }).onConflictDoNothing()) as [never, ...never[]],
+  );
+  const tagRows = await dbi.select().from(s.tags).where(inArray(s.tags.name, names));
+  const idByName = new Map(tagRows.map((t) => [t.name, t.id]));
+  const links = pairs
+    .map((p) => ({ itemId: p.itemId, tagId: idByName.get(p.tag) }))
+    .filter((l): l is { itemId: number; tagId: number } => !!l.tagId);
+  for (let i = 0; i < links.length; i += 40) {
+    const chunk = links.slice(i, i + 40); // stay well under D1's bound-parameter limit
+    await dbi.insert(s.itemTags).values(chunk).onConflictDoNothing();
+  }
+}
+
 /** Batched insert used by /api/import. One network round trip per batch of rows. */
 export async function importItems(d1: D1Database, rows: Array<{ item: NewItem; tags: string[] }>): Promise<number> {
   if (!rows.length) return 0;
@@ -391,21 +409,102 @@ export async function importItems(d1: D1Database, rows: Array<{ item: NewItem; t
     if (!id) return;
     for (const tag of normalizeTags(r.tags)) pairs.push({ itemId: id, tag });
   });
-
-  if (pairs.length) {
-    const names = [...new Set(pairs.map((p) => p.tag))];
-    await dbi.batch(
-      names.map((name) => dbi.insert(s.tags).values({ name }).onConflictDoNothing()) as [never, ...never[]],
-    );
-    const tagRows = await dbi.select().from(s.tags).where(inArray(s.tags.name, names));
-    const idByName = new Map(tagRows.map((t) => [t.name, t.id]));
-    const links = pairs
-      .map((p) => ({ itemId: p.itemId, tagId: idByName.get(p.tag) }))
-      .filter((l): l is { itemId: number; tagId: number } => !!l.tagId);
-    for (let i = 0; i < links.length; i += 40) {
-      const chunk = links.slice(i, i + 40); // stay well under D1's bound-parameter limit
-      await dbi.insert(s.itemTags).values(chunk).onConflictDoNothing();
-    }
-  }
+  await linkTags(dbi, pairs);
   return rows.length;
+}
+
+// ---------- Goodreads match-and-merge import ----------
+
+/** Series suffixes and subtitles differ between sources; compare the stem only. */
+const normTitle = (t: string) =>
+  t
+    .toLowerCase()
+    .replace(/\(.*?\)/g, ' ')
+    .split(':')[0]!
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+/** First author's surname, initials-insensitive ("N.K. Jemisin" ≈ "N. K. Jemisin"). */
+const surname = (creators: string | null) => {
+  const first = (creators ?? '').split(',')[0]!.replace(/\./g, ' ').trim();
+  const tokens = first.split(/\s+/).filter(Boolean);
+  return tokens[tokens.length - 1]?.toLowerCase() ?? '';
+};
+
+const titleKey = (title: string, creators: string | null) => `${normTitle(title)}|${surname(creators)}`;
+
+export type MergeImportResult = { inserted: number; merged: number };
+
+/**
+ * Rows matching an existing item (by ISBN-13, then ISBN-10, then normalized
+ * title + first-author surname) merge their reading data onto it — Goodreads wins
+ * (ARCH.md §16 #14) but never blanks a field it has no value for, and never touches
+ * copies or bibliographic metadata. Unmatched rows insert as new items (typically
+ * copies = 0 reading-log entries). Re-runs are safe: rows inserted last time match
+ * by ISBN or title on the next run and merge instead of duplicating.
+ */
+export async function mergeImportItems(
+  d1: D1Database,
+  rows: Array<{ item: NewItem; tags: string[] }>,
+  dryRun = false,
+): Promise<MergeImportResult> {
+  if (!rows.length) return { inserted: 0, merged: 0 };
+  const dbi = db(d1);
+
+  // Household scale: load every item's match keys once per batch — simpler and cheaper
+  // than chunked IN() lookups under D1's bound-parameter limit.
+  const existing = await dbi
+    .select({
+      id: s.items.id,
+      isbn13: s.items.isbn13,
+      isbn10Upc: s.items.isbn10Upc,
+      title: s.items.title,
+      creators: s.items.creators,
+    })
+    .from(s.items);
+  const byIsbn13 = new Map<string, number>();
+  const byIsbn10 = new Map<string, number>();
+  const byTitle = new Map<string, number>();
+  for (const e of existing) {
+    if (e.isbn13) byIsbn13.set(e.isbn13, e.id);
+    if (e.isbn10Upc) byIsbn10.set(e.isbn10Upc.toUpperCase(), e.id);
+    byTitle.set(titleKey(e.title, e.creators), e.id);
+  }
+
+  const inserts: Array<{ item: NewItem; tags: string[] }> = [];
+  const merges: Array<{ id: number; set: Partial<NewItem>; tags: string[] }> = [];
+  for (const r of rows) {
+    const id =
+      (r.item.isbn13 ? byIsbn13.get(r.item.isbn13) : undefined) ??
+      (r.item.isbn10Upc ? byIsbn10.get(r.item.isbn10Upc.toUpperCase()) : undefined) ??
+      byTitle.get(titleKey(r.item.title, r.item.creators ?? null));
+    if (!id) {
+      inserts.push(r);
+      continue;
+    }
+    const set: Partial<NewItem> = { status: r.item.status }; // exclusive shelf is always present
+    if (r.item.rating != null) set.rating = r.item.rating;
+    if (r.item.review) set.review = r.item.review;
+    if (r.item.notes) set.notes = r.item.notes;
+    if (r.item.completedOn) set.completedOn = r.item.completedOn;
+    merges.push({ id, set, tags: r.tags });
+  }
+
+  if (!dryRun) {
+    if (merges.length) {
+      await dbi.batch(
+        merges.map((m) =>
+          dbi
+            .update(s.items)
+            .set({ ...m.set, updatedAt: sql`(datetime('now'))` })
+            .where(eq(s.items.id, m.id)),
+        ) as [never, ...never[]],
+      );
+      const pairs: Array<{ itemId: number; tag: string }> = [];
+      for (const m of merges) for (const tag of normalizeTags(m.tags)) pairs.push({ itemId: m.id, tag });
+      await linkTags(dbi, pairs);
+    }
+    await importItems(d1, inserts);
+  }
+  return { inserted: inserts.length, merged: merges.length };
 }

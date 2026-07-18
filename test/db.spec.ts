@@ -8,9 +8,11 @@ import {
   createLibrary,
   createLoan,
   createUser,
+  getItem,
   getLibraryByShareToken,
   importItems,
   listItems,
+  mergeImportItems,
   returnLoan,
   searchItems,
   setItemTags,
@@ -126,5 +128,115 @@ describe('bulk import', () => {
     expect(total).toBe(25);
     const found = await searchItems(env.DB, 'imported 7');
     expect(found.length).toBeGreaterThan(0);
+  });
+});
+
+describe('goodreads match-and-merge import', () => {
+  it('merges reading data onto ISBN matches, inserts the rest as reading-log entries', async () => {
+    const lib = await seedLibrary();
+    const owned = await createItem(env.DB, {
+      libraryId: lib.id,
+      mediaType: 'book',
+      title: 'The Fifth Season',
+      creators: 'N. K. Jemisin',
+      isbn13: '9780316229296',
+      copies: 1,
+      rating: 6,
+      details: '{}',
+    });
+
+    const result = await mergeImportItems(env.DB, [
+      {
+        // matches `owned` by ISBN — goodreads wins on rating/review/status
+        item: {
+          libraryId: lib.id,
+          mediaType: 'book',
+          title: 'The Fifth Season (The Broken Earth, #1)',
+          isbn13: '9780316229296',
+          status: 'completed',
+          rating: 10,
+          review: 'Stunning.',
+          completedOn: '2024-03-10',
+          copies: 0,
+          details: '{}',
+        },
+        tags: ['sci-fi'],
+      },
+      {
+        // no match anywhere — inserted as a copies=0 reading-log entry
+        item: { libraryId: lib.id, mediaType: 'book', title: 'Piranesi', creators: 'Susanna Clarke', status: 'completed', copies: 0, details: '{}' },
+        tags: [],
+      },
+    ]);
+    expect(result).toEqual({ merged: 1, inserted: 1 });
+
+    const after = await getItem(env.DB, owned.id);
+    expect(after!.rating).toBe(10); // goodreads wins
+    expect(after!.review).toBe('Stunning.');
+    expect(after!.status).toBe('completed');
+    expect(after!.completedOn).toBe('2024-03-10');
+    expect(after!.copies).toBe(1); // ownership untouched
+    expect(after!.title).toBe('The Fifth Season'); // metadata untouched
+    expect(await tagsForItem(env.DB, owned.id)).toEqual(['sci-fi']);
+
+    const { items } = await listItems(env.DB, lib.id, { owned: false });
+    expect(items.map((i) => i.title)).toEqual(['Piranesi']);
+  });
+
+  it('matches by normalized title + author surname when there is no ISBN, and never blanks fields', async () => {
+    const lib = await seedLibrary();
+    const owned = await createItem(env.DB, {
+      libraryId: lib.id,
+      mediaType: 'book',
+      title: 'The Dispossessed: An Ambiguous Utopia',
+      creators: 'Ursula K. Le Guin',
+      review: 'My old review.',
+      copies: 1,
+      details: '{}',
+    });
+
+    const result = await mergeImportItems(env.DB, [
+      {
+        item: {
+          libraryId: lib.id,
+          mediaType: 'book',
+          title: 'The Dispossessed',
+          creators: 'Ursula K. Le Guin',
+          status: 'completed',
+          rating: 8,
+          copies: 0,
+          details: '{}',
+        },
+        tags: [],
+      },
+    ]);
+    expect(result).toEqual({ merged: 1, inserted: 0 });
+    const after = await getItem(env.DB, owned.id);
+    expect(after!.rating).toBe(8);
+    expect(after!.review).toBe('My old review.'); // goodreads had none — not blanked
+  });
+
+  it('is idempotent across re-runs: first run inserts, second merges', async () => {
+    const lib = await seedLibrary();
+    const rows = [
+      {
+        item: {
+          libraryId: lib.id,
+          mediaType: 'book' as const,
+          title: 'Piranesi',
+          creators: 'Susanna Clarke',
+          isbn13: '9781635575637',
+          status: 'completed' as const,
+          rating: 9,
+          copies: 0,
+          details: '{}',
+        },
+        tags: ['fantasy'],
+      },
+    ];
+    expect(await mergeImportItems(env.DB, rows)).toEqual({ merged: 0, inserted: 1 });
+    expect(await mergeImportItems(env.DB, rows)).toEqual({ merged: 1, inserted: 0 });
+    const { total } = await listItems(env.DB, lib.id, {});
+    expect(total).toBe(1);
   });
 });
