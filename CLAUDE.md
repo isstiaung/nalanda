@@ -62,7 +62,9 @@ structural changes, update it (incl. §16 decision log) when a decision changes.
   `added_by`, usernames, or links into the authenticated app. (The derived boolean
   `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge.)
   Share pages get `noindex`.
-- Share tokens are random 128-bit; publish/rotate/disable is admin-only.
+- Share tokens are random 128-bit, **one per published view** (`shares` table — filters
+  captured at publish time; `itemMatchesShare()` guards the public item route).
+  Publish/rotate/remove is admin-only.
 - `/covers/:key` is intentionally public — keys are random UUIDs; never make them
   enumerable or derived from item data.
 

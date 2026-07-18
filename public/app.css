@@ -486,6 +486,17 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 
 /* ── share (public) ───────────────────────────────────────────────────────── */
 
+.share-panel { margin-top: 0.9rem; }
+.share-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--line);
+}
+
 .share-shell { max-width: 1020px; margin: 0 auto; padding: 2rem 1.5rem 3rem; }
 .share-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--line); padding-bottom: 0.9rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
 .share-head h1 { margin: 0; }

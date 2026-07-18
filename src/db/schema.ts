@@ -22,7 +22,7 @@ export const libraries = sqliteTable('libraries', {
   id: integer('id').primaryKey(),
   name: text('name').notNull(),
   position: integer('position').notNull().default(0),
-  shareToken: text('share_token').unique(),
+  shareToken: text('share_token').unique(), // legacy — migrated into `shares` (0004), no longer read/written
   createdAt: text('created_at').notNull().default(now),
 });
 
@@ -93,6 +93,23 @@ export const loans = sqliteTable(
   (t) => [index('idx_loans_item').on(t.itemId)],
 );
 
+/**
+ * Public share links, one per published VIEW (ARCH.md §16 #18): a token plus the
+ * captured filters it exposes. A whole-shelf link is just a share with no filters.
+ * libraryId is nullable for future all-shelves views; the UI currently always sets it.
+ */
+export const shares = sqliteTable('shares', {
+  id: integer('id').primaryKey(),
+  token: text('token').notNull().unique(),
+  name: text('name').notNull(), // the public page title
+  libraryId: integer('library_id').references(() => libraries.id, { onDelete: 'cascade' }),
+  mediaType: text('media_type', { enum: MEDIA_TYPES }),
+  status: text('status', { enum: ITEM_STATUSES }),
+  owned: integer('owned', { mode: 'boolean' }),
+  sort: text('sort', { enum: ['added', 'title', 'rating'] }).notNull().default('title'),
+  createdAt: text('created_at').notNull().default(now),
+});
+
 export const loginAttempts = sqliteTable('login_attempts', {
   ip: text('ip').notNull(),
   attemptedAt: text('attempted_at').notNull().default(now),
@@ -100,6 +117,7 @@ export const loginAttempts = sqliteTable('login_attempts', {
 
 export type User = typeof users.$inferSelect;
 export type Library = typeof libraries.$inferSelect;
+export type Share = typeof shares.$inferSelect;
 export type Item = typeof items.$inferSelect;
 export type NewItem = typeof items.$inferInsert;
 export type Loan = typeof loans.$inferSelect;

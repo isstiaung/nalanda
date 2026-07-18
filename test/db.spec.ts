@@ -7,16 +7,19 @@ import {
   createItem,
   createLibrary,
   createLoan,
+  createShare,
   createUser,
+  deleteShare,
   getItem,
-  getLibraryByShareToken,
+  getShareByToken,
   importItems,
   listItems,
+  listShares,
   mergeImportItems,
   returnLoan,
+  rotateShare,
   searchItems,
   setItemTags,
-  setShareToken,
   tagsForItem,
   updateItem,
 } from '../src/db/queries';
@@ -97,13 +100,24 @@ describe('loans', () => {
   });
 });
 
-describe('share tokens', () => {
-  it('publishes and revokes', async () => {
+describe('share views', () => {
+  it('publishes, rotates, and removes view links', async () => {
     const lib = await seedLibrary();
-    await setShareToken(env.DB, lib.id, 'deadbeefdeadbeefdeadbeefdeadbeef');
-    expect((await getLibraryByShareToken(env.DB, 'deadbeefdeadbeefdeadbeefdeadbeef'))?.id).toBe(lib.id);
-    await setShareToken(env.DB, lib.id, null);
-    expect(await getLibraryByShareToken(env.DB, 'deadbeefdeadbeefdeadbeefdeadbeef')).toBeNull();
+    const view = await createShare(env.DB, {
+      token: 'deadbeefdeadbeefdeadbeefdeadbeef',
+      name: 'My reviews',
+      libraryId: lib.id,
+      owned: false,
+    });
+    expect((await getShareByToken(env.DB, view.token))?.name).toBe('My reviews');
+
+    await rotateShare(env.DB, view.id, 'cafebabecafebabecafebabecafebabe');
+    expect(await getShareByToken(env.DB, 'deadbeefdeadbeefdeadbeefdeadbeef')).toBeNull(); // old URL dead
+    expect((await getShareByToken(env.DB, 'cafebabecafebabecafebabecafebabe'))?.id).toBe(view.id);
+
+    expect((await listShares(env.DB, lib.id)).length).toBe(1);
+    await deleteShare(env.DB, view.id);
+    expect(await listShares(env.DB, lib.id)).toEqual([]);
   });
 });
 

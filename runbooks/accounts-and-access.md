@@ -55,11 +55,15 @@ have leaked.
 
 ## Share links (admin-only)
 
-- **Publish**: library page → *Library settings* → *Publish read-only link*. Anyone with
-  the URL can view that shelf — no account, no login.
+- **Publish a view**: shelf page → apply any filters you want public (type, status,
+  owned/not owned) → *Shelf settings* → name the link → *Publish current view*. The
+  link shows exactly that view; publish with no filters for the whole shelf. Any
+  number of links per shelf — e.g. a "My reviews" link (holding: Not owned) alongside
+  the full catalog.
 - **What's exposed**: title, creators, cover, publisher, date, description, media details,
-  tags, rating, review. **Never**: private notes, loans/borrowers, copies, who added it.
-  Pages carry `noindex`.
+  tags, rating, review, and the "Not owned" badge. **Never**: private notes,
+  loans/borrowers, copy counts, who added it. A link can't be browsed beyond its
+  filters, even by guessing item URLs. Pages carry `noindex`.
 - **Rotate** if a link spread further than intended — old URL 404s instantly, new one is
   minted.
-- **Disable** to unpublish entirely.
+- **Remove** to unpublish that view; other links on the same shelf keep working.

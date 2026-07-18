@@ -2,9 +2,9 @@
 // toPublicItem() (src/lib/share.ts). See ARCH.md §9 and CLAUDE.md privacy invariants.
 import { Hono, type Context } from 'hono';
 import type { Child, FC, PropsWithChildren } from 'hono/jsx';
-import { getItem, getLibraryByShareToken, listItems, tagsForItems } from '../db/queries';
+import { getItem, getShareByToken, listItems, tagsForItems } from '../db/queries';
 import type { AppEnv } from '../env';
-import { toPublicItem, type PublicItem } from '../lib/share';
+import { itemMatchesShare, toPublicItem, type PublicItem } from '../lib/share';
 import { DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, stars } from '../views/components';
 
 const share = new Hono<AppEnv>();
@@ -67,19 +67,22 @@ function renderShare(c: Context<AppEnv>, title: string, shelf: string, body: Chi
 
 share.get('/:token', async (c) => {
   const token = c.req.param('token');
-  const lib = await getLibraryByShareToken(c.env.DB, token);
-  if (!lib) return c.notFound();
+  const view = await getShareByToken(c.env.DB, token);
+  if (!view) return c.notFound();
   const pageNum = Number.parseInt(c.req.query('page') ?? '1', 10) || 1;
-  const { items, total, page: current, pages } = await listItems(c.env.DB, lib.id, {
-    sort: 'title',
+  const { items, total, page: current, pages } = await listItems(c.env.DB, view.libraryId, {
+    mediaType: view.mediaType ?? undefined,
+    status: view.status ?? undefined,
+    owned: view.owned ?? undefined,
+    sort: view.sort,
     page: pageNum,
   });
   const publicItems = items.map(toPublicItem);
 
   return renderShare(
     c,
-    lib.name,
-    lib.name,
+    view.name,
+    view.name,
     <>
       <p class="eyebrow">
         {total} {total === 1 ? 'item' : 'items'}
@@ -96,17 +99,17 @@ share.get('/:token', async (c) => {
 
 share.get('/:token/items/:id', async (c) => {
   const token = c.req.param('token');
-  const lib = await getLibraryByShareToken(c.env.DB, token);
-  if (!lib) return c.notFound();
+  const view = await getShareByToken(c.env.DB, token);
+  if (!view) return c.notFound();
   const item = await getItem(c.env.DB, Number(c.req.param('id')));
-  if (!item || item.libraryId !== lib.id) return c.notFound(); // token only unlocks its own shelf
+  if (!item || !itemMatchesShare(view, item)) return c.notFound(); // token only unlocks its own view
   const pub = toPublicItem(item);
   const tags = (await tagsForItems(c.env.DB, [item.id])).get(item.id) ?? [];
 
   return renderShare(
     c,
-    `${pub.title} · ${lib.name}`,
-    lib.name,
+    `${pub.title} · ${view.name}`,
+    view.name,
     <article class="item-detail">
       <div class="item-detail-cover">
         {pub.coverKey ? (
@@ -179,7 +182,7 @@ share.get('/:token/items/:id', async (c) => {
           </div>
         ) : null}
         <p>
-          <a href={`/share/${token}`}>← back to {lib.name}</a>
+          <a href={`/share/${token}`}>← back to {view.name}</a>
         </p>
       </div>
     </article>,

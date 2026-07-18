@@ -1,14 +1,17 @@
 import { Hono } from 'hono';
-import type { ItemStatus, MediaType } from '../db/schema';
+import type { ItemStatus, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import {
   activeLoanItemIds,
   createLibrary,
+  createShare,
   deleteLibrary,
+  deleteShare,
   getLibrary,
   listItems,
+  listShares,
   renameLibrary,
-  setShareToken,
+  rotateShare,
   tagsForItems,
 } from '../db/queries';
 import type { AppEnv } from '../env';
@@ -16,6 +19,15 @@ import { deleteCover } from '../lib/covers';
 import { newShareToken } from '../lib/share';
 import { ItemGrid, ItemTable, MEDIA_LABEL, Pagination, STATUS_LABEL } from '../views/components';
 import { page } from '../views/layout';
+
+/** "Board games · In progress · Owned" — how a view's captured filters read. */
+function shareScopeLabel(v: Share): string {
+  const parts: string[] = [];
+  if (v.mediaType) parts.push(MEDIA_LABEL[v.mediaType]);
+  if (v.status) parts.push(STATUS_LABEL[v.status]);
+  if (v.owned !== null) parts.push(v.owned ? 'Owned' : 'Not owned');
+  return parts.length ? parts.join(' · ') : 'Whole shelf';
+}
 
 const libraries = new Hono<AppEnv>();
 
@@ -68,7 +80,8 @@ libraries.get('/libraries/:id', async (c) => {
   };
 
   const user = c.get('user');
-  const shareUrl = lib.shareToken ? `${new URL(c.req.url).origin}/share/${lib.shareToken}` : null;
+  const shares = user.role === 'admin' ? await listShares(c.env.DB, id) : [];
+  const origin = new URL(c.req.url).origin;
 
   return page(
     c,
@@ -79,7 +92,7 @@ libraries.get('/libraries/:id', async (c) => {
           <h1>{lib.name}</h1>
           <span class="sub">
             {total} {total === 1 ? 'ITEM' : 'ITEMS'}
-            {lib.shareToken ? ' · SHARED' : ''}
+            {shares.length ? ' · SHARED' : ''}
           </span>
         </div>
         <div class="page-actions">
@@ -162,32 +175,50 @@ libraries.get('/libraries/:id', async (c) => {
         </form>
         {user.role === 'admin' ? (
           <div class="share-panel">
-            <h4>Public share link</h4>
-            {shareUrl ? (
-              <>
-                <p>
-                  <a href={shareUrl} class="mono">
-                    {shareUrl}
+            <h4>Public share links</h4>
+            {shares.map((v) => (
+              <div class="share-row">
+                <span>
+                  <strong>{v.name}</strong> <small class="muted">{shareScopeLabel(v)}</small>
+                  <br />
+                  <a href={`${origin}/share/${v.token}`} class="mono">
+                    {origin}/share/{v.token}
                   </a>
-                </p>
-                <form method="post" action={`/libraries/${id}/share`} class="inline-form">
+                </span>
+                <form method="post" action={`/shares/${v.id}`} class="inline-form">
+                  <input type="hidden" name="libraryId" value={String(id)} />
                   <button name="action" value="rotate" class="btn">
-                    Rotate link
+                    Rotate
                   </button>
-                  <button name="action" value="disable" class="btn">
-                    Disable link
+                  <button name="action" value="delete" class="btn-danger">
+                    Remove
                   </button>
                 </form>
-              </>
-            ) : (
-              <form method="post" action={`/libraries/${id}/share`}>
-                <button name="action" value="enable" class="btn">
-                  Publish read-only link
-                </button>
-              </form>
-            )}
+              </div>
+            ))}
+            <form method="post" action="/shares" class="inline-form">
+              <input type="hidden" name="libraryId" value={String(id)} />
+              {mediaType ? <input type="hidden" name="mediaType" value={mediaType} /> : null}
+              {status ? <input type="hidden" name="status" value={status} /> : null}
+              {owned !== undefined ? <input type="hidden" name="owned" value={owned ? '1' : '0'} /> : null}
+              <input type="hidden" name="sort" value={sort} />
+              <input name="name" placeholder="Link name (shown as the public page title)" required />
+              <button type="submit" class="btn">
+                Publish current view
+              </button>
+            </form>
             <small class="muted">
-              Public pages show only whitelisted fields — never notes, loans, or copies.
+              "Current view" captures the filters applied above
+              {mediaType || status || owned !== undefined
+                ? ` (${[
+                    mediaType ? MEDIA_LABEL[mediaType] : null,
+                    status ? STATUS_LABEL[status] : null,
+                    owned !== undefined ? (owned ? 'Owned' : 'Not owned') : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')})`
+                : ' (none — the whole shelf)'}
+              . Public pages show only whitelisted fields — never notes, loans, or copy counts.
             </small>
           </div>
         ) : null}
@@ -214,19 +245,38 @@ libraries.post('/libraries/:id', async (c) => {
   return c.redirect(`/libraries/${id}`);
 });
 
-libraries.post('/libraries/:id/share', async (c) => {
+libraries.post('/shares', async (c) => {
+  if (c.get('user').role !== 'admin') return c.text('Admins only', 403);
+  const body = await c.req.parseBody();
+  const str = (k: string) => {
+    const v = body[k];
+    return typeof v === 'string' ? v.trim() : '';
+  };
+  const libraryId = Number.parseInt(str('libraryId'), 10);
+  const lib = Number.isInteger(libraryId) ? await getLibrary(c.env.DB, libraryId) : null;
+  if (!lib) return c.text('No such shelf.', 400);
+  const name = str('name') || lib.name;
+  await createShare(c.env.DB, {
+    token: newShareToken(),
+    name,
+    libraryId,
+    mediaType: (MEDIA_TYPES as readonly string[]).includes(str('mediaType')) ? (str('mediaType') as MediaType) : null,
+    status: (ITEM_STATUSES as readonly string[]).includes(str('status')) ? (str('status') as ItemStatus) : null,
+    owned: str('owned') === '1' ? true : str('owned') === '0' ? false : null,
+    sort: str('sort') === 'added' || str('sort') === 'rating' ? (str('sort') as 'added' | 'rating') : 'title',
+  });
+  return c.redirect(`/libraries/${libraryId}`);
+});
+
+libraries.post('/shares/:id', async (c) => {
   if (c.get('user').role !== 'admin') return c.text('Admins only', 403);
   const id = Number(c.req.param('id'));
-  const lib = await getLibrary(c.env.DB, id);
-  if (!lib) return c.notFound();
   const body = await c.req.parseBody();
   const action = String(body['action'] ?? '');
-  if (action === 'enable' || action === 'rotate') {
-    await setShareToken(c.env.DB, id, newShareToken());
-  } else if (action === 'disable') {
-    await setShareToken(c.env.DB, id, null);
-  }
-  return c.redirect(`/libraries/${id}`);
+  if (action === 'rotate') await rotateShare(c.env.DB, id, newShareToken());
+  else if (action === 'delete') await deleteShare(c.env.DB, id);
+  const back = Number.parseInt(String(body['libraryId'] ?? ''), 10);
+  return c.redirect(Number.isInteger(back) ? `/libraries/${back}` : '/');
 });
 
 libraries.post('/libraries/:id/delete', async (c) => {

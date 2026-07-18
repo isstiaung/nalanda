@@ -2,7 +2,7 @@
 import { and, asc, count, desc, eq, gt, inArray, isNull, sql, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import * as s from './schema';
-import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, User } from './schema';
+import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, Share, User } from './schema';
 
 const db = (d1: D1Database) => drizzle(d1);
 
@@ -104,14 +104,46 @@ export async function deleteLibrary(d1: D1Database, id: number): Promise<string[
   return covers.map((c) => c.coverKey).filter((k): k is string => !!k);
 }
 
-export async function setShareToken(d1: D1Database, id: number, token: string | null): Promise<void> {
-  await db(d1).update(s.libraries).set({ shareToken: token }).where(eq(s.libraries.id, id));
+// ---------- share views ----------
+// One row per published view (ARCH.md §16 #18). libraries.share_token is legacy:
+// migrated into this table by 0004, no longer read or written.
+
+export type NewShare = {
+  token: string;
+  name: string;
+  libraryId: number | null;
+  mediaType?: MediaType | null;
+  status?: ItemStatus | null;
+  owned?: boolean | null;
+  sort?: 'added' | 'title' | 'rating';
+};
+
+export async function createShare(d1: D1Database, values: NewShare): Promise<Share> {
+  const [row] = await db(d1).insert(s.shares).values(values).returning();
+  if (!row) throw new Error('failed to create share');
+  return row;
 }
 
-export async function getLibraryByShareToken(d1: D1Database, token: string): Promise<Library | null> {
+export async function getShareByToken(d1: D1Database, token: string): Promise<Share | null> {
   if (!token) return null;
-  const [l] = await db(d1).select().from(s.libraries).where(eq(s.libraries.shareToken, token));
-  return l ?? null;
+  const [row] = await db(d1).select().from(s.shares).where(eq(s.shares.token, token));
+  return row ?? null;
+}
+
+export async function listShares(d1: D1Database, libraryId?: number): Promise<Share[]> {
+  return db(d1)
+    .select()
+    .from(s.shares)
+    .where(libraryId === undefined ? undefined : eq(s.shares.libraryId, libraryId))
+    .orderBy(asc(s.shares.id));
+}
+
+export async function rotateShare(d1: D1Database, id: number, token: string): Promise<void> {
+  await db(d1).update(s.shares).set({ token }).where(eq(s.shares.id, id));
+}
+
+export async function deleteShare(d1: D1Database, id: number): Promise<void> {
+  await db(d1).delete(s.shares).where(eq(s.shares.id, id));
 }
 
 // ---------- items ----------
@@ -128,11 +160,12 @@ export type ItemFilters = {
 
 export async function listItems(
   d1: D1Database,
-  libraryId: number,
+  libraryId: number | null, // null = across all shelves (share views)
   f: ItemFilters = {},
 ): Promise<{ items: Item[]; total: number; page: number; pages: number }> {
   const dbi = db(d1);
-  const conds: SQL[] = [eq(s.items.libraryId, libraryId)];
+  const conds: SQL[] = [];
+  if (libraryId !== null) conds.push(eq(s.items.libraryId, libraryId));
   if (f.mediaType) conds.push(eq(s.items.mediaType, f.mediaType));
   if (f.status) conds.push(eq(s.items.status, f.status));
   if (f.owned !== undefined) conds.push(f.owned ? gt(s.items.copies, 0) : eq(s.items.copies, 0));

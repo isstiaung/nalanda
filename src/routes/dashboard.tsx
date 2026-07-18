@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { activeLoans, countNotOwned, listLibraries, recentItems } from '../db/queries';
+import { activeLoans, countNotOwned, listLibraries, listShares, recentItems } from '../db/queries';
 import type { AppEnv } from '../env';
 import { ItemGrid, Stat } from '../views/components';
 import { page } from '../views/layout';
@@ -7,12 +7,15 @@ import { page } from '../views/layout';
 const dashboard = new Hono<AppEnv>();
 
 dashboard.get('/', async (c) => {
-  const [libraries, recent, loans, notOwned] = await Promise.all([
+  const [libraries, recent, loans, notOwned, shares] = await Promise.all([
     listLibraries(c.env.DB),
     recentItems(c.env.DB, 12),
     activeLoans(c.env.DB),
     countNotOwned(c.env.DB),
+    listShares(c.env.DB),
   ]);
+  const shareCounts = new Map<number | null, number>();
+  for (const v of shares) shareCounts.set(v.libraryId, (shareCounts.get(v.libraryId) ?? 0) + 1);
   const today = new Date().toISOString().slice(0, 10);
   const overdue = loans.filter((l) => l.dueOn && l.dueOn < today).length;
   const totalItems = libraries.reduce((n, l) => n + l.itemCount, 0);
@@ -66,7 +69,15 @@ dashboard.get('/', async (c) => {
                       </a>
                     </td>
                     <td class="num">{l.itemCount}</td>
-                    <td>{l.shareToken ? <span class="pill shared">Shared</span> : <span class="pill">Private</span>}</td>
+                    <td>
+                      {shareCounts.get(l.id) ? (
+                        <span class="pill shared">
+                          {shareCounts.get(l.id) === 1 ? 'Shared' : `${shareCounts.get(l.id)} links`}
+                        </span>
+                      ) : (
+                        <span class="pill">Private</span>
+                      )}
+                    </td>
                     <td class="date hide-sm">{l.createdAt.slice(0, 10)}</td>
                   </tr>
                 ))}

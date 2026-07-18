@@ -213,9 +213,11 @@ confirm. Same confirm screen, different entry point.
 **Lending**: from an item page, "lend" captures borrower + optional due date; dashboard and
 `/loans` show what's out and overdue; "returned" stamps `returned_on`. History is kept.
 
-**Publish a shelf**: admin toggles sharing on a library → a random token mints
-`/share/<token>` — a read-only, no-login view of that library (§9). Toggle off (or
-regenerate) and old links die instantly.
+**Publish a view**: admin publishes any filtered view of a shelf (or the whole shelf —
+that's just a view with no filters) from the shelf page → each published view is a row
+in `shares` with its own random token, name, and captured filters → `/share/<token>` is
+a read-only, no-login page of exactly that view (§9, §16 #18). Rotate or remove any
+link independently; old URLs die instantly.
 
 **Import from libib or Goodreads**: both export CSV. The import page parses the CSV **in
 the browser** and posts JSON batches of ~200 rows (this sidesteps the Worker CPU budget,
@@ -286,9 +288,12 @@ portable, and makes share routes trivially public. CF Access remains available l
 
 ## 9. Public share links
 
-- Publishing a library sets `share_token` to a random 128-bit value;
-  `GET /share/:token` (library view) and `GET /share/:token/items/:id` (item view) render
-  read-only pages with **no login**.
+- Publishing mints a `shares` row: a random 128-bit token plus the **captured filters**
+  of the view being published (shelf, media type, status, owned) and a public name.
+  `GET /share/:token` (listing) and `GET /share/:token/items/:id` (item) render
+  read-only pages with **no login**. The item route re-checks the item against the
+  view's filters (`itemMatchesShare`) so a token can't be walked outside its scope by
+  id. (`libraries.share_token` is legacy — migrated into `shares` by 0004.)
 - **Field whitelist, not blacklist**: share pages render only title, creators, cover,
   publisher/label, published date, description, media details, tags, rating, review, and
   a derived boolean `inCollection` (`copies > 0`) so reading-log entries (`copies = 0`)
@@ -324,7 +329,8 @@ GET  /export.csv               everything, streaming; ?library=:id to scope
 GET  /covers/:key              cover art from R2 (public, unguessable, immutable cache)
 
 GET  /settings/users           admin: create/remove members, reissue temp passwords
-POST /libraries/:id/share      admin: enable/rotate/disable share token
+POST /shares                   admin: publish a view (captures shelf + filters + name)
+POST /shares/:id               admin: action=rotate | delete
 
 GET  /share/:token             public read-only library (whitelisted fields, noindex)
 GET  /share/:token/items/:id   public read-only item detail
@@ -529,6 +535,14 @@ file hosting (calibre-web's territory), background jobs of any kind.
     marks (Latin N, Devanagari न — rejected as not saying "library"). The exploration
     lives in `options/` (kept in-repo deliberately); regenerate icons from
     `public/logo.svg` via qlmanage + sips as before.
+18. **Share links are per-view, not per-shelf.** New `shares` table: token + name +
+    captured filters (shelf, media type, status, owned) + sort; a whole-shelf link is
+    simply a filterless view. Any number of links per shelf, rotated/removed
+    independently; the public item route enforces the view's filters so ids can't be
+    walked out of scope. Existing shelf tokens migrated in (0004) so published URLs
+    survived; `libraries.share_token` remains as a dead column (append-only
+    migrations, no destructive change). 0003 is an intentional no-op — it was
+    recorded as applied while still empty, and the harness requires ≥1 statement.
 
 The honest comparison, since it was asked:
 

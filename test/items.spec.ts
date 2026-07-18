@@ -10,7 +10,7 @@ async function seedSession() {
   const user = await createUser(env.DB, {
     username: `u-${crypto.randomUUID().slice(0, 8)}`,
     passwordHash: 'pbkdf2$100000$x$y',
-    role: 'member',
+    role: 'admin', // share-view publishing is admin-only
     mustChangePassword: false,
   });
   const lib = await createLibrary(env.DB, 'Shelf');
@@ -62,6 +62,45 @@ describe('add flow: Log — not owned', () => {
     expect(location).toMatch(/^\/items\/\d+$/);
     const item = await getItem(env.DB, Number(location.match(/\d+/)![0]));
     expect(item!.copies).toBe(1);
+  });
+
+  it('published view links expose only matching items to the public', async () => {
+    const { lib, cookie } = await seedSession();
+    const owned = await post('/items', { title: 'Owned Novel', libraryId: String(lib.id), mediaType: 'book' }, cookie);
+    const ownedId = Number(owned.headers.get('location')!.match(/\d+/)![0]);
+    const logged = await post(
+      '/items',
+      { title: 'Reviewed Only', libraryId: String(lib.id), mediaType: 'book', logOnly: '1' },
+      cookie,
+    );
+    const loggedId = Number(logged.headers.get('location')!.match(/\d+/)![0]);
+
+    // admin publishes a "not owned" view of this shelf
+    const create = await post(
+      '/shares',
+      { libraryId: String(lib.id), name: 'My reviews', owned: '0', sort: 'title' },
+      cookie,
+    );
+    expect(create.status).toBe(302);
+    const { listShares } = await import('../src/db/queries');
+    const [view] = await listShares(env.DB, lib.id);
+    expect(view).toBeDefined();
+
+    const publicGet = async (path: string) => {
+      const ctx = createExecutionContext();
+      const res = await app.fetch(new Request(`http://nalanda.test${path}`), env, ctx);
+      await waitOnExecutionContext(ctx);
+      return res;
+    };
+    const listing = await publicGet(`/share/${view!.token}`);
+    expect(listing.status).toBe(200);
+    const html = await listing.text();
+    expect(html).toContain('Reviewed Only');
+    expect(html).toContain('My reviews'); // the view's name is the page title
+    expect(html).not.toContain('Owned Novel'); // outside the view's filters
+
+    expect((await publicGet(`/share/${view!.token}/items/${loggedId}`)).status).toBe(200);
+    expect((await publicGet(`/share/${view!.token}/items/${ownedId}`)).status).toBe(404); // no id-walking out of scope
   });
 
   it('refuses to lend a copies=0 entry', async () => {

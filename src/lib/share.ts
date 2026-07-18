@@ -1,6 +1,19 @@
 // The public-field whitelist for share pages. This is a whitelist on purpose:
 // new item columns stay private until explicitly added here (ARCH.md §9).
-import type { Item, MediaType } from '../db/schema';
+import type { Item, MediaType, Share } from '../db/schema';
+
+/**
+ * Does this item fall inside a share view's scope? Guards the public item-detail
+ * route: a token only unlocks items matching ALL of its captured filters, so a
+ * "reviews only" view can't be walked into the rest of the shelf by id.
+ */
+export function itemMatchesShare(share: Share, item: Item): boolean {
+  if (share.libraryId !== null && item.libraryId !== share.libraryId) return false;
+  if (share.mediaType !== null && item.mediaType !== share.mediaType) return false;
+  if (share.status !== null && item.status !== share.status) return false;
+  if (share.owned !== null && item.copies > 0 !== share.owned) return false;
+  return true;
+}
 
 export type PublicItem = {
   id: number;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Item } from '../src/db/schema';
-import { newShareToken, toPublicItem } from '../src/lib/share';
+import type { Item, Share } from '../src/db/schema';
+import { itemMatchesShare, newShareToken, toPublicItem } from '../src/lib/share';
 
 const item: Item = {
   id: 7,
@@ -73,5 +73,35 @@ describe('share tokens', () => {
     const b = newShareToken();
     expect(a).toMatch(/^[0-9a-f]{32}$/);
     expect(a).not.toBe(b);
+  });
+});
+
+describe('share view scope', () => {
+  const view: Share = {
+    id: 1,
+    token: 't',
+    name: 'Reviews',
+    libraryId: 1,
+    mediaType: 'book',
+    status: null,
+    owned: false,
+    sort: 'title',
+    createdAt: '2026-07-18 12:00:00',
+  };
+
+  it('admits only items matching every captured filter', () => {
+    const notOwnedBook = { ...item, copies: 0 };
+    expect(itemMatchesShare(view, notOwnedBook)).toBe(true);
+    expect(itemMatchesShare(view, item)).toBe(false); // owned (copies 2) — outside an owned:false view
+    expect(itemMatchesShare(view, { ...notOwnedBook, libraryId: 2 })).toBe(false);
+    expect(itemMatchesShare(view, { ...notOwnedBook, mediaType: 'vinyl' })).toBe(false);
+    expect(itemMatchesShare({ ...view, status: 'completed' }, notOwnedBook)).toBe(true); // fixture is completed
+    expect(itemMatchesShare({ ...view, status: 'in_progress' }, notOwnedBook)).toBe(false);
+  });
+
+  it('null filters admit everything on that axis', () => {
+    const wholeShelf: Share = { ...view, mediaType: null, status: null, owned: null };
+    expect(itemMatchesShare(wholeShelf, item)).toBe(true);
+    expect(itemMatchesShare({ ...wholeShelf, libraryId: null }, { ...item, libraryId: 99 })).toBe(true);
   });
 });
