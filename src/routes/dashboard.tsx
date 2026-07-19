@@ -1,24 +1,30 @@
 import { Hono } from 'hono';
-import { activeLoans, countNotOwned, listLibraries, listShares, recentItems } from '../db/queries';
+import { activeLoans, holdingsByType, listLibraries, listShares, recentItems } from '../db/queries';
 import type { AppEnv } from '../env';
-import { ItemGrid, Stat } from '../views/components';
+import { ItemGrid, MEDIA_LABEL, MEDIA_PLURAL, Stat } from '../views/components';
 import { page } from '../views/layout';
 
 const dashboard = new Hono<AppEnv>();
 
 dashboard.get('/', async (c) => {
-  const [libraries, recent, loans, notOwned, shares] = await Promise.all([
+  const [libraries, recent, loans, holdings, shares] = await Promise.all([
     listLibraries(c.env.DB),
     recentItems(c.env.DB, 12),
     activeLoans(c.env.DB),
-    countNotOwned(c.env.DB),
+    holdingsByType(c.env.DB),
     listShares(c.env.DB),
   ]);
   const shareCounts = new Map<number | null, number>();
   for (const v of shares) shareCounts.set(v.libraryId, (shareCounts.get(v.libraryId) ?? 0) + 1);
   const today = new Date().toISOString().slice(0, 10);
   const overdue = loans.filter((l) => l.dueOn && l.dueOn < today).length;
-  const totalItems = libraries.reduce((n, l) => n + l.itemCount, 0);
+  const owned = holdings.reduce((n, h) => n + h.owned, 0);
+  const notOwned = holdings.reduce((n, h) => n + h.notOwned, 0);
+  const typeLine = (pick: (h: (typeof holdings)[number]) => number) =>
+    holdings
+      .filter((h) => pick(h) > 0)
+      .map((h) => `${pick(h)} ${pick(h) === 1 ? MEDIA_LABEL[h.mediaType].toLowerCase() : MEDIA_PLURAL[h.mediaType]}`)
+      .join(' · ');
 
   return page(
     c,
@@ -39,8 +45,8 @@ dashboard.get('/', async (c) => {
 
       <section>
         <div class="stat-row">
-          <Stat n={totalItems - notOwned} label="Items" />
-          {notOwned > 0 ? <Stat n={notOwned} label="Read, not owned" /> : null}
+          <Stat n={owned} label="Owned" detail={typeLine((h) => h.owned)} />
+          {notOwned > 0 ? <Stat n={notOwned} label="Not owned" detail={typeLine((h) => h.notOwned)} /> : null}
           <Stat n={libraries.length} label="Shelves" />
           <Stat n={loans.length} label="On loan" />
           <Stat n={overdue} label="Overdue" warn={overdue > 0} />

@@ -14,6 +14,17 @@ export const MEDIA_LABEL: Record<MediaType, string> = {
   other: 'Other',
 };
 
+/** Lowercase count nouns for inline breakdowns: "12 books · 3 board games · 5 vinyl". */
+export const MEDIA_PLURAL: Record<MediaType, string> = {
+  book: 'books',
+  boardgame: 'board games',
+  vinyl: 'vinyl',
+  movie: 'movies',
+  music: 'music',
+  videogame: 'video games',
+  other: 'other',
+};
+
 export const MEDIA_ICON: Record<MediaType, string> = {
   book: '📖',
   boardgame: '🎲',
@@ -171,10 +182,16 @@ export const ItemTable: FC<{
   </div>
 );
 
-export const Stat: FC<{ n: number | string; label: string; warn?: boolean }> = ({ n, label, warn }) => (
+export const Stat: FC<{ n: number | string; label: string; warn?: boolean; detail?: string }> = ({
+  n,
+  label,
+  warn,
+  detail,
+}) => (
   <div class="stat">
     <div class={warn ? 'stat-n warn' : 'stat-n'}>{n}</div>
     <div class="stat-label">{label}</div>
+    {detail ? <div class="stat-detail">{detail}</div> : null}
   </div>
 );
 

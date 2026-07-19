@@ -77,7 +77,8 @@ the book, use **Add to shelf** as usual and add the review from its Edit page.
 
 ## Verify afterwards
 
-- Dashboard: "Items" counts owned only; a "Read, not owned" stat appears next to it.
+- Dashboard: "Owned" counts owned only; a "Not owned" stat appears next to it, with a
+  per-media-type breakdown under each (e.g. "94 books").
 - Spot-check one merged book (rating/review updated, copies and cover untouched) and one
   new entry (has the "Not owned" pill, lending disabled).
 - `/export.csv` round-trips everything, including `copies = 0` — a good post-import

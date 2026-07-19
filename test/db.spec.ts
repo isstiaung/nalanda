@@ -12,6 +12,7 @@ import {
   deleteShare,
   getItem,
   getShareByToken,
+  holdingsByType,
   importItems,
   listItems,
   listShares,
@@ -74,6 +75,19 @@ describe('items + FTS', () => {
     const logged = await listItems(env.DB, lib.id, { owned: false });
     expect(logged.items.map((i) => i.title)).toEqual(['Logged']);
     expect((await listItems(env.DB, lib.id, {})).total).toBe(2);
+  });
+
+  it('holdingsByType splits owned/not-owned per media type, largest type first', async () => {
+    const lib = await seedLibrary();
+    await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'B1', copies: 1, details: '{}' });
+    await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'B2', copies: 0, details: '{}' });
+    await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'B3', copies: 0, details: '{}' });
+    await createItem(env.DB, { libraryId: lib.id, mediaType: 'boardgame', title: 'G1', copies: 2, details: '{}' });
+
+    expect(await holdingsByType(env.DB)).toEqual([
+      { mediaType: 'book', owned: 1, notOwned: 2 },
+      { mediaType: 'boardgame', owned: 1, notOwned: 0 },
+    ]);
   });
 
   it('filters by name across title and creators, case-insensitive, LIKE-safe', async () => {

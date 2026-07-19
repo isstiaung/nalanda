@@ -319,6 +319,7 @@ p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px sol
 .stat-n { font-family: var(--mono); font-size: 22px; font-weight: 600; letter-spacing: -0.02em; }
 .stat-n.warn { color: var(--stamp); }
 .stat-label { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-3); margin-top: 0.1rem; }
+.stat-detail { font-family: var(--mono); font-size: 10px; color: var(--ink-3); margin-top: 0.3rem; }
 
 /* ── data table ───────────────────────────────────────────────────────────── */
 
@@ -541,8 +542,9 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   .item-detail-cover { position: static; max-width: 190px; }
   .data-table .hide-sm { display: none; }
   .stat-row { grid-template-columns: repeat(2, 1fr); }
-  .stat:nth-child(3) { border-left: none; border-top: 1px solid var(--line); }
-  .stat:nth-child(4) { border-top: 1px solid var(--line); }
+  /* two-column reflow for any stat count (the not-owned stat is conditional) */
+  .stat:nth-child(odd) { border-left: none; }
+  .stat:nth-child(n + 3) { border-top: 1px solid var(--line); }
 }
 
 @media (min-width: 881px) {

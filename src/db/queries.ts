@@ -226,9 +226,18 @@ export async function recentItems(d1: D1Database, limit = 12): Promise<Item[]> {
 }
 
 /** Reading-log entries: cataloged (reviewed, rated) but not physically owned. */
-export async function countNotOwned(d1: D1Database): Promise<number> {
-  const [row] = await db(d1).select({ n: count() }).from(s.items).where(eq(s.items.copies, 0));
-  return row?.n ?? 0;
+export async function holdingsByType(
+  d1: D1Database,
+): Promise<{ mediaType: MediaType; owned: number; notOwned: number }[]> {
+  return db(d1)
+    .select({
+      mediaType: s.items.mediaType,
+      owned: sql`sum(case when ${s.items.copies} > 0 then 1 else 0 end)`.mapWith(Number),
+      notOwned: sql`sum(case when ${s.items.copies} = 0 then 1 else 0 end)`.mapWith(Number),
+    })
+    .from(s.items)
+    .groupBy(s.items.mediaType)
+    .orderBy(desc(count()));
 }
 
 // ---------- tags ----------
