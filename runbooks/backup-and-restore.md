@@ -44,7 +44,7 @@ Restore assumes **empty tables** (a fresh database, or one you've deliberately w
 npx wrangler d1 migrations apply nalanda --remote
 
 # 2. data, in FK-safe order (the files set defer_foreign_keys themselves)
-for t in users libraries items tags item_tags loans; do
+for t in users libraries shares items tags item_tags loans; do
   npx wrangler d1 execute nalanda --remote --file=backups/remote-<date>/$t.sql
 done
 ```

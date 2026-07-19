@@ -48,7 +48,7 @@ index restore cleanly; covers are re-fetched.)
 2. Export local data and load it into production (FK-safe order):
    ```sh
    npm run backup:local
-   for t in users libraries items tags item_tags loans; do
+   for t in users libraries shares items tags item_tags loans; do
      npx wrangler d1 execute nalanda --remote --file=backups/local-<date>/$t.sql
    done
    ```

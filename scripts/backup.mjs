@@ -11,7 +11,7 @@ import { mkdirSync } from 'node:fs';
 
 // FK-safe restore order. login_attempts (transient) and d1_migrations
 // (recreated by `wrangler d1 migrations apply`) are deliberately excluded.
-export const TABLES = ['users', 'libraries', 'items', 'tags', 'item_tags', 'loans'];
+export const TABLES = ['users', 'libraries', 'shares', 'items', 'tags', 'item_tags', 'loans'];
 
 const local = process.argv.includes('--local');
 const stamp = new Date().toISOString().slice(0, 10);
