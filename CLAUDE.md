@@ -13,7 +13,7 @@ structural changes, update it (incl. §16 decision log) when a decision changes.
 **Status (2026-07-19): production provisioned, not yet deployed.** Worker/D1 are named
 `nalanda`, R2 bucket `nalanda-covers` — both exist; the real D1 id is in
 `wrangler.jsonc`. Remote D1 carries migrations + data migrated from local dev.
-Worker deploy pending (owner is wiring the dashboard git integration).
+Worker deploy pending (owner is wiring the dashboard git integration). Deployments happen through branch `deploy-site`
 
 ## Stack (settled — don't re-litigate without updating ARCH.md)
 - TypeScript on Cloudflare Workers. Hono + `hono/jsx` SSR, htmx partials. No SPA, no React,
