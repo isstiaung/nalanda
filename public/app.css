@@ -128,6 +128,9 @@ table { border-collapse: collapse; }
 /* ── app shell ────────────────────────────────────────────────────────────── */
 
 .app { display: grid; grid-template-columns: var(--sidebar-w) 1fr; min-height: 100vh; }
+/* main-column grid item: same min-width hygiene as .content, so unbreakable
+   content (long words/URLs) can never widen the column past the viewport */
+.app > div { min-width: 0; }
 
 .sidebar {
   border-right: 1px solid var(--line);
