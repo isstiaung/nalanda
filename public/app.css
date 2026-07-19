@@ -414,6 +414,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 
 .toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
 .toolbar select { width: auto; margin: 0; height: 30px; font-size: 12.5px; }
+.toolbar input[type='search'] { width: 190px; margin: 0; height: 30px; font-size: 12.5px; }
 .toolbar .spacer { flex: 1; }
 
 .view-toggle { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow: hidden; }

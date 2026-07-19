@@ -154,6 +154,7 @@ export type ItemFilters = {
   mediaType?: MediaType;
   status?: ItemStatus;
   owned?: boolean; // true = copies > 0, false = copies = 0 (reading-log entries)
+  q?: string; // title/creators substring, case-insensitive
   sort?: 'added' | 'title' | 'rating';
   page?: number; // 1-based
 };
@@ -169,6 +170,10 @@ export async function listItems(
   if (f.mediaType) conds.push(eq(s.items.mediaType, f.mediaType));
   if (f.status) conds.push(eq(s.items.status, f.status));
   if (f.owned !== undefined) conds.push(f.owned ? gt(s.items.copies, 0) : eq(s.items.copies, 0));
+  if (f.q) {
+    const needle = `%${f.q.replace(/[%_\\]/g, '\\$&')}%`;
+    conds.push(sql`(${s.items.title} LIKE ${needle} ESCAPE '\\' OR ${s.items.creators} LIKE ${needle} ESCAPE '\\')`);
+  }
   const where = and(...conds);
 
   const order =

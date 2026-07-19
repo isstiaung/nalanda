@@ -75,6 +75,19 @@ describe('items + FTS', () => {
     expect(logged.items.map((i) => i.title)).toEqual(['Logged']);
     expect((await listItems(env.DB, lib.id, {})).total).toBe(2);
   });
+
+  it('filters by name across title and creators, case-insensitive, LIKE-safe', async () => {
+    const lib = await seedLibrary();
+    await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'The Dispossessed', creators: 'Ursula K. Le Guin', details: '{}' });
+    await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: '100% Wrong', creators: 'Someone Else', details: '{}' });
+
+    expect((await listItems(env.DB, lib.id, { q: 'dispossessed' })).items.map((i) => i.title)).toEqual(['The Dispossessed']);
+    expect((await listItems(env.DB, lib.id, { q: 'le guin' })).items.map((i) => i.title)).toEqual(['The Dispossessed']); // creators match
+    expect((await listItems(env.DB, lib.id, { q: '100%' })).items.map((i) => i.title)).toEqual(['100% Wrong']); // % is literal, not a wildcard
+    expect((await listItems(env.DB, lib.id, { q: 'zzz' })).total).toBe(0);
+    // composes with other filters
+    expect((await listItems(env.DB, lib.id, { q: 'guin', owned: true })).total).toBe(1);
+  });
 });
 
 describe('tags', () => {

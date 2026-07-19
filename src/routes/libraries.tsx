@@ -50,6 +50,7 @@ libraries.get('/libraries/:id', async (c) => {
     ? (q['status'] as ItemStatus)
     : undefined;
   const owned = q['owned'] === '1' ? true : q['owned'] === '0' ? false : undefined;
+  const name = (q['q'] ?? '').trim() || undefined;
   const sort = q['sort'] === 'title' || q['sort'] === 'rating' ? q['sort'] : 'added';
   const view = q['view'] === 'grid' ? 'grid' : 'table';
   const pageNum = Number.parseInt(q['page'] ?? '1', 10) || 1;
@@ -58,6 +59,7 @@ libraries.get('/libraries/:id', async (c) => {
     mediaType,
     status,
     owned,
+    q: name,
     sort,
     page: pageNum,
   });
@@ -72,6 +74,7 @@ libraries.get('/libraries/:id', async (c) => {
     if (mediaType) params.set('type', mediaType);
     if (status) params.set('status', status);
     if (owned !== undefined) params.set('owned', owned ? '1' : '0');
+    if (name) params.set('q', name);
     if (sort !== 'added') params.set('sort', sort);
     if (v !== 'table') params.set('view', v);
     if (p > 1) params.set('page', String(p));
@@ -104,6 +107,13 @@ libraries.get('/libraries/:id', async (c) => {
 
       <form method="get" action={`/libraries/${id}`} class="toolbar">
         {view !== 'table' ? <input type="hidden" name="view" value={view} /> : null}
+        <input
+          type="search"
+          name="q"
+          value={name ?? ''}
+          placeholder="Title or author…"
+          aria-label="Filter by name"
+        />
         <select name="type" aria-label="Type">
           <option value="">All types</option>
           {MEDIA_TYPES.map((t) => (
