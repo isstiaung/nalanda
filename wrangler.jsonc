@@ -10,9 +10,7 @@
     {
       "binding": "DB",
       "database_name": "nalanda",
-      // Placeholder — replace with the id printed by `wrangler d1 create nalanda`.
-      // Local dev and tests work fine with the placeholder.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "",
       "migrations_dir": "migrations"
     }
   ],
