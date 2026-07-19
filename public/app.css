@@ -419,8 +419,11 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
 .toolbar select { width: auto; margin: 0; height: 30px; font-size: 12.5px; }
 
-/* filter dropdowns: a <details> disguised as a select, holding any-of checkboxes */
-.toolbar .filter { position: relative; }
+/* filter dropdowns: a <details> disguised as a select, holding any-of checkboxes.
+   Opts out of the global details panel/manuscript-frame treatment — it's a
+   toolbar control, not a framed panel. */
+.toolbar .filter { position: relative; border: none; padding: 0; margin: 0; background: none; }
+.toolbar .filter::after { content: none; }
 .toolbar .filter summary {
   list-style: none;
   cursor: pointer;
@@ -430,7 +433,9 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   gap: 0.4rem;
   height: 30px;
   padding: 0 0.6rem;
+  margin: 0; /* the global details[open] summary rule adds bottom margin */
   font-size: 12.5px;
+  font-weight: 400; /* the global summary rule bolds panel titles */
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line-strong);
