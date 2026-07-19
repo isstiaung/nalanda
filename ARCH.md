@@ -176,6 +176,10 @@ CREATE VIRTUAL TABLE items_fts USING fts5(
 columns also land here so imports are lossless):
 
 - `book`: `{ subtitle, series }`
+- any type: `{ reviewed_in: [url, …] }` — blog posts covering this item; owned by the
+  dedicated "Reviewed in" form field, rendered as outbound links on item and share
+  pages (a deliberate lightweight alternative to a posts table — the blog side holds
+  the post→books direction).
 - `boardgame`: `{ bgg_id, players_min, players_max, playtime_min, playtime_max, year }`
 - `vinyl`: `{ discogs_id, format, label, catno, year, genres }` — format/pressing and
   catalog number are what collectors actually care about.

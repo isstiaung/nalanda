@@ -128,6 +128,42 @@ describe('add flow: Log — not owned', () => {
     expect(await third.text()).toContain('Cache Buster');
   });
 
+  it('reviewed_in blog links render as links on item and share pages; junk filtered', async () => {
+    const { lib, cookie } = await seedSession();
+    const res = await post(
+      '/items',
+      {
+        title: 'Linked Book',
+        libraryId: String(lib.id),
+        mediaType: 'book',
+        reviewedIn: 'https://blog.example/june-reading\nnot-a-url\nhttps://blog.example/best-of-2026',
+      },
+      cookie,
+    );
+    const id = Number(res.headers.get('location')!.match(/\d+/)![0]);
+
+    const get = async (path: string, withCookie?: string) => {
+      const ctx = createExecutionContext();
+      const r = await app.fetch(
+        new Request(`http://nalanda.test${path}`, { headers: withCookie ? { cookie: withCookie } : {} }),
+        env,
+        ctx,
+      );
+      await waitOnExecutionContext(ctx);
+      return r.text();
+    };
+
+    const itemHtml = await get(`/items/${id}`, cookie);
+    expect(itemHtml).toContain('href="https://blog.example/june-reading"');
+    expect(itemHtml).toContain('href="https://blog.example/best-of-2026"');
+    expect(itemHtml).not.toContain('not-a-url'); // non-URLs are dropped at save time
+
+    await post('/shares', { libraryId: String(lib.id), name: 'Everything', sort: 'title' }, cookie);
+    const [view] = await listShares(env.DB, lib.id);
+    const shareHtml = await get(`/share/${view!.token}/items/${id}`);
+    expect(shareHtml).toContain('href="https://blog.example/june-reading"'); // details are public
+  });
+
   it('refuses to lend a copies=0 entry', async () => {
     const { lib, cookie } = await seedSession();
     const add = await post(

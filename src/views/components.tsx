@@ -1,6 +1,7 @@
 import type { FC } from 'hono/jsx';
 import type { Item, ItemStatus, Library, MediaType } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
+import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
 
 export const MEDIA_LABEL: Record<MediaType, string> = {
@@ -198,7 +199,12 @@ export const ItemForm: FC<{
   item?: Item | null;
   tags?: string[];
   selectedLibraryId?: number;
-}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId }) => (
+}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId }) => {
+  // reviewed_in gets its own field; the advanced JSON box shows everything else
+  const details = parseDetails(item?.details);
+  const reviewedIn = Array.isArray(details['reviewed_in']) ? (details['reviewed_in'] as string[]) : [];
+  delete details['reviewed_in'];
+  return (
   <form method="post" action={action} class="form-card">
     <div class="grid">
       <label>
@@ -301,6 +307,12 @@ export const ItemForm: FC<{
       </textarea>
     </label>
     <label>
+      Reviewed in <small>(blog post URLs, one per line — linked from share pages too)</small>
+      <textarea name="reviewedIn" rows={2}>
+        {reviewedIn.join('\n')}
+      </textarea>
+    </label>
+    <label>
       Private notes <small>(never shown on share pages)</small>
       <textarea name="notes" rows={3}>
         {item?.notes ?? ''}
@@ -318,12 +330,13 @@ export const ItemForm: FC<{
     <details>
       <summary>Advanced: details JSON</summary>
       <textarea name="details" rows={3}>
-        {item?.details ?? '{}'}
+        {JSON.stringify(details)}
       </textarea>
     </details>
     <button type="submit">{submitLabel}</button>
   </form>
-);
+  );
+};
 
 /** A lookup result with a one-click "add to shelf" form. */
 export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[] }> = ({ candidate, libraries }) => (
@@ -388,6 +401,7 @@ export const Pagination: FC<{ page: number; pages: number; makeHref: (page: numb
 
 /** Human labels for well-known details keys (per-media conventions, ARCH.md §5). */
 export const DETAIL_LABELS: Record<string, string> = {
+  reviewed_in: 'Reviewed in',
   bgg_id: 'BGG ID',
   players_min: 'Min players',
   players_max: 'Max players',
@@ -403,6 +417,26 @@ export const DETAIL_LABELS: Record<string, string> = {
   series: 'Series',
 };
 
+const isUrl = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\//.test(v);
+
+/** Details values render as text, except URLs (e.g. reviewed_in), which link out. */
+const DetailValue: FC<{ value: unknown }> = ({ value }) => (
+  <>
+    {(Array.isArray(value) ? value : [value]).map((p, i) => (
+      <>
+        {i > 0 ? ', ' : ''}
+        {isUrl(p) ? (
+          <a href={p} rel="noopener noreferrer">
+            {p.replace(/^https?:\/\//, '')}
+          </a>
+        ) : (
+          String(p)
+        )}
+      </>
+    ))}
+  </>
+);
+
 export const DetailsList: FC<{ details: Record<string, unknown> }> = ({ details }) => {
   const entries = Object.entries(details).filter(([, v]) => v !== null && v !== undefined && v !== '');
   if (!entries.length) return null;
@@ -411,7 +445,9 @@ export const DetailsList: FC<{ details: Record<string, unknown> }> = ({ details 
       {entries.map(([k, v]) => (
         <>
           <dt>{DETAIL_LABELS[k] ?? k.replaceAll('_', ' ')}</dt>
-          <dd>{Array.isArray(v) ? v.join(', ') : String(v)}</dd>
+          <dd>
+            <DetailValue value={v} />
+          </dd>
         </>
       ))}
     </dl>

@@ -59,7 +59,15 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
   const copiesNum = Number.parseInt(str('copies').replace(/\D/g, ''), 10);
 
   // keep details lossless: invalid JSON from the advanced box is discarded, not saved broken
-  const details = JSON.stringify(parseDetails(str('details') || '{}'));
+  const detailsObj = parseDetails(str('details') || '{}');
+  // the dedicated "Reviewed in" field owns reviewed_in — blank field clears it
+  delete detailsObj['reviewed_in'];
+  const reviewedIn = str('reviewedIn')
+    .split(/[\n,]+/)
+    .map((u) => u.trim())
+    .filter((u) => /^https?:\/\//.test(u));
+  if (reviewedIn.length) detailsObj['reviewed_in'] = reviewedIn;
+  const details = JSON.stringify(detailsObj);
 
   return {
     values: {
