@@ -128,7 +128,8 @@ runbooks/          operational guides: deploy, backup/restore, accounts, libib i
 - Develop against local D1. `--remote` is for deploy, remote migrate, and backup only.
 - Any destructive remote operation (dropping data, hand-run `wrangler d1 execute --remote`)
   requires a fresh `npm run backup` first.
-- Secrets (`SESSION_SECRET`, `DISCOGS_TOKEN`, optional `GOOGLE_BOOKS_KEY`) via
+- Secrets (`SESSION_SECRET`, `DISCOGS_TOKEN`, optional `GOOGLE_BOOKS_KEY`, optional
+  `HOME_SHARE_TOKEN` — points logged-out `/` at a share page, ARCH.md §16 #21) via
   `wrangler secret put` — never in code, `wrangler.jsonc`, or git. Local values go in
   `.dev.vars` (gitignored; see `.dev.vars.example`).
 - Keep this file and ARCH.md current as commands and decisions evolve.

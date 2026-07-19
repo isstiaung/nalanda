@@ -15,6 +15,11 @@
    npx wrangler secret put SESSION_SECRET   # generate one: openssl rand -base64 32
    npx wrangler secret put DISCOGS_TOKEN    # see "API tokens" below — enables vinyl lookup
    npx wrangler secret put GOOGLE_BOOKS_KEY # optional, raises book-lookup quota
+   npx wrangler secret put HOME_SHARE_TOKEN # optional front door: logged-out "/" 302s to
+                                            # /share/<value>. Setting a secret applies
+                                            # immediately (no git push). If you rotate that
+                                            # share, re-put the secret with the new token —
+                                            # until then "/" degrades to the login page.
    ```
 
 3. **Deploy**:
@@ -69,6 +74,7 @@ index restore cleanly; covers are re-fetched.)
 - [ ] `npx wrangler secret put SESSION_SECRET` (`openssl rand -base64 32`)
 - [ ] `npx wrangler secret put DISCOGS_TOKEN` (vinyl lookups)
 - [ ] optional: `npx wrangler secret put GOOGLE_BOOKS_KEY`
+- [ ] optional: `npx wrangler secret put HOME_SHARE_TOKEN` (front door → share page)
 - [ ] data: migrate the local catalog (section above) — or start fresh via `/setup`
 - [ ] `npm test && npm run deploy`
 - [ ] smoke: log in, scan one barcode, open a share link in a private window

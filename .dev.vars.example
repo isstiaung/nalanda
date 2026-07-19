@@ -5,3 +5,6 @@ SESSION_SECRET=change-me-to-anything-long-and-random
 # DISCOGS_TOKEN=
 # Optional: raises Google Books quota; books work keyless without it.
 # GOOGLE_BOOKS_KEY=
+# Optional front door: logged-out "/" redirects to /share/<token> instead of /login.
+# Use the token of a published share; update after rotating that share.
+# HOME_SHARE_TOKEN=

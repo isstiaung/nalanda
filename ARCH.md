@@ -312,6 +312,9 @@ portable, and makes share routes trivially public. CF Access remains available l
 - **Covers**: share pages need cover images without auth, so `GET /covers/:key` is public
   with random-UUID keys (unguessable, no listing). Acceptable exposure: covers are public
   cover art by definition.
+- **Front door (optional)**: with the `HOME_SHARE_TOKEN` secret set, anonymous `GET /`
+  redirects to that share — the deploy's root doubles as the public library page
+  (§16 #21). A stale token falls back to the login redirect.
 
 ## 10. HTTP surface
 
@@ -321,6 +324,7 @@ GET  /login                    POST /auth/login · POST /auth/logout
 GET  /account                  change own password (also the forced first-login flow)
 
 GET  /                         dashboard: libraries, recent adds, loans out
+                               (anonymous + HOME_SHARE_TOKEN set → 302 /share/<token>)
 GET  /libraries/:id            item grid/list; filter/sort/paging via htmx partials
 GET  /items/:id                detail  ·  GET /items/:id/edit
 POST /items                    create  ·  POST /items/:id (update) · POST /items/:id/delete
@@ -578,6 +582,16 @@ file hosting (calibre-web's territory), background jobs of any kind.
     reliable path). Local reminder: miniflare keys local D1 state by `database_id`, so
     changing the id in `wrangler.jsonc` orphans local data until the state file is
     copied to the new key.
+21. **Front door via `HOME_SHARE_TOKEN` (optional secret).** The app lives on a
+    subdomain whose root should greet guests, not a login form: with the secret set,
+    anonymous `GET /` 302s to `/share/<token>`; signed-in users still get the
+    dashboard. Config-as-secret chosen over a DB flag (no migration or admin UI for
+    a single-household setting; repoint with `wrangler secret put HOME_SHARE_TOKEN`,
+    which applies immediately and survives deploys) and over a Cloudflare edge
+    redirect rule (hardcodes a token outside the app — rotation would 404 the front
+    door). The token is validated per request, so a stale value (share rotated or
+    deleted) degrades to the normal login redirect. Share pages still carry no links
+    into the authenticated app; the household signs in at `/login` directly.
 
 The honest comparison, since it was asked:
 

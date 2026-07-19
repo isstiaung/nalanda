@@ -4,6 +4,7 @@ export type Bindings = {
   SESSION_SECRET: string;
   DISCOGS_TOKEN?: string;
   GOOGLE_BOOKS_KEY?: string;
+  HOME_SHARE_TOKEN?: string; // front door: anonymous "/" redirects to /share/<this token>
 };
 
 export type SessionUser = {

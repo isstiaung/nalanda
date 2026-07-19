@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { secureHeaders } from 'hono/secure-headers';
-import { countUsers, getUserById } from './db/queries';
+import { countUsers, getShareByToken, getUserById } from './db/queries';
 import type { AppEnv } from './env';
 import { SESSION_COOKIE, verifySessionToken } from './lib/auth';
 import { serveCover } from './lib/covers';
@@ -50,6 +50,20 @@ app.use(async (c, next) => {
 app.route('/', authRoutes);
 app.route('/share', shareRoutes);
 app.get('/covers/:key', (c) => serveCover(c.env.COVERS, c.req.param('key')));
+
+// ---- front door: with HOME_SHARE_TOKEN set, anonymous "/" lands on that share ----
+// The token lives in a secret so the front page can be repointed (e.g. after a share
+// rotation) with `wrangler secret put HOME_SHARE_TOKEN` — no code deploy. Signed-in
+// users keep their dashboard; a stale token falls through to the login redirect
+// instead of 404ing the front door. (ARCH.md §16 #21)
+app.get('/', async (c, next) => {
+  const homeToken = c.env.HOME_SHARE_TOKEN;
+  if (!homeToken) return next();
+  const session = getCookie(c, SESSION_COOKIE);
+  if (await verifySessionToken(c.env.SESSION_SECRET, session, Math.floor(Date.now() / 1000))) return next();
+  const share = await getShareByToken(c.env.DB, homeToken);
+  return share ? c.redirect(`/share/${homeToken}`) : next();
+});
 
 // ---- everything registered below this middleware requires a session ----
 app.use(async (c, next) => {
