@@ -113,8 +113,8 @@ share.get('/:token', async (c) => {
   if (!view) return c.notFound();
   const pageNum = Number.parseInt(c.req.query('page') ?? '1', 10) || 1;
   const { items, total, page: current, pages } = await listItems(c.env.DB, view.libraryId, {
-    mediaType: view.mediaType ?? undefined,
-    status: view.status ?? undefined,
+    mediaTypes: view.mediaType ? [view.mediaType] : undefined,
+    statuses: view.status ? [view.status] : undefined,
     owned: view.owned ?? undefined,
     sort: view.sort,
     page: pageNum,

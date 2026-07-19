@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import type { FC } from 'hono/jsx';
 import type { ItemStatus, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import {
@@ -19,6 +20,29 @@ import { deleteCover } from '../lib/covers';
 import { newShareToken } from '../lib/share';
 import { ItemGrid, ItemTable, MEDIA_LABEL, Pagination, STATUS_LABEL } from '../views/components';
 import { page } from '../views/layout';
+
+/** A toolbar dropdown of any-of checkboxes — one per filter dimension. */
+const FilterMenu: FC<{
+  label: string;
+  name: string;
+  options: readonly (readonly [string, string])[];
+  selected: readonly string[];
+}> = ({ label, name, options, selected }) => (
+  <details class="filter">
+    <summary>
+      {label}
+      {selected.length ? <span class="filter-count">{selected.length}</span> : null}
+    </summary>
+    <div class="filter-menu">
+      {options.map(([value, text]) => (
+        <label>
+          <input type="checkbox" name={name} value={value} checked={selected.includes(value)} />
+          {text}
+        </label>
+      ))}
+    </div>
+  </details>
+);
 
 /** "Board games · In progress · Owned" — how a view's captured filters read. */
 function shareScopeLabel(v: Share): string {
@@ -44,20 +68,26 @@ libraries.get('/libraries/:id', async (c) => {
   const lib = await getLibrary(c.env.DB, id);
   if (!lib) return c.notFound();
 
-  const q = c.req.query();
-  const mediaType = (MEDIA_TYPES as readonly string[]).includes(q['type'] ?? '') ? (q['type'] as MediaType) : undefined;
-  const status = (ITEM_STATUSES as readonly string[]).includes(q['status'] ?? '')
-    ? (q['status'] as ItemStatus)
-    : undefined;
-  const owned = q['owned'] === '1' ? true : q['owned'] === '0' ? false : undefined;
-  const name = (q['q'] ?? '').trim() || undefined;
-  const sort = q['sort'] === 'title' || q['sort'] === 'rating' ? q['sort'] : 'added';
-  const view = q['view'] === 'grid' ? 'grid' : 'table';
-  const pageNum = Number.parseInt(q['page'] ?? '1', 10) || 1;
+  // Filters are any-of checkbox groups, so params repeat: ?type=book&type=vinyl.
+  const mediaTypes = [...new Set(c.req.queries('type') ?? [])].filter((t): t is MediaType =>
+    (MEDIA_TYPES as readonly string[]).includes(t),
+  );
+  const statuses = [...new Set(c.req.queries('status') ?? [])].filter((st): st is ItemStatus =>
+    (ITEM_STATUSES as readonly string[]).includes(st),
+  );
+  // Ownership is two checkboxes over one tri-state: exactly one checked filters;
+  // both or neither means "owned + logged" (no filter).
+  const ownedSel = [...new Set(c.req.queries('owned') ?? [])].filter((v) => v === '1' || v === '0');
+  const owned = ownedSel.length === 1 ? ownedSel[0] === '1' : undefined;
+  const name = (c.req.query('q') ?? '').trim() || undefined;
+  const sortQ = c.req.query('sort');
+  const sort = sortQ === 'title' || sortQ === 'rating' ? sortQ : 'added';
+  const view = c.req.query('view') === 'grid' ? 'grid' : 'table';
+  const pageNum = Number.parseInt(c.req.query('page') ?? '1', 10) || 1;
 
   const { items, total, page: current, pages } = await listItems(c.env.DB, id, {
-    mediaType,
-    status,
+    mediaTypes,
+    statuses,
     owned,
     q: name,
     sort,
@@ -71,9 +101,9 @@ libraries.get('/libraries/:id', async (c) => {
 
   const makeHref = (p: number, v = view) => {
     const params = new URLSearchParams();
-    if (mediaType) params.set('type', mediaType);
-    if (status) params.set('status', status);
-    if (owned !== undefined) params.set('owned', owned ? '1' : '0');
+    for (const t of mediaTypes) params.append('type', t);
+    for (const st of statuses) params.append('status', st);
+    for (const o of ownedSel) params.append('owned', o);
     if (name) params.set('q', name);
     if (sort !== 'added') params.set('sort', sort);
     if (v !== 'table') params.set('view', v);
@@ -114,31 +144,22 @@ libraries.get('/libraries/:id', async (c) => {
           placeholder="Title or author…"
           aria-label="Filter by name"
         />
-        <select name="type" aria-label="Type">
-          <option value="">All types</option>
-          {MEDIA_TYPES.map((t) => (
-            <option value={t} selected={mediaType === t}>
-              {MEDIA_LABEL[t]}
-            </option>
-          ))}
-        </select>
-        <select name="status" aria-label="Status">
-          <option value="">Any status</option>
-          {ITEM_STATUSES.map((st) => (
-            <option value={st} selected={status === st}>
-              {STATUS_LABEL[st]}
-            </option>
-          ))}
-        </select>
-        <select name="owned" aria-label="Holding">
-          <option value="">Owned + logged</option>
-          <option value="1" selected={owned === true}>
-            In collection
-          </option>
-          <option value="0" selected={owned === false}>
-            Not owned
-          </option>
-        </select>
+        <FilterMenu label="Type" name="type" options={MEDIA_TYPES.map((t) => [t, MEDIA_LABEL[t]] as const)} selected={mediaTypes} />
+        <FilterMenu
+          label="Status"
+          name="status"
+          options={ITEM_STATUSES.map((st) => [st, STATUS_LABEL[st]] as const)}
+          selected={statuses}
+        />
+        <FilterMenu
+          label="Holding"
+          name="owned"
+          options={[
+            ['1', 'Owned'],
+            ['0', 'Logged — not owned'],
+          ]}
+          selected={ownedSel}
+        />
         <select name="sort" aria-label="Sort">
           <option value="added" selected={sort === 'added'}>
             Newest first
@@ -208,8 +229,9 @@ libraries.get('/libraries/:id', async (c) => {
             ))}
             <form method="post" action="/shares" class="inline-form">
               <input type="hidden" name="libraryId" value={String(id)} />
-              {mediaType ? <input type="hidden" name="mediaType" value={mediaType} /> : null}
-              {status ? <input type="hidden" name="status" value={status} /> : null}
+              {/* shares capture one value per filter (ARCH §9) — a multi-selection publishes as "all" */}
+              {mediaTypes.length === 1 ? <input type="hidden" name="mediaType" value={mediaTypes[0]} /> : null}
+              {statuses.length === 1 ? <input type="hidden" name="status" value={statuses[0]} /> : null}
               {owned !== undefined ? <input type="hidden" name="owned" value={owned ? '1' : '0'} /> : null}
               <input type="hidden" name="sort" value={sort} />
               <input name="name" placeholder="Link name (shown as the public page title)" required />
@@ -219,16 +241,19 @@ libraries.get('/libraries/:id', async (c) => {
             </form>
             <small class="muted">
               "Current view" captures the filters applied above
-              {mediaType || status || owned !== undefined
-                ? ` (${[
-                    mediaType ? MEDIA_LABEL[mediaType] : null,
-                    status ? STATUS_LABEL[status] : null,
-                    owned !== undefined ? (owned ? 'Owned' : 'Not owned') : null,
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')})`
-                : ' (none — the whole shelf)'}
-              . Public pages show only whitelisted fields — never notes, loans, or copy counts.
+              {(() => {
+                const captured = [
+                  mediaTypes.length === 1 ? MEDIA_LABEL[mediaTypes[0]!] : null,
+                  statuses.length === 1 ? STATUS_LABEL[statuses[0]!] : null,
+                  owned !== undefined ? (owned ? 'Owned' : 'Not owned') : null,
+                ].filter(Boolean);
+                return captured.length ? ` (${captured.join(' · ')})` : ' (none — the whole shelf)';
+              })()}
+              .
+              {mediaTypes.length > 1 || statuses.length > 1
+                ? ' Share links hold one value per filter, so a multi-selection publishes as "all".'
+                : ''}{' '}
+              Public pages show only whitelisted fields — never notes, loans, or copy counts.
             </small>
           </div>
         ) : null}

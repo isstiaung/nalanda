@@ -12,6 +12,13 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Filter dropdowns close when clicking anywhere else (incl. opening another one).
+  document.addEventListener('click', (e) => {
+    document.querySelectorAll('details.filter[open]').forEach((d) => {
+      if (!d.contains(e.target)) d.removeAttribute('open');
+    });
+  });
+
   const navToggle = document.getElementById('nav-toggle');
   if (navToggle) {
     navToggle.addEventListener('click', () => document.body.classList.toggle('nav-open'));

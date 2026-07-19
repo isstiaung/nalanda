@@ -592,6 +592,17 @@ file hosting (calibre-web's territory), background jobs of any kind.
     door). The token is validated per request, so a stale value (share rotated or
     deleted) degrades to the normal login redirect. Share pages still carry no links
     into the authenticated app; the household signs in at `/login` directly.
+22. **Shelf filters are any-of checkbox groups** (type, status, holding), not
+    single-value selects: params repeat (`?type=book&type=vinyl`), `listItems`
+    takes arrays (`inArray`), values OR within a dimension, dimensions AND
+    together. "Holding" is two checkboxes (Owned / Logged — not owned) over the
+    same tri-state `owned` param: exactly one checked filters; both or neither
+    means no filter — old single-value URLs keep working. The `shares` schema
+    still captures **one value per filter**, deliberately: public views should
+    be simple, stable scopes, and widening those columns to arrays would ripple
+    through `itemMatchesShare` for no household need. "Publish current view"
+    captures a dimension only when exactly one value is selected; the preview
+    line states that a multi-selection publishes as "all".
 
 The honest comparison, since it was asked:
 

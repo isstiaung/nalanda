@@ -60,9 +60,28 @@ describe('items + FTS', () => {
     expect(all.total).toBe(2);
     expect(all.items[0]?.title).toBe('A Record');
 
-    const vinylOnly = await listItems(env.DB, lib.id, { mediaType: 'vinyl' });
+    const vinylOnly = await listItems(env.DB, lib.id, { mediaTypes: ['vinyl'] });
     expect(vinylOnly.total).toBe(1);
     expect(vinylOnly.items[0]?.title).toBe('A Record');
+  });
+
+  it('filters are any-of: multiple types/statuses combine as OR within the dimension', async () => {
+    const lib = await seedLibrary();
+    await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'Book', status: 'completed', details: '{}' });
+    await createItem(env.DB, { libraryId: lib.id, mediaType: 'vinyl', title: 'Record', status: 'not_started', details: '{}' });
+    await createItem(env.DB, { libraryId: lib.id, mediaType: 'boardgame', title: 'Game', status: 'in_progress', details: '{}' });
+
+    const twoTypes = await listItems(env.DB, lib.id, { mediaTypes: ['book', 'vinyl'], sort: 'title' });
+    expect(twoTypes.items.map((i) => i.title)).toEqual(['Book', 'Record']);
+
+    const twoStatuses = await listItems(env.DB, lib.id, { statuses: ['completed', 'in_progress'], sort: 'title' });
+    expect(twoStatuses.items.map((i) => i.title)).toEqual(['Book', 'Game']);
+
+    // dimensions still AND together
+    const both = await listItems(env.DB, lib.id, { mediaTypes: ['book', 'vinyl'], statuses: ['completed'] });
+    expect(both.items.map((i) => i.title)).toEqual(['Book']);
+
+    expect((await listItems(env.DB, lib.id, { mediaTypes: [], statuses: [] })).total).toBe(3); // empty = no filter
   });
 
   it('filters by ownership: copies = 0 is a reading-log entry', async () => {

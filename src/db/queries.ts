@@ -151,8 +151,8 @@ export async function deleteShare(d1: D1Database, id: number): Promise<void> {
 export const PAGE_SIZE = 60;
 
 export type ItemFilters = {
-  mediaType?: MediaType;
-  status?: ItemStatus;
+  mediaTypes?: MediaType[]; // any-of; empty/omitted = all types
+  statuses?: ItemStatus[]; // any-of; empty/omitted = any status
   owned?: boolean; // true = copies > 0, false = copies = 0 (reading-log entries)
   q?: string; // title/creators substring, case-insensitive
   sort?: 'added' | 'title' | 'rating';
@@ -167,8 +167,8 @@ export async function listItems(
   const dbi = db(d1);
   const conds: SQL[] = [];
   if (libraryId !== null) conds.push(eq(s.items.libraryId, libraryId));
-  if (f.mediaType) conds.push(eq(s.items.mediaType, f.mediaType));
-  if (f.status) conds.push(eq(s.items.status, f.status));
+  if (f.mediaTypes?.length) conds.push(inArray(s.items.mediaType, f.mediaTypes));
+  if (f.statuses?.length) conds.push(inArray(s.items.status, f.statuses));
   if (f.owned !== undefined) conds.push(f.owned ? gt(s.items.copies, 0) : eq(s.items.copies, 0));
   if (f.q) {
     const needle = `%${f.q.replace(/[%_\\]/g, '\\$&')}%`;
