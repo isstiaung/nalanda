@@ -10,10 +10,11 @@ requirement.**
 [ARCH.md](ARCH.md) is the source of truth for architecture decisions — read it before
 structural changes, update it (incl. §16 decision log) when a decision changes.
 
-**Status (2026-07-19): production provisioned, not yet deployed.** Worker/D1 are named
-`nalanda`, R2 bucket `nalanda-covers` — both exist; the real D1 id is in
-`wrangler.jsonc`. Remote D1 carries migrations + data migrated from local dev.
-Worker deploy pending (owner is wiring the dashboard git integration). Deployments happen through branch `deploy-site`
+**Status (2026-07-19): live in production.** Deployed via the Cloudflare dashboard git
+integration — **pushes to branch `deploy-site` deploy** (build command empty, deploy
+command `npm run deploy`). Worker/D1 are named `nalanda`, R2 bucket `nalanda-covers`;
+data was migrated from local dev (catalog + cover objects). Secrets set:
+`SESSION_SECRET`, `DISCOGS_TOKEN` (`GOOGLE_BOOKS_KEY` deliberately unset until needed).
 
 ## Stack (settled — don't re-litigate without updating ARCH.md)
 - TypeScript on Cloudflare Workers. Hono + `hono/jsx` SSR, htmx partials. No SPA, no React,
@@ -83,7 +84,7 @@ npm run backup             # per-table data-only export → backups/remote-<date
                            # (D1 cannot dump databases with FTS5 virtual tables;
                            #  schema comes from migrations/ — see backup runbook)
 npm run backup:local       # same, for the local dev database
-npm run vendor             # re-copy vendored assets after bumping htmx/pico/zxing versions
+npm run vendor             # re-copy vendored assets after bumping htmx/zxing/font versions
 ```
 
 ## Layout
@@ -97,7 +98,7 @@ src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googleboo
                    discogs — nothing outside this dir calls external APIs
 src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist), csv.ts
                    (export + libib mapping), covers.ts (only R2 code)
-public/            app.css, scanner.js, import.js, app.js + vendor/ (htmx, pico, zxing)
+public/            app.css, scanner.js, import.js, app.js + vendor/ (htmx, zxing, eczar fonts)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke
 runbooks/          operational guides: deploy, backup/restore, accounts, libib import,

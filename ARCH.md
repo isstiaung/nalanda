@@ -363,7 +363,7 @@ Every authenticated page route returns a full document normally and a partial wh
 │   ├── metadata/                     # provider.ts + openlibrary.ts, googlebooks.ts,
 │   │                                 # bgg.ts, discogs.ts
 │   └── lib/                          # auth.ts (pbkdf2, cookie), csv.ts, covers.ts
-├── public/                           # htmx.min.js, scanner.js, zxing wasm, pico.css, app.css
+├── public/                           # htmx.min.js, scanner.js, zxing wasm, eczar fonts, app.css
 └── test/                             # vitest, runs in workerd with real D1/R2 simulators
 ```
 
@@ -565,6 +565,19 @@ file hosting (calibre-web's territory), background jobs of any kind.
     the long TTL: a rotated/removed link can keep serving from an untouched
     isolate for **up to an hour**. `x-cache: hit|miss` header aids debugging;
     hit/miss/bust regression-tested in test/items.spec.ts.
+
+**2026-07-19 — went live:**
+20. Production provisioned and deployed. D1 `nalanda` + R2 `nalanda-covers` created via
+    wrangler; full local catalog migrated (per-table SQL restore — FTS rebuilt itself
+    via triggers — plus all cover objects copied key-for-key out of miniflare's local
+    store, so no production backfill was needed). Deploys run through the Cloudflare
+    dashboard git integration: push to `deploy-site` → `npm run deploy`. Two live
+    lessons: an empty `SESSION_SECRET` throws `DataError` on HMAC import at login (the
+    Worker boots fine — set the secret before first login), and dashboard-pasted secret
+    values can pick up whitespace (piping the value into `wrangler secret put` is the
+    reliable path). Local reminder: miniflare keys local D1 state by `database_id`, so
+    changing the id in `wrangler.jsonc` orphans local data until the state file is
+    copied to the new key.
 
 The honest comparison, since it was asked:
 
