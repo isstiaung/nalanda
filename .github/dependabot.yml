@@ -10,6 +10,12 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    # Direct dependencies only. Dependabot kept failing the whole run trying to bump
+    # `vite`, a transitive dep of vitest whose peer range it cannot satisfy — and a
+    # dependency we do not declare is not ours to pin. Transitive packages are still
+    # covered by Dependabot *security* updates, which are a separate mechanism.
+    allow:
+      - dependency-type: direct
     groups:
       minor-and-patch:
         patterns: ['*']
