@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
+    "dev:demo": "wrangler dev --port 8788 --persist-to .wrangler/demo-state",
+    "seed:demo": "node scripts/seed-demo.mjs",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "wrangler d1 migrations apply nalanda --local",

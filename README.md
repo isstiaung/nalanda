@@ -5,6 +5,8 @@ Self-hosted home library registry for **books, board games, and vinyl records** 
 tier at **$0/month**. Named for the library of the Nalanda mahāvihāra; styled after its
 manuscripts.
 
+![A shelf of books in cover view — the manuscript-ledger design system in light mode](docs/screenshots/shelf-covers.png)
+
 - **Scan to shelf**: point your phone camera at a book or record barcode; ISBNs look up
   books (Open Library + Google Books), other barcodes look up vinyl (Discogs). Board games
   add by name search (BoardGameGeek).
@@ -29,6 +31,22 @@ manuscripts.
 Stack: TypeScript · Cloudflare Workers · Hono (server-rendered JSX) + htmx · D1 (SQLite) +
 Drizzle · R2 for cover art. One deployable, no client build, three runtime dependencies.
 See [ARCH.md](ARCH.md) for the design and the reasoning behind it.
+
+## A look around
+
+| | |
+|---|---|
+| ![The overview page: owned and not-owned counts, shelves, loans, recent additions](docs/screenshots/overview.png) | ![A shelf in table view: title, type, year, rating, status, tags, accession number](docs/screenshots/shelf-table.png) |
+| **Overview** — what's owned, what's only read, what's out on loan. | **The ledger view** — every shelf reads as a catalogue card, down to the accession number. |
+| ![An item page showing cover, catalogue fields, review, and the lending form](docs/screenshots/item.png) | ![A public share page listing finished books, with no sidebar or account links](docs/screenshots/share.png) |
+| **An item** — metadata auto-filled from the barcode, your rating and review below it. | **A published share** — one filtered view, its own link. No notes, no loans, no way back into the app. |
+
+The whole thing has a lamp-lit dark mode that follows the system setting:
+
+![The same shelf in dark mode — warm blacks, pigments glowing](docs/screenshots/shelf-dark.png)
+
+Screenshots come from seeded demo data — `npm run dev:demo` and `npm run seed:demo` will
+reproduce them on your own machine.
 
 ## Local development
 
