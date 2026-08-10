@@ -1,0 +1,11 @@
+# Every pull request requests a review from the maintainer.
+* @isstiaung
+
+# Areas where a mistake is a privacy or data-loss bug rather than a broken page —
+# called out so the diff is read slowly, not because anyone else owns them.
+/src/lib/share.ts       @isstiaung
+/src/lib/auth.ts        @isstiaung
+/src/lib/covers.ts      @isstiaung
+/migrations/            @isstiaung
+/scripts/deploy.mjs     @isstiaung
+/.github/workflows/     @isstiaung
