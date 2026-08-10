@@ -19,19 +19,19 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "drizzle-orm": "^0.44.0",
-    "fast-xml-parser": "^5.0.0",
-    "hono": "^4.6.0"
+    "drizzle-orm": "^0.45.2",
+    "fast-xml-parser": "^5.10.1",
+    "hono": "^4.13.0"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.8.0",
-    "@cloudflare/workers-types": "^4.20250801.0",
-    "@fontsource/eczar": "^5.2.8",
+    "@cloudflare/vitest-pool-workers": "^0.20.2",
+    "@cloudflare/workers-types": "^5.20260804.1",
+    "@fontsource/eczar": "^5.3.0",
     "drizzle-kit": "^0.31.0",
     "htmx.org": "^2.0.0",
-    "typescript": "^5.5.0",
-    "vitest": "~3.2.0",
-    "wrangler": "^4.0.0",
-    "zxing-wasm": "^2.0.0"
+    "typescript": "^7.0.2",
+    "vitest": "~4.1.10",
+    "wrangler": "^4.119.0",
+    "zxing-wasm": "^3.1.2"
   }
 }
