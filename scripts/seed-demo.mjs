@@ -157,11 +157,15 @@ async function main() {
     console.log(`lent item ${itemId} until ${due}`);
   }
 
-  await call('/shares', {
-    method: 'POST',
-    form: { libraryId: String(shelf('Books')), name: 'Books I have finished', status: 'completed', sort: 'rating' },
-  });
-  console.log('published a share view: "Books I have finished"');
+  // Two links with different scopes: one slice of a shelf, one whole shelf — which is
+  // also the difference between a shelf reading "1 view shared" and "Shared".
+  for (const share of [
+    { libraryId: String(shelf('Books')), name: 'Books I have finished', status: 'completed', sort: 'rating' },
+    { libraryId: String(shelf('Vinyl')), name: 'The record shelf', sort: 'title' },
+  ]) {
+    await call('/shares', { method: 'POST', form: share });
+    console.log(`published a share view: "${share.name}"`);
+  }
 
   console.log(`\nDone. ${BASE} — log in as ${USERNAME} / ${PASSWORD}`);
 }

@@ -72,7 +72,7 @@ shares.get('/shares', async (c) => {
                     <td>
                       <strong>{v.name}</strong>
                       <br />
-                      <a href={`${origin}/share/${v.token}`} class="mono">
+                      <a href={`${origin}/share/${v.token}`} class="mono break-anywhere">
                         {origin}/share/{v.token}
                       </a>
                     </td>
