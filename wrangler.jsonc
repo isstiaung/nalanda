@@ -6,15 +6,18 @@
   "assets": {
     "directory": "./public"
   },
-  // database_id is intentionally blank: this repo names no specific Cloudflare
-  // resource. Local dev, local migrations, and the tests ignore it entirely, so a
-  // fresh clone runs offline without touching it. Deploys read the real id from
-  // the D1_DATABASE_ID environment variable — see scripts/deploy.mjs.
+  // database_id is an all-zero placeholder on purpose: this repo names no specific
+  // Cloudflare resource. `npm run dev`, local migrations, and the tests all work
+  // against it as-is, so a fresh clone runs offline with nothing to edit. Only
+  // deploys need the real id, substituted from D1_DATABASE_ID — see
+  // scripts/deploy.mjs. Keep it a well-formed UUID: `wrangler dev` fails on an
+  // empty string, and editing it re-keys local storage (a populated dev database
+  // will look empty until you put the old value back).
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "nalanda",
-      "database_id": "",
+      "database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
     }
   ],

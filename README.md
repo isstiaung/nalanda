@@ -82,10 +82,11 @@ wrangler secret put HOME_SHARE_TOKEN  # optional — logged-out "/" redirects to
 D1_DATABASE_ID=<the id> npm run deploy   # remote migrations, then wrangler deploy
 ```
 
-This repo names no Cloudflare resource of its own: `database_id` in `wrangler.jsonc` is
-blank, and the deploy reads the real one from `D1_DATABASE_ID`. Local development, local
-migrations, and the tests never look at it, so a fresh clone runs offline with nothing to
-edit. (`wrangler d1 list` will remind you of the id later.)
+This repo names no Cloudflare resource of its own: `database_id` in `wrangler.jsonc` is an
+all-zero placeholder, and the deploy substitutes the real one from `D1_DATABASE_ID`. Local
+development, local migrations, and the tests all run against the placeholder, so a fresh
+clone works offline with nothing to edit. (`wrangler d1 list` will remind you of the id
+later.)
 
 From there `npm run deploy` is every update. If you'd rather not deploy from your laptop,
 point Cloudflare's dashboard git integration at a branch with an empty build command and

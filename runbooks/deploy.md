@@ -8,10 +8,12 @@
    npx wrangler r2 bucket create nalanda-covers
    ```
    Note the `database_id` the first command prints — you supply it at deploy time as
-   `D1_DATABASE_ID` rather than committing it. `wrangler.jsonc` keeps that field blank on
-   purpose: the repo names no Cloudflare resource, and nothing in local dev, local
-   migrations, or the tests reads it. `npx wrangler d1 list` shows the id again later.
-   The bucket needs no config change.
+   `D1_DATABASE_ID` rather than committing it. `wrangler.jsonc` keeps an all-zero
+   placeholder there on purpose: the repo names no Cloudflare resource, and local dev,
+   local migrations, and the tests all run happily against the placeholder. Leave it
+   alone — editing it re-keys local storage, so a dev database you've been filling will
+   suddenly look empty. `npx wrangler d1 list` shows the real id again later. The bucket
+   needs no config change.
 
 2. **Set secrets** (each command prompts for the value):
    ```sh

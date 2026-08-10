@@ -1,8 +1,9 @@
 // Cover backfill: query filters/cursor + the whole route with provider APIs mocked.
 // Three seeded cases: exact ISBN hit (Open Library), full-chain miss, and an
 // identifier-less item rescued by the title/author pass (Google Books).
-import { createExecutionContext, env, fetchMock, waitOnExecutionContext } from 'cloudflare:test';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { activateFetchMock, assertNoPendingInterceptors, intercept, jpeg, json } from './fetch-mock';
 import {
   countBackfillable,
   createItem,
@@ -14,16 +15,12 @@ import {
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import app from '../src/index';
 
-beforeAll(() => {
-  fetchMock.activate();
-  fetchMock.disableNetConnect();
+beforeEach(() => {
+  activateFetchMock();
 });
 afterEach(() => {
-  fetchMock.assertNoPendingInterceptors();
+  assertNoPendingInterceptors();
 });
-
-const JSON_HEADERS = { headers: { 'content-type': 'application/json' } };
-const FAKE_JPEG = ['x'.repeat(1200), { headers: { 'content-type': 'image/jpeg' } }] as const;
 
 async function seed() {
   const lib = await createLibrary(env.DB, 'Backfill shelf');
@@ -81,80 +78,61 @@ describe('POST /api/backfill-covers', () => {
     const { byIsbn, unfindable, byTitle } = await seed();
 
     // A — exact ISBN hit on Open Library search (cover id 42).
-    fetchMock
-      .get('https://openlibrary.org')
-      .intercept({ path: olSearch('9780000000001') })
-      .reply(200, JSON.stringify({ docs: [{ title: 'Findable', cover_i: 42 }] }), JSON_HEADERS);
-    fetchMock.get('https://covers.openlibrary.org').intercept({ path: '/b/id/42-L.jpg' }).reply(200, ...FAKE_JPEG);
+    intercept('https://openlibrary.org', olSearch('9780000000001'), json({ docs: [{ title: 'Findable', cover_i: 42 }] }));
+    intercept('https://covers.openlibrary.org', '/b/id/42-L.jpg', jpeg());
 
     // B — junk everywhere (the polluted-ISBN case seen live): OL search returns a
     // record for a DIFFERENT book (no cover_i → would fall back to the by-ISBN cover
     // URL); the title guard must reject it without fetching that cover at all.
-    fetchMock
-      .get('https://openlibrary.org')
-      .intercept({ path: olSearch('9780000000002') })
-      .reply(200, JSON.stringify({ docs: [{ title: 'The Three Voices of Poetry' }] }), JSON_HEADERS);
-    fetchMock
-      .get('https://openlibrary.org')
-      .intercept({ path: '/isbn/9780000000002.json' })
-      .reply(404, 'not found');
+    intercept(
+      'https://openlibrary.org',
+      olSearch('9780000000002'),
+      json({ docs: [{ title: 'The Three Voices of Poetry' }] }),
+    );
+    intercept('https://openlibrary.org', '/isbn/9780000000002.json', { status: 404, body: 'not found' });
     // GB "fuzzy" behavior for unknown ISBNs: returns an unrelated volume — the
     // identity guard must reject it (wrong ISBN, wrong title), never fetch its cover.
-    fetchMock
-      .get('https://www.googleapis.com')
-      .intercept({ path: gbSearch('9780000000002') })
-      .reply(
-        200,
-        JSON.stringify({
-          items: [
-            {
-              volumeInfo: {
-                title: 'Random Wrong Book',
-                imageLinks: { thumbnail: 'http://books.google.com/covers/wrong.jpg' },
-                industryIdentifiers: [{ type: 'ISBN_13', identifier: '9789999999999' }],
-              },
+    intercept(
+      'https://www.googleapis.com',
+      gbSearch('9780000000002'),
+      json({
+        items: [
+          {
+            volumeInfo: {
+              title: 'Random Wrong Book',
+              imageLinks: { thumbnail: 'http://books.google.com/covers/wrong.jpg' },
+              industryIdentifiers: [{ type: 'ISBN_13', identifier: '9789999999999' }],
             },
-          ],
-        }),
-        JSON_HEADERS,
-      );
-    fetchMock
-      .get('https://itunes.apple.com')
-      .intercept({ path: (p) => p.startsWith('/lookup') && p.includes('9780000000002') })
-      .reply(200, JSON.stringify({ resultCount: 0, results: [] }), JSON_HEADERS);
-    fetchMock
-      .get('https://openlibrary.org')
-      .intercept({ path: olSearch('Unfindable') })
-      .reply(200, JSON.stringify({ docs: [] }), JSON_HEADERS);
-    fetchMock
-      .get('https://www.googleapis.com')
-      .intercept({ path: gbSearch('Unfindable') })
-      .reply(200, JSON.stringify({ items: [] }), JSON_HEADERS);
+          },
+        ],
+      }),
+    );
+    intercept(
+      'https://itunes.apple.com',
+      (p) => p.startsWith('/lookup') && p.includes('9780000000002'),
+      json({ resultCount: 0, results: [] }),
+    );
+    intercept('https://openlibrary.org', olSearch('Unfindable'), json({ docs: [] }));
+    intercept('https://www.googleapis.com', gbSearch('Unfindable'), json({ items: [] }));
 
     // C — no identifier; OL title search misses, Google Books title search hits
     // (title differs only in case → titlesMatch accepts; http thumbnail → https).
-    fetchMock
-      .get('https://openlibrary.org')
-      .intercept({ path: olSearch('identifier') })
-      .reply(200, JSON.stringify({ docs: [] }), JSON_HEADERS);
-    fetchMock
-      .get('https://www.googleapis.com')
-      .intercept({ path: gbSearch('identifier') })
-      .reply(
-        200,
-        JSON.stringify({
-          items: [
-            {
-              volumeInfo: {
-                title: 'No Identifier',
-                imageLinks: { thumbnail: 'http://books.google.com/covers/c.jpg' },
-              },
+    intercept('https://openlibrary.org', olSearch('identifier'), json({ docs: [] }));
+    intercept(
+      'https://www.googleapis.com',
+      gbSearch('identifier'),
+      json({
+        items: [
+          {
+            volumeInfo: {
+              title: 'No Identifier',
+              imageLinks: { thumbnail: 'http://books.google.com/covers/c.jpg' },
             },
-          ],
-        }),
-        JSON_HEADERS,
-      );
-    fetchMock.get('https://books.google.com').intercept({ path: '/covers/c.jpg' }).reply(200, ...FAKE_JPEG);
+          },
+        ],
+      }),
+    );
+    intercept('https://books.google.com', '/covers/c.jpg', jpeg());
 
     const admin = await createUser(env.DB, {
       username: 'admin',
