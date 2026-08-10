@@ -62,6 +62,11 @@ Please don't file these:
   issues one-time temporary passwords instead (ARCH.md §8).
 - **Metadata providers are called server-side over plain `fetch`.** Nalanda sends them
   barcodes and search terms; it sends them nothing about your users.
+- **GHSA-67mh-4wv8-2f99 (esbuild dev server).** Dismissed deliberately: it requires
+  `esbuild --serve`, which this project never runs — esbuild is only ever a bundler
+  library here, and both dev servers go through workerd. Development scope, so it never
+  reaches the Worker bundle, and the vulnerable copy is pinned by a deprecated transitive
+  dependency that cannot be upgraded (ARCH.md §16 #26).
 
 ## If you run an instance
 

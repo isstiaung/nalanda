@@ -648,6 +648,19 @@ file hosting (calibre-web's territory), background jobs of any kind.
     codemod not used: it only rewrites the object form, and ours builds migrations async.
     Lesson recorded in `.github/dependabot.yml`: group minor/patch, never majors.
 
+26. **Dismissed: GHSA-67mh-4wv8-2f99 (esbuild dev server), tolerable risk.** The advisory
+    lets any website read source off `esbuild --serve`. Not reachable here: nothing in
+    this project invokes esbuild directly — it is a bundler *library* under wrangler,
+    vitest and drizzle-kit, and both dev servers (`wrangler dev`, the vitest pool) serve
+    through workerd/miniflare, so esbuild's HTTP server never starts. Development scope,
+    so it never enters the Worker bundle either. Unfixable by upgrading: the vulnerable
+    copy is `esbuild@0.18.20`, pinned four levels down by
+    `drizzle-kit → @esbuild-kit/esm-loader → @esbuild-kit/core-utils`, a package
+    deprecated in favour of `tsx` that will not ship a fix — the tree's other three
+    esbuild copies are already patched. An `overrides` pin was rejected as more likely to
+    break drizzle-kit's loader than to prevent anything. Revisit if this project ever
+    runs esbuild's server directly, or when drizzle-kit drops the `@esbuild-kit` chain.
+
 The honest comparison, since it was asked:
 
 - **What this app is**: ~a dozen CRUD pages (lists, forms, a detail view) plus exactly one
