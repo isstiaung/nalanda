@@ -18,6 +18,12 @@ const files = [
   // Display face for titles/brand (Devanagari-first design, OFL) — see app.css.
   ['node_modules/@fontsource/eczar/files/eczar-latin-600-normal.woff2', 'fonts/eczar-latin-600-normal.woff2'],
   ['node_modules/@fontsource/eczar/files/eczar-latin-700-normal.woff2', 'fonts/eczar-latin-700-normal.woff2'],
+  // These assets are served to browsers from our own origin, so their licenses
+  // travel with them: the OFL and MIT both require the notice be distributed
+  // alongside the thing it covers. See THIRD-PARTY.md.
+  ['node_modules/htmx.org/LICENSE', 'htmx.LICENSE.txt'],
+  ['node_modules/zxing-wasm/LICENSE', 'zxing/LICENSE.txt'],
+  ['node_modules/@fontsource/eczar/LICENSE', 'fonts/eczar.LICENSE.txt'],
 ];
 
 for (const [src, dest] of files) {
