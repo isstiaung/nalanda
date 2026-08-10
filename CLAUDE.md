@@ -41,8 +41,11 @@ shape from this file.
 - htmx and ZXing-WASM are pinned as devDependencies and copied to `public/vendor/` by
   `scripts/vendor.mjs` (runs on postinstall) — never hotlinked from a CDN, never imported
   into the Worker bundle.
-- Tests: Vitest + `@cloudflare/vitest-pool-workers` (runs in real workerd; migrations are
-  applied to a fresh D1 in `test/apply-migrations.ts`).
+- Tests: Vitest + `@cloudflare/vitest-pool-workers` (runs in real workerd). Since v0.20
+  there is no automatic per-test isolated storage: `test/apply-migrations.ts` calls
+  `reset()` and re-applies migrations before every test, and outbound `fetch` is stubbed
+  by `test/fetch-mock.ts` rather than the removed `fetchMock` (ARCH.md §16 #25). Config is
+  a plain Vitest config plus the `cloudflareTest()` plugin — `defineWorkersConfig` is gone.
 - Runtime npm deps: `hono`, `drizzle-orm`, `fast-xml-parser` (BGG is XML; Workers has no
   DOMParser). Adding a dependency beyond these needs a strong reason.
 
@@ -79,12 +82,15 @@ shape from this file.
 ## Commands
 ```
 npm run dev                # wrangler dev — local D1 (real SQLite file) + local R2, offline
+npm run dev:demo           # same, on :8788 with its own --persist-to state (screenshots)
+npm run seed:demo          # fills that demo instance over HTTP; refuses a non-empty one
 npm test                   # vitest, runs inside workerd
+npm run typecheck          # tsc --noEmit
 npm run db:generate        # drizzle-kit generate — schema.ts → migrations/*.sql
 npm run db:migrate         # wrangler d1 migrations apply nalanda --local
 npm run db:migrate:remote  # same, against production
 npm run deploy             # needs D1_DATABASE_ID in the env (never in the repo — the
-                           # database_id in wrangler.jsonc is blank on purpose);
+                           # database_id in wrangler.jsonc is an all-zero placeholder);
                            # resolves it into a gitignored config, migrates, deploys
 npm run backup             # per-table data-only export → backups/remote-<date>/
                            # (D1 cannot dump databases with FTS5 virtual tables;
@@ -102,15 +108,20 @@ src/routes/        pages + htmx partials + /api/lookup, /api/import + share.tsx 
 src/views/         hono/jsx layout + components (page() helper wraps Layout + doctype)
 src/db/            schema.ts (Drizzle) + queries.ts — the ONLY code touching D1
 src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googlebooks, bgg,
-                   discogs — nothing outside this dir calls external APIs
+                   discogs, itunes, musicbrainz — nothing else calls external APIs
 src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist), csv.ts
                    (export + libib mapping), covers.ts (only R2 code)
 public/            app.css, scanner.js, import.js, app.js + vendor/ (htmx, zxing, eczar fonts)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
-test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke
+test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;
+                   apply-migrations.ts resets + re-migrates D1 before EVERY test, and
+                   fetch-mock.ts stubs outbound fetch (see §16 #25)
+scripts/           vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp config),
+                   backup.mjs, seed-demo.mjs, hash-password.mjs
 runbooks/          operational guides: deploy, backup/restore, accounts, libib import,
                    goodreads import, troubleshooting — update when ops procedures change
-.github/           CI (typecheck + test; no secrets, never pull_request_target) + dependabot
+.github/           CI (typecheck + test; no secrets, never pull_request_target),
+                   dependabot (minor/patch grouped, majors alone), CODEOWNERS
 docs/screenshots/  README imagery, captured from seeded demo data — never real catalog data
 ```
 
@@ -141,6 +152,8 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
   `HOME_SHARE_TOKEN` — points logged-out `/` at a share page, ARCH.md §16 #21) via
   `wrangler secret put` — never in code, `wrangler.jsonc`, or git. Local values go in
   `.dev.vars` (gitignored; see `.dev.vars.example`).
-- **No Cloudflare resource ids in the repo** (ARCH.md §16 #24). `database_id` stays blank;
-  deploys supply `D1_DATABASE_ID` from the environment. Don't "helpfully" fill it in.
+- **No Cloudflare resource ids in the repo** (ARCH.md §16 #24). `database_id` stays the
+  all-zero placeholder; deploys supply `D1_DATABASE_ID` from the environment. Don't
+  "helpfully" fill it in — and note miniflare keys local D1 state by that value, so
+  editing it orphans the local database (§16 #20).
 - Keep this file and ARCH.md current as commands and decisions evolve.

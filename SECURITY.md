@@ -54,8 +54,10 @@ Please don't file these:
 - **Share pages are cached in-isolate for an hour.** After rotating or removing a share, an
   untouched isolate can keep serving the old page for up to 1 hour (ARCH.md §16 #19). It's a
   burst shield with a known, accepted lag.
-- **The `database_id` in `wrangler.jsonc`.** An account-scoped resource identifier, inert
-  without credentials for the account that owns it.
+- **The all-zero `database_id` in `wrangler.jsonc`.** A placeholder, not a real resource:
+  this repo names no Cloudflare database, bucket, or account. Deploys take the real id from
+  `D1_DATABASE_ID` in the environment (`scripts/deploy.mjs`). Even a real D1 id would be
+  inert without credentials for the account that owns it — keeping it out is hygiene.
 - **No password reset emails.** Deliberate — there is no email infrastructure. An admin
   issues one-time temporary passwords instead (ARCH.md §8).
 - **Metadata providers are called server-side over plain `fetch`.** Nalanda sends them

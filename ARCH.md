@@ -543,8 +543,9 @@ file hosting (calibre-web's territory), background jobs of any kind.
     jewel at the summit, lampblack plinth. Chosen over an indigo-ground version (the
     app's *perceived* scheme is paper + red, indigo is seasoning) and over letterform
     marks (Latin N, Devanagari न — rejected as not saying "library"). The exploration
-    lives in `options/` (kept in-repo deliberately); regenerate icons from
-    `public/logo.svg` via qlmanage + sips as before.
+    lived in `options/`, untracked when the repo went public (#24) — eight studies for a
+    settled decision are clutter in a public tree; they remain in git history and on the
+    maintainer's disk. Regenerate icons from `public/logo.svg` via qlmanage + sips.
 18. **Share links are per-view, not per-shelf.** New `shares` table: token + name +
     captured filters (shelf, media type, status, owned) + sort; a whole-shelf link is
     simply a filterless view. Any number of links per shelf, rotated/removed
@@ -627,9 +628,25 @@ file hosting (calibre-web's territory), background jobs of any kind.
     the project root because wrangler resolves `main`, `assets`, and `migrations_dir`
     relative to the config file's own directory. The placeholder must stay a well-formed
     UUID — `wrangler dev` rejects an empty string — and it is load-bearing for local
-    storage keying, so changing it makes an existing local database look empty. Local dev,
+    storage keying (#20), so editing it orphans an existing local database. Local dev,
     migrations, and tests all run against the placeholder, so a clone needs no edit at
-    all.
+    all. The same pass added LICENSE (MIT), CONTRIBUTING, SECURITY, THIRD-PARTY, CI, and
+    CODEOWNERS, and untracked `options/`.
+
+25. **The test harness follows vitest-pool-workers, and owns its own fetch mock.** The
+    v0.8 → v0.20 jump (forced by wrangler 4.119 peering on workers-types v5) removed four
+    things at once: `defineWorkersConfig` and the `/config` export (now a plain Vitest
+    config plus a `cloudflareTest()` plugin), `ProvidedEnv` (now `Cloudflare.Env` by
+    declaration merging in `test/env.d.ts`), automatic per-test isolated storage (now an
+    explicit `reset()`, so `test/apply-migrations.ts` wipes and re-migrates before every
+    test — the suite assumes a clean catalog, e.g. `holdingsByType` counts globally), and
+    `fetchMock`, which vanished from both `cloudflare:test` and miniflare 5.
+    `test/fetch-mock.ts` replaces it with a global `fetch` stub — viable because the pool
+    runs the worker under test in the *same isolate* as the test — and deliberately keeps
+    the two properties that made the original trustworthy: an unmatched request throws
+    rather than reaching the network, and unconsumed interceptors fail the test. Bundled
+    codemod not used: it only rewrites the object form, and ours builds migrations async.
+    Lesson recorded in `.github/dependabot.yml`: group minor/patch, never majors.
 
 The honest comparison, since it was asked:
 
