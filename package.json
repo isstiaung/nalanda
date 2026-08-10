@@ -24,14 +24,14 @@
     "hono": "^4.13.1"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.20.2",
+    "@cloudflare/vitest-pool-workers": "^0.20.3",
     "@cloudflare/workers-types": "^5.20260804.1",
     "@fontsource/eczar": "^5.3.0",
     "drizzle-kit": "^0.31.0",
     "htmx.org": "^2.0.0",
     "typescript": "^7.0.2",
     "vitest": "~4.1.10",
-    "wrangler": "^4.119.0",
+    "wrangler": "^4.120.0",
     "zxing-wasm": "^3.1.2"
   }
 }
