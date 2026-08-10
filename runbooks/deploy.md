@@ -38,7 +38,16 @@
 
    Export it in your shell profile if you deploy from a laptop often. If you deploy
    through Cloudflare's dashboard git integration instead, set `D1_DATABASE_ID` as a
-   **build variable** on the Worker — a build without it fails at the first step.
+   **build variable or build secret** on the Worker — a build without it fails at the
+   first step.
+
+   > **The trap:** it must live under the Worker's **Build** settings, *not* under runtime
+   > secrets and *not* via `wrangler secret put`. Runtime secrets are bound into the Worker
+   > at request time; the build container never sees them, so `npm run deploy` exits with
+   > "D1_DATABASE_ID is not set" while the dashboard shows the secret plainly set. Also
+   > confirm the **deploy command** is `npm run deploy` — Cloudflare's default is a bare
+   > `wrangler deploy`, which skips the substitution and remote migrations entirely and
+   > fails with `D1 binding 'DB' references database '00000000-…'`.
 
 4. **Create your account**: open `<your-url>/setup` immediately — it creates the admin
    account and disables itself once a user exists.

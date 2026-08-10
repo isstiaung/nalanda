@@ -29,9 +29,16 @@ Local dev prints to the `npm run dev` terminal.
 
 ## Deploys & database
 
-- **`D1_DATABASE_ID is not set`**: the id lives in the environment, never in the repo.
-  `npx wrangler d1 list` shows it; then `D1_DATABASE_ID=<id> npm run deploy`. On
-  Cloudflare Workers Builds, set it as a build variable on the Worker.
+- **`D1_DATABASE_ID is not set`** during a Cloudflare build, while the dashboard clearly
+  shows it set: it's under **runtime** secrets rather than **Build** settings. Runtime
+  secrets are bound into the Worker at request time and are invisible to the build
+  container. Move it to the Worker's Build variables/secrets. Deploying by hand instead:
+  `D1_DATABASE_ID=$(npx wrangler d1 list | grep nalanda) npm run deploy`, or just
+  `D1_DATABASE_ID=<id> npm run deploy`.
+- **`D1 binding 'DB' references database '00000000-0000-0000-0000-000000000000'`**: the
+  build ran a bare `wrangler deploy` instead of `npm run deploy`, so the placeholder in
+  `wrangler.jsonc` was never substituted and remote migrations never ran. Set the Worker's
+  **deploy command** to `npm run deploy` (Cloudflare's default is the bare form).
 - **`Invalid uuid` from the D1 API on deploy**: `D1_DATABASE_ID` holds something that
   isn't the database id — check `npx wrangler d1 list`.
 - **"migrations pending" or schema mismatch locally**: `npm run db:migrate` (local) /
