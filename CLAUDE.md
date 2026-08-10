@@ -83,7 +83,9 @@ npm test                   # vitest, runs inside workerd
 npm run db:generate        # drizzle-kit generate — schema.ts → migrations/*.sql
 npm run db:migrate         # wrangler d1 migrations apply nalanda --local
 npm run db:migrate:remote  # same, against production
-npm run deploy             # remote migrations, then wrangler deploy
+npm run deploy             # needs D1_DATABASE_ID in the env (never in the repo — the
+                           # database_id in wrangler.jsonc is blank on purpose);
+                           # resolves it into a gitignored config, migrates, deploys
 npm run backup             # per-table data-only export → backups/remote-<date>/
                            # (D1 cannot dump databases with FTS5 virtual tables;
                            #  schema comes from migrations/ — see backup runbook)
@@ -139,4 +141,6 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
   `HOME_SHARE_TOKEN` — points logged-out `/` at a share page, ARCH.md §16 #21) via
   `wrangler secret put` — never in code, `wrangler.jsonc`, or git. Local values go in
   `.dev.vars` (gitignored; see `.dev.vars.example`).
+- **No Cloudflare resource ids in the repo** (ARCH.md §16 #24). `database_id` stays blank;
+  deploys supply `D1_DATABASE_ID` from the environment. Don't "helpfully" fill it in.
 - Keep this file and ARCH.md current as commands and decisions evolve.

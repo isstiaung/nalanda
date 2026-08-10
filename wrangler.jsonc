@@ -6,11 +6,10 @@
   "assets": {
     "directory": "./public"
   },
-  // Running your own instance? Replace database_id below with the id printed by
-  // `wrangler d1 create nalanda`, and create the R2 bucket with
-  // `wrangler r2 bucket create nalanda-covers`. The id is an account-scoped
-  // resource identifier, not a secret — it does nothing without credentials for
-  // the account that owns it. Local dev ignores it entirely (see README).
+  // database_id is intentionally blank: this repo names no specific Cloudflare
+  // resource. Local dev, local migrations, and the tests ignore it entirely, so a
+  // fresh clone runs offline without touching it. Deploys read the real id from
+  // the D1_DATABASE_ID environment variable — see scripts/deploy.mjs.
   "d1_databases": [
     {
       "binding": "DB",

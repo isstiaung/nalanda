@@ -7,8 +7,11 @@
    npx wrangler d1 create nalanda
    npx wrangler r2 bucket create nalanda-covers
    ```
-   Copy the `database_id` that the first command prints into `wrangler.jsonc`, replacing
-   the `00000000-…` placeholder. The bucket needs no config change.
+   Note the `database_id` the first command prints — you supply it at deploy time as
+   `D1_DATABASE_ID` rather than committing it. `wrangler.jsonc` keeps that field blank on
+   purpose: the repo names no Cloudflare resource, and nothing in local dev, local
+   migrations, or the tests reads it. `npx wrangler d1 list` shows the id again later.
+   The bucket needs no config change.
 
 2. **Set secrets** (each command prompts for the value):
    ```sh
@@ -24,10 +27,16 @@
 
 3. **Deploy**:
    ```sh
-   npm run deploy
+   D1_DATABASE_ID=<id from step 1> npm run deploy
    ```
-   This applies remote D1 migrations first, then deploys the Worker and prints your
-   `https://nalanda.<account>.workers.dev` URL.
+   This resolves the id into a gitignored copy of the config, applies remote D1
+   migrations, then deploys the Worker and prints your
+   `https://nalanda.<account>.workers.dev` URL. Deploying without `D1_DATABASE_ID` stops
+   with instructions rather than failing halfway.
+
+   Export it in your shell profile if you deploy from a laptop often. If you deploy
+   through Cloudflare's dashboard git integration instead, set `D1_DATABASE_ID` as a
+   **build variable** on the Worker — a build without it fails at the first step.
 
 4. **Create your account**: open `<your-url>/setup` immediately — it creates the admin
    account and disables itself once a user exists.
@@ -69,14 +78,14 @@ index restore cleanly; covers are re-fetched.)
 
 ## Go-live checklist
 
-- [ ] `npx wrangler d1 create nalanda` → paste the `database_id` into `wrangler.jsonc`
+- [ ] `npx wrangler d1 create nalanda` → keep the `database_id` for `D1_DATABASE_ID`
 - [ ] `npx wrangler r2 bucket create nalanda-covers`
 - [ ] `npx wrangler secret put SESSION_SECRET` (`openssl rand -base64 32`)
 - [ ] `npx wrangler secret put DISCOGS_TOKEN` (vinyl lookups)
 - [ ] optional: `npx wrangler secret put GOOGLE_BOOKS_KEY`
 - [ ] optional: `npx wrangler secret put HOME_SHARE_TOKEN` (front door → share page)
 - [ ] data: migrate the local catalog (section above) — or start fresh via `/setup`
-- [ ] `npm test && npm run deploy`
+- [ ] `npm test && D1_DATABASE_ID=<id> npm run deploy`
 - [ ] smoke: log in, scan one barcode, open a share link in a private window
 - [ ] if migrated: run **Cover backfill** on production
 - [ ] first production backup: `npm run backup`

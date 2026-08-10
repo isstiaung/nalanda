@@ -11,7 +11,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "wrangler d1 migrations apply nalanda --local",
     "db:migrate:remote": "wrangler d1 migrations apply nalanda --remote",
-    "deploy": "npm run db:migrate:remote && wrangler deploy",
+    "deploy": "node scripts/deploy.mjs",
     "backup": "node scripts/backup.mjs",
     "backup:local": "node scripts/backup.mjs --local",
     "vendor": "node scripts/vendor.mjs",

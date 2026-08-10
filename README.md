@@ -73,23 +73,25 @@ works on localhost. Local secrets live in `.dev.vars` (copy `.dev.vars.example`)
 Everything below fits inside Cloudflare's free tier. One-time setup:
 
 ```sh
-wrangler d1 create nalanda            # paste the printed id into wrangler.jsonc
+wrangler d1 create nalanda            # note the id it prints
 wrangler r2 bucket create nalanda-covers
 wrangler secret put SESSION_SECRET
 wrangler secret put DISCOGS_TOKEN     # free — enables vinyl barcode lookup
 wrangler secret put HOME_SHARE_TOKEN  # optional — logged-out "/" redirects to this share
-npm run deploy                        # remote D1 migrations, then wrangler deploy
+
+D1_DATABASE_ID=<the id> npm run deploy   # remote migrations, then wrangler deploy
 ```
 
-The `database_id` checked into `wrangler.jsonc` belongs to this project's own instance —
-swap in yours. It is an account-scoped resource identifier rather than a credential, and
-local development ignores it, so a clone runs offline without touching it at all.
+This repo names no Cloudflare resource of its own: `database_id` in `wrangler.jsonc` is
+blank, and the deploy reads the real one from `D1_DATABASE_ID`. Local development, local
+migrations, and the tests never look at it, so a fresh clone runs offline with nothing to
+edit. (`wrangler d1 list` will remind you of the id later.)
 
-From there `npm run deploy` is enough for every update. If you'd rather not deploy from
-your laptop, point Cloudflare's dashboard git integration at a branch with an empty build
-command and `npm run deploy` as the deploy command — that is how this instance ships.
-Resource setup, custom domains, rollback, and data migration are covered step by step in
-[runbooks/deploy.md](runbooks/deploy.md).
+From there `npm run deploy` is every update. If you'd rather not deploy from your laptop,
+point Cloudflare's dashboard git integration at a branch with an empty build command and
+`npm run deploy` as the deploy command, and set `D1_DATABASE_ID` as a build variable on
+the Worker. Resource setup, custom domains, rollback, and data migration are covered step
+by step in [runbooks/deploy.md](runbooks/deploy.md).
 
 ## Operations
 

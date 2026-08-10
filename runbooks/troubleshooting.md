@@ -29,8 +29,11 @@ Local dev prints to the `npm run dev` terminal.
 
 ## Deploys & database
 
-- **`database_id` error on deploy**: the placeholder in `wrangler.jsonc` was never
-  replaced — run `npx wrangler d1 create nalanda` and paste the id.
+- **`D1_DATABASE_ID is not set`**: the id lives in the environment, never in the repo.
+  `npx wrangler d1 list` shows it; then `D1_DATABASE_ID=<id> npm run deploy`. On
+  Cloudflare Workers Builds, set it as a build variable on the Worker.
+- **`Invalid uuid` from the D1 API on deploy**: `D1_DATABASE_ID` holds something that
+  isn't the database id — check `npx wrangler d1 list`.
 - **"migrations pending" or schema mismatch locally**: `npm run db:migrate` (local) /
   `npm run db:migrate:remote` (production; `npm run deploy` does this automatically).
 - **Local dev acting haunted**: nuke local state — `rm -rf .wrangler/state && npm run

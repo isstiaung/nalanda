@@ -617,6 +617,18 @@ file hosting (calibre-web's territory), background jobs of any kind.
     public page runs, so the number can't drift from what the link exposes.
     Admin-only, like every other share mutation.
 
+24. **No Cloudflare resource ids in the repo.** Going open source, `wrangler.jsonc` keeps
+    `"database_id": ""` and `npm run deploy` (`scripts/deploy.mjs`) resolves the real id
+    from `D1_DATABASE_ID` into a gitignored copy of the config. The id is not a credential
+    — it is inert without account access — so this is hygiene, not a secret fix: a public
+    repo should describe how to run *an* instance, not point at one. Wrangler does not
+    interpolate environment variables inside its config (a literal `${VAR}` is sent to the
+    API verbatim — verified), hence the resolved copy; it lives in the project root
+    because wrangler resolves `main`, `assets`, and `migrations_dir` relative to the
+    config file's own directory. Local dev, local migrations, and the tests never read the
+    field, so a clone runs offline with nothing to edit — which also makes the blank the
+    better default rather than a cost.
+
 The honest comparison, since it was asked:
 
 - **What this app is**: ~a dozen CRUD pages (lists, forms, a detail view) plus exactly one
