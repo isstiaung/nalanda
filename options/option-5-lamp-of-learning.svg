@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- The lamp-lit reading room: a diya burning over a manuscript leaf.
-       Nine million manuscripts; the flame is what a library keeps alive. -->
-  <rect width="512" height="512" rx="100" fill="#35447e"/>
-  <path d="M256 148 C242 184 230 202 230 220 A26 26 0 0 0 282 220 C282 202 270 184 256 148 Z" fill="#d3a02f"/>
-  <path d="M164 268 L348 268 A92 50 0 0 1 164 268 Z" fill="#f6f2e7"/>
-  <rect x="140" y="342" width="232" height="20" rx="6" fill="#f6f2e7"/>
-  <circle cx="256" cy="352" r="10" fill="#35447e"/>
-</svg>

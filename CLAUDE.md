@@ -10,11 +10,12 @@ requirement.**
 [ARCH.md](ARCH.md) is the source of truth for architecture decisions — read it before
 structural changes, update it (incl. §16 decision log) when a decision changes.
 
-**Status (2026-07-19): live in production.** Deployed via the Cloudflare dashboard git
-integration — **pushes to branch `deploy-site` deploy** (build command empty, deploy
-command `npm run deploy`). Worker/D1 are named `nalanda`, R2 bucket `nalanda-covers`;
-data was migrated from local dev (catalog + cover objects). Secrets set:
-`SESSION_SECRET`, `DISCOGS_TOKEN` (`GOOGLE_BOOKS_KEY` deliberately unset until needed).
+Open source under [MIT](LICENSE). Outside contributions come through
+[CONTRIBUTING.md](CONTRIBUTING.md); vulnerability reports through
+[SECURITY.md](SECURITY.md); dependency licensing is tracked in
+[THIRD-PARTY.md](THIRD-PARTY.md). Deployment (resources, secrets, git integration,
+rollback) is in [runbooks/deploy.md](runbooks/deploy.md) — never assume a deployment's
+shape from this file.
 
 ## Stack (settled — don't re-litigate without updating ARCH.md)
 - TypeScript on Cloudflare Workers. Hono + `hono/jsx` SSR, htmx partials. No SPA, no React,
@@ -103,6 +104,8 @@ migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke
 runbooks/          operational guides: deploy, backup/restore, accounts, libib import,
                    goodreads import, troubleshooting — update when ops procedures change
+.github/           CI (typecheck + test; no secrets, never pull_request_target) + dependabot
+docs/screenshots/  README imagery, captured from seeded demo data — never real catalog data
 ```
 
 ## Conventions

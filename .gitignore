@@ -6,3 +6,6 @@ public/vendor/
 *.log
 .DS_Store
 goodreads_library_export.csv
+
+# logo exploration — kept locally, not part of the shipped project
+options/
