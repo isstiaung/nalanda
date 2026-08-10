@@ -6,6 +6,11 @@
   "assets": {
     "directory": "./public"
   },
+  // Running your own instance? Replace database_id below with the id printed by
+  // `wrangler d1 create nalanda`, and create the R2 bucket with
+  // `wrangler r2 bucket create nalanda-covers`. The id is an account-scoped
+  // resource identifier, not a secret — it does nothing without credentials for
+  // the account that owns it. Local dev ignores it entirely (see README).
   "d1_databases": [
     {
       "binding": "DB",

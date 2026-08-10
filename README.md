@@ -42,22 +42,28 @@ npm test           # vitest, runs inside the real Workers runtime
 Everything runs offline: local D1 is a real SQLite file, R2 is emulated, and the camera
 works on localhost. Local secrets live in `.dev.vars` (copy `.dev.vars.example`).
 
-## Deploying
+## Running your own
 
-Production deploys run through Cloudflare's git integration: pushes to the
-**`deploy-site`** branch build and deploy automatically (build command empty, deploy
-command `npm run deploy` — remote D1 migrations, then `wrangler deploy`). One-time
-resource setup, secrets, CLI deploys, and data migration are covered step by step in
-[runbooks/deploy.md](runbooks/deploy.md). The short version of the one-time setup:
+Everything below fits inside Cloudflare's free tier. One-time setup:
 
 ```sh
-wrangler d1 create nalanda            # paste the id into wrangler.jsonc
+wrangler d1 create nalanda            # paste the printed id into wrangler.jsonc
 wrangler r2 bucket create nalanda-covers
 wrangler secret put SESSION_SECRET
 wrangler secret put DISCOGS_TOKEN     # free — enables vinyl barcode lookup
 wrangler secret put HOME_SHARE_TOKEN  # optional — logged-out "/" redirects to this share
-npm run deploy
+npm run deploy                        # remote D1 migrations, then wrangler deploy
 ```
+
+The `database_id` checked into `wrangler.jsonc` belongs to this project's own instance —
+swap in yours. It is an account-scoped resource identifier rather than a credential, and
+local development ignores it, so a clone runs offline without touching it at all.
+
+From there `npm run deploy` is enough for every update. If you'd rather not deploy from
+your laptop, point Cloudflare's dashboard git integration at a branch with an empty build
+command and `npm run deploy` as the deploy command — that is how this instance ships.
+Resource setup, custom domains, rollback, and data migration are covered step by step in
+[runbooks/deploy.md](runbooks/deploy.md).
 
 ## Operations
 
