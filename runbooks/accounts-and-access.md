@@ -55,11 +55,19 @@ have leaked.
 
 ## Share links (admin-only)
 
+- **See everything that's public**: *Shared links* in the sidebar, under Circulation.
+  One row per published link — its shelf, the filters it captured, how many items it
+  exposes right now, and the URL — with rotate and remove on each. Start here when
+  the question is "what have we published?"; the per-shelf panel below is for
+  publishing.
 - **Publish a view**: shelf page → apply any filters you want public (type, status,
   owned/not owned) → *Shelf settings* → name the link → *Publish current view*. The
   link shows exactly that view; publish with no filters for the whole shelf. Any
   number of links per shelf — e.g. a "My reviews" link (holding: Not owned) alongside
   the full catalog.
+- **Reading the shelf badges**: a shelf reads *Shared* only when a link exposes it
+  entire. If you've only published slices of it, it reads "2 views shared" instead —
+  the shelf itself is not reachable, just those views.
 - **What's exposed**: title, creators, cover, publisher, date, description, media details,
   tags, rating, review, and the "Not owned" badge. **Never**: private notes,
   loans/borrowers, copy counts, who added it. A link can't be browsed beyond its

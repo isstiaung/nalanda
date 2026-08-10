@@ -1,5 +1,6 @@
 // The public-field whitelist for share pages. This is a whitelist on purpose:
 // new item columns stay private until explicitly added here (ARCH.md §9).
+import type { ItemFilters } from '../db/queries';
 import type { Item, MediaType, Share } from '../db/schema';
 
 /**
@@ -13,6 +14,20 @@ export function itemMatchesShare(share: Share, item: Item): boolean {
   if (share.status !== null && item.status !== share.status) return false;
   if (share.owned !== null && item.copies > 0 !== share.owned) return false;
   return true;
+}
+
+/**
+ * The query-side twin of {@link itemMatchesShare}: the filters a view captured,
+ * shaped for listItems/countMatchingItems. Both must agree, or the item route
+ * would admit something the listing never showed.
+ */
+export function shareFilters(share: Share): ItemFilters {
+  return {
+    mediaTypes: share.mediaType ? [share.mediaType] : undefined,
+    statuses: share.status ? [share.status] : undefined,
+    owned: share.owned ?? undefined,
+    sort: share.sort,
+  };
 }
 
 /**

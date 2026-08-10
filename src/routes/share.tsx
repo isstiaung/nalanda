@@ -4,7 +4,7 @@ import { Hono, type Context } from 'hono';
 import type { Child, FC, PropsWithChildren } from 'hono/jsx';
 import { getItem, getShareByToken, listItems, tagsForItems } from '../db/queries';
 import type { AppEnv } from '../env';
-import { itemMatchesShare, toPublicItem, type PublicItem } from '../lib/share';
+import { itemMatchesShare, shareFilters, toPublicItem, type PublicItem } from '../lib/share';
 import { DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, stars } from '../views/components';
 
 const share = new Hono<AppEnv>();
@@ -113,10 +113,7 @@ share.get('/:token', async (c) => {
   if (!view) return c.notFound();
   const pageNum = Number.parseInt(c.req.query('page') ?? '1', 10) || 1;
   const { items, total, page: current, pages } = await listItems(c.env.DB, view.libraryId, {
-    mediaTypes: view.mediaType ? [view.mediaType] : undefined,
-    statuses: view.status ? [view.status] : undefined,
-    owned: view.owned ?? undefined,
-    sort: view.sort,
+    ...shareFilters(view),
     page: pageNum,
   });
   const publicItems = items.map(toPublicItem);

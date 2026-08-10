@@ -159,12 +159,9 @@ export type ItemFilters = {
   page?: number; // 1-based
 };
 
-export async function listItems(
-  d1: D1Database,
-  libraryId: number | null, // null = across all shelves (share views)
-  f: ItemFilters = {},
-): Promise<{ items: Item[]; total: number; page: number; pages: number }> {
-  const dbi = db(d1);
+/** The WHERE behind both listItems and countMatchingItems — one definition, so a
+ *  count can never disagree with the list it is counting. */
+function itemFilterWhere(libraryId: number | null, f: ItemFilters): SQL | undefined {
   const conds: SQL[] = [];
   if (libraryId !== null) conds.push(eq(s.items.libraryId, libraryId));
   if (f.mediaTypes?.length) conds.push(inArray(s.items.mediaType, f.mediaTypes));
@@ -174,7 +171,26 @@ export async function listItems(
     const needle = `%${f.q.replace(/[%_\\]/g, '\\$&')}%`;
     conds.push(sql`(${s.items.title} LIKE ${needle} ESCAPE '\\' OR ${s.items.creators} LIKE ${needle} ESCAPE '\\')`);
   }
-  const where = and(...conds);
+  return and(...conds);
+}
+
+/** How many items a set of filters exposes, without paying for a page of rows. */
+export async function countMatchingItems(
+  d1: D1Database,
+  libraryId: number | null,
+  f: ItemFilters = {},
+): Promise<number> {
+  const [row] = await db(d1).select({ n: count() }).from(s.items).where(itemFilterWhere(libraryId, f));
+  return row?.n ?? 0;
+}
+
+export async function listItems(
+  d1: D1Database,
+  libraryId: number | null, // null = across all shelves (share views)
+  f: ItemFilters = {},
+): Promise<{ items: Item[]; total: number; page: number; pages: number }> {
+  const dbi = db(d1);
+  const where = itemFilterWhere(libraryId, f);
 
   const order =
     f.sort === 'title'

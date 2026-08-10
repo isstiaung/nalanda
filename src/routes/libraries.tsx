@@ -5,20 +5,24 @@ import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import {
   activeLoanItemIds,
   createLibrary,
-  createShare,
   deleteLibrary,
-  deleteShare,
   getLibrary,
   listItems,
   listShares,
   renameLibrary,
-  rotateShare,
   tagsForItems,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { deleteCover } from '../lib/covers';
-import { newShareToken, shareVisibility, shareVisibilityLabel } from '../lib/share';
-import { ItemGrid, ItemTable, MEDIA_LABEL, Pagination, STATUS_LABEL } from '../views/components';
+import { shareVisibility, shareVisibilityLabel } from '../lib/share';
+import {
+  ItemGrid,
+  ItemTable,
+  MEDIA_LABEL,
+  Pagination,
+  shareScopeLabel,
+  STATUS_LABEL,
+} from '../views/components';
 import { page } from '../views/layout';
 
 /** A toolbar dropdown of any-of checkboxes — one per filter dimension. */
@@ -43,15 +47,6 @@ const FilterMenu: FC<{
     </div>
   </details>
 );
-
-/** "Board games · In progress · Owned" — how a view's captured filters read. */
-function shareScopeLabel(v: Share): string {
-  const parts: string[] = [];
-  if (v.mediaType) parts.push(MEDIA_LABEL[v.mediaType]);
-  if (v.status) parts.push(STATUS_LABEL[v.status]);
-  if (v.owned !== null) parts.push(v.owned ? 'Owned' : 'Not owned');
-  return parts.length ? parts.join(' · ') : 'Whole shelf';
-}
 
 const libraries = new Hono<AppEnv>();
 
@@ -278,40 +273,6 @@ libraries.post('/libraries/:id', async (c) => {
   const name = String(body['name'] ?? '').trim();
   if (name) await renameLibrary(c.env.DB, id, name);
   return c.redirect(`/libraries/${id}`);
-});
-
-libraries.post('/shares', async (c) => {
-  if (c.get('user').role !== 'admin') return c.text('Admins only', 403);
-  const body = await c.req.parseBody();
-  const str = (k: string) => {
-    const v = body[k];
-    return typeof v === 'string' ? v.trim() : '';
-  };
-  const libraryId = Number.parseInt(str('libraryId'), 10);
-  const lib = Number.isInteger(libraryId) ? await getLibrary(c.env.DB, libraryId) : null;
-  if (!lib) return c.text('No such shelf.', 400);
-  const name = str('name') || lib.name;
-  await createShare(c.env.DB, {
-    token: newShareToken(),
-    name,
-    libraryId,
-    mediaType: (MEDIA_TYPES as readonly string[]).includes(str('mediaType')) ? (str('mediaType') as MediaType) : null,
-    status: (ITEM_STATUSES as readonly string[]).includes(str('status')) ? (str('status') as ItemStatus) : null,
-    owned: str('owned') === '1' ? true : str('owned') === '0' ? false : null,
-    sort: str('sort') === 'added' || str('sort') === 'rating' ? (str('sort') as 'added' | 'rating') : 'title',
-  });
-  return c.redirect(`/libraries/${libraryId}`);
-});
-
-libraries.post('/shares/:id', async (c) => {
-  if (c.get('user').role !== 'admin') return c.text('Admins only', 403);
-  const id = Number(c.req.param('id'));
-  const body = await c.req.parseBody();
-  const action = String(body['action'] ?? '');
-  if (action === 'rotate') await rotateShare(c.env.DB, id, newShareToken());
-  else if (action === 'delete') await deleteShare(c.env.DB, id);
-  const back = Number.parseInt(String(body['libraryId'] ?? ''), 10);
-  return c.redirect(Number.isInteger(back) ? `/libraries/${back}` : '/');
 });
 
 libraries.post('/libraries/:id/delete', async (c) => {

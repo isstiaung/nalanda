@@ -19,6 +19,8 @@ manuscripts.
 - **Public share links, per view**: publish any filtered slice of a shelf ("my reviews",
   "owned sci-fi") at its own unguessable URL — rotate or remove each link independently.
   Private notes, loans, and copy counts never appear. Reviews can link out to blog posts.
+  One admin page lists everything you've published, with the item count each link
+  exposes.
 - **Family accounts**: admin + members, no email infrastructure needed.
 - **Loans**: track who borrowed what, with due dates and history.
 - **Tags, half-star ratings, full-text search** across the collection, plus a quick

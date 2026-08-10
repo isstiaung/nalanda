@@ -64,6 +64,7 @@ const Sidebar: FC<{ user: SessionUser; path: string; libraries: NavLibrary[] }> 
     <nav class="nav-section" aria-label="Circulation">
       <div class="nav-eyebrow">Circulation</div>
       <NavLink href="/loans" label="Loans" path={path} />
+      {user.role === 'admin' ? <NavLink href="/shares" label="Shared links" path={path} /> : null}
     </nav>
     <nav class="nav-section" aria-label="Shelves">
       <div class="nav-eyebrow">Shelves</div>

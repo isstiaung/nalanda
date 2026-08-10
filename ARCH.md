@@ -603,6 +603,19 @@ file hosting (calibre-web's territory), background jobs of any kind.
     through `itemMatchesShare` for no household need. "Publish current view"
     captures a dimension only when exactly one value is selected; the preview
     line states that a multi-selection publishes as "all".
+23. **"What is public" is a screen, not a badge.** Decision #18 made shares
+    per-view, but the UI kept a per-shelf mental model: any share row on a shelf
+    rendered it SHARED, and the links themselves lived inside each shelf's
+    settings `<details>`. Both understate and scatter the thing that matters —
+    publishing is the only way data leaves this app. Now `shareVisibility()`
+    distinguishes a filterless link (the shelf entire → *Shared*) from captured
+    ones (a slice → *"2 views shared"*), and `/shares` lists every published
+    link across all shelves with its scope, live item count, URL, and
+    rotate/remove. The per-shelf panel stays as the place to *publish* (it needs
+    the shelf's current filters); `/shares` is the place to *review*. The count
+    comes from `countMatchingItems()` + `shareFilters()` — the same WHERE the
+    public page runs, so the number can't drift from what the link exposes.
+    Admin-only, like every other share mutation.
 
 The honest comparison, since it was asked:
 

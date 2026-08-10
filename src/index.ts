@@ -16,6 +16,7 @@ import loanRoutes from './routes/loans';
 import searchRoutes from './routes/search';
 import settingsRoutes from './routes/settings';
 import shareRoutes, { clearSharePageCache } from './routes/share';
+import shareAdminRoutes from './routes/shares';
 import tagRoutes from './routes/tags';
 
 const app = new Hono<AppEnv>();
@@ -86,6 +87,7 @@ app.use(async (c, next) => {
 
 app.route('/', dashboardRoutes);
 app.route('/', libraryRoutes);
+app.route('/', shareAdminRoutes);
 app.route('/', itemRoutes);
 app.route('/', addRoutes);
 app.route('/', loanRoutes);

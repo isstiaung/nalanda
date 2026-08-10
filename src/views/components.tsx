@@ -1,5 +1,5 @@
 import type { FC } from 'hono/jsx';
-import type { Item, ItemStatus, Library, MediaType } from '../db/schema';
+import type { Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
@@ -41,6 +41,15 @@ export const STATUS_LABEL: Record<ItemStatus, string> = {
   completed: 'Completed',
   abandoned: 'Abandoned',
 };
+
+/** "Board games · In progress · Owned" — how a share view's captured filters read. */
+export function shareScopeLabel(v: Share): string {
+  const parts: string[] = [];
+  if (v.mediaType) parts.push(MEDIA_LABEL[v.mediaType]);
+  if (v.status) parts.push(STATUS_LABEL[v.status]);
+  if (v.owned !== null) parts.push(v.owned ? 'Owned' : 'Not owned');
+  return parts.length ? parts.join(' · ') : 'Whole shelf';
+}
 
 const STATUS_PILL_CLASS: Record<ItemStatus, string> = {
   not_started: 'pill',

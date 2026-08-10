@@ -66,8 +66,11 @@ shape from this file.
   `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge.)
   Share pages get `noindex`.
 - Share tokens are random 128-bit, **one per published view** (`shares` table — filters
-  captured at publish time; `itemMatchesShare()` guards the public item route).
-  Publish/rotate/remove is admin-only. Share pages are memory-cached per isolate for
+  captured at publish time; `itemMatchesShare()` guards the public item route, and its
+  query-side twin `shareFilters()` must stay in step with it).
+  Publish/rotate/remove is admin-only; `/shares` (`src/routes/shares.tsx`) is the
+  admin-only inventory of everything published. A shelf is only "Shared" when a
+  filterless link exposes it entire — `shareVisibility()`, ARCH.md §16 #23. Share pages are memory-cached per isolate for
   1 h (burst shield); every successful mutation clears the handling isolate's cache,
   but rotation can lag up to 1 h on untouched isolates (ARCH.md §16 #19).
 - `/covers/:key` is intentionally public — keys are random UUIDs; never make them
@@ -92,7 +95,8 @@ npm run vendor             # re-copy vendored assets after bumping htmx/zxing/fo
 ```
 src/index.ts       Hono app entry; route order matters: public (share, covers, auth) first,
                    then requireAuth, then protected routes. Origin-check CSRF on mutations.
-src/routes/        pages + htmx partials + /api/lookup, /api/import + share.tsx (public)
+src/routes/        pages + htmx partials + /api/lookup, /api/import + share.tsx (public
+                   share pages) and shares.tsx (admin share management — don't confuse)
 src/views/         hono/jsx layout + components (page() helper wraps Layout + doctype)
 src/db/            schema.ts (Drizzle) + queries.ts — the ONLY code touching D1
 src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googlebooks, bgg,
