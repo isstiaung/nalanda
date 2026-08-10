@@ -1,22 +1,25 @@
 version: 2
 
-# Deliberately quiet: one batched PR a month per ecosystem. The runtime
-# dependency list is three packages by design (see CLAUDE.md), so most of what
-# lands here is tooling, and a single grouped PR is easier to review than a
-# stream of individual bumps.
+# Deliberately quiet, but majors arrive alone. Grouping *everything* once produced a
+# single PR carrying TypeScript 5→7, Vitest 3→4, workers-types 4→5 and
+# vitest-pool-workers 0.8→0.20 together — unreviewable, and each needed its own
+# migration. Minor and patch bumps still batch into one monthly PR; anything major
+# is left ungrouped so it opens its own PR against its own migration notes.
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: monthly
     groups:
-      all-dependencies:
+      minor-and-patch:
         patterns: ['*']
+        update-types: [minor, patch]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
     groups:
-      actions:
+      actions-minor-and-patch:
         patterns: ['*']
+        update-types: [minor, patch]

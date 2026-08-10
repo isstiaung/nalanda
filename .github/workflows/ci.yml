@@ -32,6 +32,11 @@ jobs:
           node-version: 22
           cache: npm
 
+      # package-lock.json is written by npm 11 (both locally and by Dependabot), and
+      # npm 10 — which is what Node 22 ships — rejects its optional-dependency layout
+      # with "Missing @esbuild/… from lock file". Match the lockfile's authoring npm.
+      - run: npm install -g npm@11
+
       # postinstall vendors htmx, the ZXing WASM and the fonts into public/vendor/
       - run: npm ci
 
