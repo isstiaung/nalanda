@@ -79,4 +79,8 @@ Conventional commit messages (`feat:`, `fix:`, `docs:`, `chore:`, `test:`), one 
 of work per commit, and no batching of unrelated changes. Keep PRs focused enough to review in
 one sitting; CI runs typecheck and the test suite on every one.
 
+**Target `main`.** The `deploy-site` branch is not a development branch — pushing to it
+deploys the maintainer's own instance, so it only ever moves by fast-forward from `main`
+when there's a reason to ship. A PR aimed at it will just be redirected.
+
 Suspected vulnerabilities go through [SECURITY.md](SECURITY.md), not a public issue or PR.
