@@ -1,0 +1,22 @@
+version: 2
+
+# Deliberately quiet: one batched PR a month per ecosystem. The runtime
+# dependency list is three packages by design (see CLAUDE.md), so most of what
+# lands here is tooling, and a single grouped PR is easier to review than a
+# stream of individual bumps.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      all-dependencies:
+        patterns: ['*']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ['*']

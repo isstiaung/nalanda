@@ -1,0 +1,41 @@
+name: CI
+
+# Deliberately reachable by fork pull requests, and deliberately powerless.
+#
+# `pull_request` (never `pull_request_target`) runs the merge commit with a
+# read-only GITHUB_TOKEN and no access to repository secrets, so a PR cannot
+# reach Cloudflare no matter what it changes. This workflow needs no
+# credentials: it type-checks and runs the test suite, which executes against a
+# local D1 in the real Workers runtime. Deploys happen elsewhere — see
+# runbooks/deploy.md — and nothing here should ever be given a deploy token.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # postinstall vendors htmx, the ZXing WASM and the fonts into public/vendor/
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      # vitest-pool-workers boots workerd and applies migrations/ to a fresh D1
+      - run: npm test
