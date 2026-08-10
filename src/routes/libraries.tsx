@@ -17,7 +17,7 @@ import {
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { deleteCover } from '../lib/covers';
-import { newShareToken } from '../lib/share';
+import { newShareToken, shareVisibility, shareVisibilityLabel } from '../lib/share';
 import { ItemGrid, ItemTable, MEDIA_LABEL, Pagination, STATUS_LABEL } from '../views/components';
 import { page } from '../views/layout';
 
@@ -125,7 +125,7 @@ libraries.get('/libraries/:id', async (c) => {
           <h1>{lib.name}</h1>
           <span class="sub">
             {total} {total === 1 ? 'ITEM' : 'ITEMS'}
-            {shares.length ? ' · SHARED' : ''}
+            {shares.length ? ` · ${shareVisibilityLabel(shareVisibility(shares)).toUpperCase()}` : ''}
           </span>
         </div>
         <div class="page-actions">

@@ -1,6 +1,8 @@
 import { Hono } from 'hono';
 import { activeLoans, holdingsByType, listLibraries, listShares, recentItems } from '../db/queries';
+import type { Share } from '../db/schema';
 import type { AppEnv } from '../env';
+import { shareVisibility, shareVisibilityLabel } from '../lib/share';
 import { ItemGrid, MEDIA_LABEL, MEDIA_PLURAL, Stat } from '../views/components';
 import { page } from '../views/layout';
 
@@ -14,8 +16,8 @@ dashboard.get('/', async (c) => {
     holdingsByType(c.env.DB),
     listShares(c.env.DB),
   ]);
-  const shareCounts = new Map<number | null, number>();
-  for (const v of shares) shareCounts.set(v.libraryId, (shareCounts.get(v.libraryId) ?? 0) + 1);
+  const sharesByLibrary = new Map<number | null, Share[]>();
+  for (const v of shares) sharesByLibrary.set(v.libraryId, [...(sharesByLibrary.get(v.libraryId) ?? []), v]);
   const today = new Date().toISOString().slice(0, 10);
   const overdue = loans.filter((l) => l.dueOn && l.dueOn < today).length;
   const owned = holdings.reduce((n, h) => n + h.owned, 0);
@@ -67,26 +69,25 @@ dashboard.get('/', async (c) => {
                 </tr>
               </thead>
               <tbody>
-                {libraries.map((l) => (
-                  <tr>
-                    <td>
-                      <a href={`/libraries/${l.id}`}>
-                        <strong>{l.name}</strong>
-                      </a>
-                    </td>
-                    <td class="num">{l.itemCount}</td>
-                    <td>
-                      {shareCounts.get(l.id) ? (
-                        <span class="pill shared">
-                          {shareCounts.get(l.id) === 1 ? 'Shared' : `${shareCounts.get(l.id)} links`}
+                {libraries.map((l) => {
+                  const visibility = shareVisibility(sharesByLibrary.get(l.id) ?? []);
+                  return (
+                    <tr>
+                      <td>
+                        <a href={`/libraries/${l.id}`}>
+                          <strong>{l.name}</strong>
+                        </a>
+                      </td>
+                      <td class="num">{l.itemCount}</td>
+                      <td>
+                        <span class={visibility.kind === 'private' ? 'pill' : 'pill shared'}>
+                          {shareVisibilityLabel(visibility)}
                         </span>
-                      ) : (
-                        <span class="pill">Private</span>
-                      )}
-                    </td>
-                    <td class="date hide-sm">{l.createdAt.slice(0, 10)}</td>
-                  </tr>
-                ))}
+                      </td>
+                      <td class="date hide-sm">{l.createdAt.slice(0, 10)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

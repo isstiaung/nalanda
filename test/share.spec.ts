@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { Item, Share } from '../src/db/schema';
-import { itemMatchesShare, newShareToken, toPublicItem } from '../src/lib/share';
+import {
+  isWholeShelfShare,
+  itemMatchesShare,
+  newShareToken,
+  shareVisibility,
+  shareVisibilityLabel,
+  toPublicItem,
+} from '../src/lib/share';
 
 const item: Item = {
   id: 7,
@@ -103,5 +110,32 @@ describe('share view scope', () => {
     const wholeShelf: Share = { ...view, mediaType: null, status: null, owned: null };
     expect(itemMatchesShare(wholeShelf, item)).toBe(true);
     expect(itemMatchesShare({ ...wholeShelf, libraryId: null }, { ...item, libraryId: 99 })).toBe(true);
+  });
+
+  describe('shelf visibility', () => {
+    const wholeShelf: Share = { ...view, mediaType: null, status: null, owned: null };
+
+    it('separates a whole-shelf link from a filtered view', () => {
+      expect(isWholeShelfShare(wholeShelf)).toBe(true);
+      expect(isWholeShelfShare(view)).toBe(false); // mediaType + owned captured
+      expect(isWholeShelfShare({ ...wholeShelf, status: 'completed' })).toBe(false);
+      expect(isWholeShelfShare({ ...wholeShelf, owned: false })).toBe(false);
+    });
+
+    it('does not call a shelf shared when only a slice of it is', () => {
+      expect(shareVisibility([])).toEqual({ kind: 'private', links: 0 });
+      expect(shareVisibility([view])).toEqual({ kind: 'views', links: 1 });
+      expect(shareVisibility([view, { ...view, status: 'completed' }])).toEqual({ kind: 'views', links: 2 });
+      // one unfiltered link exposes the shelf entire, whatever else is published
+      expect(shareVisibility([view, wholeShelf])).toEqual({ kind: 'shelf', links: 2 });
+    });
+
+    it('labels each case distinctly', () => {
+      expect(shareVisibilityLabel(shareVisibility([]))).toBe('Private');
+      expect(shareVisibilityLabel(shareVisibility([wholeShelf]))).toBe('Shared');
+      expect(shareVisibilityLabel(shareVisibility([wholeShelf, view]))).toBe('Shared · 2 links');
+      expect(shareVisibilityLabel(shareVisibility([view]))).toBe('1 view shared');
+      expect(shareVisibilityLabel(shareVisibility([view, { ...view, status: 'completed' }]))).toBe('2 views shared');
+    });
   });
 });

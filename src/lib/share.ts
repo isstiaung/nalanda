@@ -15,6 +15,37 @@ export function itemMatchesShare(share: Share, item: Item): boolean {
   return true;
 }
 
+/**
+ * Does this share expose a whole shelf, or one slice of it? Every filter unset
+ * means every item on the shelf matches; any filter set means a subset does.
+ * The distinction is the difference between "this shelf is public" and "seven of
+ * its books are" — worth getting right on a screen whose job is telling you what
+ * you've published.
+ */
+export function isWholeShelfShare(share: Share): boolean {
+  return share.mediaType === null && share.status === null && share.owned === null;
+}
+
+/**
+ * How public a shelf actually is, given the shares published from it. `shelf`
+ * means at least one link exposes the shelf entire; `views` means only filtered
+ * slices are out there.
+ */
+export type ShareVisibility = { kind: 'private' | 'shelf' | 'views'; links: number };
+
+export function shareVisibility(shares: Share[]): ShareVisibility {
+  if (shares.length === 0) return { kind: 'private', links: 0 };
+  const kind = shares.some(isWholeShelfShare) ? 'shelf' : 'views';
+  return { kind, links: shares.length };
+}
+
+/** Pill/eyebrow text for a {@link ShareVisibility}. Title case; uppercase at the call site. */
+export function shareVisibilityLabel(v: ShareVisibility): string {
+  if (v.kind === 'private') return 'Private';
+  if (v.kind === 'shelf') return v.links === 1 ? 'Shared' : `Shared · ${v.links} links`;
+  return v.links === 1 ? '1 view shared' : `${v.links} views shared`;
+}
+
 export type PublicItem = {
   id: number;
   mediaType: MediaType;
