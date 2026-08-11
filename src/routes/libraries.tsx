@@ -76,7 +76,7 @@ libraries.get('/libraries/:id', async (c) => {
   const owned = ownedSel.length === 1 ? ownedSel[0] === '1' : undefined;
   const name = (c.req.query('q') ?? '').trim() || undefined;
   const sortQ = c.req.query('sort');
-  const sort = sortQ === 'title' || sortQ === 'rating' ? sortQ : 'added';
+  const sort = sortQ === 'title' || sortQ === 'rating' || sortQ === 'completed' ? sortQ : 'added';
   const view = c.req.query('view') === 'grid' ? 'grid' : 'table';
   const pageNum = Number.parseInt(c.req.query('page') ?? '1', 10) || 1;
 
@@ -164,6 +164,9 @@ libraries.get('/libraries/:id', async (c) => {
           </option>
           <option value="rating" selected={sort === 'rating'}>
             Highest rated
+          </option>
+          <option value="completed" selected={sort === 'completed'}>
+            Date completed
           </option>
         </select>
         <button type="submit" class="btn">

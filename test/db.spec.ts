@@ -84,6 +84,36 @@ describe('items + FTS', () => {
     expect((await listItems(env.DB, lib.id, { mediaTypes: [], statuses: [] })).total).toBe(3); // empty = no filter
   });
 
+  it('sorts by date completed, most recent first, undated items last', async () => {
+    const lib = await seedLibrary();
+    const older = await createItem(env.DB, {
+      libraryId: lib.id,
+      mediaType: 'book',
+      title: 'Finished Long Ago',
+      status: 'completed',
+      completedOn: '2024-01-01',
+      details: '{}',
+    });
+    const newer = await createItem(env.DB, {
+      libraryId: lib.id,
+      mediaType: 'book',
+      title: 'Finished Recently',
+      status: 'completed',
+      completedOn: '2025-06-15',
+      details: '{}',
+    });
+    const unfinished = await createItem(env.DB, {
+      libraryId: lib.id,
+      mediaType: 'book',
+      title: 'Still Reading',
+      status: 'in_progress',
+      details: '{}',
+    });
+
+    const byCompleted = await listItems(env.DB, lib.id, { sort: 'completed' });
+    expect(byCompleted.items.map((i) => i.id)).toEqual([newer.id, older.id, unfinished.id]);
+  });
+
   it('filters by ownership: copies = 0 is a reading-log entry', async () => {
     const lib = await seedLibrary();
     await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'Owned', copies: 1, details: '{}' });
