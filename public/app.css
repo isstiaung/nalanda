@@ -387,6 +387,7 @@ p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px sol
 .pill.ghost { border-style: dashed; color: var(--ink-3); } /* in the ledger, not on the shelf */
 .pill-btn { cursor: pointer; }
 .pill-btn:hover { border-color: var(--accent); color: var(--accent); }
+.pill.done.pill-btn:hover { border-color: var(--accent-strong); color: var(--accent-strong); }
 
 .tag {
   display: inline-block;

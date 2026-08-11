@@ -83,14 +83,9 @@ export const StatusPill: FC<{ status: ItemStatus }> = ({ status }) => (
 /** copies = 0: in the ledger, not on the shelf — a reading-log entry. */
 export const NotOwnedPill: FC = () => <span class="pill ghost">Not owned</span>;
 
-/** copies > 0 — reuses the "done" treatment (same indigo as a Completed status
- *  pill); the palette has no green (CLAUDE.md), so this is the app's existing
- *  positive/success color rather than a one-off. */
-export const OwnedPill: FC = () => <span class="pill done">Owned</span>;
-
 /** Same as NotOwnedPill but clickable — one tap sets copies to 1 in place (htmx),
- *  swapping itself for an OwnedPill. No edit form. Authenticated views only;
- *  share pages keep the plain NotOwnedPill. */
+ *  swapping itself for a MarkNotOwnedButton. No edit form. Authenticated views
+ *  only; share pages keep the plain NotOwnedPill. */
 export const MarkOwnedButton: FC<{ id: number }> = ({ id }) => (
   <button
     type="button"
@@ -103,9 +98,28 @@ export const MarkOwnedButton: FC<{ id: number }> = ({ id }) => (
   </button>
 );
 
-/** The Holding column/row: whichever of the two pills above matches copies. */
+/** The reverse of MarkOwnedButton — one tap sets copies to 0 (a reading-log
+ *  entry, same as the "Log — not owned" add action), swapping itself back for
+ *  a MarkOwnedButton. Any copy count above 1 is not preserved by this quick
+ *  toggle — same as MarkOwnedButton always landing on exactly 1, adjusting a
+ *  specific copy count is still an edit-form job. Reuses the "done" treatment
+ *  (same indigo as a Completed status pill) as the positive/success color —
+ *  the palette has no green (CLAUDE.md). */
+export const MarkNotOwnedButton: FC<{ id: number }> = ({ id }) => (
+  <button
+    type="button"
+    class="pill done pill-btn"
+    hx-post={`/items/${id}/mark-not-owned`}
+    hx-swap="outerHTML"
+    title="Mark as not owned"
+  >
+    Owned
+  </button>
+);
+
+/** The Holding column/row: whichever toggle button matches current copies. */
 export const HoldingPill: FC<{ item: Item }> = ({ item }) =>
-  item.copies > 0 ? <OwnedPill /> : <MarkOwnedButton id={item.id} />;
+  item.copies > 0 ? <MarkNotOwnedButton id={item.id} /> : <MarkOwnedButton id={item.id} />;
 
 export const Cover: FC<{ coverKey: string | null; title: string; mediaType: MediaType }> = ({
   coverKey,

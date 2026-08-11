@@ -22,8 +22,9 @@ import {
   DetailsList,
   HoldingPill,
   ItemForm,
+  MarkNotOwnedButton,
+  MarkOwnedButton,
   MEDIA_LABEL,
-  OwnedPill,
   StatusPill,
   stars,
 } from '../views/components';
@@ -338,14 +339,23 @@ items.get('/items/:id/edit', async (c) => {
   );
 });
 
-// Quick action from the shelf table / item page: copies 0 → 1, no edit form.
-// htmx-only (hx-swap="outerHTML" replaces the button with an OwnedPill on success).
+// Quick actions from the shelf table / item page: flip copies 0 ↔ 1 in place,
+// no edit form. htmx-only — each swaps the clicked button (hx-swap="outerHTML")
+// for the other direction's button, so the toggle round-trips.
 items.post('/items/:id/mark-owned', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
   if (item.copies === 0) await updateItem(c.env.DB, id, { copies: 1 });
-  return c.html(<OwnedPill />);
+  return c.html(<MarkNotOwnedButton id={id} />);
+});
+
+items.post('/items/:id/mark-not-owned', async (c) => {
+  const id = Number(c.req.param('id'));
+  const item = await getItem(c.env.DB, id);
+  if (!item) return c.notFound();
+  if (item.copies > 0) await updateItem(c.env.DB, id, { copies: 0 });
+  return c.html(<MarkOwnedButton id={id} />);
 });
 
 items.post('/items/:id', async (c) => {

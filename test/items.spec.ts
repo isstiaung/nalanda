@@ -76,6 +76,28 @@ describe('add flow: Log — not owned', () => {
     expect((await getItem(env.DB, id))!.copies).toBe(1);
   });
 
+  it('mark-not-owned reverses the toggle, and round-trips', async () => {
+    const { lib, cookie } = await seedSession();
+    const added = await post('/items', { title: 'Round Trip', libraryId: String(lib.id), mediaType: 'book' }, cookie);
+    const id = Number(added.headers.get('location')!.match(/\d+/)![0]);
+    expect((await getItem(env.DB, id))!.copies).toBe(1); // normal add defaults to owned
+
+    const res = await post(`/items/${id}/mark-not-owned`, {}, cookie);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('Not owned');
+    expect((await getItem(env.DB, id))!.copies).toBe(0);
+
+    // idempotent: already-logged items are left alone
+    const again = await post(`/items/${id}/mark-not-owned`, {}, cookie);
+    expect(again.status).toBe(200);
+    expect((await getItem(env.DB, id))!.copies).toBe(0);
+
+    // and back
+    const backToOwned = await post(`/items/${id}/mark-owned`, {}, cookie);
+    expect(await backToOwned.text()).toContain('Owned');
+    expect((await getItem(env.DB, id))!.copies).toBe(1);
+  });
+
   it('a normal add still defaults to one copy and lands on the detail page', async () => {
     const { lib, cookie } = await seedSession();
     const res = await post('/items', { title: 'Owned Book', libraryId: String(lib.id), mediaType: 'book' }, cookie);
