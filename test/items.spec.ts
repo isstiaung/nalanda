@@ -55,6 +55,27 @@ describe('add flow: Log — not owned', () => {
     expect(item!.title).toBe('Piranesi');
   });
 
+  it('mark-owned flips a copies=0 item to owned in place, without a form', async () => {
+    const { lib, cookie } = await seedSession();
+    const logged = await post(
+      '/items',
+      { title: 'TBR Pickup', libraryId: String(lib.id), mediaType: 'book', logOnly: '1' },
+      cookie,
+    );
+    const id = Number(logged.headers.get('location')!.match(/\d+/)![0]);
+    expect((await getItem(env.DB, id))!.copies).toBe(0);
+
+    const res = await post(`/items/${id}/mark-owned`, {}, cookie);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('Owned');
+    expect((await getItem(env.DB, id))!.copies).toBe(1);
+
+    // idempotent: already-owned items are left alone (no accidental copy bump)
+    const again = await post(`/items/${id}/mark-owned`, {}, cookie);
+    expect(again.status).toBe(200);
+    expect((await getItem(env.DB, id))!.copies).toBe(1);
+  });
+
   it('a normal add still defaults to one copy and lands on the detail page', async () => {
     const { lib, cookie } = await seedSession();
     const res = await post('/items', { title: 'Owned Book', libraryId: String(lib.id), mediaType: 'book' }, cookie);

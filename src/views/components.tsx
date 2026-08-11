@@ -83,6 +83,30 @@ export const StatusPill: FC<{ status: ItemStatus }> = ({ status }) => (
 /** copies = 0: in the ledger, not on the shelf — a reading-log entry. */
 export const NotOwnedPill: FC = () => <span class="pill ghost">Not owned</span>;
 
+/** copies > 0 — reuses the "done" treatment (same indigo as a Completed status
+ *  pill); the palette has no green (CLAUDE.md), so this is the app's existing
+ *  positive/success color rather than a one-off. */
+export const OwnedPill: FC = () => <span class="pill done">Owned</span>;
+
+/** Same as NotOwnedPill but clickable — one tap sets copies to 1 in place (htmx),
+ *  swapping itself for an OwnedPill. No edit form. Authenticated views only;
+ *  share pages keep the plain NotOwnedPill. */
+export const MarkOwnedButton: FC<{ id: number }> = ({ id }) => (
+  <button
+    type="button"
+    class="pill ghost pill-btn"
+    hx-post={`/items/${id}/mark-owned`}
+    hx-swap="outerHTML"
+    title="Mark as owned"
+  >
+    Not owned
+  </button>
+);
+
+/** The Holding column/row: whichever of the two pills above matches copies. */
+export const HoldingPill: FC<{ item: Item }> = ({ item }) =>
+  item.copies > 0 ? <OwnedPill /> : <MarkOwnedButton id={item.id} />;
+
 export const Cover: FC<{ coverKey: string | null; title: string; mediaType: MediaType }> = ({
   coverKey,
   title,
@@ -139,6 +163,7 @@ export const ItemTable: FC<{
           <th class="hide-sm">Year</th>
           <th>Rating</th>
           <th>Status</th>
+          <th>Holding</th>
           {tagsMap ? <th class="hide-sm">Tags</th> : null}
           <th class="hide-sm">№</th>
         </tr>
@@ -169,8 +194,10 @@ export const ItemTable: FC<{
             <td>{item.rating ? <span class="rating">{stars(item.rating)}</span> : <span class="muted">—</span>}</td>
             <td>
               <StatusPill status={item.status} />{' '}
-              {item.copies === 0 ? <NotOwnedPill /> : null}
               {onLoanIds?.has(item.id) ? <span class="pill lent">Lent</span> : null}
+            </td>
+            <td>
+              <HoldingPill item={item} />
             </td>
             {tagsMap ? (
               <td class="hide-sm">

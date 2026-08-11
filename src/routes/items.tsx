@@ -20,9 +20,10 @@ import {
   accNo,
   Cover,
   DetailsList,
+  HoldingPill,
   ItemForm,
   MEDIA_LABEL,
-  NotOwnedPill,
+  OwnedPill,
   StatusPill,
   stars,
 } from '../views/components';
@@ -173,8 +174,11 @@ items.get('/items/:id', async (c) => {
           <dt>Status</dt>
           <dd>
             <StatusPill status={item.status} />
-            {item.copies === 0 ? <NotOwnedPill /> : null}
             {loan ? <span class={overdue ? 'pill overdue' : 'pill lent'}>{overdue ? 'Overdue' : 'Lent'}</span> : null}
+          </dd>
+          <dt>Holding</dt>
+          <dd>
+            <HoldingPill item={item} />
           </dd>
           {item.rating ? (
             <>
@@ -332,6 +336,16 @@ items.get('/items/:id/edit', async (c) => {
       <ItemForm libraries={libs} action={`/items/${id}`} submitLabel="Save changes" item={item} tags={tags} />
     </>,
   );
+});
+
+// Quick action from the shelf table / item page: copies 0 → 1, no edit form.
+// htmx-only (hx-swap="outerHTML" replaces the button with an OwnedPill on success).
+items.post('/items/:id/mark-owned', async (c) => {
+  const id = Number(c.req.param('id'));
+  const item = await getItem(c.env.DB, id);
+  if (!item) return c.notFound();
+  if (item.copies === 0) await updateItem(c.env.DB, id, { copies: 1 });
+  return c.html(<OwnedPill />);
 });
 
 items.post('/items/:id', async (c) => {

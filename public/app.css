@@ -385,6 +385,8 @@ p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px sol
 .pill.overdue { border-color: var(--stamp); background: var(--stamp); color: var(--surface); }
 .pill.shared { border-color: var(--accent); color: var(--accent); }
 .pill.ghost { border-style: dashed; color: var(--ink-3); } /* in the ledger, not on the shelf */
+.pill-btn { cursor: pointer; }
+.pill-btn:hover { border-color: var(--accent); color: var(--accent); }
 
 .tag {
   display: inline-block;
