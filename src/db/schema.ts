@@ -106,7 +106,7 @@ export const shares = sqliteTable('shares', {
   mediaType: text('media_type', { enum: MEDIA_TYPES }),
   status: text('status', { enum: ITEM_STATUSES }),
   owned: integer('owned', { mode: 'boolean' }),
-  sort: text('sort', { enum: ['added', 'title', 'rating'] }).notNull().default('title'),
+  sort: text('sort', { enum: ['added', 'title', 'rating', 'completed'] }).notNull().default('title'),
   createdAt: text('created_at').notNull().default(now),
 });
 
