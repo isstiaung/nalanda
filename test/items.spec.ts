@@ -55,6 +55,49 @@ describe('add flow: Log — not owned', () => {
     expect(item!.title).toBe('Piranesi');
   });
 
+  it('mark-owned flips a copies=0 item to owned in place, without a form', async () => {
+    const { lib, cookie } = await seedSession();
+    const logged = await post(
+      '/items',
+      { title: 'TBR Pickup', libraryId: String(lib.id), mediaType: 'book', logOnly: '1' },
+      cookie,
+    );
+    const id = Number(logged.headers.get('location')!.match(/\d+/)![0]);
+    expect((await getItem(env.DB, id))!.copies).toBe(0);
+
+    const res = await post(`/items/${id}/mark-owned`, {}, cookie);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('Owned');
+    expect((await getItem(env.DB, id))!.copies).toBe(1);
+
+    // idempotent: already-owned items are left alone (no accidental copy bump)
+    const again = await post(`/items/${id}/mark-owned`, {}, cookie);
+    expect(again.status).toBe(200);
+    expect((await getItem(env.DB, id))!.copies).toBe(1);
+  });
+
+  it('mark-not-owned reverses the toggle, and round-trips', async () => {
+    const { lib, cookie } = await seedSession();
+    const added = await post('/items', { title: 'Round Trip', libraryId: String(lib.id), mediaType: 'book' }, cookie);
+    const id = Number(added.headers.get('location')!.match(/\d+/)![0]);
+    expect((await getItem(env.DB, id))!.copies).toBe(1); // normal add defaults to owned
+
+    const res = await post(`/items/${id}/mark-not-owned`, {}, cookie);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('Not owned');
+    expect((await getItem(env.DB, id))!.copies).toBe(0);
+
+    // idempotent: already-logged items are left alone
+    const again = await post(`/items/${id}/mark-not-owned`, {}, cookie);
+    expect(again.status).toBe(200);
+    expect((await getItem(env.DB, id))!.copies).toBe(0);
+
+    // and back
+    const backToOwned = await post(`/items/${id}/mark-owned`, {}, cookie);
+    expect(await backToOwned.text()).toContain('Owned');
+    expect((await getItem(env.DB, id))!.copies).toBe(1);
+  });
+
   it('a normal add still defaults to one copy and lands on the detail page', async () => {
     const { lib, cookie } = await seedSession();
     const res = await post('/items', { title: 'Owned Book', libraryId: String(lib.id), mediaType: 'book' }, cookie);
