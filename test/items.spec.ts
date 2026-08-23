@@ -98,6 +98,23 @@ describe('add flow: Log — not owned', () => {
     expect((await getItem(env.DB, id))!.copies).toBe(1);
   });
 
+  it('leaves a real copy count alone — the toggle only spans 0 and 1', async () => {
+    const { lib, cookie } = await seedSession();
+    const added = await post(
+      '/items',
+      { title: 'Three Copies', libraryId: String(lib.id), mediaType: 'boardgame', copies: '3' },
+      cookie,
+    );
+    const id = Number(added.headers.get('location')!.match(/\d+/)![0]);
+    expect((await getItem(env.DB, id))!.copies).toBe(3);
+
+    // the UI offers no toggle here, and a hand-rolled POST must not zero the count
+    const res = await post(`/items/${id}/mark-not-owned`, {}, cookie);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('3 copies');
+    expect((await getItem(env.DB, id))!.copies).toBe(3);
+  });
+
   it('a normal add still defaults to one copy and lands on the detail page', async () => {
     const { lib, cookie } = await seedSession();
     const res = await post('/items', { title: 'Owned Book', libraryId: String(lib.id), mediaType: 'book' }, cookie);

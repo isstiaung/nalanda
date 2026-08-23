@@ -117,9 +117,26 @@ export const MarkNotOwnedButton: FC<{ id: number }> = ({ id }) => (
   </button>
 );
 
-/** The Holding column/row: whichever toggle button matches current copies. */
+/** A real multi-copy count: shown, never toggled. The quick action only knows how
+ *  to land on 0 or 1, so offering it here would silently discard a number someone
+ *  recorded — and `copies` round-trips through /export.csv. Adjusting it stays an
+ *  edit-form job. */
+export const CopiesPill: FC<{ copies: number }> = ({ copies }) => (
+  <span class="pill" title="Edit the item to change the copy count">
+    {copies} copies
+  </span>
+);
+
+/** The Holding column/row: whichever toggle button matches current copies, or a
+ *  plain count for items held in more than one copy. */
 export const HoldingPill: FC<{ item: Item }> = ({ item }) =>
-  item.copies > 0 ? <MarkNotOwnedButton id={item.id} /> : <MarkOwnedButton id={item.id} />;
+  item.copies > 1 ? (
+    <CopiesPill copies={item.copies} />
+  ) : item.copies === 1 ? (
+    <MarkNotOwnedButton id={item.id} />
+  ) : (
+    <MarkOwnedButton id={item.id} />
+  );
 
 export const Cover: FC<{ coverKey: string | null; title: string; mediaType: MediaType }> = ({
   coverKey,

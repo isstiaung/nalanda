@@ -18,6 +18,7 @@ import { deleteCover, storeCover } from '../lib/covers';
 import { parseDetails } from '../lib/share';
 import {
   accNo,
+  CopiesPill,
   Cover,
   DetailsList,
   HoldingPill,
@@ -354,7 +355,11 @@ items.post('/items/:id/mark-not-owned', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
-  if (item.copies > 0) await updateItem(c.env.DB, id, { copies: 0 });
+  // Only the single copy the toggle knows how to restore. A real count (2+) is
+  // left alone even for a hand-rolled POST — zeroing it would silently discard a
+  // number that round-trips through /export.csv.
+  if (item.copies > 1) return c.html(<CopiesPill copies={item.copies} />);
+  if (item.copies === 1) await updateItem(c.env.DB, id, { copies: 0 });
   return c.html(<MarkOwnedButton id={id} />);
 });
 
