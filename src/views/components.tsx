@@ -83,6 +83,61 @@ export const StatusPill: FC<{ status: ItemStatus }> = ({ status }) => (
 /** copies = 0: in the ledger, not on the shelf — a reading-log entry. */
 export const NotOwnedPill: FC = () => <span class="pill ghost">Not owned</span>;
 
+/** Same as NotOwnedPill but clickable — one tap sets copies to 1 in place (htmx),
+ *  swapping itself for a MarkNotOwnedButton. No edit form. Authenticated views
+ *  only; share pages keep the plain NotOwnedPill. */
+export const MarkOwnedButton: FC<{ id: number }> = ({ id }) => (
+  <button
+    type="button"
+    class="pill ghost pill-btn"
+    hx-post={`/items/${id}/mark-owned`}
+    hx-swap="outerHTML"
+    title="Mark as owned"
+  >
+    Not owned
+  </button>
+);
+
+/** The reverse of MarkOwnedButton — one tap sets copies to 0 (a reading-log
+ *  entry, same as the "Log — not owned" add action), swapping itself back for
+ *  a MarkOwnedButton. Any copy count above 1 is not preserved by this quick
+ *  toggle — same as MarkOwnedButton always landing on exactly 1, adjusting a
+ *  specific copy count is still an edit-form job. Reuses the "done" treatment
+ *  (same indigo as a Completed status pill) as the positive/success color —
+ *  the palette has no green (CLAUDE.md). */
+export const MarkNotOwnedButton: FC<{ id: number }> = ({ id }) => (
+  <button
+    type="button"
+    class="pill done pill-btn"
+    hx-post={`/items/${id}/mark-not-owned`}
+    hx-swap="outerHTML"
+    title="Mark as not owned"
+  >
+    Owned
+  </button>
+);
+
+/** A real multi-copy count: shown, never toggled. The quick action only knows how
+ *  to land on 0 or 1, so offering it here would silently discard a number someone
+ *  recorded — and `copies` round-trips through /export.csv. Adjusting it stays an
+ *  edit-form job. */
+export const CopiesPill: FC<{ copies: number }> = ({ copies }) => (
+  <span class="pill" title="Edit the item to change the copy count">
+    {copies} copies
+  </span>
+);
+
+/** The Holding column/row: whichever toggle button matches current copies, or a
+ *  plain count for items held in more than one copy. */
+export const HoldingPill: FC<{ item: Item }> = ({ item }) =>
+  item.copies > 1 ? (
+    <CopiesPill copies={item.copies} />
+  ) : item.copies === 1 ? (
+    <MarkNotOwnedButton id={item.id} />
+  ) : (
+    <MarkOwnedButton id={item.id} />
+  );
+
 export const Cover: FC<{ coverKey: string | null; title: string; mediaType: MediaType }> = ({
   coverKey,
   title,
@@ -139,6 +194,7 @@ export const ItemTable: FC<{
           <th class="hide-sm">Year</th>
           <th>Rating</th>
           <th>Status</th>
+          <th>Holding</th>
           {tagsMap ? <th class="hide-sm">Tags</th> : null}
           <th class="hide-sm">№</th>
         </tr>
@@ -169,8 +225,10 @@ export const ItemTable: FC<{
             <td>{item.rating ? <span class="rating">{stars(item.rating)}</span> : <span class="muted">—</span>}</td>
             <td>
               <StatusPill status={item.status} />{' '}
-              {item.copies === 0 ? <NotOwnedPill /> : null}
               {onLoanIds?.has(item.id) ? <span class="pill lent">Lent</span> : null}
+            </td>
+            <td>
+              <HoldingPill item={item} />
             </td>
             {tagsMap ? (
               <td class="hide-sm">
