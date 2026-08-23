@@ -16,6 +16,8 @@ The demo instance is fully separate from `npm run dev`: a different port and a d
 Shots are 1280px wide, light mode except `shelf-dark.png`. Headless browsers inherit the
 system appearance, so capturing light mode on a dark-themed machine means neutralising the
 `@media (prefers-color-scheme: dark)` block in `public/app.css` before the screenshot.
+`columns-menu.png` has its dropdown forced open by stamping the `open` attribute
+server-side, since headless can't click.
 
 The cover art visible in these images was fetched by the app from Open Library, Google
 Books, and Discogs at seed time. It remains the property of the respective publishers and
