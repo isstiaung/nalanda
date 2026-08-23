@@ -385,6 +385,20 @@ p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px sol
 .pill.overdue { border-color: var(--stamp); background: var(--stamp); color: var(--surface); }
 .pill.shared { border-color: var(--accent); color: var(--accent); }
 .pill.ghost { border-style: dashed; color: var(--ink-3); } /* in the ledger, not on the shelf */
+/* Configurable table columns. Every column is rendered server-side; hiding is
+   purely presentational, driven by data-hide-cols on <html> (set before paint by
+   an inline script in the layout, then maintained by app.js). With JS off the
+   attribute is never set and the full table shows — the old behaviour. */
+html[data-hide-cols~="type"] .col-type,
+html[data-hide-cols~="shelf"] .col-shelf,
+html[data-hide-cols~="year"] .col-year,
+html[data-hide-cols~="completed"] .col-completed,
+html[data-hide-cols~="rating"] .col-rating,
+html[data-hide-cols~="status"] .col-status,
+html[data-hide-cols~="holding"] .col-holding,
+html[data-hide-cols~="tags"] .col-tags,
+html[data-hide-cols~="acc"] .col-acc { display: none; }
+
 .pill-btn { cursor: pointer; }
 .pill-btn:hover { border-color: var(--accent); color: var(--accent); }
 .pill.done.pill-btn:hover { border-color: var(--accent-strong); color: var(--accent-strong); }

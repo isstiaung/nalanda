@@ -1,4 +1,4 @@
-// Small vanilla helpers: add-page tab switching + mobile sidebar toggle.
+// Small vanilla helpers: add-page tabs, mobile sidebar, and table column choices.
 document.addEventListener('DOMContentLoaded', () => {
   const tabs = document.querySelectorAll('.tab[data-tab]');
   tabs.forEach((tab) => {
@@ -18,6 +18,39 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!d.contains(e.target)) d.removeAttribute('open');
     });
   });
+
+  // Table columns: a per-device display preference, so localStorage rather than the
+  // server. The inline script in <head> has already applied the stored value before
+  // paint; this only syncs the checkboxes to it and writes changes back.
+  const columnsMenu = document.getElementById('columns-menu');
+  if (columnsMenu) {
+    const KEY = 'nalanda:hidden-columns';
+    const boxes = [...columnsMenu.querySelectorAll('input[data-col]')];
+    const read = () => {
+      try {
+        return new Set((localStorage.getItem(KEY) ?? '').split(/\s+/).filter(Boolean));
+      } catch {
+        return new Set(); // private mode, or storage disabled — degrade to "show all"
+      }
+    };
+
+    const hidden = read();
+    boxes.forEach((b) => {
+      b.checked = !hidden.has(b.dataset.col);
+    });
+
+    columnsMenu.addEventListener('change', (e) => {
+      if (!e.target.matches('input[data-col]')) return;
+      const next = boxes.filter((b) => !b.checked).map((b) => b.dataset.col);
+      const value = next.join(' ');
+      document.documentElement.setAttribute('data-hide-cols', value);
+      try {
+        localStorage.setItem(KEY, value);
+      } catch {
+        // nothing to do — the column choice just won't outlive this page
+      }
+    });
+  }
 
   const navToggle = document.getElementById('nav-toggle');
   if (navToggle) {

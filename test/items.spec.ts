@@ -236,3 +236,62 @@ describe('add flow: Log — not owned', () => {
     expect(loan.status).toBe(400);
   });
 });
+
+describe('shelf table columns', () => {
+  async function shelfHtml(libId: number, cookie: string): Promise<string> {
+    const ctx = createExecutionContext();
+    const res = await app.fetch(
+      new Request(`http://nalanda.test/libraries/${libId}`, { headers: { cookie } }),
+      env,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    return res.text();
+  }
+
+  it('renders every column server-side, so hiding stays purely presentational', async () => {
+    const { lib, cookie } = await seedSession();
+    await post(
+      '/items',
+      {
+        title: 'Finished Book',
+        libraryId: String(lib.id),
+        mediaType: 'book',
+        status: 'completed',
+        completedOn: '2025-06-15',
+      },
+      cookie,
+    );
+
+    const html = await shelfHtml(lib.id, cookie);
+    // the whole point: nothing is omitted for a hidden column, so a reader with JS
+    // off — or with storage unavailable — still gets the full table
+    for (const col of ['type', 'year', 'completed', 'rating', 'status', 'holding', 'tags', 'acc']) {
+      expect(html).toContain(`col-${col}`);
+    }
+    expect(html).toContain('2025-06-15'); // the sortable date is now actually visible
+  });
+
+  it('offers a Columns menu whose checkboxes never join the filter form', async () => {
+    const { lib, cookie } = await seedSession();
+    const html = await shelfHtml(lib.id, cookie);
+
+    expect(html).toContain('id="columns-menu"');
+    const menu = html.slice(html.indexOf('id="columns-menu"'), html.indexOf('</details>', html.indexOf('id="columns-menu"')));
+    expect(menu).toContain('data-col="completed"');
+    // a `name` here would turn a display choice into a query parameter
+    expect(menu).not.toContain('name=');
+  });
+
+  it('hides the Columns menu in covers view, where there is no table', async () => {
+    const { lib, cookie } = await seedSession();
+    const ctx = createExecutionContext();
+    const res = await app.fetch(
+      new Request(`http://nalanda.test/libraries/${lib.id}?view=grid`, { headers: { cookie } }),
+      env,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(await res.text()).not.toContain('id="columns-menu"');
+  });
+});

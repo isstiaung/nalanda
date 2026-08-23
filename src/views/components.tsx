@@ -177,6 +177,45 @@ export const ItemGrid: FC<{ items: Item[]; onLoanIds?: Set<number> }> = ({ items
   </div>
 );
 
+/**
+ * Columns the reader can turn off. Title is deliberately absent — a row has to
+ * stay identifiable. `key` doubles as the `col-*` cell class and the token stored
+ * in localStorage, so nothing has to stay in sync by hand.
+ */
+export const TABLE_COLUMNS = [
+  { key: 'type', label: 'Type' },
+  { key: 'shelf', label: 'Shelf' },
+  { key: 'year', label: 'Year' },
+  { key: 'completed', label: 'Completed' },
+  { key: 'rating', label: 'Rating' },
+  { key: 'status', label: 'Status' },
+  { key: 'holding', label: 'Holding' },
+  { key: 'tags', label: 'Tags' },
+  { key: 'acc', label: 'Accession no.' },
+] as const;
+
+export type ColumnKey = (typeof TABLE_COLUMNS)[number]['key'];
+
+/**
+ * The Columns dropdown. Checkboxes carry no `name`, so they never join the
+ * surrounding GET filter form — this is a client-side display preference, not a
+ * query. app.js reads them, writes localStorage, and flips `data-hide-cols` on
+ * <html>; with JS off the menu simply does nothing and every column stays put.
+ */
+export const ColumnsMenu: FC<{ available: readonly ColumnKey[] }> = ({ available }) => (
+  <details class="filter" id="columns-menu">
+    <summary>Columns</summary>
+    <div class="filter-menu">
+      {TABLE_COLUMNS.filter((c) => available.includes(c.key)).map((c) => (
+        <label>
+          <input type="checkbox" data-col={c.key} checked />
+          {c.label}
+        </label>
+      ))}
+    </div>
+  </details>
+);
+
 /** The default library view: a proper registry table. */
 export const ItemTable: FC<{
   items: Item[];
@@ -189,14 +228,15 @@ export const ItemTable: FC<{
       <thead>
         <tr>
           <th>Title</th>
-          <th>Type</th>
-          {libraryNames ? <th class="hide-sm">Shelf</th> : null}
-          <th class="hide-sm">Year</th>
-          <th>Rating</th>
-          <th>Status</th>
-          <th>Holding</th>
-          {tagsMap ? <th class="hide-sm">Tags</th> : null}
-          <th class="hide-sm">№</th>
+          <th class="col-type">Type</th>
+          {libraryNames ? <th class="hide-sm col-shelf">Shelf</th> : null}
+          <th class="hide-sm col-year">Year</th>
+          <th class="hide-sm col-completed">Completed</th>
+          <th class="col-rating">Rating</th>
+          <th class="col-status">Status</th>
+          <th class="col-holding">Holding</th>
+          {tagsMap ? <th class="hide-sm col-tags">Tags</th> : null}
+          <th class="hide-sm col-acc">№</th>
         </tr>
       </thead>
       <tbody>
@@ -219,19 +259,20 @@ export const ItemTable: FC<{
                 </span>
               </span>
             </td>
-            <td class="num">{MEDIA_LABEL[item.mediaType]}</td>
-            {libraryNames ? <td class="num hide-sm">{libraryNames.get(item.libraryId) ?? ''}</td> : null}
-            <td class="num hide-sm">{yearOf(item.published)}</td>
-            <td>{item.rating ? <span class="rating">{stars(item.rating)}</span> : <span class="muted">—</span>}</td>
-            <td>
+            <td class="num col-type">{MEDIA_LABEL[item.mediaType]}</td>
+            {libraryNames ? <td class="num hide-sm col-shelf">{libraryNames.get(item.libraryId) ?? ''}</td> : null}
+            <td class="num hide-sm col-year">{yearOf(item.published)}</td>
+            <td class="date hide-sm col-completed">{item.completedOn ?? <span class="muted">—</span>}</td>
+            <td class="col-rating">{item.rating ? <span class="rating">{stars(item.rating)}</span> : <span class="muted">—</span>}</td>
+            <td class="col-status">
               <StatusPill status={item.status} />{' '}
               {onLoanIds?.has(item.id) ? <span class="pill lent">Lent</span> : null}
             </td>
-            <td>
+            <td class="col-holding">
               <HoldingPill item={item} />
             </td>
             {tagsMap ? (
-              <td class="hide-sm">
+              <td class="hide-sm col-tags">
                 {(tagsMap.get(item.id) ?? []).slice(0, 3).map((t) => (
                   <a href={`/tags/${encodeURIComponent(t)}`} class="tag">
                     {t}
@@ -239,7 +280,7 @@ export const ItemTable: FC<{
                 ))}
               </td>
             ) : null}
-            <td class="hide-sm">
+            <td class="hide-sm col-acc">
               <span class="acc-no">{accNo(item.id)}</span>
             </td>
           </tr>

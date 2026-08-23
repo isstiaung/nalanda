@@ -16,6 +16,7 @@ import type { AppEnv } from '../env';
 import { deleteCover } from '../lib/covers';
 import { shareVisibility, shareVisibilityLabel } from '../lib/share';
 import {
+  ColumnsMenu,
   ItemGrid,
   ItemTable,
   MEDIA_LABEL,
@@ -173,6 +174,14 @@ libraries.get('/libraries/:id', async (c) => {
           Apply
         </button>
         <span class="spacer"></span>
+        {/* Display-only, and only meaningful in the table: its checkboxes carry no
+            `name`, so they never join this GET form. "shelf" is omitted — a single
+            shelf's table has no Shelf column to hide. */}
+        {view === 'table' ? (
+          <ColumnsMenu
+            available={['type', 'year', 'completed', 'rating', 'status', 'holding', 'tags', 'acc']}
+          />
+        ) : null}
         <span class="view-toggle">
           <a href={makeHref(1, 'table')} class={view === 'table' ? 'active' : undefined}>
             Table

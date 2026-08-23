@@ -17,6 +17,15 @@ const Head: FC<{ title: string }> = ({ title }) => (
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="stylesheet" href="/app.css" />
+    {/* Before paint, not in app.js (which is deferred): a deferred script would let
+        the full table render first and then visibly drop columns. */}
+    <script
+      dangerouslySetInnerHTML={{
+        __html:
+          "try{var h=localStorage.getItem('nalanda:hidden-columns');" +
+          "if(h)document.documentElement.setAttribute('data-hide-cols',h);}catch(e){}",
+      }}
+    />
     <script src="/vendor/htmx.min.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
