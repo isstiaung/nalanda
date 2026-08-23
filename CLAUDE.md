@@ -142,7 +142,9 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
 - Tags are normalized lowercase at write time; uniqueness is by exact string.
 - `copies = 0` = "in the catalog, not in the physical collection" (reading-log entries,
   e.g. Goodreads imports). Not lendable; badged "Not owned" everywhere incl. share pages
-  (ARCH.md §16 #13).
+  (ARCH.md §16 #13). The Holding toggle spans **only 0 and 1** — an item held in 2+ copies
+  renders a plain count, and the route refuses to zero it, because `copies` round-trips
+  through `/export.csv` (ARCH.md §16 #27).
 
 ## Ops guardrails
 - Develop against local D1. `--remote` is for deploy, remote migrate, and backup only.

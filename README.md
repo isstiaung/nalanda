@@ -12,7 +12,8 @@ manuscripts.
   add by name search (BoardGameGeek).
 - **Reading log, not just a catalog**: books you've read but don't own are first-class
   (`copies = 0`, badged "Not owned") — log a finished book by scanning it and writing the
-  review, no shelf space required.
+  review, no shelf space required. A Holding column flips a logged book to owned in one
+  click when a copy finally arrives, and back again.
 - **Goodreads import**: drop in a Goodreads export CSV — rows matching your shelves merge
   their ratings/reviews/read-dates onto existing books; the rest arrive as reading-log
   entries. Re-runs merge instead of duplicating. libib CSV import too.
@@ -24,7 +25,8 @@ manuscripts.
 - **Family accounts**: admin + members, no email infrastructure needed.
 - **Loans**: track who borrowed what, with due dates and history.
 - **Tags, half-star ratings, full-text search** across the collection, plus a quick
-  title/author filter inside every shelf.
+  title/author filter inside every shelf and sorting by newest, title, rating, or date
+  finished.
 - **Own your data**: every field round-trips through CSV export; plain-SQLite backups.
 - **The manuscript ledger**: a hand-written design system grounded in Nalanda's Pala-era
   scriptorium — palm-leaf paper, indigo and vermilion, Devanagari-first display type,
