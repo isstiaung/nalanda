@@ -40,8 +40,8 @@ See [ARCH.md](ARCH.md) for the design and the reasoning behind it.
 
 | | |
 |---|---|
-| ![The overview page: owned and not-owned counts, shelves with their visibility, loans, recent additions](docs/screenshots/overview.png) | ![A shelf in table view: title, type, year, rating, status, tags, accession number](docs/screenshots/shelf-table.png) |
-| **Overview** — what's owned, what's only read, what's out on loan, and how public each shelf is. | **The ledger view** — every shelf reads as a catalogue card, down to the accession number. |
+| ![The overview page: owned and not-owned counts, shelves with their visibility, loans, recent additions](docs/screenshots/overview.png) | ![A shelf in table view, sorted by date completed: title, type, year, completed, rating, status, holding, tags, accession number](docs/screenshots/shelf-table.png) |
+| **Overview** — what's owned, what's only read, what's out on loan, and how public each shelf is. | **The ledger view** — every shelf reads as a catalogue card, down to the accession number. Sort by title, rating, date added or date finished. |
 | ![An item page showing cover, catalogue fields, review, and the lending form](docs/screenshots/item.png) | ![A public share page listing finished books, with no sidebar or account links](docs/screenshots/share.png) |
 | **An item** — metadata auto-filled from the barcode, your rating and review below it. | **A published share** — one filtered view, its own link. No notes, no loans, no way back into the app. |
 
@@ -50,6 +50,12 @@ gets one page — each link's scope, the number of items it exposes right now, a
 remove on the spot:
 
 ![The shared links page: two published links, one scoped to finished books, one to a whole shelf](docs/screenshots/shares.png)
+
+Ten columns don't suit every shelf — a vinyl record has no "date finished", a board game
+would rather show play time than year — so the table's columns are yours to pick, remembered
+per device:
+
+![The Columns dropdown open over the shelf table, with a checkbox per column](docs/screenshots/columns-menu.png)
 
 And a lamp-lit dark mode that follows the system setting:
 

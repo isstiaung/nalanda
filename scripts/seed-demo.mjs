@@ -21,22 +21,22 @@ const PASSWORD = 'demo-password';
 // libib's CSV column names — mapLibibRow() in src/lib/csv.ts is the contract.
 const BOOKS = [
   ['Piranesi', 'Susanna Clarke', '9781635575637', 'completed', '4.5', 'Bloomsbury', '2020', '272',
-   'A house of infinite halls and tides, and the gentlest narrator in modern fantasy. Finished it in one sitting and immediately missed it.', 'fantasy, favourites', '1'],
+   'A house of infinite halls and tides, and the gentlest narrator in modern fantasy. Finished it in one sitting and immediately missed it.', 'fantasy, favourites', '1', '2025-11-02'],
   ['The Left Hand of Darkness', 'Ursula K. Le Guin', '9780441478125', 'completed', '5', 'Ace Books', '1969', '304',
-   'The ice crossing is one of the great sustained passages in the genre. Every reread finds another argument buried in it.', 'science fiction, favourites', '1'],
+   'The ice crossing is one of the great sustained passages in the genre. Every reread finds another argument buried in it.', 'science fiction, favourites', '1', '2024-03-18'],
   ['The Dispossessed', 'Ursula K. Le Guin', '9780061054884', 'in progress', '', 'Harper Voyager', '1974', '387',
    '', 'science fiction', '1'],
   ['Braiding Sweetgrass', 'Robin Wall Kimmerer', '9781571313560', 'completed', '4.5', 'Milkweed Editions', '2013', '408',
-   'Borrowed from the library and read it twice before returning it. The chapter on the honourable harvest has stayed with me for years.', 'nature writing, essays', '0'],
+   'Borrowed from the library and read it twice before returning it. The chapter on the honourable harvest has stayed with me for years.', 'nature writing, essays', '0', '2023-08-27'],
   ['The Master and Margarita', 'Mikhail Bulgakov', '9780143108276', 'completed', '4', 'Penguin Classics', '1967', '432',
-   'A devil, a talking cat, and 1930s Moscow. Read it on loan and never replaced it — one to fix.', 'classics, russian', '0'],
+   'A devil, a talking cat, and 1930s Moscow. Read it on loan and never replaced it — one to fix.', 'classics, russian', '0', '2022-01-09'],
   ['Pachinko', 'Min Jin Lee', '9781455563937', 'completed', '4.5', 'Grand Central', '2017', '496',
-   'Four generations, and it never once loses its footing. The opening line earns everything that follows.', 'literary fiction', '1'],
+   'Four generations, and it never once loses its footing. The opening line earns everything that follows.', 'literary fiction', '1', '2025-06-15'],
   ['Station Eleven', 'Emily St. John Mandel', '9780804172448', 'completed', '4', 'Vintage', '2014', '352',
-   'Survival is insufficient. A quiet book about what outlasts us.', 'science fiction', '1'],
+   'Survival is insufficient. A quiet book about what outlasts us.', 'science fiction', '1', '2024-12-30'],
   ['The Overstory', 'Richard Powers', '9780393356687', 'not begun', '', 'W. W. Norton', '2018', '512', '', 'literary fiction', '1'],
   ['Frankenstein', 'Mary Shelley', '9780141439471', 'completed', '4', 'Penguin Classics', '1818', '273',
-   'Much stranger and sadder than its afterlife in film suggests.', 'classics, gothic', '1'],
+   'Much stranger and sadder than its afterlife in film suggests.', 'classics, gothic', '1', '2023-10-31'],
   ['Cloud Atlas', 'David Mitchell', '9780375507250', 'not begun', '', 'Random House', '2004', '509', '', 'literary fiction', '1'],
 ];
 
@@ -56,11 +56,16 @@ const VINYL = [
   ['The Köln Concert', 'Keith Jarrett', 'completed', '5', 'ECM', '1975', 'jazz', '1'],
 ];
 
-const bookRows = BOOKS.map(([title, creators, ean, status, rating, publisher, published, length, review, tags, copies]) => ({
-  Title: title, Creators: creators, 'EAN/ISBN13': ean, 'Item Type': 'Books',
-  Status: status, Rating: rating, Publisher: publisher, 'Publish Date': published,
-  Length: length, Review: review, Tags: tags, Copies: copies,
-}));
+const bookRows = BOOKS.map(
+  ([title, creators, ean, status, rating, publisher, published, length, review, tags, copies, completed]) => ({
+    Title: title, Creators: creators, 'EAN/ISBN13': ean, 'Item Type': 'Books',
+    Status: status, Rating: rating, Publisher: publisher, 'Publish Date': published,
+    Length: length, Review: review, Tags: tags, Copies: copies,
+    // libib's "Completed" column -> items.completed_on; drives the Completed column
+    // and the "Date completed" sort. Unfinished books simply omit it.
+    Completed: completed ?? '',
+  }),
+);
 
 const gameRows = GAMES.map(([title, creators, status, rating, publisher, published, tags, copies]) => ({
   Title: title, Creators: creators, 'Item Type': 'Board games', Status: status,
