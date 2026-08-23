@@ -115,7 +115,7 @@ export type NewShare = {
   mediaType?: MediaType | null;
   status?: ItemStatus | null;
   owned?: boolean | null;
-  sort?: 'added' | 'title' | 'rating';
+  sort?: 'added' | 'title' | 'rating' | 'completed';
 };
 
 export async function createShare(d1: D1Database, values: NewShare): Promise<Share> {
@@ -155,7 +155,7 @@ export type ItemFilters = {
   statuses?: ItemStatus[]; // any-of; empty/omitted = any status
   owned?: boolean; // true = copies > 0, false = copies = 0 (reading-log entries)
   q?: string; // title/creators substring, case-insensitive
-  sort?: 'added' | 'title' | 'rating';
+  sort?: 'added' | 'title' | 'rating' | 'completed';
   page?: number; // 1-based
 };
 
@@ -197,7 +197,9 @@ export async function listItems(
       ? [asc(s.items.title)]
       : f.sort === 'rating'
         ? [sql`${s.items.rating} IS NULL, ${s.items.rating} DESC`, asc(s.items.title)]
-        : [desc(s.items.addedAt), desc(s.items.id)];
+        : f.sort === 'completed'
+          ? [sql`${s.items.completedOn} IS NULL, ${s.items.completedOn} DESC`, asc(s.items.title)]
+          : [desc(s.items.addedAt), desc(s.items.id)];
 
   const [row] = await dbi.select({ n: count() }).from(s.items).where(where);
   const total = row?.n ?? 0;

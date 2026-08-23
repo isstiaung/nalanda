@@ -143,7 +143,10 @@ shares.post('/shares', async (c) => {
     mediaType: (MEDIA_TYPES as readonly string[]).includes(str('mediaType')) ? (str('mediaType') as MediaType) : null,
     status: (ITEM_STATUSES as readonly string[]).includes(str('status')) ? (str('status') as ItemStatus) : null,
     owned: str('owned') === '1' ? true : str('owned') === '0' ? false : null,
-    sort: str('sort') === 'added' || str('sort') === 'rating' ? (str('sort') as 'added' | 'rating') : 'title',
+    sort:
+      str('sort') === 'added' || str('sort') === 'rating' || str('sort') === 'completed'
+        ? (str('sort') as 'added' | 'rating' | 'completed')
+        : 'title',
   });
   return c.redirect(`/libraries/${libraryId}`);
 });
