@@ -69,16 +69,21 @@
   }
 
   async function start() {
+    const request = navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 } },
+      audio: false,
+    });
+    // A timeout race, not just try/catch: getUserMedia can hang indefinitely rather
+    // than reject (e.g. a permission prompt the user never responds to) — without
+    // this, "nothing visibly happens" is indistinguishable from "still waiting."
+    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timed out after 8s')), 8000));
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 } },
-        audio: false,
-      });
+      stream = await Promise.race([request, timeout]);
     } catch (err) {
       say(
         location.protocol === 'http:' && location.hostname !== 'localhost'
           ? 'Camera needs HTTPS. Type the barcode below instead.'
-          : `Camera unavailable (${err.name}). Type the barcode below instead.`,
+          : `Camera unavailable (${err.name ?? 'timed out'}). Type the barcode below instead.`,
       );
       return;
     }
