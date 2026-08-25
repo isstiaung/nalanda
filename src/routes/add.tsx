@@ -76,6 +76,7 @@ add.get('/add', async (c) => {
       <section id="tab-manual" class="tab-panel" hidden>
         <ItemForm libraries={libs} action="/items" submitLabel="Add item" />
       </section>
+      <script src="/scanner.js" defer></script>
     </>,
   );
 });
