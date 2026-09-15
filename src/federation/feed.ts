@@ -127,6 +127,7 @@ export async function refreshSubscription(
   settings: FederationSettings,
   sub: DueSubscription,
 ): Promise<void> {
+  let partial = false;
   try {
     const { connection } = sub;
     const res = await getSigned(
@@ -149,10 +150,11 @@ export async function refreshSubscription(
       sub.id,
       page.entries.slice(0, allowed).map((e) => {
         const { json, bytes } = jsonBytes(keepForKind(e.item, e.kind));
-        return { remoteId: e.id, itemRemoteId: e.item.id, kind: e.kind, publishedAt: e.published, item: json, bytes };
+        return { remoteId: e.id, itemRemoteId: e.item.id, itemStamp: e.item.stamp, kind: e.kind, publishedAt: e.published, item: json, bytes };
       }),
     );
     const dropped = allowed < page.entries.length;
+    partial = page.more || dropped;
     await recordPull(db, sub, {
       cursor: page.latest,
       error: dropped ? 'Some entries were dropped: they sent more than a day’s allowance.' : null,
@@ -161,9 +163,11 @@ export async function refreshSubscription(
       again: page.more && !dropped && page.latest !== sub.cursor,
     });
     await checkRemovals(db, identity, settings, sub);
-    await pruneOrphanThreads(db); // our copies of threads go with the entries they belong to
   } finally {
     await applyLifecycle(db, sub);
+    // Our copies of threads go with the entries they belong to — however the pull ended, unless it stopped
+    // partway, when an edited review's new entry may still be waiting on a later page.
+    if (!partial) await pruneOrphanThreads(db);
   }
 }
 

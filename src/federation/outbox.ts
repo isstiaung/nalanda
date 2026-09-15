@@ -4,22 +4,25 @@
 import type { Context } from 'hono';
 import {
   claimOutbox,
-  commentState,
+  commentStates,
   countPush,
   dueOutboxes,
   enqueueOutbox,
   markDelivered,
+  pruneTombstones,
   recordOutboxPull,
 } from '../db/federation';
 import type { Connection, FederationSettings } from '../db/schema';
 import type { AppEnv } from '../env';
+import { budgeted, isBudgetSpent, type Budget } from './budget';
 import { receiveDirected } from './comments';
 import {
   MAX_OUTBOX_RESPONSE_BYTES,
   MAX_PUSHES_PER_DAY,
+  OUTBOX_APPLY_PER_PULL,
   OUTBOX_PAGE_SIZE,
   OUTBOX_PULL_MINUTES,
-  OUTBOXES_PER_REQUEST,
+  OUTBOX_PULL_QUERIES,
 } from './config';
 import { getSigned, postSigned } from './http';
 import { isId } from './items';
@@ -61,13 +64,21 @@ export function parseOutboxPage(value: unknown): OutboxPage | null {
   return { more: v.more, messages };
 }
 
-/** Whether a pulled message has already been applied — through a push, or an earlier pull. */
-async function alreadyApplied(d1: D1Database, message: DirectedMessage): Promise<boolean> {
-  if (message.type === 'CommentCreate') return (await commentState(d1, message.id)) !== 'absent';
-  return (await commentState(d1, message.comment)) === 'deleted';
+/** Which of a page's messages were already applied — through a push, or an earlier pull. One query for the page. */
+async function appliedAlready(db: D1Database, messages: DirectedMessage[]): Promise<(m: DirectedMessage) => boolean> {
+  const states = await commentStates(
+    db,
+    messages.map((m) => (m.type === 'CommentCreate' ? m.id : m.comment)),
+  );
+  return (m) => (m.type === 'CommentCreate' ? states.has(m.id) : states.get(m.comment) === 'deleted');
 }
 
-async function pullOutbox(d1: D1Database, identity: Identity, settings: FederationSettings, connection: Connection) {
+/**
+ * One pull of a connection's outbox: at most OUTBOX_APPLY_PER_PULL new messages, in order. Where it got to is
+ * saved however the pull ends — through the unbudgeted handle, since running out of budget is one of the ways
+ * — so a backlog drains across page loads instead of starting over.
+ */
+async function pullOutbox(db: D1Database, d1: D1Database, identity: Identity, settings: FederationSettings, connection: Connection) {
   const res = await getSigned(
     identity,
     settings.baseUrl,
@@ -79,30 +90,50 @@ async function pullOutbox(d1: D1Database, identity: Identity, settings: Federati
   if (!page) return;
 
   let cursor = connection.outboxCursor;
-  for (const { seq, message } of page.messages) {
-    if (seq <= cursor) continue; // in order, never backwards
-    // Only what that household itself wrote: a message naming anyone else as its actor is skipped.
-    if (message && message.actor === connection.baseUrl && !(await alreadyApplied(d1, message))) {
-      if (!(await countPush(d1, connection.id, MAX_PUSHES_PER_DAY))) {
-        // Past today's limit: stop here, and the rest is pulled tomorrow.
-        await recordOutboxPull(d1, connection.id, { cursor });
-        return;
+  let finished = false;
+  try {
+    const theirs = page.messages.filter(
+      (entry): entry is { seq: number; message: DirectedMessage } =>
+        entry.seq > cursor && entry.message !== null && entry.message.actor === connection.baseUrl,
+    );
+    const applied = await appliedAlready(db, theirs.map((entry) => entry.message));
+    let count = 0;
+    for (const { seq, message } of page.messages) {
+      if (seq <= cursor) continue; // in order, never backwards
+      // Only what that household itself wrote: a message naming anyone else as its actor is skipped.
+      if (message && message.actor === connection.baseUrl && !applied(message)) {
+        if (count === OUTBOX_APPLY_PER_PULL) return; // the rest on a later page load
+        if (!(await countPush(db, connection.id, MAX_PUSHES_PER_DAY))) {
+          finished = true; // past today's limit: this waits for tomorrow
+          return;
+        }
+        await receiveDirected(db, settings, connection, message);
+        count += 1;
       }
-      await receiveDirected(d1, settings, connection, message);
+      cursor = seq;
     }
-    cursor = seq;
+    finished = !page.more;
+    await pruneTombstones(db);
+  } finally {
+    await recordOutboxPull(d1, connection.id, { cursor, again: !finished && cursor > connection.outboxCursor });
   }
-  await recordOutboxPull(d1, connection.id, { cursor, again: page.more });
 }
 
-/** Pulls the outboxes of a few active connections, least recently pulled first, at most every few minutes each. */
-export async function refreshOutboxes(d1: D1Database, identity: Identity, settings: FederationSettings): Promise<void> {
-  for (const connection of await dueOutboxes(d1, OUTBOX_PULL_MINUTES, OUTBOXES_PER_REQUEST)) {
-    if (!(await claimOutbox(d1, connection.id, connection.outboxPulledAt))) continue;
-    try {
-      await pullOutbox(d1, identity, settings, connection);
-    } catch (err) {
-      console.error('outbox pull failed', err);
+/** Pulls due outboxes, least recently pulled first, one at a time while `budget` lasts. */
+export async function refreshOutboxes(d1: D1Database, identity: Identity, settings: FederationSettings, budget: Budget): Promise<void> {
+  const db = budgeted(d1, budget);
+  try {
+    while (budget.left >= OUTBOX_PULL_QUERIES) {
+      const [connection] = await dueOutboxes(db, OUTBOX_PULL_MINUTES, 1);
+      if (!connection || !(await claimOutbox(db, connection.id, connection.outboxPulledAt))) return;
+      try {
+        await pullOutbox(db, d1, identity, settings, connection);
+      } catch (err) {
+        if (isBudgetSpent(err)) return;
+        console.error('outbox pull failed', err);
+      }
     }
+  } catch (err) {
+    if (!isBudgetSpent(err)) throw err;
   }
 }

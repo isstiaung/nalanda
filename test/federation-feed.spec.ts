@@ -324,6 +324,7 @@ describe('following another household', () => {
       reviewTruncated: false,
       inCollection: true,
       completedOn: null,
+      stamp: '0123456789abcdef',
       ...item,
     },
   });
@@ -331,6 +332,7 @@ describe('following another household', () => {
   const stored = (remoteId: number, minutesAgo: number): NewRemoteActivity => ({
     remoteId,
     itemRemoteId: remoteId,
+    itemStamp: '0123456789abcdef',
     kind: 'rated',
     publishedAt: sqlAgo(minutesAgo),
     item: '{}',
@@ -510,8 +512,9 @@ describe('following another household', () => {
         reviewTruncated: false,
         inCollection: true,
         completedOn: null,
+        stamp: '0123456789abcdef',
       });
-      return { remoteId: i, itemRemoteId: i, kind: 'reviewed', publishedAt: sqlAgo(i * 120), item, bytes: item.length };
+      return { remoteId: i, itemRemoteId: i, itemStamp: '0123456789abcdef', kind: 'reviewed', publishedAt: sqlAgo(i * 120), item, bytes: item.length };
     };
     await storeEntries(env.DB, sub.id, Array.from({ length: 40 }, (_, i) => long(i + 1)));
     answerOutbound(() => new Response('down', { status: 500 }));

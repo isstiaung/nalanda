@@ -4,6 +4,7 @@ CREATE TABLE `comments` (
 	`connection_id` integer NOT NULL,
 	`our_item_id` integer,
 	`their_item_id` integer,
+	`their_item_stamp` text,
 	`from_us` integer NOT NULL,
 	`author_name` text NOT NULL,
 	`author_id` integer,
@@ -22,6 +23,7 @@ CREATE TABLE `outbox` (
 	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`connection_id` integer NOT NULL,
 	`activity_id` text NOT NULL,
+	`seq` integer NOT NULL,
 	`message` text NOT NULL,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
 	`delivered_at` text,
@@ -29,6 +31,8 @@ CREATE TABLE `outbox` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `outbox_activity_id_unique` ON `outbox` (`activity_id`);--> statement-breakpoint
-CREATE INDEX `idx_outbox_connection` ON `outbox` (`connection_id`,`id`);--> statement-breakpoint
+CREATE UNIQUE INDEX `outbox_connection_seq` ON `outbox` (`connection_id`,`seq`);--> statement-breakpoint
 ALTER TABLE `connections` ADD `outbox_cursor` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
-ALTER TABLE `connections` ADD `outbox_pulled_at` text;
+ALTER TABLE `connections` ADD `outbox_pulled_at` text;--> statement-breakpoint
+ALTER TABLE `connections` ADD `outbox_seq` integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE `remote_activities` ADD `item_stamp` text DEFAULT '' NOT NULL;

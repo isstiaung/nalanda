@@ -86,9 +86,14 @@ export const OUTBOX_RESPONSE_BUDGET_BYTES = 64 * 1024;
 export const MAX_OUTBOX_RESPONSE_BYTES = 128 * 1024;
 /** How long a message waits in the outbox for a connection that hasn't pulled it. */
 export const OUTBOX_RETENTION_DAYS = 30;
-/** A connection's outbox is pulled at most this often, and this many connections' per page load. */
+/** A connection's outbox is pulled at most this often. */
 export const OUTBOX_PULL_MINUTES = 5;
-export const OUTBOXES_PER_REQUEST = 2;
+/** Of a page load's background budget, the most outbox pulls may spend — feeds get the rest. */
+export const OUTBOX_QUERY_SHARE = 16;
+/** Another outbox pull starts only while its share has this many queries left. */
+export const OUTBOX_PULL_QUERIES = 8;
+/** New messages applied from one outbox per pull; a backlog drains across page loads. */
+export const OUTBOX_APPLY_PER_PULL = 5;
 /** Comments on this household's reviews listed at the top of Feed: from the last this many days. */
 export const RECENT_COMMENT_DAYS = 14;
 

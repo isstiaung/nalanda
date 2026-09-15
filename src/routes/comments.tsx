@@ -19,6 +19,7 @@ import { getItem } from '../db/queries';
 import type { Comment, FederationSettings, Item } from '../db/schema';
 import type { AppEnv } from '../env';
 import { MAX_COMMENT_CHARS, MAX_SENT_PER_DAY } from '../federation/config';
+import { isStamp, itemStamp } from '../federation/items';
 import { loadIdentity, type Identity } from '../federation/keys';
 import { commentCreate, commentDelete } from '../federation/messages';
 import { sendToConnection } from '../federation/outbox';
@@ -125,7 +126,12 @@ comments.post('/items/:id/comments', async (c) => {
   if ((await sentToday(c.env.DB, connection.id)) >= MAX_SENT_PER_DAY) return c.redirect(back);
 
   const user = c.get('user');
-  const message = commentCreate(ctx.settings.baseUrl, { owner: ctx.settings.baseUrl, item: item.id }, user.username, text);
+  const message = commentCreate(
+    ctx.settings.baseUrl,
+    { owner: ctx.settings.baseUrl, item: item.id, stamp: await itemStamp(item) },
+    user.username,
+    text,
+  );
   await insertComment(c.env.DB, {
     activityId: message.id,
     connectionId: connection.id,
@@ -148,18 +154,22 @@ comments.post('/feed/comments', async (c) => {
   const text = commentText(form['body']);
   const connectionId = digits(form['connectionId']);
   const itemId = digits(form['itemId']);
+  const stamp = isStamp(form['stamp']) ? form['stamp'] : null;
   const connection = connectionId ? await getConnection(c.env.DB, connectionId) : null;
   const back = `/feed#thread-${connectionId ?? 0}-${itemId ?? 0}`;
-  if (!connection || connection.status !== 'active' || !itemId || !text || text.length > MAX_COMMENT_CHARS) return c.redirect(back);
-  if (!(await holdsReviewEntry(c.env.DB, connection.id, itemId))) return c.redirect(back);
+  if (!connection || connection.status !== 'active' || !itemId || !stamp || !text || text.length > MAX_COMMENT_CHARS) {
+    return c.redirect(back);
+  }
+  if (!(await holdsReviewEntry(c.env.DB, connection.id, itemId, stamp))) return c.redirect(back);
   if ((await sentToday(c.env.DB, connection.id)) >= MAX_SENT_PER_DAY) return c.redirect(back);
 
   const user = c.get('user');
-  const message = commentCreate(ctx.settings.baseUrl, { owner: connection.baseUrl, item: itemId }, user.username, text);
+  const message = commentCreate(ctx.settings.baseUrl, { owner: connection.baseUrl, item: itemId, stamp }, user.username, text);
   await insertComment(c.env.DB, {
     activityId: message.id,
     connectionId: connection.id,
     theirItemId: itemId,
+    theirItemStamp: stamp,
     fromUs: true,
     authorName: message.author,
     authorId: user.id,

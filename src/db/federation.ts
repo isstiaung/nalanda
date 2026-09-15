@@ -7,6 +7,7 @@ import {
   BACKFILL_ENTRIES,
   MAX_FEED_REVIEW_CHARS,
   MAX_STORED_ENTRIES_PER_CONNECTION,
+  OUTBOX_PULL_MINUTES,
   OUTBOX_RETENTION_DAYS,
   VOLUME_WINDOW_DAYS,
 } from '../federation/config';
@@ -552,6 +553,7 @@ export async function markSubscriptionGone(d1: D1Database, id: number): Promise<
 export type NewRemoteActivity = {
   remoteId: number;
   itemRemoteId: number;
+  itemStamp: string;
   kind: ActivityKind;
   publishedAt: string;
   item: string;
@@ -567,8 +569,9 @@ export async function storeEntries(d1: D1Database, subscriptionId: number, entri
   await d1
     .prepare(
       `INSERT OR IGNORE INTO remote_activities
-         (subscription_id, remote_id, item_remote_id, kind, published_at, item, bytes)
-       SELECT ?1, json_extract(value, '$.remoteId'), json_extract(value, '$.itemRemoteId'), json_extract(value, '$.kind'),
+         (subscription_id, remote_id, item_remote_id, item_stamp, kind, published_at, item, bytes)
+       SELECT ?1, json_extract(value, '$.remoteId'), json_extract(value, '$.itemRemoteId'),
+              json_extract(value, '$.itemStamp'), json_extract(value, '$.kind'),
               min(json_extract(value, '$.publishedAt'), datetime('now')), json_extract(value, '$.item'),
               json_extract(value, '$.bytes')
        FROM json_each(?2)`,
@@ -666,6 +669,7 @@ export type StoredEntry = {
   id: number;
   remoteId: number;
   itemRemoteId: number;
+  itemStamp: string;
   kind: ActivityKind;
   publishedAt: string;
   item: string;
@@ -713,7 +717,7 @@ export async function feedPage(
 
   const { results } = await d1
     .prepare(
-      `SELECT ra.id, ra.remote_id AS remoteId, ra.item_remote_id AS itemRemoteId, ra.kind,
+      `SELECT ra.id, ra.remote_id AS remoteId, ra.item_remote_id AS itemRemoteId, ra.item_stamp AS itemStamp, ra.kind,
               ra.published_at AS publishedAt, ra.item, ra.bytes,
               c.id AS connectionId, c.household_name AS householdName, c.base_url AS baseUrl
        FROM remote_activities ra
@@ -766,9 +770,9 @@ export async function commentsOnOurItem(d1: D1Database, itemId: number): Promise
   return rows.map((r) => ({ ...r.comment, householdName: r.householdName, connectionStatus: r.connectionStatus }));
 }
 
-/** Our copies of the threads on their reviews, for these [connection, their item] pairs, oldest first. */
-export async function commentsOnTheirItems(d1: D1Database, pairs: Array<[number, number]>): Promise<Comment[]> {
-  if (!pairs.length) return [];
+/** Our copies of the threads on their reviews, for these [connection, their item, stamp] keys, oldest first. */
+export async function commentsOnTheirItems(d1: D1Database, keys: Array<[number, number, string]>): Promise<Comment[]> {
+  if (!keys.length) return [];
   return db(d1)
     .select()
     .from(s.comments)
@@ -776,9 +780,10 @@ export async function commentsOnTheirItems(d1: D1Database, pairs: Array<[number,
       and(
         isNull(s.comments.deletedAt),
         isNotNull(s.comments.theirItemId),
-        sql`EXISTS (SELECT 1 FROM json_each(${JSON.stringify(pairs)}) AS pair
+        sql`EXISTS (SELECT 1 FROM json_each(${JSON.stringify(keys)}) AS pair
                     WHERE json_extract(pair.value, '$[0]') = ${s.comments.connectionId}
-                      AND json_extract(pair.value, '$[1]') = ${s.comments.theirItemId})`,
+                      AND json_extract(pair.value, '$[1]') = ${s.comments.theirItemId}
+                      AND json_extract(pair.value, '$[2]') = ${s.comments.theirItemStamp})`,
       ),
     )
     .orderBy(asc(s.comments.createdAt), asc(s.comments.id));
@@ -846,6 +851,7 @@ export type NewComment = {
   connectionId: number;
   ourItemId?: number | null;
   theirItemId?: number | null;
+  theirItemStamp?: string | null;
   fromUs: boolean;
   authorName: string;
   authorId?: number | null;
@@ -875,8 +881,8 @@ export async function recordDeletionFirst(d1: D1Database, connectionId: number, 
     .onConflictDoNothing();
 }
 
-/** Whether this household holds a feed entry for that connection's review of the item — i.e. follows it. */
-export async function holdsReviewEntry(d1: D1Database, connectionId: number, itemRemoteId: number): Promise<boolean> {
+/** Whether this household holds a feed entry for that connection's review of this book — i.e. follows it. */
+export async function holdsReviewEntry(d1: D1Database, connectionId: number, itemRemoteId: number, stamp: string): Promise<boolean> {
   const [row] = await db(d1)
     .select({ id: s.remoteActivities.id })
     .from(s.remoteActivities)
@@ -885,11 +891,52 @@ export async function holdsReviewEntry(d1: D1Database, connectionId: number, ite
       and(
         eq(s.feedSubscriptions.connectionId, connectionId),
         eq(s.remoteActivities.itemRemoteId, itemRemoteId),
+        eq(s.remoteActivities.itemStamp, stamp),
         eq(s.remoteActivities.kind, 'reviewed'),
       ),
     )
     .limit(1);
   return !!row;
+}
+
+/** Whether this household has commented on that connection's review of this book — the thread is ours to have started. */
+export async function weCommented(d1: D1Database, connectionId: number, theirItemId: number, stamp: string): Promise<boolean> {
+  const [row] = await db(d1)
+    .select({ id: s.comments.id })
+    .from(s.comments)
+    .where(
+      and(
+        eq(s.comments.connectionId, connectionId),
+        eq(s.comments.theirItemId, theirItemId),
+        eq(s.comments.theirItemStamp, stamp),
+        eq(s.comments.fromUs, true),
+      ),
+    )
+    .limit(1);
+  return !!row;
+}
+
+/**
+ * One of our items, only if it has a review and is inside a connection view — one query, so an unknown item, an
+ * unreviewed one and an unshared one can't be told apart by how long the answer takes. The view test is the SQL
+ * twin of itemMatchesView().
+ */
+export async function sharedReviewedItem(d1: D1Database, itemId: number): Promise<Item | null> {
+  const [row] = await db(d1)
+    .select()
+    .from(s.items)
+    .where(
+      and(
+        eq(s.items.id, itemId),
+        hasReview,
+        sql`EXISTS (SELECT 1 FROM connection_views v
+                    WHERE (v.library_id IS NULL OR v.library_id = ${s.items.libraryId})
+                      AND (v.media_type IS NULL OR v.media_type = ${s.items.mediaType})
+                      AND (v.status IS NULL OR v.status = ${s.items.status})
+                      AND (v.owned IS NULL OR v.owned = (${s.items.copies} > 0)))`,
+      ),
+    );
+  return row ?? null;
 }
 
 /** Whether that household has commented on our item — replies go into threads they started. */
@@ -904,24 +951,39 @@ export async function theyStartedThread(d1: D1Database, connectionId: number, ou
 
 /**
  * Our copies of threads on their reviews go with the feed entries they hang from: once no stored `reviewed`
- * entry remains for a review, its thread is deleted here too. Deletions remembered for comments that never
- * arrived are dropped once no outbox could still hold them.
+ * entry remains for that book — the same id and stamp — its thread is deleted here too. Callers skip this after
+ * a pull that stopped partway, when an edited review's new entry may still be waiting on a later page.
  */
 export async function pruneOrphanThreads(d1: D1Database): Promise<void> {
-  await d1.batch([
-    d1.prepare(
+  await d1
+    .prepare(
       `DELETE FROM comments WHERE their_item_id IS NOT NULL AND NOT EXISTS (
          SELECT 1 FROM remote_activities ra JOIN feed_subscriptions fs ON fs.id = ra.subscription_id
          WHERE fs.connection_id = comments.connection_id AND ra.item_remote_id = comments.their_item_id
-           AND ra.kind = 'reviewed')`,
-    ),
-    d1
-      .prepare(
-        `DELETE FROM comments WHERE our_item_id IS NULL AND their_item_id IS NULL
-           AND deleted_at < datetime('now', ?1)`,
-      )
-      .bind(`-${OUTBOX_RETENTION_DAYS * 2} days`),
-  ]);
+           AND ra.item_stamp = comments.their_item_stamp AND ra.kind = 'reviewed')`,
+    )
+    .run();
+}
+
+/** Deletions remembered for comments that never arrived, dropped once no outbox could still hold those comments. */
+export async function pruneTombstones(d1: D1Database): Promise<void> {
+  await d1
+    .prepare(
+      `DELETE FROM comments WHERE our_item_id IS NULL AND their_item_id IS NULL
+         AND deleted_at < datetime('now', ?1)`,
+    )
+    .bind(`-${OUTBOX_RETENTION_DAYS * 2} days`)
+    .run();
+}
+
+/** Which of these comment ids are known here, and whether each is deleted. */
+export async function commentStates(d1: D1Database, activityIds: string[]): Promise<Map<string, 'present' | 'deleted'>> {
+  if (!activityIds.length) return new Map();
+  const rows = await db(d1)
+    .select({ activityId: s.comments.activityId, deletedAt: s.comments.deletedAt })
+    .from(s.comments)
+    .where(sql`${s.comments.activityId} IN (SELECT value FROM json_each(${JSON.stringify(activityIds)}))`);
+  return new Map(rows.map((r) => [r.activityId, r.deletedAt ? 'deleted' : 'present']));
 }
 
 /** Messages queued for a connection since midnight UTC. */
@@ -935,12 +997,20 @@ export async function sentToday(d1: D1Database, connectionId: number): Promise<n
 
 // ---------- the outbox (phase 3) ----------
 
-/** Queues a message for a connection, pruning what has waited longer than any pull would. */
+/**
+ * Queues a message for a connection under that connection's next sequence number, pruning what has waited
+ * longer than any pull would.
+ */
 export async function enqueueOutbox(d1: D1Database, connectionId: number, message: { id: string }): Promise<OutboxRow> {
+  const counter = await d1
+    .prepare('UPDATE connections SET outbox_seq = outbox_seq + 1 WHERE id = ?1 RETURNING outbox_seq AS seq')
+    .bind(connectionId)
+    .first<{ seq: number }>();
+  if (!counter) throw new Error('no such connection to queue a message for');
   const dbi = db(d1);
   const [row] = await dbi
     .insert(s.outbox)
-    .values({ connectionId, activityId: message.id, message: JSON.stringify(message) })
+    .values({ connectionId, seq: counter.seq, activityId: message.id, message: JSON.stringify(message) })
     .returning();
   if (!row) throw new Error('failed to queue message');
   await dbi
@@ -954,6 +1024,12 @@ export async function enqueueOutbox(d1: D1Database, connectionId: number, messag
   return row;
 }
 
+/** The last sequence number queued for a connection. */
+export async function outboxHead(d1: D1Database, connectionId: number): Promise<number> {
+  const [row] = await db(d1).select({ seq: s.connections.outboxSeq }).from(s.connections).where(eq(s.connections.id, connectionId));
+  return row?.seq ?? 0;
+}
+
 export async function markDelivered(d1: D1Database, id: number): Promise<void> {
   await db(d1)
     .update(s.outbox)
@@ -961,13 +1037,13 @@ export async function markDelivered(d1: D1Database, id: number): Promise<void> {
     .where(eq(s.outbox.id, id));
 }
 
-/** A connection's queued messages after a cursor, oldest first. */
+/** A connection's queued messages after a cursor in its own sequence, oldest first. */
 export async function outboxAfter(d1: D1Database, connectionId: number, since: number, limit: number): Promise<OutboxRow[]> {
   return db(d1)
     .select()
     .from(s.outbox)
-    .where(and(eq(s.outbox.connectionId, connectionId), gt(s.outbox.id, since)))
-    .orderBy(asc(s.outbox.id))
+    .where(and(eq(s.outbox.connectionId, connectionId), gt(s.outbox.seq, since)))
+    .orderBy(asc(s.outbox.seq))
     .limit(limit);
 }
 
@@ -1002,11 +1078,17 @@ export async function claimOutbox(d1: D1Database, connectionId: number, pulledAt
   return rows.length === 1;
 }
 
-/** Where a pull got to. `again` makes the outbox due at once, when more was waiting. */
+/**
+ * Where a pull got to. `again`, when more was waiting, makes the outbox due at once — stamped as pulled one
+ * interval ago rather than never, so it queues behind outboxes that have waited longer.
+ */
 export async function recordOutboxPull(d1: D1Database, connectionId: number, result: { cursor: number; again?: boolean }): Promise<void> {
   await db(d1)
     .update(s.connections)
-    .set(result.again ? { outboxCursor: result.cursor, outboxPulledAt: null } : { outboxCursor: result.cursor })
+    .set({
+      outboxCursor: result.cursor,
+      ...(result.again ? { outboxPulledAt: sql`(datetime('now', ${`-${OUTBOX_PULL_MINUTES} minutes`}))` } : {}),
+    })
     .where(eq(s.connections.id, connectionId));
 }
 

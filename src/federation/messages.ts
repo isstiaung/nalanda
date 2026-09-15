@@ -3,7 +3,7 @@
 // named for what they mean, since nothing outside Nalanda needs to read them.
 import { MAX_AUTHOR_NAME, MAX_COMMENT_CHARS } from './config';
 import { isHouseholdName, normaliseBaseUrl } from './http';
-import { isId, isSqlDatetime } from './items';
+import { isId, isSqlDatetime, isStamp } from './items';
 import { isPublicJwk, type PublicJwk } from './keys';
 
 export const AS2_CONTEXT = 'https://www.w3.org/ns/activitystreams';
@@ -22,7 +22,7 @@ export type ControlMessage = Envelope & { type: ControlType };
 /** A comment on a review that belongs to one of the two households; `inReplyTo.owner` says which. */
 export type CommentCreate = Envelope & {
   type: 'CommentCreate';
-  inReplyTo: { owner: string; item: number };
+  inReplyTo: { owner: string; item: number; stamp: string };
   author: string;
   content: string;
   published: string;
@@ -54,7 +54,7 @@ export function inboxMessage(type: ControlType, actor: string): ControlMessage {
 
 export function commentCreate(
   actor: string,
-  inReplyTo: { owner: string; item: number },
+  inReplyTo: { owner: string; item: number; stamp: string },
   author: string,
   content: string,
 ): CommentCreate {
@@ -97,11 +97,18 @@ export function parseInboxMessage(value: unknown): InboxMessage | null {
     const reply = value.inReplyTo as Record<string, unknown> | null | undefined;
     const { author, content, published } = value;
     if (!reply || typeof reply !== 'object' || typeof reply.owner !== 'string') return null;
-    if (normaliseBaseUrl(reply.owner) !== reply.owner || !isId(reply.item)) return null;
+    if (normaliseBaseUrl(reply.owner) !== reply.owner || !isId(reply.item) || !isStamp(reply.stamp)) return null;
     if (typeof author !== 'string' || !author.trim() || author.length > MAX_AUTHOR_NAME) return null;
     if (typeof content !== 'string' || !content.trim() || content.length > MAX_COMMENT_CHARS) return null;
     if (!isSqlDatetime(published)) return null;
-    return { ...base, type: 'CommentCreate', inReplyTo: { owner: reply.owner, item: reply.item }, author, content, published };
+    return {
+      ...base,
+      type: 'CommentCreate',
+      inReplyTo: { owner: reply.owner, item: reply.item, stamp: reply.stamp },
+      author,
+      content,
+      published,
+    };
   }
   if (value.type === 'CommentDelete') {
     return isActivityId(value.comment) ? { ...base, type: 'CommentDelete', comment: value.comment } : null;

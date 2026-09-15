@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "fcea332c-370b-4644-8371-c8ddd0e5d47f",
+  "id": "88fa809e-78ee-4558-bc07-4a574728c3a3",
   "prevId": "7edb2ee1-2cc5-4fd9-a017-1b895be764d7",
   "tables": {
     "activity_log": {
@@ -107,6 +107,13 @@
         "their_item_id": {
           "name": "their_item_id",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "their_item_stamp": {
+          "name": "their_item_stamp",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -516,6 +523,14 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "outbox_seq": {
+          "name": "outbox_seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
         }
       },
       "indexes": {
@@ -1216,6 +1231,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "seq": {
+          "name": "seq",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "message": {
           "name": "message",
           "type": "text",
@@ -1247,13 +1269,13 @@
           ],
           "isUnique": true
         },
-        "idx_outbox_connection": {
-          "name": "idx_outbox_connection",
+        "outbox_connection_seq": {
+          "name": "outbox_connection_seq",
           "columns": [
             "connection_id",
-            "id"
+            "seq"
           ],
-          "isUnique": false
+          "isUnique": true
         }
       },
       "foreignKeys": {
@@ -1305,6 +1327,14 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
+        },
+        "item_stamp": {
+          "name": "item_stamp",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "''"
         },
         "kind": {
           "name": "kind",

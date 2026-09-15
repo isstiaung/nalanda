@@ -17,6 +17,7 @@ import {
   listConnectionViews,
   markActivitySeen,
   outboxAfter,
+  outboxHead,
   redeemInvite,
   stillShared,
   viewVolume,
@@ -46,7 +47,7 @@ import {
 } from './config';
 import { fetchDescriptor, parseJson, readLimited, type Descriptor } from './http';
 import { receiveDirected } from './comments';
-import { isId, jsonBytes, toFeedItem, type FeedEntry } from './items';
+import { isId, itemStamp, jsonBytes, toFeedItem, type FeedEntry } from './items';
 import { importPublicKey, loadIdentity } from './keys';
 import { parseConnectRequest, parseInboxMessage } from './messages';
 import { forgetPeer, peerByKeyid, rememberPeer } from './peers';
@@ -248,8 +249,15 @@ federation.get('/federation/feed', async (c) => {
   const { fromStart, rows } = await activityInView(c.env.DB, view, since, FEED_PAGE_SIZE + 1);
   const entries: FeedEntry[] = [];
   let bytes = 0;
+  const stamps = new Map<number, string>();
+  for (const row of rows) if (!stamps.has(row.item.id)) stamps.set(row.item.id, await itemStamp(row.item));
   for (const row of rows.slice(0, FEED_PAGE_SIZE)) {
-    const entry: FeedEntry = { id: row.id, kind: row.kind, published: row.at, item: toFeedItem(row.item, row.kind) };
+    const entry: FeedEntry = {
+      id: row.id,
+      kind: row.kind,
+      published: row.at,
+      item: toFeedItem(row.item, row.kind, stamps.get(row.item.id)!),
+    };
     const size = jsonBytes(entry).bytes;
     if (entries.length > 0 && bytes + size > FEED_RESPONSE_BUDGET_BYTES) break;
     entries.push(entry);
@@ -295,17 +303,19 @@ federation.get('/federation/outbox', async (c) => {
   const since = digits(c.req.query('since') ?? '0');
   if (since === null) return c.json({ error: 'malformed request' }, 400);
 
-  const rows = await outboxAfter(c.env.DB, from.connection.id, since, OUTBOX_PAGE_SIZE + 1);
+  // A cursor past the end came from before a restore on this side: start again. Receiving is idempotent.
+  const after = since > (await outboxHead(c.env.DB, from.connection.id)) ? 0 : since;
+  const rows = await outboxAfter(c.env.DB, from.connection.id, after, OUTBOX_PAGE_SIZE + 1);
   const messages: Array<{ seq: number; message: unknown }> = [];
   let bytes = 0;
   for (const row of rows.slice(0, OUTBOX_PAGE_SIZE)) {
     const size = new TextEncoder().encode(row.message).byteLength;
     if (messages.length > 0 && bytes + size > OUTBOX_RESPONSE_BUDGET_BYTES) break;
-    messages.push({ seq: row.id, message: JSON.parse(row.message) });
+    messages.push({ seq: row.seq, message: JSON.parse(row.message) });
     bytes += size;
   }
   const last = messages[messages.length - 1];
-  return c.json({ latest: last?.seq ?? since, more: rows.length > messages.length, messages });
+  return c.json({ latest: last?.seq ?? after, more: rows.length > messages.length, messages });
 });
 
 // ---------- messages from connected instances ----------

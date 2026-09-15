@@ -19,11 +19,10 @@ import {
 } from '../db/federation';
 import type { ActivityKind, Comment } from '../db/schema';
 import type { AppEnv } from '../env';
-import { BACKGROUND_QUERY_BUDGET, FEED_PAGE_BYTES, FEED_PAGE_ENTRIES, RECENT_COMMENT_DAYS } from '../federation/config';
-import { refreshDue } from '../federation/feed';
+import { refreshInBackground } from '../federation/background';
+import { FEED_PAGE_BYTES, FEED_PAGE_ENTRIES, RECENT_COMMENT_DAYS } from '../federation/config';
 import { coverUrl, parseFeedItem, type FeedItem } from '../federation/items';
 import { loadIdentity } from '../federation/keys';
-import { refreshOutboxes } from '../federation/outbox';
 import { MEDIA_ICON, stars } from '../views/components';
 import { page } from '../views/layout';
 import { CommentForm, CommentView } from './comments';
@@ -39,6 +38,7 @@ type Card = {
   householdName: string;
   baseUrl: string;
   itemId: number; // their items id
+  itemStamp: string; // and which of their books it means
   item: FeedItem;
   kinds: Set<ActivityKind>;
   published: string;
@@ -62,7 +62,7 @@ function toCards(entries: StoredEntry[]): Card[] {
       item = null;
     }
     if (!item) continue;
-    const key = `${e.connectionId}:${e.itemRemoteId}`;
+    const key = `${e.connectionId}:${e.itemRemoteId}:${e.itemStamp}`;
     let card = cards.get(key);
     if (!card) {
       card = {
@@ -70,6 +70,7 @@ function toCards(entries: StoredEntry[]): Card[] {
         householdName: e.householdName,
         baseUrl: e.baseUrl,
         itemId: e.itemRemoteId,
+        itemStamp: e.itemStamp,
         item,
         kinds: new Set(),
         published: e.publishedAt,
@@ -161,7 +162,7 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] }> = 
             ))}
             <CommentForm
               action="/feed/comments"
-              fields={{ connectionId: String(card.connectionId), itemId: String(card.itemId) }}
+              fields={{ connectionId: String(card.connectionId), itemId: String(card.itemId), stamp: card.itemStamp }}
               label="Send"
             />
             <small class="muted">Seen only by {card.householdName} and this library.</small>
@@ -194,28 +195,24 @@ feed.get('/feed', async (c) => {
         firstPage ? takeRemovedCount(c.env.DB) : Promise.resolve(0),
       ])
     : [{ entries: [], next: null }, 0, 0];
-  if (settings && firstPage) {
-    c.executionCtx.waitUntil(
-      (async () => {
-        if (subscriptions > 0) await refreshDue(c.env.DB, identity, settings, { left: BACKGROUND_QUERY_BUDGET });
-        await refreshOutboxes(c.env.DB, identity, settings); // comments addressed to us, whether or not we follow anything
-      })().catch((err) => console.error('feed refresh failed', err)),
-    );
-  }
+  // Comments addressed to us arrive through connections' outboxes whether or not we follow anything.
+  if (settings && firstPage) refreshInBackground(c, identity, settings, subscriptions > 0);
   const cards = toCards(entries);
   const [threadRows, recent] = await Promise.all([
     commentsOnTheirItems(
       c.env.DB,
-      cards.filter((card) => card.review !== null).map((card): [number, number] => [card.connectionId, card.itemId]),
+      cards
+        .filter((card) => card.review !== null)
+        .map((card): [number, number, string] => [card.connectionId, card.itemId, card.itemStamp]),
     ),
     settings && firstPage ? recentCommentsOnOurReviews(c.env.DB, RECENT_COMMENT_DAYS, 10) : Promise.resolve([]),
   ]);
   const threads = new Map<string, Comment[]>();
   for (const row of threadRows) {
-    const key = `${row.connectionId}:${row.theirItemId}`;
+    const key = `${row.connectionId}:${row.theirItemId}:${row.theirItemStamp}`;
     threads.set(key, [...(threads.get(key) ?? []), row]);
   }
-  const threadOf = (card: Card) => threads.get(`${card.connectionId}:${card.itemId}`) ?? [];
+  const threadOf = (card: Card) => threads.get(`${card.connectionId}:${card.itemId}:${card.itemStamp}`) ?? [];
   const groups = runs(cards);
 
   return page(
