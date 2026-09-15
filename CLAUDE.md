@@ -54,6 +54,10 @@ shape from this file.
   Durable Objects) or any AWS service.
 - **10 ms CPU per request**: no server-side image processing; no server-side bulk parsing —
   CSV imports are parsed in the browser and posted as JSON batches; CSV export streams.
+- **50 D1 queries per Worker invocation** on the free plan — each statement in a `batch()`
+  counts, and so does work handed to `waitUntil`, which belongs to the page's invocation.
+  Connections' background work (feed and outbox pulls, push retries) runs through the
+  budgeted handle in `src/federation/budget.ts`; tests count queries per page load with it.
 - Password hashing is WebCrypto PBKDF2 only (100k iterations — also workerd's cap). Never
   add bcrypt/argon2 packages (pure-JS, blows the CPU budget).
 - Workers runtime is not Node: no `fs`/`net`/native modules — fetch, WebCrypto, and Web
