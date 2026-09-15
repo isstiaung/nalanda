@@ -87,7 +87,7 @@ each has been and roughly what following it would store. For each view choose:
 - **Keep** — how many days of activity, and how many entries at most.
 
 Then **Follow**, and open **Feed** in the sidebar. The first pull runs as that page loads, so
-reload it a moment later.
+reload it a moment later. Newest entries come first; **Older** pages back.
 
 The same page shows what each view actually stores. **Save** new limits (applied at once),
 **Purge** to delete what's stored, or **Unfollow** to delete it and stop. Whatever you choose,
@@ -173,5 +173,7 @@ Delete `.wrangler/connections/` to start over.
 - **Feed stays empty.** Reload it — pulls run after the page loads. If it's still empty, open
   that household's Feed page from Connections: a failed pull shows under the view's name.
   "They turned the request away" usually means they disconnected on their side.
+- **"They sent more than a day's allowance."** A household can add at most 500 feed entries to
+  your library a day, and the rest are dropped. It resets the next day.
 - **Feed covers missing.** Covers load straight from the other household's library, so they
   show only while it's online.

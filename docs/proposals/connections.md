@@ -228,10 +228,15 @@ Nalanda has no event history today — items only have current state and `update
   JSON is built at read time, not in SQL. There is **one row per item and kind**: a repeat — an
   edited review, a new rating, a re-read — replaces the row under a new id. The log never holds
   more than three rows per item, the id doubles as the feed cursor, and a connection holding
-  the old id learns from the removal check that its copy is out of date.
+  the old id learns from the removal check that its copy is out of date. A review is compared
+  with carriage returns dropped and surrounding whitespace trimmed, because a browser submits
+  an untouched review with CRLF line endings and that isn't an edit.
 - **The switch is a connection view.** The triggers write only while at least one connection
-  view exists. Sharing a view also records the last 90 days of activity (the newest 300
-  entries), so connections have something to follow straight away.
+  view exists. Sharing a first view records the last 90 days of activity (the newest 300
+  entries), so connections have something to follow straight away. Removing the last view
+  clears the log, because an edit made while nothing is shared never replaces its row; the
+  next first view starts afresh. View ids are never reused, so a withdrawn view's id can't
+  come to mean a different view to the households that followed it.
 - **Not logged in v1: "added to catalog."** A 2,000-book Goodreads import would bury every
   connection's feed. Bulk changes can still happen (an import that sets reviews), so the Feed
   page groups a household's events within a short window ("reviewed 40 books").
@@ -262,14 +267,26 @@ stored from that connection.
 
 ### Pulling
 
-`GET /federation/feed?view=<id>&since=<cursor>` returns activity on items inside that view,
-newest first: at most 100 entries within 192 KB, with reviews cut at 8,000 characters. When
-more happened since the cursor, the newest are sent and the response says the rest were cut
-— a feed keeps up with the present rather than replaying a backlog — and its `latest` is the
-next cursor either way. Feed responses are plain JSON rather than ActivityStreams
-collections, since nothing outside Nalanda reads them. When a member opens Feed, stored
-entries render immediately and up to four subscriptions past their interval refresh in
-`waitUntil`; phase 3 adds the same on Loans, together with the outbox.
+`GET /federation/feed?view=<id>&since=<cursor>` returns activity on items inside that view: at
+most 100 entries within 64 KB, with titles cut at 1,000 characters and reviews at 8,000.
+
+- **After a cursor, the oldest entries come first.** `latest` is the last one sent and `more`
+  says others are waiting, so a busy stretch arrives over several pulls instead of being cut;
+  a subscription with more waiting is due again on the next page load.
+- **A new subscriber, with no cursor, gets the newest page instead**, so a feed starts from the
+  present rather than replaying the past.
+- **The cursor only ever names activity inside the view**, so it can't reveal what happens
+  outside it.
+- **Each entry carries only what its kind shows**: the review only on a reviewed entry, the
+  rating only on a rated one. Withdrawing a review leaves no copy behind in the entries that
+  remain, and the receiver blanks those fields again before storing.
+- **Entry dates from the future are stored as now**, so they can neither top the Feed page nor
+  outlive retention.
+
+Feed responses are plain JSON rather than ActivityStreams collections, since nothing outside
+Nalanda reads them. When a member opens Feed, stored entries render immediately — a page at a
+time, within 128 KB — and up to two subscriptions past their interval refresh in `waitUntil`;
+phase 3 adds the same on Loans, together with the outbox.
 
 **Messages addressed to you travel separately from the feed.** Comments, borrow requests,
 responses and return notices meant for a household are listed at
@@ -300,6 +317,8 @@ without saying what they were.
   whole view deleted, without enumerating every affected item. The check covers every case,
   keeps nothing extra on the owner's side, and has no expiry window to miss — a household
   that hasn't pulled for months simply runs the check on its next pull.
+- **Lifecycle rules run before every pull**, so what has expired goes even when the owner
+  can't be reached, and the Feed page hides entries past their retention either way.
 - **Honouring removals always applies.** It is not one of the receiver's lifecycle options:
   lifecycle rules decide how long the receiver keeps what is still shared, and cannot keep
   what the owner removed.
@@ -390,10 +409,14 @@ values, to be tuned during phases 1 and 2:
 
 | Limit | Starting value | Protects |
 |---|---|---|
-| Feed entries per response | 100, within 192 KB; reviews cut at 8,000 characters | the receiver's CPU and storage |
+| Feed entries per response | 100, within 64 KB; titles cut at 1,000 characters, reviews at 8,000 | the receiver's CPU and storage |
+| Feed response read | 128 KB | the receiver's CPU |
+| New feed entries stored per connection per day | 500, then dropped | the receiver's daily D1 write allowance |
+| Feed reads per connection | 60 per 10 minutes, per isolate; the view list cached for 5 minutes | the owner's daily D1 read allowance |
+| Stored entries per Feed page | 200, within 128 KB | the receiver's CPU |
 | Ids in one removal check | 1,000 | the owner's CPU |
 | Connection views | 20 | the size of `/federation/views` |
-| Subscriptions refreshed per page load | 4, two subrequests each | the per-request subrequest limit |
+| Subscriptions refreshed per page load | 2, two subrequests each | the per-request CPU and subrequest limits |
 | Shelf items per page | 60, as on today's shelf pages | the receiver's CPU |
 | Response body read | 256 KB — past that, the pull is abandoned | the receiver's CPU and storage |
 | Comment length | 2,000 characters | the owner's database |
