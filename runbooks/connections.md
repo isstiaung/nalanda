@@ -102,7 +102,9 @@ than 1,000 entries.
   household, and recent ones are listed at the top of **Feed**. **Reply** in the thread.
 - **Who sees a thread:** only your library and that household — never your other connections.
 - **Deleting:** anyone in your household can delete a comment on your reviews, or one of your
-  own anywhere, and the deletion reaches the other household too.
+  own anywhere, and the deletion reaches the other household too. Withdraw a comment on their
+  review while you still follow it: once its entry leaves your feed, your copy of the thread
+  goes with it, though theirs stays.
 - **Limits:** plain text, up to 2,000 characters. A household can send you 200 messages a day;
   yours can send 100 to each household.
 - **When their library is offline**, a comment waits in yours and reaches them the next time

@@ -82,7 +82,8 @@ connects to an **instance**.
   line as loans today.
 - Activity is attributed to the **household name** the admin chooses, not to usernames —
   share pages already never show usernames. Comments are the exception: they carry their
-  author's display name, because the commenting household chose to send it. *(Decision 2, §16.)*
+  author's username — Nalanda has no separate display name — because the commenting household
+  chose to send it. *(Decision 2, §16.)*
 
 ### Pairwise, never a network
 
@@ -301,9 +302,16 @@ every 5 minutes per connection and two connections per page load; phase 4 adds L
 the delivery fallback for pushes that failed (§9, §10), so a friend's comment can't be lost
 just because you don't follow their feed.
 
-- **It serves only that connection's messages, in order.** Each household keeps a cursor
-  into each connection's outbox and applies messages oldest first, skipping any it already
-  applied through a push; a message whose actor isn't that connection is ignored.
+- **It serves only that connection's messages, in order,** numbered in that connection's own
+  sequence, so the numbers say nothing about messages to anyone else. Each household keeps a
+  cursor into each connection's outbox and applies messages oldest first, skipping any it
+  already applied through a push; a message whose actor isn't that connection is ignored. A
+  cursor past the end — the sender restored a backup — starts over, since receiving is
+  idempotent.
+- **A backlog drains across page loads.** A pull applies at most five new messages and saves
+  its cursor however it ends, including when the query budget runs out. Outboxes get up to 16
+  of a page load's 30 background queries, before feeds. An outbox with more waiting is due
+  again only if its cursor moved, and queues behind outboxes that have waited longer.
 - **It stays small:** 50 messages within 64 KB per response, kept 30 days, and every message
   applied counts toward the daily push limit, pulled or pushed.
 
@@ -352,9 +360,15 @@ The reviewer's household is authoritative for the thread.
 - **A takes comments only on reviews it shares.** An unknown item, an unreviewed one and one
   outside every connection view are answered alike, so nothing is revealed. A replies only
   in threads B started.
-- **B keeps a thread only while it follows that review.** B's copy — its own comments and A's
-  replies — goes with the feed entries it hangs from, and a reply for a review B no longer
-  follows isn't kept.
+- **B keeps a thread only while it follows that review, and only one B started.** B's copy —
+  its own comments and A's replies — goes with the feed entries it hangs from, and a reply for a
+  review B no longer follows, or never commented on, isn't kept. After a pull that stopped
+  partway nothing is pruned: an edited review's replacement entry may still be on a later page.
+- **A book is named by its id and a stamp.** SQLite reuses the id of a deleted newest item, so
+  every reference to a connection's book — feed entries, comment threads — carries a stamp: a
+  hash of the id and the second the row was added. A comment for a book whose id now names
+  another is refused, and threads follow the stamp. Two books under the same id added within
+  the same second would share one; the app's forms can't do that.
 
 - **Plain text only**, escaped on render (hono/jsx escapes by default). No remote HTML, no
   markdown, no auto-embedded images.
@@ -446,7 +460,7 @@ values, to be tuned during phases 1 and 2:
 | Comment length | 2,000 characters; author names 64 | the owner's database |
 | Comments sent per connection per day | 100 | the other household's push limit |
 | Outbox messages per response | 50, within 64 KB; kept 30 days | the receiver's CPU, the sender's storage |
-| Outboxes pulled per page load | 2, each at most every 5 minutes | the per-request CPU and subrequest limits |
+| Outbox pulls per page load | up to 16 of the 30 background queries; five messages applied per pull; each outbox at most every 5 minutes | the free plan's 50 D1 queries per invocation |
 | Borrow-request note | 500 characters | the owner's database |
 | Pushes accepted per connection per day | 200, then refused | the owner's daily D1 write allowance |
 | Stored feed entries per connection | 1,000, whatever the lifecycle settings | the receiver's database |
