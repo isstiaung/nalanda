@@ -35,6 +35,8 @@ consistent with §4 ("no queues, no cron, no cache layer, no second service"). I
 - real-time delivery
 - end-to-end encryption — each household's admin can read what reaches their instance
 - per-person identities inside a household (see §3)
+- a network: being connected to two households never lets them see or reach each other
+  (see §3)
 
 ## 2. Additive, by construction
 
@@ -75,6 +77,20 @@ connects to an **instance**.
 - Activity is attributed to the **household name** the admin chooses, not to usernames —
   share pages already never show usernames. Comments are the exception: they carry their
   author's display name, because the commenting household chose to send it. *(Decision 2, §16.)*
+
+### Pairwise, never a network
+
+Every connection is strictly between two households. If A is connected to B and to C, that
+creates two separate relationships — it never lets B and C see or reach each other.
+
+- **An instance serves only its own household's data.** Nothing received from one connection
+  — their activity, their comments, details of a book borrowed from them — is ever served to
+  another.
+- **Connection lists are never exposed.** No "mutual connections", no friends of friends.
+- **Comments stay between the two households involved** (decision 5): C can see A's review,
+  but not B's comment on it.
+- **Availability says a book is out, never to whom** (§10), so lending to C tells B nothing
+  about C.
 
 ## 4. Identity and keys
 
@@ -279,6 +295,32 @@ activities table with a direction column) is a reasonable call during the spike.
 as it is. A separate `/federation/export.json` covers connections, comments sent and
 received, and borrow history.
 
+### Where each piece of data lives
+
+ActivityStreams 2.0 is only the **shape of the JSON** two instances send each other — not a
+service, a server or a place. There is no relay and no central store: messages go directly
+from one household's Worker to the other's over HTTPS. Everything at rest sits in each
+household's own D1 database (and R2 for covers), on each household's own Cloudflare account.
+
+With A as the household that owns the data and B as a connection:
+
+| Data | On A | On B |
+|---|---|---|
+| Catalog, private notes, copies, loans | existing tables — the source of truth | never |
+| Items in connection views (whitelisted fields) | existing tables; the JSON is built when requested, not stored | a cached copy in `remote_activities`, once pulled |
+| Covers | R2 | not copied — B's pages load them from A's `/covers/<uuid>` |
+| Activity events | `activity_log`: item, kind, timestamp only | cached in `remote_activities` |
+| B's comment on A's review | `remote_comments` — authoritative | B's own copy in `outgoing_activities` |
+| A borrow request | `borrow_requests` | `borrow_requests` |
+| A's loan to B | an ordinary `loans` row plus a `connection_loans` link | `borrowed_items` |
+| A's private key | Cloudflare secret — not in D1, not in backups | never |
+| A's public key and address | served at `/.well-known/nalanda` | `connections` |
+
+The consequence worth stating plainly: **anything B has pulled is a copy in B's database,
+under B's control.** Disconnecting asks B's instance to delete it, and a well-behaved Nalanda
+does; nothing can force a modified one to (§11). And because covers load from A, B's browser
+contacts A's instance directly whenever it shows A's books.
+
 ## 14. HTTP surface — all new
 
 ```
@@ -328,6 +370,10 @@ Resolved with the owner on 2026-09-15.
 7. **Any member can accept or decline a borrow request.**
 8. **ARCH.md §14's "social features" non-goal is reversed on approval;** "background jobs of
    any kind" stays a non-goal.
+
+9. **Connections are pairwise, never a network** (§3). Being connected to two households
+   never lets them see or reach each other, and no instance re-serves what it received from
+   one connection to another.
 
 **Deferred — access control.** Who may confirm a connection (3) and choosing connection
 views per connection (4) are left to a later role-based access design. ARCH.md §8 has two
