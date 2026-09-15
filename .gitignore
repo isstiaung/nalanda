@@ -1,6 +1,7 @@
 node_modules/
 .wrangler/
 .wrangler-deploy.jsonc
+.wrangler-backup.jsonc
 .dev.vars
 backups/
 public/vendor/
