@@ -17,7 +17,7 @@ import {
 } from '../db/federation';
 import type { ActivityKind } from '../db/schema';
 import type { AppEnv } from '../env';
-import { FEED_PAGE_BYTES, FEED_PAGE_ENTRIES } from '../federation/config';
+import { BACKGROUND_QUERY_BUDGET, FEED_PAGE_BYTES, FEED_PAGE_ENTRIES } from '../federation/config';
 import { refreshDue } from '../federation/feed';
 import { coverUrl, parseFeedItem, type FeedItem } from '../federation/items';
 import { loadIdentity } from '../federation/keys';
@@ -170,7 +170,9 @@ feed.get('/feed', async (c) => {
       ])
     : [{ entries: [], next: null }, 0, 0];
   if (settings && subscriptions > 0 && firstPage) {
-    c.executionCtx.waitUntil(refreshDue(c.env.DB, identity, settings).catch((err) => console.error('feed refresh failed', err)));
+    c.executionCtx.waitUntil(
+      refreshDue(c.env.DB, identity, settings, { left: BACKGROUND_QUERY_BUDGET }).catch((err) => console.error('feed refresh failed', err)),
+    );
   }
   const groups = runs(toCards(entries));
 

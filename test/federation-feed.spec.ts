@@ -12,6 +12,7 @@ import {
 } from '../src/db/federation';
 import { createItem, createLibrary, createLoan, deleteItem, updateItem } from '../src/db/queries';
 import type { Bindings } from '../src/env';
+import { budgeted } from '../src/federation/budget';
 import { inboxMessage } from '../src/federation/messages';
 import { clearSharedViewsCache } from '../src/federation/routes';
 import {
@@ -423,6 +424,30 @@ describe('following another household', () => {
     expect(html).not.toContain('evil.example');
     expect(html).toContain('★★★★');
     expect(html).toContain('1 entry was removed');
+  });
+
+  it('keeps each Feed load, with the pulls it starts, within the free plan’s 50 D1 queries', async () => {
+    for (let view = 1; view <= 4; view++) await follow({ viewId: view });
+    answerOutbound((req) => {
+      const url = new URL(req.url);
+      if (url.pathname === '/federation/feed') {
+        const view = Number(url.searchParams.get('view'));
+        const entries = Array.from({ length: 100 }, (_, i) => entry(view * 1000 + i, `Book ${view}-${i}`));
+        return json({ view, latest: view * 1000 + 99, more: false, entries });
+      }
+      if (url.pathname === '/federation/feed/check') return json({ invalid: [], viewGone: false });
+      return json({}, 404);
+    });
+    const member = await sessionCookie('member');
+    const counter = { left: 100_000 };
+    const counted = instanceA({ ...env, DB: budgeted(env.DB, counter), FEDERATION_PRIVATE_KEY: keysA.secret } as Bindings);
+    for (let load = 0; load < 3; load++) {
+      const before = counter.left;
+      await counted.get('/feed', member);
+      expect(before - counter.left).toBeLessThanOrEqual(50);
+    }
+    // One refresh at a time, most overdue first: every subscription gets its turn within a few loads.
+    expect(await rows('SELECT count(*) AS n FROM feed_subscriptions WHERE cursor > 0')).toEqual([{ n: 4 }]);
   });
 
   it('keeps only what the subscription and the connection ceiling allow', async () => {

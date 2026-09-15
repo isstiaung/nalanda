@@ -285,8 +285,12 @@ most 100 entries within 64 KB, with titles cut at 1,000 characters and reviews a
 
 Feed responses are plain JSON rather than ActivityStreams collections, since nothing outside
 Nalanda reads them. When a member opens Feed, stored entries render immediately — a page at a
-time, within 128 KB — and up to two subscriptions past their interval refresh in `waitUntil`;
-phase 3 adds the same on Loans, together with the outbox.
+time, within 128 KB — and subscriptions past their interval refresh in `waitUntil`, most overdue
+first, one at a time. Cloudflare's free plan allows 50 D1 queries per invocation and that work
+belongs to the page's invocation, so it runs against a budget of 30 queries enforced by a D1
+handle that refuses the query that would overspend; a pull cut short resumes from its cursor.
+A subscription with more waiting is due again, queued behind those that have waited longer.
+Phase 3 adds the same on Loans, together with the outbox.
 
 **Messages addressed to you travel separately from the feed.** Comments, borrow requests,
 responses and return notices meant for a household are listed at
@@ -416,7 +420,7 @@ values, to be tuned during phases 1 and 2:
 | Stored entries per Feed page | 200, within 128 KB | the receiver's CPU |
 | Ids in one removal check | 1,000 | the owner's CPU |
 | Connection views | 20 | the size of `/federation/views` |
-| Subscriptions refreshed per page load | 2, two subrequests each | the per-request CPU and subrequest limits |
+| Background work per page load | 30 D1 queries — about two subscription refreshes | the free plan's 50 D1 queries per invocation |
 | Shelf items per page | 60, as on today's shelf pages | the receiver's CPU |
 | Response body read | 256 KB — past that, the pull is abandoned | the receiver's CPU and storage |
 | Comment length | 2,000 characters | the owner's database |

@@ -59,8 +59,13 @@ export const MAX_RETENTION_DAYS = 365;
 export const DEFAULT_MAX_ENTRIES = 500;
 export const MIN_MAX_ENTRIES = 10;
 
-/** Subscriptions refreshed per page load. Each costs up to two subrequests and a JSON parse; the rest wait. */
-export const REFRESHES_PER_REQUEST = 2;
+/**
+ * D1 queries a page load may spend on background work after its response. The free plan allows 50 per
+ * invocation, the page itself uses up to about 15, and waitUntil work counts toward the same invocation.
+ */
+export const BACKGROUND_QUERY_BUDGET = 30;
+/** Roughly what one subscription refresh costs in queries; another starts only while the budget has this much left. */
+export const SUBSCRIPTION_REFRESH_QUERIES = 14;
 /** The window a view's activity volume is measured over, for size estimates. */
 export const VOLUME_WINDOW_DAYS = 90;
 /** Activity recorded when a household shares its first view: the newest this many, within the window. */

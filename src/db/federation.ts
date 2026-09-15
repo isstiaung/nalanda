@@ -509,16 +509,24 @@ export async function claimSubscription(d1: D1Database, id: number, lastPulledAt
   return rows.length === 1;
 }
 
-/** What a pull came to. `again` makes the subscription due at once, when the owner has more waiting. */
+/**
+ * What a pull came to. `again`, when the owner has more waiting, makes the subscription due at once — but
+ * stamped as pulled one interval ago rather than never, so it queues behind every subscription that has
+ * waited longer instead of jumping ahead of them.
+ */
 export async function recordPull(
   d1: D1Database,
-  id: number,
+  sub: Pick<FeedSubscription, 'id' | 'intervalMinutes'>,
   result: { cursor?: number; error: string | null; again?: boolean },
 ): Promise<void> {
-  const set: Partial<typeof s.feedSubscriptions.$inferInsert> = { lastError: result.error };
-  if (result.cursor !== undefined) set.cursor = result.cursor;
-  if (result.again) set.lastPulledAt = null;
-  await db(d1).update(s.feedSubscriptions).set(set).where(eq(s.feedSubscriptions.id, id));
+  await db(d1)
+    .update(s.feedSubscriptions)
+    .set({
+      lastError: result.error,
+      ...(result.cursor !== undefined ? { cursor: result.cursor } : {}),
+      ...(result.again ? { lastPulledAt: sql`(datetime('now', ${`-${sub.intervalMinutes} minutes`}))` } : {}),
+    })
+    .where(eq(s.feedSubscriptions.id, sub.id));
 }
 
 /** They stopped sharing the view: everything stored from it goes, and the Feed page says how much. */
