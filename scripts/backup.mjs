@@ -24,6 +24,10 @@ export const TABLES = [
   'federation_settings',
   'connection_invites', // before connections, which reference it
   'connections',
+  'connection_views',
+  'activity_log',
+  'feed_subscriptions', // after connections
+  'remote_activities', // after feed_subscriptions
 ];
 
 const local = process.argv.includes('--local');

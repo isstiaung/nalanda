@@ -61,11 +61,11 @@ const NavLink: FC<{ href: string; label: string; path: string; count?: number; e
   );
 };
 
-const Sidebar: FC<{ user: SessionUser; path: string; libraries: NavLibrary[]; connections: boolean }> = ({
+const Sidebar: FC<{ user: SessionUser; path: string; libraries: NavLibrary[]; federation: boolean }> = ({
   user,
   path,
   libraries,
-  connections,
+  federation,
 }) => (
   <aside class="sidebar" id="sidebar">
     <Brand />
@@ -79,8 +79,9 @@ const Sidebar: FC<{ user: SessionUser; path: string; libraries: NavLibrary[]; co
     <nav class="nav-section" aria-label="Circulation">
       <div class="nav-eyebrow">Circulation</div>
       <NavLink href="/loans" label="Loans" path={path} />
+      {federation ? <NavLink href="/feed" label="Feed" path={path} /> : null}
       {user.role === 'admin' ? <NavLink href="/shares" label="Shared links" path={path} /> : null}
-      {connections ? <NavLink href="/connections" label="Connections" path={path} /> : null}
+      {federation && user.role === 'admin' ? <NavLink href="/connections" label="Connections" path={path} /> : null}
     </nav>
     <nav class="nav-section" aria-label="Shelves">
       <div class="nav-eyebrow">Shelves</div>
@@ -113,15 +114,15 @@ export const Layout: FC<
     user?: SessionUser | null;
     path?: string;
     libraries?: NavLibrary[];
-    connections?: boolean;
+    federation?: boolean;
   }>
-> = ({ title, user, path = '/', libraries = [], connections = false, children }) => (
+> = ({ title, user, path = '/', libraries = [], federation = false, children }) => (
   <html lang="en">
     <Head title={title} />
     {user ? (
       <body>
         <div class="app">
-          <Sidebar user={user} path={path} libraries={libraries} connections={connections} />
+          <Sidebar user={user} path={path} libraries={libraries} federation={federation} />
           <div>
             <header class="mobile-bar">
               <button type="button" id="nav-toggle" class="btn-quiet" aria-label="Menu" aria-controls="sidebar">
@@ -148,7 +149,7 @@ export async function page(c: Context<AppEnv>, title: string, body: Child) {
   const user = (c.get('user') as SessionUser | undefined) ?? null;
   const path = new URL(c.req.url).pathname;
   const libraries = user ? await listLibraries(c.env.DB) : [];
-  // Only admins manage connections, and only on an instance that has a federation key.
-  const connections = user?.role === 'admin' && !!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY));
-  return c.html(`<!doctype html>${Layout({ title, user, path, libraries, connections, children: body })}`);
+  // Feed and Connections exist only on an instance with a federation key; only admins manage connections.
+  const federation = !!user && !!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY));
+  return c.html(`<!doctype html>${Layout({ title, user, path, libraries, federation, children: body })}`);
 }

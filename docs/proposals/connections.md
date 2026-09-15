@@ -2,8 +2,8 @@
 
 > **Status: approved 2026-09-15; being built in phases (§15), one pull request per phase.**
 > Recorded as ARCH.md §16 #29, which points here for the design. When a phase's build has to
-> differ from this document, that phase's pull request updates it. **Phase 1 (keys and
-> connections) is built.**
+> differ from this document, that phase's pull request updates it. **Phases 1 (keys and
+> connections) and 2 (feed) are built.**
 
 Two households each self-host Nalanda. If they choose to connect, they can see a feed of
 each other's reading, comment on each other's reviews, ask to borrow a book, and lend to
@@ -50,7 +50,7 @@ consistent with §4 ("no queues, no cron, no cache layer, no second service"). I
 
   | File | Insertion |
   |---|---|
-  | `src/index.ts` | mount federation routes in the public section (signature auth), new pages after the session middleware |
+  | `src/index.ts` | mount federation routes in the public section (signature auth), new pages after the session middleware; on an instance with a federation key, a cross-origin resource policy on `/covers/*` (§7) |
   | `src/env.ts` | optional `FEDERATION_PRIVATE_KEY` binding type |
   | `src/views/layout.tsx` | Feed / Connections / Borrowed nav links, only when enabled |
   | `src/routes/items.tsx` | a comments section under the review, only when enabled |
@@ -58,9 +58,12 @@ consistent with §4 ("no queues, no cron, no cache layer, no second service"). I
   | `scripts/backup.mjs` | append new tables — its `TABLES` list is fixed, so without this they would silently not be backed up |
   | `src/db/schema.ts` | new tables appended after the existing ones — drizzle-kit reads the schema from this one file. Their queries live in a new `src/db/federation.ts`, so `queries.ts` stays untouched while `src/db/` remains the only code touching D1 |
   | `package.json` | a `federation:keygen` script |
+  | `public/app.css` | feed styles, appended |
 
 - **The one database-level side effect on existing tables:** triggers on `items` and
-  `loans` that append to new tables, and write nothing while federation is disabled. This
+  `loans` that append to new tables, and write nothing unless the household shares at least
+  one connection view — the database can't see the federation key, so a view's existence is
+  the switch. This
   is the same technique the FTS5 index already uses (`migrations/0001_fts.sql`), and it
   means event recording needs no handler changes.
 - The existing test suite must pass **unmodified** — that is the check that "additive"
@@ -196,8 +199,10 @@ Fields go through a new whitelist, `toConnectionItem()`, modelled on `toPublicIt
 - **Never, same as share pages:** private notes, loans and borrowers, the copies count,
   `added_by`, usernames.
 - **Covers:** pages at B hotlink `https://a/covers/<uuid>` — already public by design
-  (§9). B drops any cover URL that is not exactly that pattern on the connection's own
-  origin, so a peer cannot make your pages load arbitrary third-party images.
+  (§9). B drops any cover URL that is not exactly that pattern on the connection's own origin, so a peer cannot make your pages load arbitrary third-party images. Feed entries carry only the
+  cover key, and B builds the URL. Browsers would block those images under the app's
+  `Cross-Origin-Resource-Policy: same-origin` header, so an instance with a federation key
+  serves `/covers/*` with `cross-origin` instead.
 
 Connection views and share links are **separate on purpose.** A share link is for anyone
 holding the URL; a connection view is for households you've connected with. Publishing one
@@ -217,11 +222,21 @@ book (§10) needs A online anyway.
 
 Nalanda has no event history today — items only have current state and `updated_at`.
 
-- **Recording:** a new `activity_log` table filled by triggers in that phase's migration — after
-  an item's `review`, `rating`, `status` or `completed_on` changes (and on insert with those
-  set). Each row records the item, a kind (reviewed, rated, finished) and a timestamp; the
-  activity JSON is built at read time, not in SQL. The triggers only write while
-  `federation_settings` says federation is enabled.
+- **Recording:** a new `activity_log` table filled by triggers (migration 0007) — after an
+  item's `review`, `rating`, `status` or `completed_on` changes, and on insert with those set.
+  Each row records the item, a kind (reviewed, rated, finished) and a timestamp; the activity
+  JSON is built at read time, not in SQL. There is **one row per item and kind**: a repeat — an
+  edited review, a new rating, a re-read — replaces the row under a new id. The log never holds
+  more than three rows per item, the id doubles as the feed cursor, and a connection holding
+  the old id learns from the removal check that its copy is out of date. A review is compared
+  with carriage returns dropped and surrounding whitespace trimmed, because a browser submits
+  an untouched review with CRLF line endings and that isn't an edit.
+- **The switch is a connection view.** The triggers write only while at least one connection
+  view exists. Sharing a first view records the last 90 days of activity (the newest 300
+  entries), so connections have something to follow straight away. Removing the last view
+  clears the log, because an edit made while nothing is shared never replaces its row; the
+  next first view starts afresh. View ids are never reused, so a withdrawn view's id can't
+  come to mean a different view to the households that followed it.
 - **Not logged in v1: "added to catalog."** A 2,000-book Goodreads import would bury every
   connection's feed. Bulk changes can still happen (an import that sets reviews), so the Feed
   page groups a household's events within a short window ("reviewed 40 books").
@@ -243,16 +258,39 @@ shared views they want from each connection, and chooses:
 
 **Estimates:** before subscribing, expected storage is shown as the monthly size multiplied
 by the retention period, capped by the entry limit. Afterwards, the Connections page shows
-what each connection actually uses: stored entries and bytes.
+what each connection actually uses: stored entries and bytes. Both live on a Feed page per
+connection, linked from Connections. Retention counts from when the activity happened on the
+owner's side.
 
 Unsubscribing deletes that subscription's stored entries. Disconnecting deletes everything
 stored from that connection.
 
 ### Pulling
 
-`GET /federation/feed?view=<id>&since=<cursor>` returns activities on items inside that
-view as ActivityStreams 2.0 JSON. When a member opens Feed or Loans, stored entries render
-immediately and any subscription past its interval refreshes in `waitUntil`.
+`GET /federation/feed?view=<id>&since=<cursor>` returns activity on items inside that view: at
+most 100 entries within 64 KB, with titles cut at 1,000 characters and reviews at 8,000.
+
+- **After a cursor, the oldest entries come first.** `latest` is the last one sent and `more`
+  says others are waiting, so a busy stretch arrives over several pulls instead of being cut;
+  a subscription with more waiting is due again on the next page load.
+- **A new subscriber, with no cursor, gets the newest page instead**, so a feed starts from the
+  present rather than replaying the past.
+- **The cursor only ever names activity inside the view**, so it can't reveal what happens
+  outside it.
+- **Each entry carries only what its kind shows**: the review only on a reviewed entry, the
+  rating only on a rated one. Withdrawing a review leaves no copy behind in the entries that
+  remain, and the receiver blanks those fields again before storing.
+- **Entry dates from the future are stored as now**, so they can neither top the Feed page nor
+  outlive retention.
+
+Feed responses are plain JSON rather than ActivityStreams collections, since nothing outside
+Nalanda reads them. When a member opens Feed, stored entries render immediately — a page at a
+time, within 128 KB — and subscriptions past their interval refresh in `waitUntil`, most overdue
+first, one at a time. Cloudflare's free plan allows 50 D1 queries per invocation and that work
+belongs to the page's invocation, so it runs against a budget of 30 queries enforced by a D1
+handle that refuses the query that would overspend; a pull cut short resumes from its cursor.
+A subscription with more waiting is due again, queued behind those that have waited longer.
+Phase 3 adds the same on Loans, together with the outbox.
 
 **Messages addressed to you travel separately from the feed.** Comments, borrow requests,
 responses and return notices meant for a household are listed at
@@ -283,6 +321,8 @@ without saying what they were.
   whole view deleted, without enumerating every affected item. The check covers every case,
   keeps nothing extra on the owner's side, and has no expiry window to miss — a household
   that hasn't pulled for months simply runs the check on its next pull.
+- **Lifecycle rules run before every pull**, so what has expired goes even when the owner
+  can't be reached, and the Feed page hides entries past their retention either way.
 - **Honouring removals always applies.** It is not one of the receiver's lifecycle options:
   lifecycle rules decide how long the receiver keeps what is still shared, and cannot keep
   what the owner removed.
@@ -373,7 +413,14 @@ values, to be tuned during phases 1 and 2:
 
 | Limit | Starting value | Protects |
 |---|---|---|
-| Feed entries per response | 100 | the receiver's CPU |
+| Feed entries per response | 100, within 64 KB; titles cut at 1,000 characters, reviews at 8,000 | the receiver's CPU and storage |
+| Feed response read | 128 KB | the receiver's CPU |
+| New feed entries stored per connection per day | 500, then dropped | the receiver's daily D1 write allowance |
+| Feed reads per connection | 60 per 10 minutes, per isolate; the view list cached for 5 minutes | the owner's daily D1 read allowance |
+| Stored entries per Feed page | 200, within 128 KB | the receiver's CPU |
+| Ids in one removal check | 1,000 | the owner's CPU |
+| Connection views | 20 | the size of `/federation/views` |
+| Background work per page load | 30 D1 queries — about two subscription refreshes | the free plan's 50 D1 queries per invocation |
 | Shelf items per page | 60, as on today's shelf pages | the receiver's CPU |
 | Response body read | 256 KB — past that, the pull is abandoned | the receiver's CPU and storage |
 | Comment length | 2,000 characters | the owner's database |
@@ -386,12 +433,12 @@ values, to be tuned during phases 1 and 2:
 
 | Table | Purpose |
 |---|---|
-| `federation_settings` | singleton: household name; enabled flag the triggers read |
+| `federation_settings` | singleton: household name and address |
 | `connections` | peer base URL, public key, household name, status (pending, active, revoked), outbox cursor |
 | `feed_subscriptions` | which of a connection's views we follow: pull interval, retention days, entry limit, cursor, last pulled |
 | `connection_invites` | token hash, created by, expires at, used at |
 | `connection_views` | captured filters, same shape as `shares`, visible to connections |
-| `activity_log` | trigger-fed: item, kind, timestamp |
+| `activity_log` | trigger-fed: item, kind, timestamp — one row per item and kind |
 | `remote_activities` | stored feed entries per subscription, under its lifecycle rules; unique on activity id |
 | `remote_comments` | comments on our reviews, unique on activity id |
 | `outgoing_activities` | comments, requests and return notices we sent, with delivery status |
@@ -401,10 +448,12 @@ values, to be tuned during phases 1 and 2:
 | `federation_seen` | control-message ids processed in the last hour, so replays are no-ops |
 | `connection_push_counts` | pushes accepted per connection per day, for the daily limit |
 
-Tables arrive with the phase that uses them. Phase 1 created `federation_settings` (the
-enabled flag arrives with phase 2's triggers), `connection_invites`, `connections` (the outbox
-cursor arrives with phase 3), `federation_seen` and `connection_push_counts`. A per-IP throttle table,
-`federation_attempts`, was planned and dropped — §5, step 2.
+Tables arrive with the phase that uses them. Phase 1 created `federation_settings`,
+`connection_invites`, `connections` (the outbox cursor arrives with phase 3), `federation_seen`
+and `connection_push_counts`; a per-IP throttle table, `federation_attempts`, was planned and
+dropped (§5, step 2). Phase 2 created `connection_views`, `activity_log`, `feed_subscriptions`
+and `remote_activities`. The enabled flag planned for `federation_settings` was dropped too: a
+connection view's existence is the triggers' switch (§8).
 
 Durable tables are appended to `scripts/backup.mjs`. `federation_seen` and
 `connection_push_counts` are replay and rate bookkeeping, worthless within a day, and are left
@@ -459,8 +508,10 @@ GET  /federation/shelf?view=&page=  one page of a shared shelf, with availabilit
 POST /federation/inbox              comments, deletes, borrow requests and responses, returns, disconnect
 
 session — rendered only when enabled
-GET  /connections                   admin: invites, pending, active, connection views, subscriptions,
-                                    lifecycle rules, storage used, purge, disconnect
+GET  /connections                   admin: invites, pending, active, connection views, storage used,
+                                    disconnect
+GET  /connections/:id/feed          admin: that household's shared views, what you follow, lifecycle
+                                    rules, storage, purge
 GET  /feed                          members: connections' activity
 GET  /borrowed                      members: books borrowed from connections
 GET  /federation/export.json        members: federation data export

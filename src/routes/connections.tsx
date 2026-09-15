@@ -5,22 +5,64 @@ import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import type { FC } from 'hono/jsx';
 import {
   activateConnection,
+  applyLifecycle,
   countConnections,
+  countConnectionViews,
+  countItemsInView,
   countOpenInvites,
   createConnection,
+  createConnectionView,
   createInvite,
+  createSubscription,
   deleteConnection,
+  deleteConnectionView,
+  deleteSubscription,
   getConnection,
   getConnectionByBaseUrl,
   getFederationSettings,
+  getSubscription,
   listConnections,
+  listConnectionViews,
   listInvites,
+  listSubscriptions,
+  purgeSubscription,
   revokeInvite,
   saveFederationSettings,
+  storageByConnection,
+  updateSubscription,
+  type SubscriptionSettings,
+  type SubscriptionWithUsage,
 } from '../db/federation';
-import type { Connection, ConnectionInvite, ConnectionStatus, FederationSettings } from '../db/schema';
+import { getLibrary, listLibraries } from '../db/queries';
+import {
+  ITEM_STATUSES,
+  MEDIA_TYPES,
+  type Connection,
+  type ConnectionInvite,
+  type ConnectionStatus,
+  type ConnectionView,
+  type FederationSettings,
+  type ItemStatus,
+  type Library,
+  type MediaType,
+} from '../db/schema';
 import type { AppEnv } from '../env';
-import { INVITE_TTL_DAYS, MAX_ACTIVE_CONNECTIONS, MAX_HOUSEHOLD_NAME } from '../federation/config';
+import {
+  DEFAULT_MAX_ENTRIES,
+  DEFAULT_PULL_INTERVAL,
+  DEFAULT_RETENTION_DAYS,
+  INVITE_TTL_DAYS,
+  MAX_ACTIVE_CONNECTIONS,
+  MAX_CONNECTION_VIEWS,
+  MAX_HOUSEHOLD_NAME,
+  MAX_RETENTION_DAYS,
+  MAX_STORED_ENTRIES_PER_CONNECTION,
+  MAX_VIEW_NAME,
+  MIN_MAX_ENTRIES,
+  PULL_INTERVALS,
+  type PullInterval,
+} from '../federation/config';
+import { estimateBytes, fetchSharedViews, formatBytes, perMonth, type SharedView } from '../federation/feed';
 import {
   fetchDescriptor,
   inviteLink,
@@ -29,10 +71,13 @@ import {
   parseInviteLink,
   postSigned,
 } from '../federation/http';
+import { isId } from '../federation/items';
 import { loadIdentity, type Identity } from '../federation/keys';
 import { connectRequest, inboxMessage, type InboxType } from '../federation/messages';
 import { forgetPeer } from '../federation/peers';
+import { clearSharedViewsCache } from '../federation/routes';
 import { hashToken, newInviteToken } from '../federation/tokens';
+import { MEDIA_LABEL, STATUS_LABEL } from '../views/components';
 import { page } from '../views/layout';
 
 const connections = new Hono<AppEnv>();
@@ -61,6 +106,9 @@ type PageProps = Flash & {
   origin: string;
   invites: ConnectionInvite[];
   connections: Connection[];
+  views: Array<ConnectionView & { itemCount: number }>;
+  libraries: Library[];
+  storage: Map<number, { entries: number; bytes: number }>;
 };
 
 // Peer household names come from the peer's own server. They are only ever rendered as text,
@@ -103,6 +151,98 @@ const ConnectionTable: FC<{
       </div>
     </section>
   ) : null;
+
+/** "Books · Completed · Owned" — how a connection view's filters read. */
+function scopeLabel(v: ConnectionView): string {
+  const parts: string[] = [];
+  if (v.mediaType) parts.push(MEDIA_LABEL[v.mediaType]);
+  if (v.status) parts.push(STATUS_LABEL[v.status]);
+  if (v.owned !== null) parts.push(v.owned ? 'Owned' : 'Not owned');
+  return parts.length ? parts.join(' · ') : 'Everything';
+}
+
+const SharedViews: FC<{ views: PageProps['views']; libraries: Library[] }> = ({ views, libraries }) => {
+  const shelfName = new Map(libraries.map((l) => [l.id, l.name]));
+  return (
+    <section class="fed-section" style="margin-top:1.5rem">
+      <p class="eyebrow">Shared with connections</p>
+      <p class="muted">
+        Connected households see nothing until you share a view here, and every view is shared with every connection. For
+        the books in it they see the title, creators, cover, rating, review and when you finished it — never notes, loans or
+        how many copies you have.
+      </p>
+      {views.length ? (
+        <div class="data-table">
+          <table>
+            <thead>
+              <tr>
+                <th>View</th>
+                <th class="hide-sm">Shelf</th>
+                <th>Scope</th>
+                <th>Items</th>
+                <th class="actions-cell"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {views.map((v) => (
+                <tr>
+                  <td>
+                    <strong>{v.name}</strong>
+                  </td>
+                  <td class="hide-sm">
+                    {v.libraryId === null ? <span class="muted">All shelves</span> : (shelfName.get(v.libraryId) ?? '—')}
+                  </td>
+                  <td>
+                    <span class="pill">{scopeLabel(v)}</span>
+                  </td>
+                  <td class="num">{v.itemCount}</td>
+                  <td class="actions-cell">
+                    <form method="post" action={`/connections/views/${v.id}/delete`} class="inline">
+                      <button class="btn-danger" type="submit">
+                        Stop sharing
+                      </button>
+                    </form>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {views.length < MAX_CONNECTION_VIEWS ? (
+        <form method="post" action="/connections/views" class="inline-form view-form">
+          <input name="name" placeholder="View name, e.g. Finished this year" maxlength={MAX_VIEW_NAME} aria-label="View name" required />
+          <select name="libraryId" aria-label="Shelf">
+            <option value="">All shelves</option>
+            {libraries.map((l) => (
+              <option value={String(l.id)}>{l.name}</option>
+            ))}
+          </select>
+          <select name="mediaType" aria-label="Type">
+            <option value="">Any type</option>
+            {MEDIA_TYPES.map((t) => (
+              <option value={t}>{MEDIA_LABEL[t]}</option>
+            ))}
+          </select>
+          <select name="status" aria-label="Status">
+            <option value="">Any status</option>
+            {ITEM_STATUSES.map((st) => (
+              <option value={st}>{STATUS_LABEL[st]}</option>
+            ))}
+          </select>
+          <select name="owned" aria-label="Holding">
+            <option value="">Owned or not</option>
+            <option value="1">Owned</option>
+            <option value="0">Not owned</option>
+          </select>
+          <button type="submit">Share view</button>
+        </form>
+      ) : (
+        <p class="muted">You’re sharing the most views allowed ({MAX_CONNECTION_VIEWS}).</p>
+      )}
+    </section>
+  );
+};
 
 const ConnectionsPage: FC<PageProps> = (p) => {
   const having = (status: ConnectionStatus) => p.connections.filter((row) => row.status === status);
@@ -255,19 +395,33 @@ const ConnectionsPage: FC<PageProps> = (p) => {
         title="Connected"
         rows={active}
         since={(row) => row.confirmedAt ?? row.createdAt}
-        actions={(row) => (
-          <form
-            method="post"
-            action={`/connections/${row.id}/disconnect`}
-            class="inline"
-            onsubmit="return confirm('Disconnect from this library? You would need a new invitation to reconnect.')"
-          >
-            <button class="btn-danger" type="submit">
-              Disconnect
-            </button>
-          </form>
-        )}
+        actions={(row) => {
+          const usage = p.storage.get(row.id);
+          return (
+            <>
+              {usage && usage.entries > 0 ? (
+                <small class="muted">
+                  {usage.entries} stored · {formatBytes(usage.bytes)}{' '}
+                </small>
+              ) : null}
+              <a class="btn" href={`/connections/${row.id}/feed`}>
+                Feed
+              </a>{' '}
+              <form
+                method="post"
+                action={`/connections/${row.id}/disconnect`}
+                class="inline"
+                onsubmit="return confirm('Disconnect from this library? Everything stored from them is deleted, and you would need a new invitation to reconnect.')"
+              >
+                <button class="btn-danger" type="submit">
+                  Disconnect
+                </button>
+              </form>
+            </>
+          );
+        }}
       />
+      {p.settings ? <SharedViews views={p.views} libraries={p.libraries} /> : null}
     </>
   );
 };
@@ -275,11 +429,15 @@ const ConnectionsPage: FC<PageProps> = (p) => {
 async function render(c: Context<AppEnv>, flash: Flash = {}) {
   const identity = await loadIdentity(c.env.FEDERATION_PRIVATE_KEY);
   if (!identity) return c.notFound(); // the gate already checked; kept for the type
-  const [settings, invites, rows] = await Promise.all([
+  const [settings, invites, rows, views, libraries, storage] = await Promise.all([
     getFederationSettings(c.env.DB),
     listInvites(c.env.DB),
     listConnections(c.env.DB),
+    listConnectionViews(c.env.DB),
+    listLibraries(c.env.DB),
+    storageByConnection(c.env.DB),
   ]);
+  const counts = await Promise.all(views.map((v) => countItemsInView(c.env.DB, v)));
   return page(
     c,
     'Connections',
@@ -289,6 +447,9 @@ async function render(c: Context<AppEnv>, flash: Flash = {}) {
       origin={new URL(c.req.url).origin}
       invites={invites.slice(0, 20)}
       connections={rows}
+      views={views.map((v, i) => ({ ...v, itemCount: counts[i] ?? 0 }))}
+      libraries={libraries}
+      storage={storage}
       {...flash}
     />,
   );
@@ -452,6 +613,328 @@ connections.post('/connections/:id/disconnect', async (c) => {
   forgetPeer(row.baseUrl);
   if (identity && settings) notifyPeer(c, identity, settings, row, 'Disconnect');
   return c.redirect('/connections');
+});
+
+// ---------- sharing views with connections (phase 2) ----------
+
+connections.post('/connections/views', async (c) => {
+  if (!(await getFederationSettings(c.env.DB))) return render(c, { error: 'Name your library before sharing anything.' });
+  const body = await c.req.parseBody();
+  const str = (k: string) => {
+    const v = body[k];
+    return typeof v === 'string' ? v.trim() : '';
+  };
+  const name = str('name');
+  if (!name || name.length > MAX_VIEW_NAME) {
+    return render(c, { error: `Give the view a name of up to ${MAX_VIEW_NAME} characters.` });
+  }
+  let libraryId: number | null = null;
+  if (str('libraryId')) {
+    const lib = /^\d+$/.test(str('libraryId')) ? await getLibrary(c.env.DB, Number(str('libraryId'))) : null;
+    if (!lib) return render(c, { error: 'That shelf no longer exists.' });
+    libraryId = lib.id;
+  }
+  if ((await countConnectionViews(c.env.DB)) >= MAX_CONNECTION_VIEWS) {
+    return render(c, { error: `You can share up to ${MAX_CONNECTION_VIEWS} views.` });
+  }
+  await createConnectionView(c.env.DB, {
+    name,
+    libraryId,
+    mediaType: (MEDIA_TYPES as readonly string[]).includes(str('mediaType')) ? (str('mediaType') as MediaType) : null,
+    status: (ITEM_STATUSES as readonly string[]).includes(str('status')) ? (str('status') as ItemStatus) : null,
+    owned: str('owned') === '1' ? true : str('owned') === '0' ? false : null,
+  });
+  clearSharedViewsCache();
+  return c.redirect('/connections');
+});
+
+connections.post('/connections/views/:id/delete', async (c) => {
+  await deleteConnectionView(c.env.DB, Number(c.req.param('id')));
+  clearSharedViewsCache();
+  return c.redirect('/connections');
+});
+
+// ---------- following a connection's views (phase 2) ----------
+
+const INTERVAL_LABEL: Record<PullInterval, string> = { 15: 'every 15 minutes', 60: 'hourly', 1440: 'daily' };
+
+const SettingsFields: FC<{ interval: number; days: number; entries: number }> = ({ interval, days, entries }) => (
+  <>
+    <label>
+      Pull
+      <select name="intervalMinutes" aria-label="Pull at most">
+        {PULL_INTERVALS.map((m) => (
+          <option value={String(m)} selected={m === interval}>
+            {INTERVAL_LABEL[m]}
+          </option>
+        ))}
+      </select>
+    </label>
+    <label>
+      keep
+      <input type="number" name="retentionDays" min="1" max={String(MAX_RETENTION_DAYS)} value={String(days)} aria-label="Days to keep" />
+      days,
+    </label>
+    <label>
+      up to
+      <input
+        type="number"
+        name="maxEntries"
+        min={String(MIN_MAX_ENTRIES)}
+        max={String(MAX_STORED_ENTRIES_PER_CONNECTION)}
+        value={String(entries)}
+        aria-label="Entries to keep"
+      />
+      entries
+    </label>
+  </>
+);
+
+type FeedFlash = { error?: string; notice?: string };
+
+const ConnectionFeedPage: FC<
+  { connection: Connection; subscriptions: SubscriptionWithUsage[]; theirViews: SharedView[] | null } & FeedFlash
+> = (p) => {
+  const used = p.subscriptions.reduce((sum, sub) => ({ entries: sum.entries + sub.entries, bytes: sum.bytes + sub.bytes }), {
+    entries: 0,
+    bytes: 0,
+  });
+  // A withdrawn view doesn't count as followed: a new view under that id can be followed again.
+  const followed = new Set(p.subscriptions.filter((sub) => !sub.goneAt).map((sub) => sub.viewId));
+  const base = `/connections/${p.connection.id}`;
+  return (
+    <>
+      <div class="page-head">
+        <div>
+          <h1>{p.connection.householdName}</h1>
+          <span class="sub">
+            FEED · {used.entries} {used.entries === 1 ? 'ENTRY' : 'ENTRIES'} · {formatBytes(used.bytes).toUpperCase()} STORED
+          </span>
+        </div>
+      </div>
+      {p.error ? <p class="error">{p.error}</p> : null}
+      {p.notice ? <article class="notice">{p.notice}</article> : null}
+
+      <section class="fed-section">
+        <p class="eyebrow">Following</p>
+        {p.subscriptions.length === 0 ? (
+          <p class="muted">You don’t follow any of their views yet.</p>
+        ) : (
+          <div class="data-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>View</th>
+                  <th>Settings</th>
+                  <th>Stored</th>
+                  <th class="hide-sm">Last pulled</th>
+                  <th class="actions-cell"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {p.subscriptions.map((sub) => (
+                  <tr>
+                    <td>
+                      <strong>{sub.viewName}</strong>
+                      {sub.goneAt ? (
+                        <>
+                          <br />
+                          <span class="pill ghost">No longer shared</span>
+                        </>
+                      ) : null}
+                      {sub.lastError ? (
+                        <>
+                          <br />
+                          <small class="muted">{sub.lastError}</small>
+                        </>
+                      ) : null}
+                    </td>
+                    <td>
+                      <form method="post" action={`${base}/subscriptions/${sub.id}`} class="sub-settings">
+                        <SettingsFields interval={sub.intervalMinutes} days={sub.retentionDays} entries={sub.maxEntries} />
+                        <button class="btn" type="submit">
+                          Save
+                        </button>
+                      </form>
+                    </td>
+                    <td class="num">
+                      {sub.entries}
+                      <br />
+                      <small class="muted">{formatBytes(sub.bytes)}</small>
+                    </td>
+                    <td class="date hide-sm">{sub.lastPulledAt ? sub.lastPulledAt.slice(0, 16) : 'Not yet'}</td>
+                    <td class="actions-cell">
+                      <form method="post" action={`${base}/subscriptions/${sub.id}/purge`} class="inline">
+                        <button class="btn" type="submit">
+                          Purge
+                        </button>
+                      </form>{' '}
+                      <form method="post" action={`${base}/subscriptions/${sub.id}/unfollow`} class="inline">
+                        <button class="btn-danger" type="submit">
+                          Unfollow
+                        </button>
+                      </form>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p class="muted">
+          Each pull deletes entries older than the days you keep, and all but the newest entries you keep. Anything they stop
+          sharing is deleted too, whatever these settings say. A connection never uses more than{' '}
+          {MAX_STORED_ENTRIES_PER_CONNECTION.toLocaleString('en')} entries. The Feed page pulls when someone opens it.
+        </p>
+      </section>
+
+      <section class="fed-section">
+        <p class="eyebrow">Views they share</p>
+        {p.theirViews === null ? (
+          <p class="muted">Couldn’t reach {p.connection.householdName} just now. Try again later.</p>
+        ) : p.theirViews.length === 0 ? (
+          <p class="muted">{p.connection.householdName} isn’t sharing any views yet.</p>
+        ) : (
+          <div class="data-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>View</th>
+                  <th>Items</th>
+                  <th class="hide-sm">A month</th>
+                  <th>Follow</th>
+                </tr>
+              </thead>
+              <tbody>
+                {p.theirViews.map((v) => (
+                  <tr>
+                    <td>
+                      <strong>{v.name}</strong>
+                    </td>
+                    <td class="num">{v.itemCount}</td>
+                    <td class="num hide-sm">
+                      ≈ {perMonth(v.recent, 'activities')} entries
+                      <br />
+                      <small class="muted">≈ {formatBytes(perMonth(v.recent, 'bytes'))}</small>
+                    </td>
+                    <td>
+                      {followed.has(v.id) ? (
+                        <span class="pill done">Following</span>
+                      ) : (
+                        <form method="post" action={`${base}/subscriptions`} class="sub-settings">
+                          <input type="hidden" name="viewId" value={String(v.id)} />
+                          <SettingsFields
+                            interval={DEFAULT_PULL_INTERVAL}
+                            days={DEFAULT_RETENTION_DAYS}
+                            entries={DEFAULT_MAX_ENTRIES}
+                          />
+                          <button type="submit">Follow</button>
+                          <small class="muted">
+                            ≈ {formatBytes(estimateBytes(v.recent, DEFAULT_RETENTION_DAYS, DEFAULT_MAX_ENTRIES))} kept at{' '}
+                            {DEFAULT_RETENTION_DAYS} days and {DEFAULT_MAX_ENTRIES} entries
+                          </small>
+                        </form>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+      <p>
+        <a href="/connections">← Connections</a>
+      </p>
+    </>
+  );
+};
+
+type ActiveContext = { identity: Identity; settings: FederationSettings; row: Connection };
+
+async function activeConnection(c: Context<AppEnv>): Promise<ActiveContext | null> {
+  const identity = await loadIdentity(c.env.FEDERATION_PRIVATE_KEY);
+  const settings = await getFederationSettings(c.env.DB);
+  const row = await getConnection(c.env.DB, Number(c.req.param('id')));
+  return identity && settings && row?.status === 'active' ? { identity, settings, row } : null;
+}
+
+/** `fetched` passes views already fetched in this request, so an error render doesn't fetch them twice. */
+async function renderFeedSettings(c: Context<AppEnv>, ctx: ActiveContext, flash: FeedFlash = {}, fetched?: SharedView[] | null) {
+  const [subscriptions, theirViews] = await Promise.all([
+    listSubscriptions(c.env.DB, ctx.row.id),
+    fetched !== undefined ? fetched : fetchSharedViews(ctx.identity, ctx.settings, ctx.row),
+  ]);
+  return page(
+    c,
+    `Feed · ${ctx.row.householdName}`,
+    <ConnectionFeedPage connection={ctx.row} subscriptions={subscriptions} theirViews={theirViews} {...flash} />,
+  );
+}
+
+const SETTINGS_ERROR = `Pull every 15 minutes, hourly or daily, and keep entries for 1–${MAX_RETENTION_DAYS} days and ${MIN_MAX_ENTRIES}–${MAX_STORED_ENTRIES_PER_CONNECTION.toLocaleString('en')} entries.`;
+
+function parseSettings(body: Record<string, unknown>): SubscriptionSettings | null {
+  const read = (k: string) => (typeof body[k] === 'string' && /^\d{1,6}$/.test(body[k] as string) ? Number(body[k]) : NaN);
+  const intervalMinutes = read('intervalMinutes');
+  const retentionDays = read('retentionDays');
+  const maxEntries = read('maxEntries');
+  if (!(PULL_INTERVALS as readonly number[]).includes(intervalMinutes)) return null;
+  if (!(retentionDays >= 1 && retentionDays <= MAX_RETENTION_DAYS)) return null;
+  if (!(maxEntries >= MIN_MAX_ENTRIES && maxEntries <= MAX_STORED_ENTRIES_PER_CONNECTION)) return null;
+  return { intervalMinutes, retentionDays, maxEntries };
+}
+
+connections.get('/connections/:id/feed', async (c) => {
+  const ctx = await activeConnection(c);
+  return ctx ? renderFeedSettings(c, ctx) : c.redirect('/connections');
+});
+
+connections.post('/connections/:id/subscriptions', async (c) => {
+  const ctx = await activeConnection(c);
+  if (!ctx) return c.redirect('/connections');
+  const body = await c.req.parseBody();
+  const settings = parseSettings(body);
+  const viewId = typeof body['viewId'] === 'string' && /^\d{1,15}$/.test(body['viewId']) ? Number(body['viewId']) : 0;
+  if (!settings || !isId(viewId)) return renderFeedSettings(c, ctx, { error: SETTINGS_ERROR });
+  // Their current list, not the form's word for it: the view must still exist, and its name comes from them.
+  const theirViews = await fetchSharedViews(ctx.identity, ctx.settings, ctx.row);
+  if (!theirViews) {
+    return renderFeedSettings(c, ctx, { error: `Couldn’t reach ${ctx.row.householdName} to follow that view. Nothing changed.` }, null);
+  }
+  const view = theirViews.find((v) => v.id === viewId);
+  if (!view) return renderFeedSettings(c, ctx, { error: 'They no longer share that view.' }, theirViews);
+  const created = await createSubscription(c.env.DB, { connectionId: ctx.row.id, viewId, viewName: view.name, ...settings });
+  if (!created) return renderFeedSettings(c, ctx, { error: 'You already follow that view.' }, theirViews);
+  return c.redirect(`/connections/${ctx.row.id}/feed`);
+});
+
+connections.post('/connections/:id/subscriptions/:sid', async (c) => {
+  const ctx = await activeConnection(c);
+  if (!ctx) return c.redirect('/connections');
+  const sub = await getSubscription(c.env.DB, ctx.row.id, Number(c.req.param('sid')));
+  if (!sub) return c.redirect(`/connections/${ctx.row.id}/feed`);
+  const settings = parseSettings(await c.req.parseBody());
+  if (!settings) return renderFeedSettings(c, ctx, { error: SETTINGS_ERROR });
+  await updateSubscription(c.env.DB, sub.id, settings);
+  await applyLifecycle(c.env.DB, { ...sub, ...settings }); // tighter limits free the space now, not at the next pull
+  return c.redirect(`/connections/${ctx.row.id}/feed`);
+});
+
+connections.post('/connections/:id/subscriptions/:sid/purge', async (c) => {
+  const ctx = await activeConnection(c);
+  if (!ctx) return c.redirect('/connections');
+  const sub = await getSubscription(c.env.DB, ctx.row.id, Number(c.req.param('sid')));
+  if (sub) await purgeSubscription(c.env.DB, sub.id);
+  return c.redirect(`/connections/${ctx.row.id}/feed`);
+});
+
+connections.post('/connections/:id/subscriptions/:sid/unfollow', async (c) => {
+  const ctx = await activeConnection(c);
+  if (!ctx) return c.redirect('/connections');
+  const sub = await getSubscription(c.env.DB, ctx.row.id, Number(c.req.param('sid')));
+  if (sub) await deleteSubscription(c.env.DB, sub.id);
+  return c.redirect(`/connections/${ctx.row.id}/feed`);
 });
 
 export default connections;

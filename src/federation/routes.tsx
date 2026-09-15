@@ -2,31 +2,47 @@
 // Mounted before the session middleware: peers authenticate by signature, not by cookie. Every
 // route here 404s unless this instance has a federation key, and all but the key check also need
 // a household name to have been saved.
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import {
   activateConnection,
+  activityInView,
   countConnections,
+  countItemsInView,
   countPush,
   deleteConnection,
   findRedeemableInvite,
   getConnectionByBaseUrl,
+  getConnectionView,
   getFederationSettings,
+  listConnectionViews,
   markActivitySeen,
   redeemInvite,
+  stillShared,
+  viewVolume,
 } from '../db/federation';
+import type { Connection } from '../db/schema';
 import type { AppEnv } from '../env';
 import { page } from '../views/layout';
 import {
   DESCRIPTOR_PATH,
+  FEED_PAGE_SIZE,
+  FEED_READ_WINDOW_MS,
+  FEED_READS_PER_WINDOW,
+  FEED_RESPONSE_BUDGET_BYTES,
   INVITE_PATH,
   MAX_ACTIVE_CONNECTIONS,
+  MAX_CHECK_BODY_BYTES,
+  MAX_CHECK_IDS,
   MAX_CONNECT_BODY_BYTES,
   MAX_INBOX_BODY_BYTES,
   MAX_PUSHES_PER_DAY,
   PROTOCOL,
   PROTOCOL_VERSION,
+  SHARED_VIEWS_CACHE_MS,
+  VOLUME_WINDOW_DAYS,
 } from './config';
 import { fetchDescriptor, parseJson, readLimited, type Descriptor } from './http';
+import { isId, jsonBytes, toFeedItem, type FeedEntry } from './items';
 import { importPublicKey, loadIdentity } from './keys';
 import { parseConnectRequest, parseInboxMessage } from './messages';
 import { forgetPeer, peerByKeyid, rememberPeer } from './peers';
@@ -136,6 +152,131 @@ federation.post('/federation/connect', async (c) => {
     case 'already connected':
       return c.json({ error: 'already connected' }, 409);
   }
+});
+
+// ---------- what connections may read (phase 2) ----------
+
+type FromConnection = { connection: Connection; body: Uint8Array };
+
+// Each read costs D1 reads, so a connection gets a bounded number per window in each isolate. An honest one
+// pulls a couple of subscriptions at most every quarter hour, far below it. Keyed only after a signature
+// verifies, so strangers can't fill it.
+const readCounts = new Map<string, { n: number; resets: number }>();
+
+function withinReadRate(keyid: string): boolean {
+  const now = Date.now();
+  const entry = readCounts.get(keyid);
+  if (!entry || entry.resets <= now) {
+    if (readCounts.size >= 200) readCounts.clear();
+    readCounts.set(keyid, { n: 1, resets: now + FEED_READ_WINDOW_MS });
+    return true;
+  }
+  entry.n += 1;
+  return entry.n <= FEED_READS_PER_WINDOW;
+}
+
+/**
+ * A request signed by an active connection — or the response turning it away. Unsigned requests are
+ * refused before the database is touched, and a connection still waiting for confirmation reads nothing.
+ */
+async function fromActiveConnection(c: Context<AppEnv>, maxBodyBytes: number): Promise<FromConnection | Response> {
+  const sig = parseSignature(c.req.raw.headers);
+  if (!sig) return c.json({ error: 'unsigned request' }, 401);
+  const peer = await peerByKeyid(c.env.DB, sig.keyid);
+  if (!peer || peer.connection.status !== 'active') return c.json({ error: 'unknown sender' }, 401);
+  const body = c.req.method === 'POST' ? await readLimited(c.req.raw, maxBodyBytes) : new Uint8Array();
+  if (!body) return c.json({ error: 'request too large' }, 413);
+  const verdict = await verifyRequest({ method: c.req.method, url: c.req.url, headers: c.req.raw.headers, body }, sig, peer.key);
+  if (!verdict.ok) return c.json({ error: 'signature rejected' }, 401);
+  rememberPeer(peer);
+  if (!withinReadRate(peer.connection.baseUrl)) return c.json({ error: 'too many requests' }, 429);
+  return { connection: peer.connection, body };
+}
+
+const digits = (raw: string | undefined): number | null => (raw !== undefined && /^\d{1,15}$/.test(raw) ? Number(raw) : null);
+
+// The shared views, with counts and volume, cost two queries per view; one isolate reuses them briefly.
+let sharedViews: { json: string; expires: number } | null = null;
+
+/** Called when a view is added or removed, so this isolate serves the change at once. */
+export function clearSharedViewsCache(): void {
+  sharedViews = null;
+}
+
+/** The views shared with connections, each with its size and how busy it has been — for subscribing. */
+federation.get('/federation/views', async (c) => {
+  if (!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY))) return c.notFound();
+  const from = await fromActiveConnection(c, 0);
+  if (from instanceof Response) return from;
+  if (!(await getFederationSettings(c.env.DB))) return c.notFound();
+  if (!sharedViews || sharedViews.expires <= Date.now()) {
+    const views = await listConnectionViews(c.env.DB);
+    const described = await Promise.all(
+      views.map(async (view) => ({
+        id: view.id,
+        name: view.name,
+        itemCount: await countItemsInView(c.env.DB, view),
+        recent: { days: VOLUME_WINDOW_DAYS, ...(await viewVolume(c.env.DB, view, VOLUME_WINDOW_DAYS)) },
+      })),
+    );
+    sharedViews = { json: JSON.stringify({ views: described }), expires: Date.now() + SHARED_VIEWS_CACHE_MS };
+  }
+  return c.body(sharedViews.json, 200, { 'content-type': 'application/json' });
+});
+
+/**
+ * Activity in a view, at most FEED_PAGE_SIZE entries within FEED_RESPONSE_BUDGET_BYTES. After a cursor the
+ * oldest come first and `latest` is the last one sent, with `more` when others wait; a new subscriber gets
+ * the newest page and a cursor at its newest entry. `latest` only ever names activity in the view, so the
+ * cursor can't reveal what happens outside it.
+ */
+federation.get('/federation/feed', async (c) => {
+  if (!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY))) return c.notFound();
+  const from = await fromActiveConnection(c, 0);
+  if (from instanceof Response) return from;
+  if (!(await getFederationSettings(c.env.DB))) return c.notFound();
+  const viewId = digits(c.req.query('view'));
+  const since = digits(c.req.query('since') ?? '0');
+  if (!viewId || since === null) return c.json({ error: 'malformed request' }, 400);
+  const view = await getConnectionView(c.env.DB, viewId);
+  if (!view) return c.json({ error: 'no such view' }, 404);
+
+  const { fromStart, rows } = await activityInView(c.env.DB, view, since, FEED_PAGE_SIZE + 1);
+  const entries: FeedEntry[] = [];
+  let bytes = 0;
+  for (const row of rows.slice(0, FEED_PAGE_SIZE)) {
+    const entry: FeedEntry = { id: row.id, kind: row.kind, published: row.at, item: toFeedItem(row.item, row.kind) };
+    const size = jsonBytes(entry).bytes;
+    if (entries.length > 0 && bytes + size > FEED_RESPONSE_BUDGET_BYTES) break;
+    entries.push(entry);
+    bytes += size;
+  }
+  const newest = entries[0];
+  const last = entries[entries.length - 1];
+  const latest = fromStart ? (newest?.id ?? 0) : (last?.id ?? since);
+  return c.json({ view: view.id, latest, more: !fromStart && rows.length > entries.length, entries });
+});
+
+/**
+ * The removal check (docs/proposals/connections.md §8): which of the caller's stored entries this
+ * household no longer shares. Nothing records what was sent to whom — validity is worked out now.
+ */
+federation.post('/federation/feed/check', async (c) => {
+  if (!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY))) return c.notFound();
+  const from = await fromActiveConnection(c, MAX_CHECK_BODY_BYTES);
+  if (from instanceof Response) return from;
+  if (!(await getFederationSettings(c.env.DB))) return c.notFound();
+  const request = parseJson(from.body) as { view?: unknown; ids?: unknown } | null;
+  const viewId = request?.view;
+  const ids = request?.ids;
+  if (!isId(viewId) || !Array.isArray(ids) || ids.length > MAX_CHECK_IDS || !ids.every(isId)) {
+    return c.json({ error: 'malformed request' }, 400);
+  }
+  const asked = [...new Set(ids)];
+  const view = await getConnectionView(c.env.DB, viewId);
+  if (!view) return c.json({ invalid: asked, viewGone: true });
+  const valid = await stillShared(c.env.DB, view, asked);
+  return c.json({ invalid: asked.filter((id) => !valid.has(id)), viewGone: false });
 });
 
 // ---------- messages from connected instances ----------

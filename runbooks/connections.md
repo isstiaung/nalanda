@@ -1,9 +1,8 @@
 # Runbook: Connections
 
-Connections link your library with another household's Nalanda, one pair at a time. This
-release covers the connection itself: naming your library, invitations, confirming and
-disconnecting. What connected households can do together — a feed, comments on reviews,
-borrowing — arrives in later releases. The design is in
+Connections link your library with another household's Nalanda, one pair at a time. Connected
+households can follow each other's reading in a feed. Comments on reviews and borrowing arrive
+in later releases. The design is in
 [docs/proposals/connections.md](../docs/proposals/connections.md).
 
 Connections are off until the instance has a key. Without one, every connections page and
@@ -61,7 +60,39 @@ a request they haven't confirmed yet.
 **Connected → Disconnect.** It takes effect on your side immediately, and your library tells
 theirs so the connection disappears there too. If their library is unreachable at that
 moment it keeps showing you until they disconnect as well — but it can no longer act on
-your library either way. Reconnecting needs a new invitation.
+your library either way. Everything you stored from their feed is deleted. Reconnecting needs
+a new invitation.
+
+## Share your reading with connections
+
+**Connections → Shared with connections.** Name a view and choose what it covers — one shelf
+or all of them, a type, a status, owned or not — then **Share view**. Nothing is shared until
+you do.
+
+- Every connected household sees every view.
+- For the books in a view they see the title, creators, cover, rating, review and when you
+  finished it. Never notes, loans, borrowers or how many copies you have.
+- What reaches them is activity: a book reviewed, rated or finished. Sharing your first view
+  includes the last 90 days of it.
+- **Stop sharing** removes a view. The next time a household pulls, whatever they stored from
+  it is deleted.
+
+## Follow a household's feed
+
+**Connections → Feed**, next to a connected household, lists the views they share with how busy
+each has been and roughly what following it would store. For each view choose:
+
+- **Pull** — at most every 15 minutes, hourly or daily. Pulls happen only when someone opens
+  Feed, never in the background.
+- **Keep** — how many days of activity, and how many entries at most.
+
+Then **Follow**, and open **Feed** in the sidebar. The first pull runs as that page loads, so
+reload it a moment later. Newest entries come first; **Older** pages back.
+
+The same page shows what each view actually stores. **Save** new limits (applied at once),
+**Purge** to delete what's stored, or **Unfollow** to delete it and stop. Whatever you choose,
+entries a household stops sharing are deleted at the next pull, and no connection stores more
+than 1,000 entries.
 
 ## Changing address
 
@@ -93,7 +124,9 @@ npx wrangler secret delete FEDERATION_PRIVATE_KEY
 ```
 
 Every connections page and endpoint goes back to 404. Connection records stay in D1,
-harmless, and return if the same key is put back.
+harmless, and return if the same key is put back. Shared views stay too, and while any exists
+your library keeps recording activity for them — stop sharing every view first if you're
+turning connections off for good.
 
 ## Try it locally with two libraries
 
@@ -137,3 +170,10 @@ Delete `.wrangler/connections/` to start over.
   reach them, the second completes it.
 - **"Didn't accept the confirmation."** Their library refused it, often because they cancelled
   their request meanwhile. **Decline** it here and send a new invitation.
+- **Feed stays empty.** Reload it — pulls run after the page loads. If it's still empty, open
+  that household's Feed page from Connections: a failed pull shows under the view's name.
+  "They turned the request away" usually means they disconnected on their side.
+- **"They sent more than a day's allowance."** A household can add at most 500 feed entries to
+  your library a day, and the rest are dropped. It resets the next day.
+- **Feed covers missing.** Covers load straight from the other household's library, so they
+  show only while it's online.

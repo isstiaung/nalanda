@@ -146,28 +146,52 @@ export async function fetchDescriptor(baseUrl: string): Promise<Descriptor | nul
   return isDescriptor(data) && data.url === baseUrl ? data : null;
 }
 
+/** A signed request to another instance. Null if it couldn't be reached at all. */
+async function sendSigned(
+  identity: Identity,
+  fromBaseUrl: string,
+  method: 'GET' | 'POST',
+  url: string,
+  payload?: unknown,
+  maxBytes = MAX_RESPONSE_BYTES,
+): Promise<{ status: number; body: unknown } | null> {
+  const body = method === 'POST' ? new TextEncoder().encode(JSON.stringify(payload)) : undefined;
+  const signed = await signRequest({ method, url, body, keyid: fromBaseUrl, privateKey: identity.privateKey });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      body,
+      redirect: 'manual',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      headers: body
+        ? { ...signed, 'content-type': 'application/json', accept: 'application/json' }
+        : { ...signed, accept: 'application/json' },
+    });
+  } catch {
+    return null;
+  }
+  return { status: res.status, body: parseJson(await readLimited(res, maxBytes)) };
+}
+
 /** A signed JSON POST to another instance. Null if it couldn't be reached at all. */
-export async function postSigned(
+export function postSigned(
   identity: Identity,
   fromBaseUrl: string,
   toBaseUrl: string,
   path: string,
   payload: unknown,
 ): Promise<{ status: number; body: unknown } | null> {
-  const url = new URL(path, toBaseUrl).href;
-  const body = new TextEncoder().encode(JSON.stringify(payload));
-  const signed = await signRequest({ method: 'POST', url, body, keyid: fromBaseUrl, privateKey: identity.privateKey });
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: 'POST',
-      body,
-      redirect: 'manual',
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      headers: { ...signed, 'content-type': 'application/json', accept: 'application/json' },
-    });
-  } catch {
-    return null;
-  }
-  return { status: res.status, body: parseJson(await readLimited(res, MAX_RESPONSE_BYTES)) };
+  return sendSigned(identity, fromBaseUrl, 'POST', new URL(path, toBaseUrl).href, payload);
+}
+
+/** A signed GET from another instance; `path` may carry a query. Null if it couldn't be reached at all. */
+export function getSigned(
+  identity: Identity,
+  fromBaseUrl: string,
+  toBaseUrl: string,
+  path: string,
+  maxBytes = MAX_RESPONSE_BYTES,
+): Promise<{ status: number; body: unknown } | null> {
+  return sendSigned(identity, fromBaseUrl, 'GET', new URL(path, toBaseUrl).href, undefined, maxBytes);
 }
