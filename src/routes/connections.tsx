@@ -74,7 +74,7 @@ const ConnectionTable: FC<{
   actions: (row: Connection) => unknown;
 }> = ({ title, hint, rows, since, actions }) =>
   rows.length ? (
-    <section style="margin-top:1.5rem">
+    <section class="fed-section" style="margin-top:1.5rem">
       <p class="eyebrow">{title}</p>
       {hint ? <p class="muted">{hint}</p> : null}
       <div class="data-table">
@@ -122,7 +122,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
       {p.error ? <p class="error">{p.error}</p> : null}
       {p.notice ? <article class="notice">{p.notice}</article> : null}
 
-      <section>
+      <section class="fed-section">
         <p class="eyebrow">This library</p>
         {p.settings ? null : (
           <p class="muted">
@@ -155,7 +155,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
       </section>
 
       {p.settings ? (
-        <section style="margin-top:1.5rem">
+        <section class="fed-section" style="margin-top:1.5rem">
           <p class="eyebrow">Invite a household</p>
           {p.minted ? (
             <article class="notice">
@@ -211,7 +211,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
       ) : null}
 
       {p.settings ? (
-        <section style="margin-top:1.5rem">
+        <section class="fed-section" style="margin-top:1.5rem">
           <p class="eyebrow">Accept an invitation</p>
           <form method="post" action="/connections/redeem" class="inline-form">
             <input name="link" placeholder="https://…/connect#…" aria-label="Invitation link" required />
