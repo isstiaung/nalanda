@@ -13,7 +13,12 @@ export const MAX_HOUSEHOLD_NAME = 80;
 export const MAX_ACTIVE_CONNECTIONS = 25;
 
 
-export const FETCH_TIMEOUT_MS = 10_000;
+/** A signed request to another instance — long enough to cover that instance's own descriptor fetch. */
+export const FETCH_TIMEOUT_MS = 15_000;
+/** Fetching a descriptor, kept well inside FETCH_TIMEOUT_MS: the connect handshake nests one inside the other. */
+export const DESCRIPTOR_TIMEOUT_MS = 5_000;
+/** Messages accepted from one connection per day, then refused — the D1 write allowance is the whole instance's. */
+export const MAX_PUSHES_PER_DAY = 200;
 export const MAX_DESCRIPTOR_BYTES = 16 * 1024;
 export const MAX_CONNECT_BODY_BYTES = 16 * 1024;
 export const MAX_INBOX_BODY_BYTES = 64 * 1024;

@@ -98,7 +98,9 @@ export type ParsedSignature = {
 
 const INPUT = /^sig1=(\((?:"[a-z0-9@-]+"(?: "[a-z0-9@-]+")*)?\)(?:;[a-z]+=(?:\d+|"[^"\\]*"))*)$/;
 const PARAM = /;([a-z]+)=(\d+|"[^"\\]*")/g;
-const SIGNATURE = /^sig1=:([A-Za-z0-9+/]+={0,2}):$/;
+// An Ed25519 signature is exactly 64 bytes — 86 base64 characters and two of padding. WebCrypto throws on any
+// other length rather than returning false.
+const SIGNATURE = /^sig1=:([A-Za-z0-9+/]{86}==):$/;
 
 /**
  * Reads the signature headers only — no crypto, no database — so a route can turn away unsigned
@@ -162,6 +164,11 @@ export async function verifyRequest(
     }
     components.push(['content-digest', header]);
   }
-  const valid = await crypto.subtle.verify(ED25519, key, sig.signature, enc.encode(signatureBase(components, sig.params)));
+  let valid = false;
+  try {
+    valid = await crypto.subtle.verify(ED25519, key, sig.signature, enc.encode(signatureBase(components, sig.params)));
+  } catch {
+    // a malformed signature is a failed one, not a server error
+  }
   return valid ? { ok: true } : { ok: false, reason: 'signature does not verify' };
 }

@@ -66,14 +66,60 @@ export async function findRedeemableInvite(d1: D1Database, tokenHash: string): P
   return row ?? null;
 }
 
-/** Marks an invite used. False if another redemption won the race, or it expired meanwhile. */
-export async function consumeInvite(d1: D1Database, id: number): Promise<boolean> {
-  const rows = await db(d1)
-    .update(s.connectionInvites)
-    .set({ usedAt: sql`(datetime('now'))` })
-    .where(redeemable(eq(s.connectionInvites.id, id)))
-    .returning({ id: s.connectionInvites.id });
-  return rows.length === 1;
+/** Unused, unexpired invitations — each one names this library's address. */
+export async function countOpenInvites(d1: D1Database): Promise<number> {
+  const [row] = await db(d1)
+    .select({ n: count() })
+    .from(s.connectionInvites)
+    .where(and(isNull(s.connectionInvites.usedAt), sql`${s.connectionInvites.expiresAt} > datetime('now')`));
+  return row?.n ?? 0;
+}
+
+export type Redemption = 'pending' | 'invitation gone' | 'limit reached' | 'already connected';
+
+/**
+ * Records the pending connection and uses the invitation up in one transaction: both or neither. The
+ * insert happens only while the invitation is still redeemable and the connection limit has room, so
+ * two redemptions racing can't both win or push past the limit.
+ */
+export async function redeemInvite(
+  d1: D1Database,
+  inviteId: number,
+  peer: { baseUrl: string; householdName: string; publicKey: string },
+  maxConnections: number,
+): Promise<Redemption> {
+  let inserted: unknown[];
+  try {
+    const [insert] = await d1.batch([
+      d1
+        .prepare(
+          `INSERT INTO connections (base_url, household_name, public_key, status, invite_id)
+           SELECT ?1, ?2, ?3, 'awaiting_us', ?4
+           WHERE EXISTS (SELECT 1 FROM connection_invites
+                         WHERE id = ?4 AND used_at IS NULL AND expires_at > datetime('now'))
+             AND (SELECT count(*) FROM connections) < ?5
+           RETURNING id`,
+        )
+        .bind(peer.baseUrl, peer.householdName, peer.publicKey, inviteId, maxConnections),
+      d1
+        .prepare(
+          `UPDATE connection_invites SET used_at = datetime('now')
+           WHERE id = ?1 AND used_at IS NULL AND EXISTS (SELECT 1 FROM connections WHERE invite_id = ?1)`,
+        )
+        .bind(inviteId),
+    ]);
+    inserted = insert?.results ?? [];
+  } catch (err) {
+    // Their address is unique: they redeemed another invitation from us meanwhile. Nothing was committed.
+    if (String(err).includes('UNIQUE')) return 'already connected';
+    throw err;
+  }
+  if (inserted.length === 1) return 'pending';
+  const [invite] = await db(d1)
+    .select({ id: s.connectionInvites.id })
+    .from(s.connectionInvites)
+    .where(redeemable(eq(s.connectionInvites.id, inviteId)));
+  return invite ? 'limit reached' : 'invitation gone';
 }
 
 // ---------- connections ----------
@@ -123,14 +169,42 @@ export async function deleteConnection(d1: D1Database, id: number): Promise<void
 
 // ---------- replay protection ----------
 
-/** True the first time an activity id arrives; false on a replay. Prunes entries older than an hour. */
+/**
+ * True the first time an activity id arrives; false on a replay. Each new id also prunes a few entries
+ * older than an hour, through the index, so the table stays small without a scan per message.
+ */
 export async function markActivitySeen(d1: D1Database, activityId: string): Promise<boolean> {
-  const dbi = db(d1);
-  const rows = await dbi
+  const rows = await db(d1)
     .insert(s.federationSeen)
     .values({ activityId })
     .onConflictDoNothing()
     .returning({ activityId: s.federationSeen.activityId });
-  await dbi.delete(s.federationSeen).where(sql`${s.federationSeen.seenAt} < datetime('now', '-1 hour')`);
-  return rows.length === 1;
+  if (rows.length !== 1) return false;
+  await d1
+    .prepare(
+      `DELETE FROM federation_seen WHERE activity_id IN (
+         SELECT activity_id FROM federation_seen WHERE seen_at < datetime('now', '-1 hour') LIMIT 20)`,
+    )
+    .run();
+  return true;
+}
+
+/**
+ * Counts a message from a connection toward today's limit. False once the limit is reached — and then
+ * nothing is written, so a connection past its limit costs reads only.
+ */
+export async function countPush(d1: D1Database, connectionId: number, limit: number): Promise<boolean> {
+  const row = await d1
+    .prepare(
+      `INSERT INTO connection_push_counts (connection_id, day, pushes) VALUES (?1, date('now'), 1)
+       ON CONFLICT (connection_id, day) DO UPDATE SET pushes = pushes + 1 WHERE pushes < ?2
+       RETURNING pushes`,
+    )
+    .bind(connectionId, limit)
+    .first<{ pushes: number }>();
+  if (!row) return false;
+  if (row.pushes === 1) {
+    await d1.prepare(`DELETE FROM connection_push_counts WHERE day < date('now', '-1 day')`).run();
+  }
+  return true;
 }

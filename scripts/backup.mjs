@@ -11,7 +11,8 @@ import { mkdirSync } from 'node:fs';
 
 // FK-safe restore order. login_attempts (transient) and d1_migrations
 // (recreated by `wrangler d1 migrations apply`) are deliberately excluded.
-// federation_seen is left out on purpose: replay bookkeeping that's worthless after an hour. The federation private key isn't data at all — it's a secret.
+// federation_seen and connection_push_counts are left out on purpose: replay and rate bookkeeping that's
+// worthless within a day. The federation private key isn't data at all — it's a secret.
 export const TABLES = [
   'users',
   'libraries',

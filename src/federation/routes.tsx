@@ -5,15 +5,14 @@
 import { Hono } from 'hono';
 import {
   activateConnection,
-  consumeInvite,
   countConnections,
-  createConnection,
+  countPush,
   deleteConnection,
   findRedeemableInvite,
-  getConnection,
   getConnectionByBaseUrl,
   getFederationSettings,
   markActivitySeen,
+  redeemInvite,
 } from '../db/federation';
 import type { AppEnv } from '../env';
 import { page } from '../views/layout';
@@ -23,13 +22,14 @@ import {
   MAX_ACTIVE_CONNECTIONS,
   MAX_CONNECT_BODY_BYTES,
   MAX_INBOX_BODY_BYTES,
+  MAX_PUSHES_PER_DAY,
   PROTOCOL,
   PROTOCOL_VERSION,
 } from './config';
 import { fetchDescriptor, parseJson, readLimited, type Descriptor } from './http';
 import { importPublicKey, loadIdentity } from './keys';
 import { parseConnectRequest, parseInboxMessage } from './messages';
-import { forgetPeer, peerByKeyid } from './peers';
+import { forgetPeer, peerByKeyid, rememberPeer } from './peers';
 import { parseSignature, verifyRequest } from './signatures';
 import { hashToken } from './tokens';
 
@@ -120,19 +120,22 @@ federation.post('/federation/connect', async (c) => {
   if (!descriptor || descriptor.publicKey.x !== request.publicKey.x) {
     return c.json({ error: 'could not confirm that this address serves this key' }, 422);
   }
-  if (!(await consumeInvite(c.env.DB, invite.id))) return c.json({ error: 'invitation not found' }, 404);
-  try {
-    await createConnection(c.env.DB, {
-      baseUrl: request.actor,
-      householdName: descriptor.name,
-      publicKey: JSON.stringify(descriptor.publicKey),
-      status: 'awaiting_us',
-      inviteId: invite.id,
-    });
-  } catch {
-    return c.json({ error: 'already connected' }, 409);
+  const outcome = await redeemInvite(
+    c.env.DB,
+    invite.id,
+    { baseUrl: request.actor, householdName: descriptor.name, publicKey: JSON.stringify(descriptor.publicKey) },
+    MAX_ACTIVE_CONNECTIONS,
+  );
+  switch (outcome) {
+    case 'pending':
+      return c.json({ status: 'pending' }, 202);
+    case 'invitation gone':
+      return c.json({ error: 'invitation not found' }, 404);
+    case 'limit reached':
+      return c.json({ error: 'connection limit reached' }, 409);
+    case 'already connected':
+      return c.json({ error: 'already connected' }, 409);
   }
-  return c.json({ status: 'pending' }, 202);
 });
 
 // ---------- messages from connected instances ----------
@@ -152,30 +155,48 @@ federation.post('/federation/inbox', async (c) => {
     peer.key,
   );
   if (!verdict.ok) return c.json({ error: 'signature rejected' }, 401);
+  rememberPeer(peer);
   const message = parseInboxMessage(parseJson(raw));
   if (!message || message.actor !== peer.connection.baseUrl) return c.json({ error: 'malformed message' }, 400);
+
+  // Changing state never trusts the cache: re-read the connection, and act only if it still carries the
+  // key that signed. A household removed a minute ago can't reach whatever connection came after it.
+  const connection = await getConnectionByBaseUrl(c.env.DB, peer.connection.baseUrl);
+  if (!connection || connection.publicKey !== peer.connection.publicKey) {
+    forgetPeer(peer.connection.baseUrl);
+    return c.json({ error: 'unknown sender' }, 401);
+  }
+
+  // What each state accepts. Anything else is refused before a single write, so a household that was
+  // never confirmed — someone holding a leaked invitation, say — can't spend this instance's D1 allowance.
+  switch (message.type) {
+    case 'ConnectAccept':
+      if (connection.status === 'active') return c.json({ status: 'active' }); // a repeat: nothing to do
+      if (connection.status !== 'awaiting_them') return c.json({ error: 'no request of ours to accept' }, 409);
+      break;
+    case 'ConnectDecline':
+      // From active too: they may have confirmed and then declined after our reply to them was lost.
+      if (connection.status === 'awaiting_us') return c.json({ error: 'no request of ours to decline' }, 409);
+      break;
+    case 'Disconnect':
+      break; // in any state: for a household still waiting on us, this withdraws their request
+  }
+  if (!(await countPush(c.env.DB, connection.id, MAX_PUSHES_PER_DAY))) {
+    return c.json({ error: 'daily message limit reached' }, 429);
+  }
   if (!(await markActivitySeen(c.env.DB, message.id))) return c.json({ status: 'already processed' });
 
-  const { connection } = peer;
   forgetPeer(connection.baseUrl);
   switch (message.type) {
-    case 'ConnectAccept': {
-      // Only meaningful for a request we sent. Conditional on that state, so a stale cache can't misfire.
-      if (await activateConnection(c.env.DB, connection.id, 'awaiting_them')) return c.json({ status: 'active' });
-      const current = await getConnection(c.env.DB, connection.id);
-      if (current?.status === 'active') return c.json({ status: 'active' });
-      return c.json({ error: 'no pending request to accept' }, 409);
-    }
-    case 'ConnectDecline': {
-      const current = await getConnection(c.env.DB, connection.id);
-      if (current?.status !== 'awaiting_them') return c.json({ error: 'no pending request to decline' }, 409);
+    case 'ConnectAccept':
+      await activateConnection(c.env.DB, connection.id, 'awaiting_them');
+      return c.json({ status: 'active' });
+    case 'ConnectDecline':
       await deleteConnection(c.env.DB, connection.id);
       return c.json({ status: 'declined' });
-    }
-    case 'Disconnect': {
+    case 'Disconnect':
       await deleteConnection(c.env.DB, connection.id);
       return c.json({ status: 'disconnected' });
-    }
   }
 });
 

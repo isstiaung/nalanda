@@ -1,9 +1,10 @@
 // Per-isolate cache of connected instances' keys (docs/proposals/connections.md §6), so a signed
-// request from a peer doesn't cost a database read every time. Only known peers are cached —
-// caching misses would let anyone fill memory with made-up key ids.
+// request from a peer doesn't cost a database read every time. Only peers whose signature has just
+// verified are cached — caching every lookup would let anyone fill memory, or warm the cache with a row
+// they never proved they own.
 //
-// State changes never trust the cached row: they use conditional updates, so a stale entry can
-// at worst let a message through for a connection another isolate removed within the last minute.
+// A cached row may be up to a minute old. Reads may use it; anything that changes state re-reads the
+// connection and acts only if it still carries the key that signed (see /federation/inbox).
 import { getConnectionByBaseUrl } from '../db/federation';
 import type { Connection } from '../db/schema';
 import { importPublicKey } from './keys';
@@ -11,9 +12,10 @@ import { importPublicKey } from './keys';
 const TTL_MS = 60_000;
 const MAX_ENTRIES = 100;
 
-type Peer = { connection: Connection; key: CryptoKey };
+export type Peer = { connection: Connection; key: CryptoKey };
 const cache = new Map<string, Peer & { expires: number }>();
 
+/** The connection a key id names, with its imported key — from this isolate's cache, or the database. */
 export async function peerByKeyid(d1: D1Database, keyid: string): Promise<Peer | null> {
   const hit = cache.get(keyid);
   if (hit && hit.expires > Date.now()) return hit;
@@ -28,15 +30,18 @@ export async function peerByKeyid(d1: D1Database, keyid: string): Promise<Peer |
     return null;
   }
   const key = await importPublicKey(jwk);
-  if (!key) return null;
+  return key ? { connection, key } : null;
+}
 
+/** Caches a peer once a request signed by it has verified. */
+export function rememberPeer(peer: Peer): void {
+  const keyid = peer.connection.baseUrl;
+  if (cache.has(keyid)) return;
   if (cache.size >= MAX_ENTRIES) {
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);
   }
-  const entry = { connection, key, expires: Date.now() + TTL_MS };
-  cache.set(keyid, entry);
-  return entry;
+  cache.set(keyid, { ...peer, expires: Date.now() + TTL_MS });
 }
 
 /** Drops a peer from this isolate's cache after its connection changed or was removed. */

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createConnection,
   createInvite,
+  deleteConnection,
   getConnection,
   getConnectionByBaseUrl,
   getFederationSettings,
@@ -17,6 +18,7 @@ import {
   saveFederationSettings,
 } from '../src/db/federation';
 import { createUser } from '../src/db/queries';
+import type { ConnectionStatus } from '../src/db/schema';
 import type { Bindings } from '../src/env';
 import { importPublicKey, type PublicJwk } from '../src/federation/keys';
 import { connectRequest, inboxMessage } from '../src/federation/messages';
@@ -226,6 +228,14 @@ describe('identity and setup', () => {
     expect(await getFederationSettings(env.DB)).toMatchObject({ householdName: A.name, baseUrl: A.url });
   });
 
+  it('keeps the address fixed while an invitation naming it is outstanding', async () => {
+    await setUpA();
+    const admin = await sessionCookie('admin');
+    await postForm('/connections/invites', {}, admin);
+    await postForm('/connections/settings', { householdName: 'Renamed' }, admin, 'https://alias.example');
+    expect(await getFederationSettings(env.DB)).toMatchObject({ householdName: 'Renamed', baseUrl: A.url });
+  });
+
   it('shows an invitation link exactly once, and stores only its hash', async () => {
     await setUpA();
     const admin = await sessionCookie('admin');
@@ -342,6 +352,22 @@ describe('an invitation redeemed at /federation/connect', () => {
     expect(res.status).toBe(400);
   });
 
+  it('keeps the invitation when the connection cannot be recorded', async () => {
+    answerOutbound(async () => {
+      // they redeem another of our invitations while we check this one
+      await createConnection(env.DB, {
+        baseUrl: peer.url,
+        householdName: peer.name,
+        publicKey: JSON.stringify(peer.publicJwk),
+        status: 'awaiting_us',
+      });
+      return json(descriptorOf(peer));
+    });
+    const res = await signedPost('/federation/connect', peer, connectRequest(peer.url, peer.name, peer.publicJwk, token));
+    expect(res.status).toBe(409);
+    expect(await inviteUsed()).toBeNull();
+  });
+
   // Peers' Workers share one CF-Connecting-IP, so a limit on failures would lock out every household.
   it('never locks out a real invitation, however many guesses come first', async () => {
     serveDescriptor(descriptorOf(peer));
@@ -398,7 +424,7 @@ describe('confirming, and messages at /federation/inbox', () => {
       throw new TypeError('network unreachable');
     });
     const html = await (await postForm(`/connections/${row.id}/confirm`, {}, await sessionCookie('admin'))).text();
-    expect(html).toContain('to confirm. Nothing changed');
+    expect(html).toContain('No answer from');
     expect((await getConnection(env.DB, row.id))?.status).toBe('awaiting_us');
   });
 
@@ -489,6 +515,18 @@ describe('accepting an invitation from the Connections page', () => {
     expect(await getConnectionByBaseUrl(env.DB, peer.url)).toBeNull();
   });
 
+  it('keeps a request that got no answer, since it may still have arrived', async () => {
+    answerOutbound((req) => {
+      if (req.method === 'GET') return json(descriptorOf(peer));
+      throw new TypeError('timed out');
+    });
+    const html = await (
+      await postForm('/connections/redeem', { link: `${peer.url}/connect#${newInviteToken()}` }, await sessionCookie('admin'))
+    ).text();
+    expect(html).toContain('No answer from');
+    expect(await getConnectionByBaseUrl(env.DB, peer.url)).toMatchObject({ status: 'awaiting_them' });
+  });
+
   it('rejects something that is not an invitation link without contacting anyone', async () => {
     answerOutbound(() => json({}));
     const html = await (
@@ -513,5 +551,74 @@ describe('names that come from another server', () => {
     expect(html).not.toContain('<img src=x');
     expect(html).toContain('&lt;img src=x');
     for (const handler of html.match(/onsubmit="[^"]*"/g) ?? []) expect(handler).not.toContain('pwned');
+  });
+});
+
+describe('what a peer cannot do', () => {
+  let peer: Peer;
+
+  beforeEach(async () => {
+    await setUpA();
+    peer = await makePeer('Riverbank library');
+  });
+
+  const seed = (who: Peer, status: ConnectionStatus) =>
+    createConnection(env.DB, {
+      baseUrl: who.url,
+      householdName: who.name,
+      publicKey: JSON.stringify(who.publicJwk),
+      status,
+    });
+  const seen = async () => (await env.DB.prepare('SELECT count(*) AS n FROM federation_seen').first<{ n: number }>())!.n;
+
+  it('never reuses a connection id', async () => {
+    const first = await seed(peer, 'active');
+    await deleteConnection(env.DB, first.id);
+    expect((await seed(await makePeer('Clifftop library'), 'active')).id).toBeGreaterThan(first.id);
+  });
+
+  it('cannot act on a connection made after it was removed, even from a warm key cache', async () => {
+    await seed(peer, 'active');
+    expect((await signedPost('/federation/inbox', peer, inboxMessage('ConnectAccept', peer.url))).status).toBe(200);
+    await deleteConnection(env.DB, (await getConnectionByBaseUrl(env.DB, peer.url))!.id);
+    const later = await seed(await makePeer('Clifftop library'), 'awaiting_them');
+
+    expect((await signedPost('/federation/inbox', peer, inboxMessage('ConnectAccept', peer.url))).status).toBe(401);
+    expect((await signedPost('/federation/inbox', peer, inboxMessage('Disconnect', peer.url))).status).toBe(401);
+    expect((await getConnection(env.DB, later.id))?.status).toBe('awaiting_them');
+  });
+
+  it('can only withdraw while it waits for our confirmation, and writes nothing trying anything else', async () => {
+    await seed(peer, 'awaiting_us');
+    expect((await signedPost('/federation/inbox', peer, inboxMessage('ConnectAccept', peer.url))).status).toBe(409);
+    expect((await signedPost('/federation/inbox', peer, inboxMessage('ConnectDecline', peer.url))).status).toBe(409);
+    expect(await seen()).toBe(0);
+    expect((await signedPost('/federation/inbox', peer, inboxMessage('Disconnect', peer.url))).status).toBe(200);
+    expect(await getConnectionByBaseUrl(env.DB, peer.url)).toBeNull();
+  });
+
+  it('is refused past the daily message limit, without a write', async () => {
+    const row = await seed(peer, 'active');
+    await env.DB.prepare("INSERT INTO connection_push_counts (connection_id, day, pushes) VALUES (?, date('now'), 200)")
+      .bind(row.id)
+      .run();
+    expect((await signedPost('/federation/inbox', peer, inboxMessage('Disconnect', peer.url))).status).toBe(429);
+    expect(await getConnectionByBaseUrl(env.DB, peer.url)).not.toBeNull();
+    expect(await seen()).toBe(0);
+  });
+
+  it('can still decline after our side went active — its reply to our acceptance was lost', async () => {
+    await seed(peer, 'active');
+    expect((await signedPost('/federation/inbox', peer, inboxMessage('ConnectDecline', peer.url))).status).toBe(200);
+    expect(await getConnectionByBaseUrl(env.DB, peer.url)).toBeNull();
+  });
+
+  it('gets a 401, not a server error, for a malformed signature', async () => {
+    await seed(peer, 'active');
+    const url = `${A.url}/federation/inbox`;
+    const body = enc.encode(JSON.stringify(inboxMessage('Disconnect', peer.url)));
+    const headers = new Headers(await signRequest({ method: 'POST', url, body, keyid: peer.url, privateKey: peer.pair.privateKey }));
+    headers.set('signature', 'sig1=:AAAA:');
+    expect((await send(new Request(url, { method: 'POST', body, headers }))).status).toBe(401);
   });
 });

@@ -149,7 +149,8 @@ export type ConnectionStatus = (typeof CONNECTION_STATUSES)[number];
 
 /** Another Nalanda instance. The public key is its identity; the address is where to reach it. */
 export const connections = sqliteTable('connections', {
-  id: integer('id').primaryKey(),
+  // AUTOINCREMENT: an id is never reused, so a stale page or cached row can't reach a newer connection
+  id: integer('id').primaryKey({ autoIncrement: true }),
   baseUrl: text('base_url').notNull().unique(),
   householdName: text('household_name').notNull(),
   publicKey: text('public_key').notNull(), // Ed25519 public JWK, stored as JSON
@@ -163,10 +164,27 @@ export const connections = sqliteTable('connections', {
  * Activity ids already processed, so a replayed signed message within the signature window is a
  * no-op. Pruned after an hour, well past that window. Transient: not backed up.
  */
-export const federationSeen = sqliteTable('federation_seen', {
-  activityId: text('activity_id').primaryKey(),
-  seenAt: text('seen_at').notNull().default(now),
-});
+export const federationSeen = sqliteTable(
+  'federation_seen',
+  {
+    activityId: text('activity_id').primaryKey(),
+    seenAt: text('seen_at').notNull().default(now),
+  },
+  (t) => [index('idx_federation_seen_at').on(t.seenAt)],
+);
+
+/** Messages accepted from each connection per UTC day, for the daily limit. Transient: not backed up. */
+export const connectionPushCounts = sqliteTable(
+  'connection_push_counts',
+  {
+    connectionId: integer('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    day: text('day').notNull(),
+    pushes: integer('pushes').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.connectionId, t.day] })],
+);
 
 export type User = typeof users.$inferSelect;
 export type Library = typeof libraries.$inferSelect;

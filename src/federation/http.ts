@@ -2,6 +2,7 @@
 // (docs/proposals/connections.md §5, §6).
 import {
   DESCRIPTOR_PATH,
+  DESCRIPTOR_TIMEOUT_MS,
   FETCH_TIMEOUT_MS,
   INVITE_PATH,
   MAX_DESCRIPTOR_BYTES,
@@ -131,7 +132,7 @@ export async function fetchDescriptor(baseUrl: string): Promise<Descriptor | nul
   try {
     res = await fetch(`${baseUrl}${DESCRIPTOR_PATH}`, {
       redirect: 'manual',
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal: AbortSignal.timeout(DESCRIPTOR_TIMEOUT_MS),
       headers: { accept: 'application/json' },
     });
   } catch {

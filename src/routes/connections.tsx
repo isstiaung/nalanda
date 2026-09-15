@@ -6,6 +6,7 @@ import type { FC } from 'hono/jsx';
 import {
   activateConnection,
   countConnections,
+  countOpenInvites,
   createConnection,
   createInvite,
   deleteConnection,
@@ -312,9 +313,11 @@ connections.post('/connections/settings', async (c) => {
     return render(c, { error: `Give your library a name of up to ${MAX_HOUSEHOLD_NAME} characters.` });
   }
   const existing = await getFederationSettings(c.env.DB);
-  // The address is part of this library's identity to its connections, so it stays fixed once anyone is connected.
-  const baseUrl =
-    existing && (await countConnections(c.env.DB)) > 0 ? existing.baseUrl : normaliseBaseUrl(new URL(c.req.url).origin);
+  // The address is part of this library's identity: it stays fixed once anyone is connected or waiting, and
+  // while an unused invitation names it — changing it then would break every link already sent.
+  const fixed =
+    existing && ((await countConnections(c.env.DB)) > 0 || (await countOpenInvites(c.env.DB)) > 0);
+  const baseUrl = fixed ? existing.baseUrl : normaliseBaseUrl(new URL(c.req.url).origin);
   if (!baseUrl) return render(c, { error: 'Connections need this library to be served over https.' });
   await saveFederationSettings(c.env.DB, { householdName, baseUrl });
   return c.redirect('/connections');
@@ -338,10 +341,8 @@ connections.post('/connections/invites/:id/revoke', async (c) => {
   return c.redirect('/connections');
 });
 
-function redeemFailure(status: number | undefined, name: string, ourAddress: string): string {
+function redeemFailure(status: number, name: string, ourAddress: string): string {
   switch (status) {
-    case undefined:
-      return `Couldn't reach ${name}. Nothing was saved — try again later.`;
     case 404:
       return 'That invitation has already been used, has expired, or was revoked. Ask for a new one.';
     case 409:
@@ -391,9 +392,15 @@ connections.post('/connections/redeem', async (c) => {
     '/federation/connect',
     connectRequest(settings.baseUrl, settings.householdName, identity.publicJwk, invite.token),
   );
-  if (res?.status !== 202) {
+  if (!res) {
+    // No answer isn't a refusal: a slow reply may still have been recorded on their side, so keep ours.
+    return render(c, {
+      notice: `No answer from ${descriptor.name} yet. The request may still have reached them, so it’s listed under Waiting for them — cancel it there if they don’t confirm.`,
+    });
+  }
+  if (res.status !== 202) {
     await deleteConnection(c.env.DB, pending.id);
-    return render(c, { error: redeemFailure(res?.status, descriptor.name, settings.baseUrl) });
+    return render(c, { error: redeemFailure(res.status, descriptor.name, settings.baseUrl) });
   }
   return render(c, { notice: `Request sent. It becomes a connection once ${descriptor.name} confirms it.` });
 });
@@ -410,10 +417,14 @@ connections.post('/connections/:id/confirm', async (c) => {
     '/federation/inbox',
     inboxMessage('ConnectAccept', settings.baseUrl),
   );
-  if (!res || res.status < 200 || res.status >= 300) {
+  if (!res) {
+    // Unknown outcome: the confirmation may have arrived. Confirming again is safe — they accept a repeat.
     return render(c, {
-      error: `Couldn't reach ${row.householdName} to confirm. Nothing changed — try again when they're online.`,
+      error: `No answer from ${row.householdName}. Try Confirm again: if the first confirmation did reach them, the second completes it.`,
     });
+  }
+  if (res.status < 200 || res.status >= 300) {
+    return render(c, { error: `${row.householdName} didn’t accept the confirmation (HTTP ${res.status}). Nothing changed.` });
   }
   await activateConnection(c.env.DB, row.id, 'awaiting_us');
   forgetPeer(row.baseUrl);

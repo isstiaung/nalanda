@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "58b70245-12e7-417e-b22e-c2ebde1fd565",
+  "id": "fa417e08-4494-41b2-9420-dc5b10f61f2d",
   "prevId": "c4ec1376-410f-4897-b8a6-2b0398e5d7a3",
   "tables": {
     "connection_invites": {
@@ -79,6 +79,59 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "connection_push_counts": {
+      "name": "connection_push_counts",
+      "columns": {
+        "connection_id": {
+          "name": "connection_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pushes": {
+          "name": "pushes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "connection_push_counts_connection_id_connections_id_fk": {
+          "name": "connection_push_counts_connection_id_connections_id_fk",
+          "tableFrom": "connection_push_counts",
+          "tableTo": "connections",
+          "columnsFrom": [
+            "connection_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "connection_push_counts_connection_id_day_pk": {
+          "columns": [
+            "connection_id",
+            "day"
+          ],
+          "name": "connection_push_counts_connection_id_day_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "connections": {
       "name": "connections",
       "columns": {
@@ -87,7 +140,7 @@
           "type": "integer",
           "primaryKey": true,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": true
         },
         "base_url": {
           "name": "base_url",
@@ -187,7 +240,15 @@
           "default": "(datetime('now'))"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "idx_federation_seen_at": {
+          "name": "idx_federation_seen_at",
+          "columns": [
+            "seen_at"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},

@@ -9,8 +9,16 @@ CREATE TABLE `connection_invites` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `connection_invites_token_hash_unique` ON `connection_invites` (`token_hash`);--> statement-breakpoint
+CREATE TABLE `connection_push_counts` (
+	`connection_id` integer NOT NULL,
+	`day` text NOT NULL,
+	`pushes` integer NOT NULL,
+	PRIMARY KEY(`connection_id`, `day`),
+	FOREIGN KEY (`connection_id`) REFERENCES `connections`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
 CREATE TABLE `connections` (
-	`id` integer PRIMARY KEY NOT NULL,
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`base_url` text NOT NULL,
 	`household_name` text NOT NULL,
 	`public_key` text NOT NULL,
@@ -27,6 +35,7 @@ CREATE TABLE `federation_seen` (
 	`seen_at` text DEFAULT (datetime('now')) NOT NULL
 );
 --> statement-breakpoint
+CREATE INDEX `idx_federation_seen_at` ON `federation_seen` (`seen_at`);--> statement-breakpoint
 CREATE TABLE `federation_settings` (
 	`id` integer PRIMARY KEY NOT NULL,
 	`household_name` text NOT NULL,
