@@ -1429,11 +1429,31 @@ export async function lendToConnection(
   }
 }
 
-export async function recordBorrowed(
-  d1: D1Database,
-  values: Omit<BorrowedItem, 'id' | 'returnedOn'>,
-): Promise<void> {
-  await db(d1).insert(s.borrowedItems).values(values).onConflictDoNothing();
+/**
+ * Their yes to one of our requests: the request moves to accepted — from pending, or from withdrawn, since they
+ * lent it anyway — and the book goes on the Borrowed page. One batch, so a pull that runs out of queries can't
+ * keep the first without the second; the entry goes in first, and only while the request can still move. False
+ * when nothing moved: a repeat, or an answer to a declined request.
+ */
+export async function acceptOwnRequest(d1: D1Database, requestId: number, loanedOn: string, dueOn: string | null): Promise<boolean> {
+  const [, moved] = await d1.batch<{ id: number }>([
+    d1
+      .prepare(
+        `INSERT INTO borrowed_items (connection_id, request_activity_id, their_item_id, title, cover_key, borrowed_on, due_on)
+         SELECT connection_id, activity_id, their_item_id, item_title, cover_key, ?2, ?3 FROM borrow_requests
+         WHERE id = ?1 AND incoming = 0 AND their_item_id IS NOT NULL AND status IN ('pending', 'withdrawn')
+         ON CONFLICT (request_activity_id) DO NOTHING`,
+      )
+      .bind(requestId, loanedOn, dueOn),
+    d1
+      .prepare(
+        `UPDATE borrow_requests SET status = 'accepted', due_on = ?2, responded_at = datetime('now')
+         WHERE id = ?1 AND incoming = 0 AND status IN ('pending', 'withdrawn')
+         RETURNING id`,
+      )
+      .bind(requestId, dueOn),
+  ]);
+  return moved?.results.length === 1;
 }
 
 export async function markBorrowedReturned(

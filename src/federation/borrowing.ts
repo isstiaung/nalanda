@@ -2,12 +2,12 @@
 // household's books, the lender's answers to this household's requests, and return notices. Pushed or
 // pulled, each is idempotent — by activity id, or by a state that only moves forward.
 import {
+  acceptOwnRequest,
   availability,
   countPendingIncoming,
   hasPendingIncoming,
   insertBorrowRequest,
   markBorrowedReturned,
-  recordBorrowed,
   requestByActivity,
   requestStatus,
   setRequestStatus,
@@ -38,18 +38,9 @@ export async function receiveBorrowing(d1: D1Database, connection: Connection, m
       if (!request || request.theirItemId === null) return { status: 404, body: { error: 'no such request' } };
       // Accepted even if we withdrew meanwhile: they have lent it, so it belongs on the Borrowed page. Only when
       // the status actually moves, though — a repeat, or an answer to a declined request, records nothing.
-      if (!(await setRequestStatus(d1, request.id, 'accepted', ['pending', 'withdrawn'], message.dueOn))) {
+      if (!(await acceptOwnRequest(d1, request.id, message.loanedOn, message.dueOn))) {
         return { status: 200, body: { status: 'already answered' } };
       }
-      await recordBorrowed(d1, {
-        connectionId: connection.id,
-        requestActivityId: request.activityId,
-        theirItemId: request.theirItemId,
-        title: request.itemTitle,
-        coverKey: request.coverKey,
-        borrowedOn: message.loanedOn,
-        dueOn: message.dueOn,
-      });
       return { status: 200, body: { status: 'accepted' } };
     }
 

@@ -2,10 +2,12 @@
 // with an ordinary loan, return notices, the Borrowed page (docs/proposals/connections.md §7, §10).
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createConnectionView } from '../src/db/federation';
+import { createConnectionView, getConnection } from '../src/db/federation';
 import { createItem, createLibrary, createLoan, deleteItem, setItemTags } from '../src/db/queries';
 import type { Item } from '../src/db/schema';
 import type { Bindings } from '../src/env';
+import { receiveBorrowing } from '../src/federation/borrowing';
+import { BudgetSpent, budgeted } from '../src/federation/budget';
 import { itemStamp } from '../src/federation/items';
 import { borrowAccept, borrowDecline, borrowRequest, borrowWithdraw, inboxMessage, parseInboxMessage } from '../src/federation/messages';
 import {
@@ -365,6 +367,30 @@ describe('borrowing: this household asks', () => {
     const other = await makePeer('Lakeside library');
     await connectPeer(other);
     expect((await a.signedPost('/federation/inbox', other, borrowDecline(other.url, requestId))).status).toBe(404);
+  });
+
+  it('records an acceptance whole or not at all when a pull runs out of queries', async () => {
+    const pushes: Record<string, unknown>[] = [];
+    answerOutbound((req) => {
+      const { pathname } = new URL(req.url);
+      if (pathname === '/federation/item') return json(detailJson(true));
+      if (pathname === '/federation/inbox') pushes.push(decode(req.body));
+      return json({ status: 'received' });
+    });
+    await askForFreeOne(await sessionCookie('member'));
+    const accept = borrowAccept(peer.url, pushes[0]!.id as string, '2026-09-15', null);
+    const connection = (await getConnection(env.DB, connectionId))!;
+
+    // Room to find the request, not to write the answer: nothing changes, so a later pull applies it in full.
+    await expect(receiveBorrowing(budgeted(env.DB, { left: 2 }), connection, accept)).rejects.toThrow(BudgetSpent);
+    expect(await rows('SELECT status FROM borrow_requests')).toEqual([{ status: 'pending' }]);
+    expect(await rows('SELECT * FROM borrowed_items')).toHaveLength(0);
+
+    expect(await receiveBorrowing(env.DB, connection, accept)).toEqual({ status: 200, body: { status: 'accepted' } });
+    expect(await rows('SELECT status FROM borrow_requests')).toEqual([{ status: 'accepted' }]);
+    expect(await rows('SELECT title, due_on, returned_on FROM borrowed_items')).toEqual([
+      { title: 'Free one', due_on: null, returned_on: null },
+    ]);
   });
 
   it('marks a request declined at once when they refuse it', async () => {
