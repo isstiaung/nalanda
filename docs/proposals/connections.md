@@ -129,7 +129,7 @@ A invites B:
 5. A checks, **local work first, database next, outbound fetch last:**
    1. the request signature verifies against the key in the body — B holds that key. This is
       pure CPU, so an unsigned or forged request is turned away without touching the database
-      2. an unused, unexpired invitation exists for the token's hash — otherwise 404. A failed
+   2. an unused, unexpired invitation exists for the token's hash — otherwise 404. A failed
       lookup costs two indexed reads and writes nothing. There is deliberately no per-IP
       throttle, unlike logins: tokens are 256 random bits, so guessing gets nowhere, and a
       peer's request comes from its Worker. Cloudflare gives every Worker subrequest to
@@ -137,7 +137,7 @@ A invites B:
       would let one misbehaving peer lock every household out
    3. only now, fetch `https://b/.well-known/nalanda` and confirm it serves the same key —
       B controls that domain
-      4. consume the invitation with a single conditional update (`… WHERE used_at IS NULL`), so
+   4. consume the invitation with a single conditional update (`… WHERE used_at IS NULL`), so
       two simultaneous redemptions can't both succeed. A failure at step 3 leaves the
       invitation usable
 6. The connection is recorded as **pending**. A's admin sees B's household name and domain,
@@ -393,7 +393,6 @@ values, to be tuned during phases 1 and 2:
 | `borrow_requests` | both directions, with status |
 | `connection_loans` | links an existing `loans` row to a connection and request |
 | `borrowed_items` | books borrowed from connections |
-
 | `federation_seen` | control-message ids processed in the last hour, so replays are no-ops |
 | `connection_push_counts` | pushes accepted per connection per day, for the daily limit |
 
@@ -403,8 +402,9 @@ cursor arrives with phase 3) and `federation_seen`. A per-IP throttle table,
 `federation_attempts`, was planned and dropped — §5, step 2.
 
 Durable tables are appended to `scripts/backup.mjs`. `federation_seen` is replay
-bookkeeping, worthless after an hour, and is left out on purpose. Folding tables together (for example one activities table with a direction
-column) remains a reasonable call as later phases land.
+bookkeeping, worthless after an hour, and is left out on purpose. Folding tables together
+(for example one activities table with a direction column) remains a reasonable call as
+later phases land.
 
 **Data portability:** this is not catalog data, so the existing `/export.csv` stays exactly
 as it is. A separate `/federation/export.json` covers connections, comments sent and
