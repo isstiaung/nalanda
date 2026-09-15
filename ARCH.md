@@ -344,6 +344,14 @@ POST /shares/:id               admin: action=rotate | delete
 
 GET  /share/:token             public read-only library (whitelisted fields, noindex)
 GET  /share/:token/items/:id   public read-only item detail
+
+connections between instances — every route 404s without a federation key (§16 #29)
+GET  /.well-known/nalanda       public: household name, public key, protocol version
+GET  /connect                   public: explains an invitation link opened in a browser
+POST /federation/connect        public, signed: redeem an invitation
+POST /federation/inbox          public, signed by a connection: accept · decline · disconnect
+GET  /connections              admin: name, invitations, pending and active connections
+POST /connections/…            admin: settings · invites · redeem · confirm · decline · disconnect
 ```
 
 Every authenticated page route returns a full document normally and a partial when htmx's

@@ -115,6 +115,77 @@ export const loginAttempts = sqliteTable('login_attempts', {
   attemptedAt: text('attempted_at').notNull().default(now),
 });
 
+// ---------- connections between instances (docs/proposals/connections.md) ----------
+// Phase 1: identity, invites and connections. Inert unless FEDERATION_PRIVATE_KEY is set.
+
+/** Singleton row (id 1): this household's name and canonical address, as connections see them. */
+export const federationSettings = sqliteTable('federation_settings', {
+  id: integer('id').primaryKey(),
+  householdName: text('household_name').notNull(),
+  baseUrl: text('base_url').notNull(),
+  updatedAt: text('updated_at').notNull().default(now),
+});
+
+/**
+ * One-time invites. Only the SHA-256 of the token is stored — the token itself is shown to the
+ * admin once and never again, so a leaked database or backup can't redeem anything.
+ */
+export const connectionInvites = sqliteTable('connection_invites', {
+  id: integer('id').primaryKey(),
+  tokenHash: text('token_hash').notNull().unique(),
+  createdBy: integer('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: text('created_at').notNull().default(now),
+  expiresAt: text('expires_at').notNull(),
+  usedAt: text('used_at'),
+});
+
+/**
+ * awaiting_us — they redeemed our invite; an admin here must confirm.
+ * awaiting_them — we redeemed theirs; their admin must confirm.
+ * active — confirmed on both sides.
+ */
+export const CONNECTION_STATUSES = ['awaiting_us', 'awaiting_them', 'active'] as const;
+export type ConnectionStatus = (typeof CONNECTION_STATUSES)[number];
+
+/** Another Nalanda instance. The public key is its identity; the address is where to reach it. */
+export const connections = sqliteTable('connections', {
+  // AUTOINCREMENT: an id is never reused, so a stale page or cached row can't reach a newer connection
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  baseUrl: text('base_url').notNull().unique(),
+  householdName: text('household_name').notNull(),
+  publicKey: text('public_key').notNull(), // Ed25519 public JWK, stored as JSON
+  status: text('status', { enum: CONNECTION_STATUSES }).notNull(),
+  inviteId: integer('invite_id').references(() => connectionInvites.id, { onDelete: 'set null' }),
+  createdAt: text('created_at').notNull().default(now),
+  confirmedAt: text('confirmed_at'),
+});
+
+/**
+ * Activity ids already processed, so a replayed signed message within the signature window is a
+ * no-op. Pruned after an hour, well past that window. Transient: not backed up.
+ */
+export const federationSeen = sqliteTable(
+  'federation_seen',
+  {
+    activityId: text('activity_id').primaryKey(),
+    seenAt: text('seen_at').notNull().default(now),
+  },
+  (t) => [index('idx_federation_seen_at').on(t.seenAt)],
+);
+
+/** Messages accepted from each connection per UTC day, for the daily limit. Transient: not backed up. */
+export const connectionPushCounts = sqliteTable(
+  'connection_push_counts',
+  {
+    connectionId: integer('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    day: text('day').notNull(),
+    pushes: integer('pushes').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.connectionId, t.day] })],
+);
+
 export type User = typeof users.$inferSelect;
 export type Library = typeof libraries.$inferSelect;
 export type Share = typeof shares.$inferSelect;
@@ -122,3 +193,6 @@ export type Item = typeof items.$inferSelect;
 export type NewItem = typeof items.$inferInsert;
 export type Loan = typeof loans.$inferSelect;
 export type Tag = typeof tags.$inferSelect;
+export type FederationSettings = typeof federationSettings.$inferSelect;
+export type ConnectionInvite = typeof connectionInvites.$inferSelect;
+export type Connection = typeof connections.$inferSelect;

@@ -630,3 +630,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+
+/* ── connections ──────────────────────────────────────────────────────────── */
+
+/* a section's form, table and notes keep apart, in whatever order they come */
+.fed-section > :not(.eyebrow) + * { margin-top: 0.75rem; }

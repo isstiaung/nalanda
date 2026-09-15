@@ -3,11 +3,13 @@ import { getCookie } from 'hono/cookie';
 import { secureHeaders } from 'hono/secure-headers';
 import { countUsers, getShareByToken, getUserById } from './db/queries';
 import type { AppEnv } from './env';
+import federationRoutes from './federation/routes';
 import { SESSION_COOKIE, verifySessionToken } from './lib/auth';
 import { serveCover } from './lib/covers';
 import accountRoutes from './routes/account';
 import addRoutes from './routes/add';
 import authRoutes from './routes/auth';
+import connectionsRoutes from './routes/connections';
 import dashboardRoutes from './routes/dashboard';
 import importExportRoutes from './routes/importexport';
 import itemRoutes from './routes/items';
@@ -51,6 +53,10 @@ app.use(async (c, next) => {
 app.route('/', authRoutes);
 app.route('/share', shareRoutes);
 app.get('/covers/:key', (c) => serveCover(c.env.COVERS, c.req.param('key')));
+
+// ---- public: connections between instances — signature-authenticated, 404 unless enabled ----
+// (docs/proposals/connections.md). Peers never hold a session, so this sits before the session middleware.
+app.route('/', federationRoutes);
 
 // ---- front door: with HOME_SHARE_TOKEN set, anonymous "/" lands on that share ----
 // The token lives in a secret so the front page can be repointed (e.g. after a share
@@ -96,6 +102,7 @@ app.route('/', searchRoutes);
 app.route('/', importExportRoutes);
 app.route('/', accountRoutes);
 app.route('/', settingsRoutes);
+app.route('/', connectionsRoutes);
 
 app.notFound((c) => c.text('Not found', 404));
 app.onError((err, c) => {

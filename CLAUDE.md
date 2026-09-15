@@ -78,6 +78,9 @@ shape from this file.
   but rotation can lag up to 1 h on untouched isolates (ARCH.md §16 #19).
 - `/covers/:key` is intentionally public — keys are random UUIDs; never make them
   enumerable or derived from item data.
+- Strings from another instance — household names now, comments later — render only as
+  escaped text. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:
+  the browser decodes HTML escapes back into quotes before it runs the script.
 
 ## Commands
 ```
@@ -97,6 +100,8 @@ npm run backup             # per-table data-only export → backups/remote-<date
                            #  schema comes from migrations/ — see backup runbook)
 npm run backup:local       # same, for the local dev database
 npm run vendor             # re-copy vendored assets after bumping htmx/zxing/font versions
+npm run federation:keygen  # Ed25519 identity for connections → FEDERATION_PRIVATE_KEY
+                           # (printed once, never written to disk)
 ```
 
 ## Layout
@@ -111,15 +116,19 @@ src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googleboo
                    discogs, itunes, musicbrainz — nothing else calls external APIs
 src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist), csv.ts
                    (export + libib mapping), covers.ts (only R2 code)
+src/federation/    connections between instances (docs/proposals/connections.md): keys,
+                   RFC 9421 signing profile, peer HTTP, messages, public routes. Its D1
+                   queries live in src/db/federation.ts; the admin page in routes/connections
 public/            app.css, scanner.js, import.js, app.js + vendor/ (htmx, zxing, eczar fonts)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;
                    apply-migrations.ts resets + re-migrates D1 before EVERY test, and
                    fetch-mock.ts stubs outbound fetch (see §16 #25)
 scripts/           vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp config),
-                   backup.mjs, seed-demo.mjs, hash-password.mjs
-runbooks/          operational guides: deploy, backup/restore, accounts, libib import,
-                   goodreads import, troubleshooting — update when ops procedures change
+                   backup.mjs, seed-demo.mjs, hash-password.mjs, federation-keygen.mjs
+runbooks/          operational guides: deploy, backup/restore, accounts, connections,
+                   libib import, goodreads import, troubleshooting — update when ops
+                   procedures change
 .github/           CI (typecheck + test; no secrets, never pull_request_target),
                    dependabot (minor/patch grouped, majors alone), CODEOWNERS
 docs/screenshots/  README imagery, captured from seeded demo data — never real catalog data
@@ -154,6 +163,9 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
   `HOME_SHARE_TOKEN` — points logged-out `/` at a share page, ARCH.md §16 #21) via
   `wrangler secret put` — never in code, `wrangler.jsonc`, or git. Local values go in
   `.dev.vars` (gitignored; see `.dev.vars.example`).
+- **`FEDERATION_PRIVATE_KEY`** is this instance's identity to its connections: a runtime
+  secret, never in git or D1, and so not in backups — losing it means reconnecting with every
+  household. Unset means connections are disabled entirely and every connections route 404s.
 - **No Cloudflare resource ids in the repo** (ARCH.md §16 #24). `database_id` stays the
   all-zero placeholder; deploys supply `D1_DATABASE_ID` from the environment. Don't
   "helpfully" fill it in — and note miniflare keys local D1 state by that value, so
