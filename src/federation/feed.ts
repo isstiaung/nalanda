@@ -6,6 +6,7 @@ import {
   claimSubscription,
   dueSubscriptions,
   markSubscriptionGone,
+  pruneOrphanThreads,
   recordPull,
   removeEntries,
   storedRemoteIds,
@@ -160,6 +161,7 @@ export async function refreshSubscription(
       again: page.more && !dropped && page.latest !== sub.cursor,
     });
     await checkRemovals(db, identity, settings, sub);
+    await pruneOrphanThreads(db); // our copies of threads go with the entries they belong to
   } finally {
     await applyLifecycle(db, sub);
   }

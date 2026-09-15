@@ -1,7 +1,9 @@
-// The messages connected instances exchange (docs/proposals/connections.md §5). Shaped as
+// The messages connected instances exchange (docs/proposals/connections.md §5, §9). Shaped as
 // ActivityStreams 2.0 objects — `@context`, `type`, `id`, `actor` — with types of Nalanda's own,
 // named for what they mean, since nothing outside Nalanda needs to read them.
+import { MAX_AUTHOR_NAME, MAX_COMMENT_CHARS } from './config';
 import { isHouseholdName, normaliseBaseUrl } from './http';
+import { isId, isSqlDatetime } from './items';
 import { isPublicJwk, type PublicJwk } from './keys';
 
 export const AS2_CONTEXT = 'https://www.w3.org/ns/activitystreams';
@@ -11,35 +13,71 @@ type Envelope = { '@context': typeof AS2_CONTEXT; id: string; actor: string };
 /** Sent to /federation/connect when redeeming an invitation. */
 export type ConnectRequest = Envelope & { type: 'ConnectRequest'; name: string; publicKey: PublicJwk; token: string };
 
-export const INBOX_TYPES = ['ConnectAccept', 'ConnectDecline', 'Disconnect'] as const;
-export type InboxType = (typeof INBOX_TYPES)[number];
-/** Sent to /federation/inbox. Later phases add types; unknown ones are rejected. */
-export type InboxMessage = Envelope & { type: InboxType };
+export const CONTROL_TYPES = ['ConnectAccept', 'ConnectDecline', 'Disconnect'] as const;
+export type ControlType = (typeof CONTROL_TYPES)[number];
+/** @deprecated name kept for phase 1 callers */
+export type InboxType = ControlType;
+export type ControlMessage = Envelope & { type: ControlType };
+
+/** A comment on a review that belongs to one of the two households; `inReplyTo.owner` says which. */
+export type CommentCreate = Envelope & {
+  type: 'CommentCreate';
+  inReplyTo: { owner: string; item: number };
+  author: string;
+  content: string;
+  published: string;
+};
+/** Withdraws or removes a comment, named by the id of the CommentCreate that made it. */
+export type CommentDelete = Envelope & { type: 'CommentDelete'; comment: string };
+
+/** Addressed to one household, delivered by push and kept in the sender's outbox for pulling. */
+export type DirectedMessage = CommentCreate | CommentDelete;
+/** Sent to /federation/inbox. Unknown types are rejected. */
+export type InboxMessage = ControlMessage | DirectedMessage;
 
 const ACTIVITY_ID = /^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const isActivityId = (v: unknown): v is string => typeof v === 'string' && ACTIVITY_ID.test(v);
 
 export function newActivityId(): string {
   return `urn:uuid:${crypto.randomUUID()}`;
 }
 
+const sqlNow = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
+
 export function connectRequest(actor: string, name: string, publicKey: PublicJwk, token: string): ConnectRequest {
   return { '@context': AS2_CONTEXT, type: 'ConnectRequest', id: newActivityId(), actor, name, publicKey, token };
 }
 
-export function inboxMessage(type: InboxType, actor: string): InboxMessage {
+export function inboxMessage(type: ControlType, actor: string): ControlMessage {
   return { '@context': AS2_CONTEXT, type, id: newActivityId(), actor };
+}
+
+export function commentCreate(
+  actor: string,
+  inReplyTo: { owner: string; item: number },
+  author: string,
+  content: string,
+): CommentCreate {
+  return {
+    '@context': AS2_CONTEXT,
+    type: 'CommentCreate',
+    id: newActivityId(),
+    actor,
+    inReplyTo,
+    author: author.slice(0, MAX_AUTHOR_NAME),
+    content,
+    published: sqlNow(),
+  };
+}
+
+export function commentDelete(actor: string, comment: string): CommentDelete {
+  return { '@context': AS2_CONTEXT, type: 'CommentDelete', id: newActivityId(), actor, comment };
 }
 
 function isEnvelope(value: unknown): value is Envelope & Record<string, unknown> {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
-  return (
-    v['@context'] === AS2_CONTEXT &&
-    typeof v.id === 'string' &&
-    ACTIVITY_ID.test(v.id) &&
-    typeof v.actor === 'string' &&
-    normaliseBaseUrl(v.actor) === v.actor
-  );
+  return v['@context'] === AS2_CONTEXT && isActivityId(v.id) && typeof v.actor === 'string' && normaliseBaseUrl(v.actor) === v.actor;
 }
 
 export function parseConnectRequest(value: unknown): ConnectRequest | null {
@@ -51,6 +89,24 @@ export function parseConnectRequest(value: unknown): ConnectRequest | null {
 }
 
 export function parseInboxMessage(value: unknown): InboxMessage | null {
-  if (!isEnvelope(value) || !(INBOX_TYPES as readonly unknown[]).includes(value.type)) return null;
-  return { '@context': AS2_CONTEXT, type: value.type as InboxType, id: value.id, actor: value.actor };
+  if (!value || typeof value !== 'object' || !isEnvelope(value)) return null;
+  const base = { '@context': AS2_CONTEXT, id: value.id, actor: value.actor } as const;
+  if ((CONTROL_TYPES as readonly unknown[]).includes(value.type)) return { ...base, type: value.type as ControlType };
+
+  if (value.type === 'CommentCreate') {
+    const reply = value.inReplyTo as Record<string, unknown> | null | undefined;
+    const { author, content, published } = value;
+    if (!reply || typeof reply !== 'object' || typeof reply.owner !== 'string') return null;
+    if (normaliseBaseUrl(reply.owner) !== reply.owner || !isId(reply.item)) return null;
+    if (typeof author !== 'string' || !author.trim() || author.length > MAX_AUTHOR_NAME) return null;
+    if (typeof content !== 'string' || !content.trim() || content.length > MAX_COMMENT_CHARS) return null;
+    if (!isSqlDatetime(published)) return null;
+    return { ...base, type: 'CommentCreate', inReplyTo: { owner: reply.owner, item: reply.item }, author, content, published };
+  }
+  if (value.type === 'CommentDelete') {
+    return isActivityId(value.comment) ? { ...base, type: 'CommentDelete', comment: value.comment } : null;
+  }
+  return null;
 }
+
+export const isDirected = (m: InboxMessage): m is DirectedMessage => m.type === 'CommentCreate' || m.type === 'CommentDelete';

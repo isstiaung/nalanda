@@ -401,7 +401,8 @@ describe('following another household', () => {
     const member = await sessionCookie('member');
 
     await a.get('/feed', member); // the pull runs after the response
-    expect(outbound.map((r) => `${new URL(r.url).pathname}${new URL(r.url).search}`)).toEqual([
+    const feedCalls = () => outbound.filter((r) => new URL(r.url).pathname.startsWith('/federation/feed'));
+    expect(feedCalls().map((r) => `${new URL(r.url).pathname}${new URL(r.url).search}`)).toEqual([
       '/federation/feed?view=7&since=0',
       '/federation/feed/check',
     ]);
@@ -416,7 +417,7 @@ describe('following another household', () => {
     expect(await rows('SELECT cursor FROM feed_subscriptions WHERE id = ?', sub.id)).toEqual([{ cursor: 13 }]);
 
     const html = await (await a.get('/feed', member)).text();
-    expect(outbound).toHaveLength(2); // not due again within its interval
+    expect(feedCalls()).toHaveLength(2); // not due again within its interval
     expect(html).toContain('Hostile');
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
     expect(html).not.toContain('<img src=x');

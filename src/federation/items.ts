@@ -67,6 +67,7 @@ const COVER_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
 export const isId = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0;
+export const isSqlDatetime = (v: unknown): v is string => typeof v === 'string' && SQL_DATETIME.test(v);
 const isText = (v: unknown, max: number): v is string | null => v === null || (typeof v === 'string' && v.length <= max);
 
 export function parseFeedItem(value: unknown): FeedItem | null {

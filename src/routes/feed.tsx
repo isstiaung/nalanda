@@ -8,21 +8,25 @@
 import { Hono } from 'hono';
 import type { FC } from 'hono/jsx';
 import {
+  commentsOnTheirItems,
   countSubscriptions,
   feedPage,
   getFederationSettings,
+  recentCommentsOnOurReviews,
   takeRemovedCount,
   type FeedCursor,
   type StoredEntry,
 } from '../db/federation';
-import type { ActivityKind } from '../db/schema';
+import type { ActivityKind, Comment } from '../db/schema';
 import type { AppEnv } from '../env';
-import { BACKGROUND_QUERY_BUDGET, FEED_PAGE_BYTES, FEED_PAGE_ENTRIES } from '../federation/config';
+import { BACKGROUND_QUERY_BUDGET, FEED_PAGE_BYTES, FEED_PAGE_ENTRIES, RECENT_COMMENT_DAYS } from '../federation/config';
 import { refreshDue } from '../federation/feed';
 import { coverUrl, parseFeedItem, type FeedItem } from '../federation/items';
 import { loadIdentity } from '../federation/keys';
+import { refreshOutboxes } from '../federation/outbox';
 import { MEDIA_ICON, stars } from '../views/components';
 import { page } from '../views/layout';
+import { CommentForm, CommentView } from './comments';
 
 const feed = new Hono<AppEnv>();
 
@@ -34,6 +38,7 @@ type Card = {
   connectionId: number;
   householdName: string;
   baseUrl: string;
+  itemId: number; // their items id
   item: FeedItem;
   kinds: Set<ActivityKind>;
   published: string;
@@ -64,6 +69,7 @@ function toCards(entries: StoredEntry[]): Card[] {
         connectionId: e.connectionId,
         householdName: e.householdName,
         baseUrl: e.baseUrl,
+        itemId: e.itemRemoteId,
         item,
         kinds: new Set(),
         published: e.publishedAt,
@@ -112,7 +118,7 @@ function verbs(kinds: Set<ActivityKind>): string {
   return list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}` : (list[0] ?? '');
 }
 
-const FeedCard: FC<{ card: Card; showHousehold: boolean }> = ({ card, showHousehold }) => {
+const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] }> = ({ card, showHousehold, thread }) => {
   const { item } = card;
   const cover = coverUrl(card.baseUrl, item.coverKey);
   return (
@@ -142,6 +148,25 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean }> = ({ card, showHouseh
             {card.reviewTruncated ? '…' : ''}
           </p>
         ) : null}
+        {card.review ? (
+          <details class="thread" id={`thread-${card.connectionId}-${card.itemId}`} open={thread.length > 0}>
+            <summary>{thread.length ? `Comments (${thread.length})` : 'Comment'}</summary>
+            {thread.map((comment) => (
+              <CommentView
+                comment={comment}
+                household={card.householdName}
+                canDelete={comment.fromUs}
+                back={`/feed#thread-${card.connectionId}-${card.itemId}`}
+              />
+            ))}
+            <CommentForm
+              action="/feed/comments"
+              fields={{ connectionId: String(card.connectionId), itemId: String(card.itemId) }}
+              label="Send"
+            />
+            <small class="muted">Seen only by {card.householdName} and this library.</small>
+          </details>
+        ) : null}
       </div>
     </article>
   );
@@ -169,12 +194,29 @@ feed.get('/feed', async (c) => {
         firstPage ? takeRemovedCount(c.env.DB) : Promise.resolve(0),
       ])
     : [{ entries: [], next: null }, 0, 0];
-  if (settings && subscriptions > 0 && firstPage) {
+  if (settings && firstPage) {
     c.executionCtx.waitUntil(
-      refreshDue(c.env.DB, identity, settings, { left: BACKGROUND_QUERY_BUDGET }).catch((err) => console.error('feed refresh failed', err)),
+      (async () => {
+        if (subscriptions > 0) await refreshDue(c.env.DB, identity, settings, { left: BACKGROUND_QUERY_BUDGET });
+        await refreshOutboxes(c.env.DB, identity, settings); // comments addressed to us, whether or not we follow anything
+      })().catch((err) => console.error('feed refresh failed', err)),
     );
   }
-  const groups = runs(toCards(entries));
+  const cards = toCards(entries);
+  const [threadRows, recent] = await Promise.all([
+    commentsOnTheirItems(
+      c.env.DB,
+      cards.filter((card) => card.review !== null).map((card): [number, number] => [card.connectionId, card.itemId]),
+    ),
+    settings && firstPage ? recentCommentsOnOurReviews(c.env.DB, RECENT_COMMENT_DAYS, 10) : Promise.resolve([]),
+  ]);
+  const threads = new Map<string, Comment[]>();
+  for (const row of threadRows) {
+    const key = `${row.connectionId}:${row.theirItemId}`;
+    threads.set(key, [...(threads.get(key) ?? []), row]);
+  }
+  const threadOf = (card: Card) => threads.get(`${card.connectionId}:${card.itemId}`) ?? [];
+  const groups = runs(cards);
 
   return page(
     c,
@@ -191,6 +233,20 @@ feed.get('/feed', async (c) => {
           {removed === 1 ? '1 entry was' : `${removed} entries were`} removed because the households that shared them no
           longer do.
         </article>
+      ) : null}
+      {recent.length ? (
+        <section>
+          <p class="eyebrow">Comments on your reviews</p>
+          <ul class="recent-comments">
+            {recent.map((r) => (
+              <li>
+                <strong>{r.authorName}</strong> <span class="muted">({r.householdName})</span> on{' '}
+                <a href={`/items/${r.itemId}#comments`}>{r.itemTitle}</a>{' '}
+                <small class="muted mono">{r.createdAt.slice(0, 10)}</small>
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
       {!settings ? (
         <p class="muted">
@@ -230,12 +286,12 @@ feed.get('/feed', async (c) => {
                 </summary>
                 <div class="feed">
                   {run.map((card) => (
-                    <FeedCard card={card} showHousehold={false} />
+                    <FeedCard card={card} showHousehold={false} thread={threadOf(card)} />
                   ))}
                 </div>
               </details>
             ) : (
-              run.map((card) => <FeedCard card={card} showHousehold={true} />)
+              run.map((card) => <FeedCard card={card} showHousehold={true} thread={threadOf(card)} />)
             ),
           )}
         </div>

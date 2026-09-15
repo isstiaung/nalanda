@@ -57,6 +57,13 @@
       "when": 1789463598244,
       "tag": "0007_connections-activity-triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1789464388340,
+      "tag": "0008_connections-comments",
+      "breakpoints": true
     }
   ]
 }

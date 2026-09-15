@@ -28,6 +28,8 @@ export const TABLES = [
   'activity_log',
   'feed_subscriptions', // after connections
   'remote_activities', // after feed_subscriptions
+  'comments',
+  'outbox',
 ];
 
 const local = process.argv.includes('--local');

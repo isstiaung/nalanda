@@ -158,6 +158,9 @@ export const connections = sqliteTable('connections', {
   inviteId: integer('invite_id').references(() => connectionInvites.id, { onDelete: 'set null' }),
   createdAt: text('created_at').notNull().default(now),
   confirmedAt: text('confirmed_at'),
+  // phase 3: how far into their outbox this household has read, and when it last pulled
+  outboxCursor: integer('outbox_cursor').notNull().default(0),
+  outboxPulledAt: text('outbox_pulled_at'),
 });
 
 /**
@@ -270,6 +273,52 @@ export const remoteActivities = sqliteTable(
   ],
 );
 
+// Phase 3: comments on reviews, and the outbox behind every message addressed to one connection.
+
+/**
+ * A comment in a thread between this household and one connection, on a review that belongs to one of the
+ * two — `ourItemId` or `theirItemId` says which. The same activity id names it on both sides. Deleting keeps
+ * the row with its body cleared, so a copy of the original still waiting in an outbox can't bring it back.
+ */
+export const comments = sqliteTable(
+  'comments',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    activityId: text('activity_id').notNull().unique(),
+    connectionId: integer('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    ourItemId: integer('our_item_id').references(() => items.id, { onDelete: 'cascade' }),
+    theirItemId: integer('their_item_id'),
+    fromUs: integer('from_us', { mode: 'boolean' }).notNull(),
+    authorName: text('author_name').notNull(),
+    authorId: integer('author_id').references(() => users.id, { onDelete: 'set null' }),
+    body: text('body'),
+    createdAt: text('created_at').notNull().default(now),
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [index('idx_comments_our_item').on(t.ourItemId), index('idx_comments_their_item').on(t.connectionId, t.theirItemId)],
+);
+
+/**
+ * Messages addressed to one connection. Each is pushed once when written, and kept here for that connection to
+ * pull, so a push that failed isn't lost. Pruned after OUTBOX_RETENTION_DAYS.
+ */
+export const outbox = sqliteTable(
+  'outbox',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    connectionId: integer('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    activityId: text('activity_id').notNull().unique(),
+    message: text('message').notNull(),
+    createdAt: text('created_at').notNull().default(now),
+    deliveredAt: text('delivered_at'),
+  },
+  (t) => [index('idx_outbox_connection').on(t.connectionId, t.id)],
+);
+
 export type User = typeof users.$inferSelect;
 export type Library = typeof libraries.$inferSelect;
 export type Share = typeof shares.$inferSelect;
@@ -283,3 +332,5 @@ export type Connection = typeof connections.$inferSelect;
 export type ConnectionView = typeof connectionViews.$inferSelect;
 export type FeedSubscription = typeof feedSubscriptions.$inferSelect;
 export type RemoteActivity = typeof remoteActivities.$inferSelect;
+export type Comment = typeof comments.$inferSelect;
+export type OutboxRow = typeof outbox.$inferSelect;

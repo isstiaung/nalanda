@@ -73,3 +73,22 @@ export const BACKFILL_ENTRIES = 300;
 /** Stored entries the Feed page renders at once, by count and by bytes of entry JSON. */
 export const FEED_PAGE_ENTRIES = 200;
 export const FEED_PAGE_BYTES = 128 * 1024;
+
+// ---------- comments and the outbox (phase 3) ----------
+
+export const MAX_COMMENT_CHARS = 2_000;
+export const MAX_AUTHOR_NAME = 64;
+/** Messages this household may send one connection per day — its own side of the daily push limit. */
+export const MAX_SENT_PER_DAY = 100;
+/** Messages in one outbox response, within a byte budget. */
+export const OUTBOX_PAGE_SIZE = 50;
+export const OUTBOX_RESPONSE_BUDGET_BYTES = 64 * 1024;
+export const MAX_OUTBOX_RESPONSE_BYTES = 128 * 1024;
+/** How long a message waits in the outbox for a connection that hasn't pulled it. */
+export const OUTBOX_RETENTION_DAYS = 30;
+/** A connection's outbox is pulled at most this often, and this many connections' per page load. */
+export const OUTBOX_PULL_MINUTES = 5;
+export const OUTBOXES_PER_REQUEST = 2;
+/** Comments on this household's reviews listed at the top of Feed: from the last this many days. */
+export const RECENT_COMMENT_DAYS = 14;
+

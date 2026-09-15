@@ -25,6 +25,7 @@ import {
   listConnectionViews,
   listInvites,
   listSubscriptions,
+  pruneOrphanThreads,
   purgeSubscription,
   revokeInvite,
   saveFederationSettings,
@@ -925,7 +926,10 @@ connections.post('/connections/:id/subscriptions/:sid/purge', async (c) => {
   const ctx = await activeConnection(c);
   if (!ctx) return c.redirect('/connections');
   const sub = await getSubscription(c.env.DB, ctx.row.id, Number(c.req.param('sid')));
-  if (sub) await purgeSubscription(c.env.DB, sub.id);
+  if (sub) {
+    await purgeSubscription(c.env.DB, sub.id);
+    await pruneOrphanThreads(c.env.DB);
+  }
   return c.redirect(`/connections/${ctx.row.id}/feed`);
 });
 
@@ -933,7 +937,10 @@ connections.post('/connections/:id/subscriptions/:sid/unfollow', async (c) => {
   const ctx = await activeConnection(c);
   if (!ctx) return c.redirect('/connections');
   const sub = await getSubscription(c.env.DB, ctx.row.id, Number(c.req.param('sid')));
-  if (sub) await deleteSubscription(c.env.DB, sub.id);
+  if (sub) {
+    await deleteSubscription(c.env.DB, sub.id);
+    await pruneOrphanThreads(c.env.DB);
+  }
   return c.redirect(`/connections/${ctx.row.id}/feed`);
 });
 
