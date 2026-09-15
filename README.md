@@ -109,6 +109,7 @@ by step in [runbooks/deploy.md](runbooks/deploy.md).
 | [deploy.md](runbooks/deploy.md) | First deploy, updates, rollback, custom domain, API tokens |
 | [backup-and-restore.md](runbooks/backup-and-restore.md) | Routine backups, restoring after a mistake |
 | [accounts-and-access.md](runbooks/accounts-and-access.md) | Family accounts, lost passwords, admin lockout, share links |
+| [connections.md](runbooks/connections.md) | Connecting with another household's Nalanda, keys, disconnecting |
 | [import-from-goodreads.md](runbooks/import-from-goodreads.md) | Bringing your Goodreads history over (and leaving) |
 | [import-from-libib.md](runbooks/import-from-libib.md) | Migrating your libib collection |
 | [troubleshooting.md](runbooks/troubleshooting.md) | Scanner, lookups, deploys, logs |

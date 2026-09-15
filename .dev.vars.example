@@ -8,3 +8,6 @@ SESSION_SECRET=change-me-to-anything-long-and-random
 # Optional front door: logged-out "/" redirects to /share/<token> instead of /login.
 # Use the token of a published share; update after rotating that share.
 # HOME_SHARE_TOKEN=
+# Optional: this instance's identity for connections between Nalanda instances.
+# Generate with `npm run federation:keygen`. Unset = connections disabled entirely.
+# FEDERATION_PRIVATE_KEY='{"kty":"OKP","crv":"Ed25519","x":"…","d":"…"}'
