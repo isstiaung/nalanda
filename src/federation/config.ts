@@ -45,7 +45,7 @@ export const MAX_FEED_ENTRIES_PER_DAY = 500;
 export const MAX_CONNECTION_VIEWS = 20;
 export const MAX_VIEW_NAME = 80;
 /** Requests one connection may make to the feed endpoints per window, per isolate — each costs D1 reads. */
-export const FEED_READS_PER_WINDOW = 60;
+export const FEED_READS_PER_WINDOW = 120;
 export const FEED_READ_WINDOW_MS = 10 * 60_000;
 /** How long an isolate reuses the list of shared views it serves. */
 export const SHARED_VIEWS_CACHE_MS = 5 * 60_000;
@@ -96,4 +96,19 @@ export const OUTBOX_PULL_QUERIES = 8;
 export const OUTBOX_APPLY_PER_PULL = 5;
 /** Comments on this household's reviews listed at the top of Feed: from the last this many days. */
 export const RECENT_COMMENT_DAYS = 14;
+
+// ---------- borrowing (phase 4) ----------
+
+/** How long a page of a connection's shelf, or one of its items, is kept in this isolate's memory — never stored. */
+export const SHELF_CACHE_MS = 5 * 60_000;
+export const SHELF_CACHE_ENTRIES = 100;
+export const MAX_BORROW_NOTE_CHARS = 500;
+/** Longer texts on a connection's item page are cut to this. */
+export const MAX_DETAIL_TEXT_CHARS = 20_000;
+/** Borrow requests one connection may have waiting here at once. */
+export const MAX_PENDING_REQUESTS_PER_CONNECTION = 20;
+/** Undelivered outbox messages retried per page load, each at most this often, for this long. */
+export const PUSH_RETRIES_PER_REQUEST = 1;
+export const PUSH_RETRY_MINUTES = 10;
+export const PUSH_RETRY_DAYS = 2;
 

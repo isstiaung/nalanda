@@ -13,6 +13,7 @@ import {
 import { createItem, createLibrary, createLoan, deleteItem, updateItem } from '../src/db/queries';
 import type { Bindings } from '../src/env';
 import { budgeted } from '../src/federation/budget';
+import { FEED_READS_PER_WINDOW } from '../src/federation/config';
 import { inboxMessage } from '../src/federation/messages';
 import { clearSharedViewsCache } from '../src/federation/routes';
 import {
@@ -254,7 +255,7 @@ describe('the feed this household serves', () => {
 
   it('limits how often one connection may read', async () => {
     await shareView();
-    for (let i = 0; i < 60; i++) expect((await a.signedGet('/federation/views', peer)).status).toBe(200);
+    for (let i = 0; i < FEED_READS_PER_WINDOW; i++) expect((await a.signedGet('/federation/views', peer)).status).toBe(200);
     expect((await a.signedGet('/federation/views', peer)).status).toBe(429);
   });
 

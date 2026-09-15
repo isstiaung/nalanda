@@ -1,7 +1,7 @@
 // The messages connected instances exchange (docs/proposals/connections.md §5, §9). Shaped as
 // ActivityStreams 2.0 objects — `@context`, `type`, `id`, `actor` — with types of Nalanda's own,
 // named for what they mean, since nothing outside Nalanda needs to read them.
-import { MAX_AUTHOR_NAME, MAX_COMMENT_CHARS } from './config';
+import { MAX_AUTHOR_NAME, MAX_BORROW_NOTE_CHARS, MAX_COMMENT_CHARS } from './config';
 import { isHouseholdName, normaliseBaseUrl } from './http';
 import { isId, isSqlDatetime, isStamp } from './items';
 import { isPublicJwk, type PublicJwk } from './keys';
@@ -30,8 +30,18 @@ export type CommentCreate = Envelope & {
 /** Withdraws or removes a comment, named by the id of the CommentCreate that made it. */
 export type CommentDelete = Envelope & { type: 'CommentDelete'; comment: string };
 
+/** Asks to borrow one of the receiver's books. */
+export type BorrowRequest = Envelope & { type: 'BorrowRequest'; item: number; requester: string; note: string | null };
+/** The lender's answers, and the borrower's withdrawal, each naming the request by its activity id. */
+export type BorrowAccept = Envelope & { type: 'BorrowAccept'; request: string; loanedOn: string; dueOn: string | null };
+export type BorrowDecline = Envelope & { type: 'BorrowDecline'; request: string };
+export type BorrowWithdraw = Envelope & { type: 'BorrowWithdraw'; request: string };
+/** The lender marked the loan returned. Queued by a trigger on loans (migration 0010). */
+export type Returned = Envelope & { type: 'Returned'; request: string; returnedOn: string };
+export type BorrowMessage = BorrowRequest | BorrowAccept | BorrowDecline | BorrowWithdraw | Returned;
+
 /** Addressed to one household, delivered by push and kept in the sender's outbox for pulling. */
-export type DirectedMessage = CommentCreate | CommentDelete;
+export type DirectedMessage = CommentCreate | CommentDelete | BorrowMessage;
 /** Sent to /federation/inbox. Unknown types are rejected. */
 export type InboxMessage = ControlMessage | DirectedMessage;
 
@@ -74,6 +84,33 @@ export function commentDelete(actor: string, comment: string): CommentDelete {
   return { '@context': AS2_CONTEXT, type: 'CommentDelete', id: newActivityId(), actor, comment };
 }
 
+export function borrowRequest(actor: string, item: number, requester: string, note: string | null): BorrowRequest {
+  return {
+    '@context': AS2_CONTEXT,
+    type: 'BorrowRequest',
+    id: newActivityId(),
+    actor,
+    item,
+    requester: requester.slice(0, MAX_AUTHOR_NAME),
+    note,
+  };
+}
+
+export function borrowAccept(actor: string, request: string, loanedOn: string, dueOn: string | null): BorrowAccept {
+  return { '@context': AS2_CONTEXT, type: 'BorrowAccept', id: newActivityId(), actor, request, loanedOn, dueOn };
+}
+
+export function borrowDecline(actor: string, request: string): BorrowDecline {
+  return { '@context': AS2_CONTEXT, type: 'BorrowDecline', id: newActivityId(), actor, request };
+}
+
+export function borrowWithdraw(actor: string, request: string): BorrowWithdraw {
+  return { '@context': AS2_CONTEXT, type: 'BorrowWithdraw', id: newActivityId(), actor, request };
+}
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const isDate = (v: unknown): v is string => typeof v === 'string' && DATE.test(v);
+
 function isEnvelope(value: unknown): value is Envelope & Record<string, unknown> {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
@@ -113,7 +150,28 @@ export function parseInboxMessage(value: unknown): InboxMessage | null {
   if (value.type === 'CommentDelete') {
     return isActivityId(value.comment) ? { ...base, type: 'CommentDelete', comment: value.comment } : null;
   }
+
+  switch (value.type) {
+    case 'BorrowRequest': {
+      const { item, requester, note } = value;
+      if (!isId(item) || typeof requester !== 'string' || !requester.trim() || requester.length > MAX_AUTHOR_NAME) return null;
+      if (!(note === null || (typeof note === 'string' && note.length <= MAX_BORROW_NOTE_CHARS))) return null;
+      return { ...base, type: 'BorrowRequest', item, requester, note };
+    }
+    case 'BorrowAccept': {
+      const { request, loanedOn, dueOn } = value;
+      if (!isActivityId(request) || !isDate(loanedOn) || !(dueOn === null || isDate(dueOn))) return null;
+      return { ...base, type: 'BorrowAccept', request, loanedOn, dueOn };
+    }
+    case 'BorrowDecline':
+    case 'BorrowWithdraw':
+      return isActivityId(value.request) ? { ...base, type: value.type, request: value.request } : null;
+    case 'Returned':
+      return isActivityId(value.request) && isDate(value.returnedOn)
+        ? { ...base, type: 'Returned', request: value.request, returnedOn: value.returnedOn }
+        : null;
+  }
   return null;
 }
 
-export const isDirected = (m: InboxMessage): m is DirectedMessage => m.type === 'CommentCreate' || m.type === 'CommentDelete';
+export const isDirected = (m: InboxMessage): m is DirectedMessage => !(CONTROL_TYPES as readonly string[]).includes(m.type);

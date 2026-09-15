@@ -80,6 +80,7 @@ const Sidebar: FC<{ user: SessionUser; path: string; libraries: NavLibrary[]; fe
       <div class="nav-eyebrow">Circulation</div>
       <NavLink href="/loans" label="Loans" path={path} />
       {federation ? <NavLink href="/feed" label="Feed" path={path} /> : null}
+      {federation ? <NavLink href="/borrowed" label="Borrowed" path={path} /> : null}
       {user.role === 'admin' ? <NavLink href="/shares" label="Shared links" path={path} /> : null}
       {federation && user.role === 'admin' ? <NavLink href="/connections" label="Connections" path={path} /> : null}
     </nav>

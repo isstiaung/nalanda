@@ -16,17 +16,17 @@ import {
 } from '../db/federation';
 import type { Connection, FederationSettings } from '../db/schema';
 import { itemStamp } from './items';
-import type { CommentCreate, CommentDelete, DirectedMessage } from './messages';
+import type { CommentCreate, CommentDelete } from './messages';
 
-export type Outcome = { status: 200 | 400 | 403 | 404; body: Record<string, string> };
+export type Outcome = { status: 200 | 400 | 403 | 404 | 409; body: Record<string, string> };
 
 const sqlNow = () => new Date().toISOString().replace('T', ' ').slice(0, 19);
 
-export function receiveDirected(
+export function receiveComment(
   d1: D1Database,
   settings: FederationSettings,
   connection: Connection,
-  message: DirectedMessage,
+  message: CommentCreate | CommentDelete,
 ): Promise<Outcome> {
   return message.type === 'CommentCreate'
     ? receiveCreate(d1, settings, connection, message)

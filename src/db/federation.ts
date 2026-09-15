@@ -2,6 +2,7 @@
 // module so queries.ts stays untouched, while src/db/ remains the only code touching D1.
 import { and, asc, count, desc, eq, gt, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
+import { listItems } from './queries';
 import * as s from './schema';
 import {
   BACKFILL_ENTRIES,
@@ -13,6 +14,9 @@ import {
 } from '../federation/config';
 import type {
   ActivityKind,
+  BorrowedItem,
+  BorrowRequestRow,
+  BorrowStatus,
   Comment,
   Connection,
   ConnectionInvite,
@@ -1010,7 +1014,13 @@ export async function enqueueOutbox(d1: D1Database, connectionId: number, messag
   const dbi = db(d1);
   const [row] = await dbi
     .insert(s.outbox)
-    .values({ connectionId, seq: counter.seq, activityId: message.id, message: JSON.stringify(message) })
+    .values({
+      connectionId,
+      seq: counter.seq,
+      activityId: message.id,
+      message: JSON.stringify(message),
+      attemptedAt: sql`(datetime('now'))`,
+    })
     .returning();
   if (!row) throw new Error('failed to queue message');
   await dbi
@@ -1090,5 +1100,414 @@ export async function recordOutboxPull(d1: D1Database, connectionId: number, res
       ...(result.again ? { outboxPulledAt: sql`(datetime('now', ${`-${OUTBOX_PULL_MINUTES} minutes`}))` } : {}),
     })
     .where(eq(s.connections.id, connectionId));
+}
+
+/** A message the other household refused outright: nothing is left to deliver. */
+export async function dropOutbox(d1: D1Database, id: number): Promise<void> {
+  await db(d1).delete(s.outbox).where(eq(s.outbox.id, id));
+}
+
+export type PendingPush = OutboxRow & { connection: Connection };
+
+/**
+ * Outbox messages whose push never landed, recent enough to be worth retrying, and not tried in the last
+ * `retryMinutes` — including ones a trigger queued without pushing at all. Oldest first.
+ */
+export async function undeliveredOutbox(d1: D1Database, limit: number, retryMinutes: number, days: number): Promise<PendingPush[]> {
+  const rows = await db(d1)
+    .select({ row: s.outbox, connection: s.connections })
+    .from(s.outbox)
+    .innerJoin(s.connections, eq(s.outbox.connectionId, s.connections.id))
+    .where(
+      and(
+        eq(s.connections.status, 'active'),
+        isNull(s.outbox.deliveredAt),
+        sql`${s.outbox.createdAt} > datetime('now', ${`-${days} days`})`,
+        sql`(${s.outbox.attemptedAt} IS NULL OR ${s.outbox.attemptedAt} <= datetime('now', ${`-${retryMinutes} minutes`}))`,
+      ),
+    )
+    .orderBy(asc(s.outbox.id))
+    .limit(limit);
+  return rows.map((r) => ({ ...r.row, connection: r.connection }));
+}
+
+export async function claimPushAttempt(d1: D1Database, id: number, attemptedAt: string | null): Promise<boolean> {
+  const rows = await db(d1)
+    .update(s.outbox)
+    .set({ attemptedAt: sql`(datetime('now'))` })
+    .where(and(eq(s.outbox.id, id), attemptedAt === null ? isNull(s.outbox.attemptedAt) : eq(s.outbox.attemptedAt, attemptedAt)))
+    .returning({ id: s.outbox.id });
+  return rows.length === 1;
+}
+
+// ---------- borrowing (phase 4) ----------
+
+/** A copy is free to lend while the household holds more copies than are out on loan. Nothing about who has them. */
+export async function availability(d1: D1Database, items: Item[]): Promise<Map<number, boolean>> {
+  if (!items.length) return new Map();
+  const { results } = await d1
+    .prepare(
+      `SELECT item_id AS itemId, count(*) AS n FROM loans
+       WHERE returned_on IS NULL AND item_id IN (SELECT value FROM json_each(?1)) GROUP BY item_id`,
+    )
+    .bind(JSON.stringify(items.map((i) => i.id)))
+    .all<{ itemId: number; n: number }>();
+  const out = new Map(results.map((r) => [r.itemId, r.n]));
+  return new Map(items.map((i) => [i.id, i.copies > (out.get(i.id) ?? 0)]));
+}
+
+/** One page of a connection view, in its own order — the listing its share-link twin would show. */
+export function shelfPage(d1: D1Database, view: ConnectionView, page: number) {
+  return listItems(d1, view.libraryId, {
+    mediaTypes: view.mediaType ? [view.mediaType] : undefined,
+    statuses: view.status ? [view.status] : undefined,
+    owned: view.owned ?? undefined,
+    sort: view.sort,
+    page,
+  });
+}
+
+export type NewBorrowRequest = {
+  activityId: string;
+  connectionId: number;
+  incoming: boolean;
+  ourItemId?: number | null;
+  theirItemId?: number | null;
+  theirViewId?: number | null;
+  itemTitle: string;
+  coverKey?: string | null;
+  requesterName: string;
+  requesterId?: number | null;
+  note: string | null;
+};
+
+/** Null when a request with that activity id exists already. */
+export async function insertBorrowRequest(d1: D1Database, values: NewBorrowRequest): Promise<BorrowRequestRow | null> {
+  const [row] = await db(d1).insert(s.borrowRequests).values(values).onConflictDoNothing().returning();
+  return row ?? null;
+}
+
+export async function getBorrowRequest(d1: D1Database, id: number): Promise<BorrowRequestRow | null> {
+  const [row] = await db(d1).select().from(s.borrowRequests).where(eq(s.borrowRequests.id, id));
+  return row ?? null;
+}
+
+/** A request between this household and that connection, in one direction, by its activity id. */
+export async function requestByActivity(
+  d1: D1Database,
+  connectionId: number,
+  activityId: string,
+  incoming: boolean,
+): Promise<BorrowRequestRow | null> {
+  const [row] = await db(d1)
+    .select()
+    .from(s.borrowRequests)
+    .where(
+      and(
+        eq(s.borrowRequests.connectionId, connectionId),
+        eq(s.borrowRequests.activityId, activityId),
+        eq(s.borrowRequests.incoming, incoming),
+      ),
+    );
+  return row ?? null;
+}
+
+/** The status of each of these requests known here, by activity id. One query. */
+export async function requestStatuses(d1: D1Database, activityIds: string[]): Promise<Map<string, BorrowStatus>> {
+  if (!activityIds.length) return new Map();
+  const rows = await db(d1)
+    .select({ activityId: s.borrowRequests.activityId, status: s.borrowRequests.status })
+    .from(s.borrowRequests)
+    .where(sql`${s.borrowRequests.activityId} IN (SELECT value FROM json_each(${JSON.stringify(activityIds)}))`);
+  return new Map(rows.map((r) => [r.activityId, r.status]));
+}
+
+/** Which of these requests' borrowed books are already marked returned here. One query. */
+export async function returnedRequests(d1: D1Database, requestActivityIds: string[]): Promise<Set<string>> {
+  if (!requestActivityIds.length) return new Set();
+  const rows = await db(d1)
+    .select({ requestActivityId: s.borrowedItems.requestActivityId })
+    .from(s.borrowedItems)
+    .where(
+      and(
+        isNotNull(s.borrowedItems.returnedOn),
+        sql`${s.borrowedItems.requestActivityId} IN (SELECT value FROM json_each(${JSON.stringify(requestActivityIds)}))`,
+      ),
+    );
+  return new Set(rows.map((r) => r.requestActivityId));
+}
+
+export async function requestStatus(d1: D1Database, activityId: string): Promise<BorrowStatus | null> {
+  const [row] = await db(d1)
+    .select({ status: s.borrowRequests.status })
+    .from(s.borrowRequests)
+    .where(eq(s.borrowRequests.activityId, activityId));
+  return row?.status ?? null;
+}
+
+/** Whether that connection already has a request waiting for this book of ours. */
+export async function hasPendingIncoming(d1: D1Database, connectionId: number, ourItemId: number): Promise<boolean> {
+  const [row] = await db(d1)
+    .select({ id: s.borrowRequests.id })
+    .from(s.borrowRequests)
+    .where(
+      and(
+        eq(s.borrowRequests.connectionId, connectionId),
+        eq(s.borrowRequests.ourItemId, ourItemId),
+        eq(s.borrowRequests.status, 'pending'),
+      ),
+    )
+    .limit(1);
+  return !!row;
+}
+
+/** Whether this household already has a request waiting for that book of theirs. */
+export async function hasPendingOutgoing(d1: D1Database, connectionId: number, theirItemId: number): Promise<boolean> {
+  const [row] = await db(d1)
+    .select({ id: s.borrowRequests.id })
+    .from(s.borrowRequests)
+    .where(
+      and(
+        eq(s.borrowRequests.connectionId, connectionId),
+        eq(s.borrowRequests.incoming, false),
+        eq(s.borrowRequests.theirItemId, theirItemId),
+        eq(s.borrowRequests.status, 'pending'),
+      ),
+    )
+    .limit(1);
+  return !!row;
+}
+
+export async function countPendingIncoming(d1: D1Database, connectionId: number): Promise<number> {
+  const [row] = await db(d1)
+    .select({ n: count() })
+    .from(s.borrowRequests)
+    .where(
+      and(
+        eq(s.borrowRequests.connectionId, connectionId),
+        eq(s.borrowRequests.incoming, true),
+        eq(s.borrowRequests.status, 'pending'),
+      ),
+    );
+  return row?.n ?? 0;
+}
+
+/** Moves a request to `status` only from one of `from`, so a repeat or a race changes nothing. */
+export async function setRequestStatus(
+  d1: D1Database,
+  id: number,
+  status: BorrowStatus,
+  from: BorrowStatus[],
+  dueOn: string | null = null,
+): Promise<boolean> {
+  const rows = await db(d1)
+    .update(s.borrowRequests)
+    .set({ status, dueOn, respondedAt: sql`(datetime('now'))` })
+    .where(and(eq(s.borrowRequests.id, id), sql`${s.borrowRequests.status} IN (SELECT value FROM json_each(${JSON.stringify(from)}))`))
+    .returning({ id: s.borrowRequests.id });
+  return rows.length === 1;
+}
+
+export type IncomingRequest = BorrowRequestRow & { householdName: string; item: Item };
+
+/** Requests from active connections waiting for an answer, oldest first, with the book asked for. */
+export async function pendingIncoming(d1: D1Database): Promise<IncomingRequest[]> {
+  const rows = await db(d1)
+    .select({ request: s.borrowRequests, householdName: s.connections.householdName, item: s.items })
+    .from(s.borrowRequests)
+    .innerJoin(s.connections, eq(s.borrowRequests.connectionId, s.connections.id))
+    .innerJoin(s.items, eq(s.borrowRequests.ourItemId, s.items.id))
+    .where(
+      and(eq(s.borrowRequests.incoming, true), eq(s.borrowRequests.status, 'pending'), eq(s.connections.status, 'active')),
+    )
+    .orderBy(asc(s.borrowRequests.createdAt), asc(s.borrowRequests.id));
+  return rows.map((r) => ({ ...r.request, householdName: r.householdName, item: r.item }));
+}
+
+export type OutgoingRequest = BorrowRequestRow & { householdName: string };
+
+export async function recentOutgoing(d1: D1Database, limit: number): Promise<OutgoingRequest[]> {
+  const rows = await db(d1)
+    .select({ request: s.borrowRequests, householdName: s.connections.householdName })
+    .from(s.borrowRequests)
+    .innerJoin(s.connections, eq(s.borrowRequests.connectionId, s.connections.id))
+    .where(eq(s.borrowRequests.incoming, false))
+    .orderBy(desc(s.borrowRequests.createdAt), desc(s.borrowRequests.id))
+    .limit(limit);
+  return rows.map((r) => ({ ...r.request, householdName: r.householdName }));
+}
+
+/**
+ * Accepting a request lends the book with an ordinary loan — so the Loans page, overdue logic and return
+ * button all apply unchanged — linked to the connection and the request. The status moves first, and only
+ * from pending, so two members accepting at once make one loan. Null when the request was no longer pending.
+ */
+export async function lendToConnection(
+  d1: D1Database,
+  request: BorrowRequestRow,
+  borrower: string,
+  dueOn: string | null,
+): Promise<number | null> {
+  if (request.ourItemId === null) return null;
+  if (!(await setRequestStatus(d1, request.id, 'accepted', ['pending'], dueOn))) return null;
+  try {
+    const [loan] = await db(d1)
+      .insert(s.loans)
+      .values({ itemId: request.ourItemId, borrower, dueOn })
+      .returning({ id: s.loans.id });
+    if (!loan) throw new Error('failed to create loan');
+    await db(d1).insert(s.connectionLoans).values({
+      loanId: loan.id,
+      connectionId: request.connectionId,
+      requestId: request.id,
+      requestActivityId: request.activityId,
+    });
+    return loan.id;
+  } catch (err) {
+    await db(d1)
+      .update(s.borrowRequests)
+      .set({ status: 'pending', dueOn: null, respondedAt: null })
+      .where(eq(s.borrowRequests.id, request.id));
+    throw err;
+  }
+}
+
+export async function recordBorrowed(
+  d1: D1Database,
+  values: Omit<BorrowedItem, 'id' | 'returnedOn'>,
+): Promise<void> {
+  await db(d1).insert(s.borrowedItems).values(values).onConflictDoNothing();
+}
+
+export async function markBorrowedReturned(
+  d1: D1Database,
+  connectionId: number,
+  requestActivityId: string,
+  returnedOn: string,
+): Promise<boolean> {
+  const rows = await db(d1)
+    .update(s.borrowedItems)
+    .set({ returnedOn })
+    .where(
+      and(
+        eq(s.borrowedItems.connectionId, connectionId),
+        eq(s.borrowedItems.requestActivityId, requestActivityId),
+        isNull(s.borrowedItems.returnedOn),
+      ),
+    )
+    .returning({ id: s.borrowedItems.id });
+  return rows.length === 1;
+}
+
+export async function borrowedReturned(d1: D1Database, requestActivityId: string): Promise<boolean> {
+  const [row] = await db(d1)
+    .select({ returnedOn: s.borrowedItems.returnedOn })
+    .from(s.borrowedItems)
+    .where(eq(s.borrowedItems.requestActivityId, requestActivityId));
+  return !!row?.returnedOn;
+}
+
+export type BorrowedFrom = BorrowedItem & { householdName: string; baseUrl: string };
+
+export async function listBorrowed(d1: D1Database): Promise<BorrowedFrom[]> {
+  const rows = await db(d1)
+    .select({ item: s.borrowedItems, householdName: s.connections.householdName, baseUrl: s.connections.baseUrl })
+    .from(s.borrowedItems)
+    .innerJoin(s.connections, eq(s.borrowedItems.connectionId, s.connections.id))
+    .orderBy(desc(s.borrowedItems.borrowedOn), desc(s.borrowedItems.id));
+  return rows.map((r) => ({ ...r.item, householdName: r.householdName, baseUrl: r.baseUrl }));
+}
+
+export async function deleteBorrowed(d1: D1Database, id: number): Promise<void> {
+  await db(d1).delete(s.borrowedItems).where(eq(s.borrowedItems.id, id));
+}
+
+/**
+ * Everything about connections this household holds, as data it can take elsewhere — the catalog export
+ * stays exactly as it is. No keys, and no stored copies of other households' feeds: those are theirs.
+ */
+export async function federationExport(d1: D1Database): Promise<Record<string, unknown>> {
+  const dbi = db(d1);
+  const [settings, connectionRows, views, following, commentRows, requests, lent, borrowed] = await Promise.all([
+    getFederationSettings(d1),
+    dbi
+      .select({
+        id: s.connections.id,
+        householdName: s.connections.householdName,
+        address: s.connections.baseUrl,
+        status: s.connections.status,
+        since: s.connections.createdAt,
+        confirmedAt: s.connections.confirmedAt,
+      })
+      .from(s.connections),
+    dbi.select().from(s.connectionViews),
+    dbi
+      .select({
+        connectionId: s.feedSubscriptions.connectionId,
+        view: s.feedSubscriptions.viewName,
+        intervalMinutes: s.feedSubscriptions.intervalMinutes,
+        retentionDays: s.feedSubscriptions.retentionDays,
+        maxEntries: s.feedSubscriptions.maxEntries,
+      })
+      .from(s.feedSubscriptions),
+    dbi
+      .select({
+        connectionId: s.comments.connectionId,
+        onOurItem: s.comments.ourItemId,
+        onTheirItem: s.comments.theirItemId,
+        fromUs: s.comments.fromUs,
+        author: s.comments.authorName,
+        body: s.comments.body,
+        createdAt: s.comments.createdAt,
+      })
+      .from(s.comments)
+      .where(isNull(s.comments.deletedAt)),
+    dbi
+      .select({
+        connectionId: s.borrowRequests.connectionId,
+        incoming: s.borrowRequests.incoming,
+        ourItemId: s.borrowRequests.ourItemId,
+        theirItemId: s.borrowRequests.theirItemId,
+        title: s.borrowRequests.itemTitle,
+        requester: s.borrowRequests.requesterName,
+        note: s.borrowRequests.note,
+        status: s.borrowRequests.status,
+        dueOn: s.borrowRequests.dueOn,
+        createdAt: s.borrowRequests.createdAt,
+      })
+      .from(s.borrowRequests),
+    dbi
+      .select({
+        connectionId: s.connectionLoans.connectionId,
+        itemId: s.loans.itemId,
+        borrower: s.loans.borrower,
+        loanedOn: s.loans.loanedOn,
+        dueOn: s.loans.dueOn,
+        returnedOn: s.loans.returnedOn,
+      })
+      .from(s.connectionLoans)
+      .innerJoin(s.loans, eq(s.connectionLoans.loanId, s.loans.id)),
+    dbi
+      .select({
+        connectionId: s.borrowedItems.connectionId,
+        theirItemId: s.borrowedItems.theirItemId,
+        title: s.borrowedItems.title,
+        borrowedOn: s.borrowedItems.borrowedOn,
+        dueOn: s.borrowedItems.dueOn,
+        returnedOn: s.borrowedItems.returnedOn,
+      })
+      .from(s.borrowedItems),
+  ]);
+  return {
+    exportedAt: new Date().toISOString(),
+    library: settings ? { name: settings.householdName, address: settings.baseUrl } : null,
+    connections: connectionRows,
+    sharedViews: views,
+    following,
+    comments: commentRows,
+    borrowRequests: requests,
+    lentToConnections: lent,
+    borrowedFromConnections: borrowed,
+  };
 }
 
