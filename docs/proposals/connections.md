@@ -178,6 +178,16 @@ Connection views and share links are **separate on purpose.** A share link is fo
 holding the URL; a connection view is for households you've connected with. Publishing one
 never publishes the other.
 
+**Shelves are read live, never stored.** When a member of B browses A's shared shelf, B
+fetches the page from A (`GET /federation/shelf?view=<id>&page=<n>`, up to 60 items with
+availability) and keeps it in the Worker's memory for five minutes, keyed by connection,
+view and page. Nothing is written to B's database, so it never reaches B's Time Travel
+history or backups. A's edits and removals show up within five minutes. After a disconnect
+A refuses B's requests, and anything still in B's memory expires within those five minutes.
+
+The trade-off is that browsing needs A online. That costs nothing in practice: requesting a
+book (§10) needs A online anyway.
+
 ## 8. Feed
 
 Nalanda has no event history today — items only have current state and `updated_at`.
@@ -190,14 +200,69 @@ Nalanda has no event history today — items only have current state and `update
 - **Not logged in v1: "added to catalog."** A 2,000-book Goodreads import would bury every
   connection's feed. Bulk changes can still happen (an import that sets reviews), so the Feed
   page groups a household's events within a short window ("reviewed 40 books").
-- **Pulled, not pushed.** `GET /federation/feed?since=<cursor>` returns that household's
-  activities on items inside connection views, as ActivityStreams 2.0 JSON, plus anything
-  addressed to the caller (§9, §10). Your instance fetches from each connection **when a
-  member opens Feed or Loans**: cached results render immediately and the refresh runs in
-  `waitUntil`. No cron, no background job.
-- **Cost:** one subrequest per connection per refresh. The page refreshes at most a fixed
-  number of connections per request and staggers the rest, staying inside the free plan's
-  per-request subrequest limit.
+
+### Subscriptions — the receiving household decides
+
+A feed is never pushed at anyone. The receiving household's admin **subscribes** to the
+shared views they want from each connection, and chooses:
+
+- **Which views**, from the list the sharing instance serves (`GET /federation/views`). Each
+  view shows its item count and how busy it has been: activities and approximate size per
+  month, from the last 90 days of `activity_log`.
+- **How often** — a minimum interval between pulls: every 15 minutes, hourly or daily.
+  Pulls still happen only when a member opens Feed or Loans; the interval limits how often
+  that triggers one. No background job.
+- **How long to keep entries** — a number of days (default 90) and a maximum number of
+  entries (default 500) per subscription, whichever is reached first, plus a purge-now
+  button.
+
+**Estimates:** before subscribing, expected storage is shown as the monthly size multiplied
+by the retention period, capped by the entry limit. Afterwards, the Connections page shows
+what each connection actually uses: stored entries and bytes.
+
+Unsubscribing deletes that subscription's stored entries. Disconnecting deletes everything
+stored from that connection.
+
+### Pulling
+
+`GET /federation/feed?view=<id>&since=<cursor>` returns activities on items inside that
+view as ActivityStreams 2.0 JSON. When a member opens Feed or Loans, stored entries render
+immediately and any subscription past its interval refreshes in `waitUntil`.
+
+**Messages addressed to you travel separately from the feed.** Comments, borrow requests,
+responses and return notices meant for a household are listed at
+`GET /federation/outbox?since=<cursor>`, which is pulled from **every** active connection
+when a member opens Feed or Loans — whether or not you subscribe to any of their views. It is
+the delivery fallback for pushes that failed (§9, §10), so a friend's comment or request
+can't be lost just because you don't follow their feed. It stays small: it holds only what
+that connection addressed to you, within the daily push limit.
+
+A page refreshes at most a fixed number of subscriptions and outboxes per request and
+staggers the rest, staying inside the free plan's per-request subrequest limit.
+
+### Removals — checked on every pull
+
+A stored entry has to go once its owner stops sharing it: the review is deleted, the book is
+deleted, the book no longer matches the view (it moved shelf or changed status), or the
+whole view is removed.
+
+With each pull, the receiving instance also sends the ids of the entries it holds for that
+subscription to `POST /federation/feed/check`. The owner replies with the ones that are no
+longer valid, and the receiver deletes them. An entry is valid only while its item exists,
+still matches the view, and still carries what the entry shows — a review entry needs its
+review. The Feed page notes how many entries their owners removed since the last visit,
+without saying what they were.
+
+- **Why a check instead of a list of deletion markers (tombstones):** the owner doesn't
+  record what it sent to whom. A marker list can't cover a book drifting out of a view, or a
+  whole view deleted, without enumerating every affected item. The check covers every case,
+  keeps nothing extra on the owner's side, and has no expiry window to miss — a household
+  that hasn't pulled for months simply runs the check on its next pull.
+- **Honouring removals always applies.** It is not one of the receiver's lifecycle options:
+  lifecycle rules decide how long the receiver keeps what is still shared, and cannot keep
+  what the owner removed.
+- The check is small, because it is bounded by the entry limits. It cannot prove deletion
+  on a modified instance (§11); it keeps well-behaved ones in step.
 
 ## 9. Comments on reviews
 
@@ -216,13 +281,13 @@ The reviewer's household is authoritative for the thread.
 - A can delete any comment on its own reviews; B can withdraw its own (signed `Delete`).
   Disconnecting removes all of them.
 - **Delivery without a retry queue:** the push is best-effort in `waitUntil`. If A is down,
-  the comment is also listed in B's feed as addressed to A, so A collects it the next time
+  the comment is also listed in B's outbox for A (§8), so A collects it the next time
   one of A's members opens Feed or Loans. Pull is the guarantee; push just makes it fast.
 
 ## 10. Requests and lending
 
-1. B browses what A put in connection views (`GET /federation/catalog`). Only items with
-   `inCollection` and `available` both true can be requested.
+1. B browses A's shared shelves live (§7). Only items with `inCollection` and `available`
+   both true can be requested.
 2. A member of B requests one, with an optional note: a signed `BorrowRequest` to A's inbox,
    recorded on both sides in `borrow_requests`.
 3. Any member of A accepts or declines. **Accepting creates an ordinary loan** in the
@@ -234,7 +299,7 @@ The reviewer's household is authoritative for the thread.
 5. When A marks the loan returned with the existing button, a trigger on
    `loans.returned_on` — only for loans linked in `connection_loans` — records that the loan
    was returned. The notice is built, signed and sent in `waitUntil` on A's next
-   authenticated page load, and also listed in A's feed for B to pull.
+   authenticated page load, and also listed in A's outbox for B to pull (§8).
 
 - Connections **can see whether a book is available**: a derived boolean, `available`,
   true while at least one copy is not out on loan (`copies` greater than the number of
@@ -254,7 +319,8 @@ The reviewer's household is authoritative for the thread.
 | A stranger | fetch `/.well-known/nalanda` (household name, public key); POST `/federation/connect` | connecting needs an unguessable single-use token; throttled; no D1 write and no outbound fetch before the token check |
 | Someone holding a leaked invite | redeem it once, within 7 days | it lands as pending; the admin sees the domain and declines; unused invites are revocable |
 | A connected household | read your connection views and whether those books are available; comment; request | that is the feature; delete comments, decline requests, disconnect |
-| A disconnected household | keep copies of what they already pulled | a well-behaved Nalanda deletes them; a modified one can't be forced to — **only connect with people you'd trust with a copy** |
+| A disconnected household | keep copies of feed entries they had stored | shelves were never stored (§7); a well-behaved Nalanda deletes stored entries; a modified one can't be forced to — **only connect with people you'd trust with a copy** |
+| A connected household sending too much | push oversized comments or floods of requests; answer pulls with huge responses | hard limits (§12): length limits, a daily push limit per connection, and receivers stop reading oversized responses |
 | A network attacker | nothing useful | TLS, plus signatures over method, URL and body digest |
 | A replayed request | nothing | 5-minute `created` window; unique activity ids |
 | Hostile content from a peer | nothing executes | plain text, escaped; cover URLs restricted to the peer's own `/covers/<uuid>` |
@@ -268,25 +334,47 @@ The reviewer's household is authoritative for the thread.
   measured on workerd in the phase 1 spike against the 10 ms budget.
 - **D1 writes:** only from authenticated connections, admin actions, and triggers that are
   inert while disabled.
-- **Requests:** descriptor lookups and feed pulls between a handful of friends — noise
-  against 100,000/day.
+- **Requests:** descriptor lookups, feed pulls and live shelf pages between a handful of
+  friends — noise against 100,000/day.
+- **Storage:** shelves are never stored; stored feed entries are bounded by each
+  subscription's lifecycle rules and a hard ceiling per connection.
+
+### Hard limits
+
+Subscriptions and lifecycle rules govern what a household *pulls*. They can't stop a
+misbehaving instance from ignoring the page size it was asked for, and they don't cover what
+gets *pushed* into an inbox. These limits apply regardless of anyone's settings. Starting
+values, to be tuned during phases 1 and 2:
+
+| Limit | Starting value | Protects |
+|---|---|---|
+| Feed entries per response | 100 | the receiver's CPU |
+| Shelf items per page | 60, as on today's shelf pages | the receiver's CPU |
+| Response body read | 256 KB — past that, the pull is abandoned | the receiver's CPU and storage |
+| Comment length | 2,000 characters | the owner's database |
+| Borrow-request note | 500 characters | the owner's database |
+| Pushes accepted per connection per day | 200, then refused | the owner's daily D1 write allowance |
+| Stored feed entries per connection | 1,000, whatever the lifecycle settings | the receiver's database |
+| Active connections | 25 | a Feed refresh stays within one request's subrequest budget |
 
 ## 13. Data model — one new migration
 
 | Table | Purpose |
 |---|---|
 | `federation_settings` | singleton: household name; enabled flag the triggers read |
-| `connections` | peer base URL, public key, household name, status (pending, active, revoked), feed cursor |
+| `connections` | peer base URL, public key, household name, status (pending, active, revoked), outbox cursor |
+| `feed_subscriptions` | which of a connection's views we follow: pull interval, retention days, entry limit, cursor, last pulled |
 | `connection_invites` | token hash, created by, expires at, used at |
 | `connection_views` | captured filters, same shape as `shares`, visible to connections |
 | `activity_log` | trigger-fed: item, kind, timestamp |
-| `remote_activities` | cached feed from connections, unique on activity id |
+| `remote_activities` | stored feed entries per subscription, under its lifecycle rules; unique on activity id |
 | `remote_comments` | comments on our reviews, unique on activity id |
 | `outgoing_activities` | comments, requests and return notices we sent, with delivery status |
 | `borrow_requests` | both directions, with status |
 | `connection_loans` | links an existing `loans` row to a connection and request |
 | `borrowed_items` | books borrowed from connections |
 | `federation_attempts` | per-IP throttle for `/federation/connect` |
+| `connection_push_counts` | pushes accepted per connection per day, for the daily limit |
 
 All are appended to `scripts/backup.mjs`. Folding tables together (for example one
 activities table with a direction column) is a reasonable call during the spike.
@@ -307,19 +395,20 @@ With A as the household that owns the data and B as a connection:
 | Data | On A | On B |
 |---|---|---|
 | Catalog, private notes, copies, loans | existing tables — the source of truth | never |
-| Items in connection views (whitelisted fields) | existing tables; the JSON is built when requested, not stored | a cached copy in `remote_activities`, once pulled |
+| Books on shared shelves (whitelisted fields) | existing tables; the JSON is built when requested, not stored | never stored — held up to five minutes in the Worker's memory while browsing (§7) |
 | Covers | R2 | not copied — B's pages load them from A's `/covers/<uuid>` |
-| Activity events | `activity_log`: item, kind, timestamp only | cached in `remote_activities` |
+| Feed activity | `activity_log`: item, kind, timestamp only | stored entries in `remote_activities`, under B's lifecycle rules, removed once A stops sharing them (§8) |
 | B's comment on A's review | `remote_comments` — authoritative | B's own copy in `outgoing_activities` |
 | A borrow request | `borrow_requests` | `borrow_requests` |
 | A's loan to B | an ordinary `loans` row plus a `connection_loans` link | `borrowed_items` |
 | A's private key | Cloudflare secret — not in D1, not in backups | never |
 | A's public key and address | served at `/.well-known/nalanda` | `connections` |
 
-The consequence worth stating plainly: **anything B has pulled is a copy in B's database,
-under B's control.** Disconnecting asks B's instance to delete it, and a well-behaved Nalanda
-does; nothing can force a modified one to (§11). And because covers load from A, B's browser
-contacts A's instance directly whenever it shows A's books.
+The consequence worth stating plainly: **shelves never reach B's database, but stored feed
+entries are copies under B's control.** On a well-behaved Nalanda, B's lifecycle rules bound
+how many there are, the removal check (§8) prunes what A stops sharing, and disconnecting
+deletes the rest. Nothing can force a modified one to (§11). And because covers load from A,
+B's browser contacts A's instance directly whenever it shows A's books.
 
 ## 14. HTTP surface — all new
 
@@ -329,12 +418,16 @@ GET  /.well-known/nalanda           household name, public key, protocol version
 POST /federation/connect            redeem an invite (token-gated, throttled)
 
 signed by an active connection
-GET  /federation/feed?since=        activities on items in connection views, plus items addressed to the caller
-GET  /federation/catalog?since=     items in connection views, with availability
+GET  /federation/views              shared views, each with item count and monthly feed volume
+GET  /federation/feed?view=&since=  activities on items in that view
+POST /federation/feed/check         which of the caller's stored entry ids are no longer shared
+GET  /federation/outbox?since=      comments, requests, responses and return notices addressed to the caller
+GET  /federation/shelf?view=&page=  one page of a shared shelf, with availability — never stored
 POST /federation/inbox              comments, deletes, borrow requests and responses, returns, disconnect
 
 session — rendered only when enabled
-GET  /connections                   admin: invites, pending, active, connection views, disconnect
+GET  /connections                   admin: invites, pending, active, connection views, subscriptions,
+                                    lifecycle rules, storage used, purge, disconnect
 GET  /feed                          members: connections' activity
 GET  /borrowed                      members: books borrowed from connections
 GET  /federation/export.json        members: federation data export
@@ -350,9 +443,11 @@ passes.
 1. **Keys and connections.** Spike first: RFC 9421 profile CPU cost on workerd, ECDSA P-256
    versus Ed25519. Then keygen script, descriptor, invites, handshake with admin
    confirmation, disconnect, signature module with tests.
-2. **Feed.** Connection views, `activity_log` triggers, feed and catalog endpoints, Feed page.
-3. **Comments.** Both directions, deletes, pull fallback.
-4. **Borrowing.** Requests, accept creates an ordinary loan, Borrowed page, return notices.
+2. **Feed.** Connection views, `activity_log` triggers, subscriptions with size estimates and
+   lifecycle rules, the removal check, hard limits, Feed page.
+3. **Comments.** Both directions, deletes, and the outbox as the pull fallback.
+4. **Borrowing.** Live shelf browsing with the in-memory cache, requests, accept creates an
+   ordinary loan, Borrowed page, return notices.
 
 ## 16. Decisions
 
@@ -370,10 +465,17 @@ Resolved with the owner on 2026-09-15.
 7. **Any member can accept or decline a borrow request.**
 8. **ARCH.md §14's "social features" non-goal is reversed on approval;** "background jobs of
    any kind" stays a non-goal.
-
 9. **Connections are pairwise, never a network** (§3). Being connected to two households
    never lets them see or reach each other, and no instance re-serves what it received from
    one connection to another.
+10. **The receiving household controls its subscriptions** (§8): which shared views, a
+    minimum interval between pulls, and how long entries are kept — with estimated size
+    before subscribing and actual usage after.
+11. **Hard limits back those controls up** (§12), because controls only govern what a
+    household pulls, not what it is sent.
+12. **Shelves are read live with a five-minute in-memory cache; the feed is stored** (§7, §8).
+13. **Removals reach a connection through a check on every pull, and always apply** (§8).
+    Honouring an owner's removal is not one of the receiver's lifecycle options.
 
 **Deferred — access control.** Who may confirm a connection (3) and choosing connection
 views per connection (4) are left to a later role-based access design. ARCH.md §8 has two
