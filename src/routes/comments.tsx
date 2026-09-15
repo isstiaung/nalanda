@@ -43,18 +43,19 @@ export const CommentView: FC<{
   back: string;
 }> = ({ comment, household, canDelete, back }) => (
   <div class="comment">
-    <p class="comment-meta">
+    {/* a div, not a p: a form inside a p closes it early, leaving Delete on a line of its own */}
+    <div class="comment-meta">
       <strong>{comment.authorName}</strong> · {comment.fromUs ? 'this library' : household} ·{' '}
       <span class="mono">{comment.createdAt.slice(0, 10)}</span>
       {canDelete ? (
         <form method="post" action={`/comments/${comment.id}/delete`} class="inline">
-          <input type="hidden" name="back" value={back} />{' '}
-          <button type="submit" class="linklike">
+          <input type="hidden" name="back" value={back} />
+          <button type="submit" class="comment-delete">
             Delete
           </button>
         </form>
       ) : null}
-    </p>
+    </div>
     <p class="prewrap">{comment.body}</p>
   </div>
 );
