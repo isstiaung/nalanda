@@ -36,6 +36,13 @@
       "when": 1784383173401,
       "tag": "0004_backfill-shelf-share-tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1789457928610,
+      "tag": "0005_connections-identity",
+      "breakpoints": true
     }
   ]
 }

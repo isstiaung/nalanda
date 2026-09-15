@@ -3,6 +3,7 @@ import type { Child, FC, PropsWithChildren } from 'hono/jsx';
 import type { Library } from '../db/schema';
 import { listLibraries } from '../db/queries';
 import type { AppEnv, SessionUser } from '../env';
+import { loadIdentity } from '../federation/keys';
 
 type NavLibrary = Library & { itemCount: number };
 
@@ -60,7 +61,12 @@ const NavLink: FC<{ href: string; label: string; path: string; count?: number; e
   );
 };
 
-const Sidebar: FC<{ user: SessionUser; path: string; libraries: NavLibrary[] }> = ({ user, path, libraries }) => (
+const Sidebar: FC<{ user: SessionUser; path: string; libraries: NavLibrary[]; connections: boolean }> = ({
+  user,
+  path,
+  libraries,
+  connections,
+}) => (
   <aside class="sidebar" id="sidebar">
     <Brand />
     <nav class="nav-section" aria-label="Catalog">
@@ -74,6 +80,7 @@ const Sidebar: FC<{ user: SessionUser; path: string; libraries: NavLibrary[] }> 
       <div class="nav-eyebrow">Circulation</div>
       <NavLink href="/loans" label="Loans" path={path} />
       {user.role === 'admin' ? <NavLink href="/shares" label="Shared links" path={path} /> : null}
+      {connections ? <NavLink href="/connections" label="Connections" path={path} /> : null}
     </nav>
     <nav class="nav-section" aria-label="Shelves">
       <div class="nav-eyebrow">Shelves</div>
@@ -101,14 +108,20 @@ const Sidebar: FC<{ user: SessionUser; path: string; libraries: NavLibrary[] }> 
 );
 
 export const Layout: FC<
-  PropsWithChildren<{ title: string; user?: SessionUser | null; path?: string; libraries?: NavLibrary[] }>
-> = ({ title, user, path = '/', libraries = [], children }) => (
+  PropsWithChildren<{
+    title: string;
+    user?: SessionUser | null;
+    path?: string;
+    libraries?: NavLibrary[];
+    connections?: boolean;
+  }>
+> = ({ title, user, path = '/', libraries = [], connections = false, children }) => (
   <html lang="en">
     <Head title={title} />
     {user ? (
       <body>
         <div class="app">
-          <Sidebar user={user} path={path} libraries={libraries} />
+          <Sidebar user={user} path={path} libraries={libraries} connections={connections} />
           <div>
             <header class="mobile-bar">
               <button type="button" id="nav-toggle" class="btn-quiet" aria-label="Menu" aria-controls="sidebar">
@@ -135,5 +148,7 @@ export async function page(c: Context<AppEnv>, title: string, body: Child) {
   const user = (c.get('user') as SessionUser | undefined) ?? null;
   const path = new URL(c.req.url).pathname;
   const libraries = user ? await listLibraries(c.env.DB) : [];
-  return c.html(`<!doctype html>${Layout({ title, user, path, libraries, children: body })}`);
+  // Only admins manage connections, and only on an instance that has a federation key.
+  const connections = user?.role === 'admin' && !!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY));
+  return c.html(`<!doctype html>${Layout({ title, user, path, libraries, connections, children: body })}`);
 }
