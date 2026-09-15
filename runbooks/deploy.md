@@ -68,20 +68,20 @@ index restore cleanly; covers are re-fetched.)
 
 1. Do **First deploy** steps 1–2 (create resources, set secrets), then apply the schema:
    ```sh
-   npx wrangler d1 migrations apply nalanda --remote
+   npm run db:migrate:remote
    ```
 2. Export local data and load it into production (FK-safe order):
    ```sh
    npm run backup:local
    for t in users libraries shares items tags item_tags loans; do
-     npx wrangler d1 execute nalanda --remote --file=backups/local-<date>/$t.sql
+     npm run wrangler:remote -- d1 execute nalanda --remote --file=backups/local-<date>/$t.sql
    done
    ```
 3. `npm run deploy`, then log in at the production URL — same username and password.
 4. **Covers**: the image files live in local R2 emulation and don't transfer. Clear the
    stale references and re-fetch once:
    ```sh
-   npx wrangler d1 execute nalanda --remote --command "UPDATE items SET cover_key = NULL"
+   npm run wrangler:remote -- d1 execute nalanda --remote --command "UPDATE items SET cover_key = NULL"
    ```
    then production `/import` → **Cover backfill** (a few minutes).
 5. From here, treat production as the source of truth. Local dev keeps its own separate
