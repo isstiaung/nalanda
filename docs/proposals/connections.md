@@ -1,8 +1,9 @@
 # Proposal — Connections between Nalanda instances
 
-> **Status: proposed, not implemented (2026-09-15).** Nothing here is decided. On approval
-> it folds into ARCH.md as a new section plus a §16 decision-log entry; until then ARCH.md
-> remains the source of truth and this document changes nothing.
+> **Status: proposed, not implemented.** Open questions resolved with the owner on
+> 2026-09-15 (§16); still awaiting approval to build. On approval it folds into ARCH.md as a
+> new section plus a §16 decision-log entry; until then ARCH.md remains the source of truth
+> and this document changes nothing.
 
 Two households each self-host Nalanda. If they choose to connect, they can see a feed of
 each other's reading, comment on each other's reviews, ask to borrow a book, and lend to
@@ -73,8 +74,7 @@ connects to an **instance**.
   line as loans today.
 - Activity is attributed to the **household name** the admin chooses, not to usernames —
   share pages already never show usernames. Comments are the exception: they carry their
-  author's display name, because the commenting household chose to send it. *(Open
-  question 2.)*
+  author's display name, because the commenting household chose to send it. *(Decision 2, §16.)*
 
 ## 4. Identity and keys
 
@@ -109,7 +109,7 @@ A invites B:
    4. only now, fetch `https://b/.well-known/nalanda` and confirm it serves the same key —
       B controls that domain
 6. The connection is recorded as **pending**. A's admin sees B's household name and domain,
-   and confirms or declines. *(Open question 3.)*
+   and confirms or declines. *(Decision 3, §16.)*
 7. On confirmation A sends a signed acceptance to B, and both sides mark the connection
    active.
 
@@ -143,15 +143,15 @@ A well-behaved Nalanda complies. A modified one might not — see §11.
 
 **Nothing by default.** The admin chooses **connection views**: the same captured-filter
 model as share views (shelf, type, status, holding), stored in a new `connection_views`
-table so `shares` is untouched. A connection view is visible to all connections. *(Open
-question 4.)*
+table so `shares` is untouched. A connection view is visible to all connections. *(Decision 4, §16.)*
 
 Fields go through a new whitelist, `toConnectionItem()`, modelled on `toPublicItem()`:
 
 - **Same as share pages:** title, creators, cover, publisher, published, description, media
   details, tags, rating, review, `inCollection`.
-- **Added for connections:** `completedOn` (so the feed can say "finished") and
-  `updatedAt` (ordering).
+- **Added for connections:** `completedOn` (so the feed can say "finished"),
+  `updatedAt` (ordering), and `available` (§10) — derived, like `inCollection`, so no
+  borrower, due date or copies count leaves the instance.
 - **Never, same as share pages:** private notes, loans and borrowers, the copies count,
   `added_by`, usernames.
 - **Covers:** pages at B hotlink `https://a/covers/<uuid>` — already public by design
@@ -196,7 +196,7 @@ The reviewer's household is authoritative for the thread.
 - **Plain text only**, escaped on render (hono/jsx escapes by default). No remote HTML, no
   markdown, no auto-embedded images.
 - Visible only to the **reviewer's household and the commenter's household** — not to A's
-  other connections, who never connected with B. *(Open question 5.)*
+  other connections, who never connected with B. *(Decision 5, §16.)*
 - A can delete any comment on its own reviews; B can withdraw its own (signed `Delete`).
   Disconnecting removes all of them.
 - **Delivery without a retry queue:** the push is best-effort in `waitUntil`. If A is down,
@@ -206,7 +206,7 @@ The reviewer's household is authoritative for the thread.
 ## 10. Requests and lending
 
 1. B browses what A put in connection views (`GET /federation/catalog`). Only items with
-   `inCollection` true can be requested.
+   `inCollection` and `available` both true can be requested.
 2. A member of B requests one, with an optional note: a signed `BorrowRequest` to A's inbox,
    recorded on both sides in `borrow_requests`.
 3. Any member of A accepts or declines. **Accepting creates an ordinary loan** in the
@@ -220,8 +220,13 @@ The reviewer's household is authoritative for the thread.
    was returned. The notice is built, signed and sent in `waitUntil` on A's next
    authenticated page load, and also listed in A's feed for B to pull.
 
-- Connections **cannot see whether a book is currently on loan** — loans stay private (§9).
-  A simply declines, or accepts once it's back. *(Open question 6.)*
+- Connections **can see whether a book is available**: a derived boolean, `available`,
+  true while at least one copy is not out on loan (`copies` greater than the number of
+  active loans). A book held in three copies with one lent still reads available. The
+  Request button is disabled while nothing is available. *(Decision 6, §16.)*
+- **Who** has it, when it's **due**, and loan **history** are never shown — the same line
+  §9 draws for share pages. The one inference this allows is intended: a connection can
+  see a book become unavailable.
 - Lending activities are Nalanda-specific types (`BorrowRequest`, `BorrowAccept`,
   `BorrowDecline`, `Returned`) in an ActivityStreams envelope. No interop is needed, so they
   are named for what they mean.
@@ -232,7 +237,7 @@ The reviewer's household is authoritative for the thread.
 |---|---|---|
 | A stranger | fetch `/.well-known/nalanda` (household name, public key); POST `/federation/connect` | connecting needs an unguessable single-use token; throttled; no D1 write and no outbound fetch before the token check |
 | Someone holding a leaked invite | redeem it once, within 7 days | it lands as pending; the admin sees the domain and declines; unused invites are revocable |
-| A connected household | read your connection views, comment, request | that is the feature; delete comments, decline requests, disconnect |
+| A connected household | read your connection views and whether those books are available; comment; request | that is the feature; delete comments, decline requests, disconnect |
 | A disconnected household | keep copies of what they already pulled | a well-behaved Nalanda deletes them; a modified one can't be forced to — **only connect with people you'd trust with a copy** |
 | A network attacker | nothing useful | TLS, plus signatures over method, URL and body digest |
 | A replayed request | nothing | 5-minute `created` window; unique activity ids |
@@ -283,7 +288,7 @@ POST /federation/connect            redeem an invite (token-gated, throttled)
 
 signed by an active connection
 GET  /federation/feed?since=        activities on items in connection views, plus items addressed to the caller
-GET  /federation/catalog?since=     requestable items in connection views
+GET  /federation/catalog?since=     items in connection views, with availability
 POST /federation/inbox              comments, deletes, borrow requests and responses, returns, disconnect
 
 session — rendered only when enabled
@@ -307,18 +312,24 @@ passes.
 3. **Comments.** Both directions, deletes, pull fallback.
 4. **Borrowing.** Requests, accept creates an ordinary loan, Borrowed page, return notices.
 
-## 16. Open questions
+## 16. Decisions
 
-1. **Household or person?** Proposed: households. Reviews and loans are per household today;
-   per-person identities would first need per-member reviews, which §14 lists as a separate
-   v1.x candidate.
-2. **Names in the feed.** Proposed: household name on activity; comment authors named.
-3. **Invite redemption.** Proposed: lands as pending for the admin to confirm. Alternative:
-   accept automatically, since the admin chose to send the invite.
-4. **Who sees a connection view.** Proposed: all connections. Alternative: chosen per
-   connection.
-5. **Comment visibility.** Proposed: the reviewer's and commenter's households only.
-6. **Loan availability.** Proposed: connections can't see whether a book is out.
-7. **Who accepts a borrow request.** Proposed: any member, as with loans. Alternative: admins
-   only.
-8. **The non-goals.** "Social features" is reversed if approved; "background jobs" is kept.
+Resolved with the owner on 2026-09-15.
+
+1. **Households connect**, not individual people.
+2. **Activity shows the household name; comments show their author's name.**
+3. **Invites land as pending** until an admin confirms the connection.
+4. **Connection views are visible to all connections** in v1.
+5. **Comments are visible to the reviewer's and commenter's households only.** If A is
+   connected to both B and C, and B comments on A's review, C still sees A's review but not
+   B's comment — B never connected with C.
+6. **Connections can see whether a book is available** (§10). Borrower, due date and loan
+   history stay private.
+7. **Any member can accept or decline a borrow request.**
+8. **ARCH.md §14's "social features" non-goal is reversed on approval;** "background jobs of
+   any kind" stays a non-goal.
+
+**Deferred — access control.** Who may confirm a connection (3) and choosing connection
+views per connection (4) are left to a later role-based access design. ARCH.md §8 has two
+roles and no permission matrix today, so that is its own decision rather than part of this
+one.
