@@ -99,15 +99,17 @@ npm test                   # vitest, runs inside workerd
 npm run typecheck          # tsc --noEmit
 npm run db:generate        # drizzle-kit generate — schema.ts → migrations/*.sql
 npm run db:migrate         # wrangler d1 migrations apply nalanda --local
-npm run db:migrate:remote  # same, against production
+npm run db:migrate:remote  # same, against production (via wrangler:remote)
+npm run wrangler:remote -- <args>  # any wrangler command against production D1: resolves
+                           # the real database id (D1_DATABASE_ID, else by name via
+                           # `wrangler d1 list`) into a gitignored temp config
 npm run deploy             # needs D1_DATABASE_ID in the env (never in the repo — the
                            # database_id in wrangler.jsonc is an all-zero placeholder);
                            # resolves it into a gitignored config, migrates, deploys
 npm run backup             # per-table data-only export → backups/remote-<date>/
                            # (D1 cannot dump databases with FTS5 virtual tables;
                            #  schema comes from migrations/ — see backup runbook);
-                           # real database id from D1_DATABASE_ID, else by name
-                           # via `wrangler d1 list`, in a gitignored temp config
+                           # reaches production the same way as wrangler:remote
 npm run backup:local       # same, for the local dev database
 npm run vendor             # re-copy vendored assets after bumping htmx/zxing/font versions
 npm run federation:keygen  # Ed25519 identity for connections → FEDERATION_PRIVATE_KEY
@@ -139,7 +141,8 @@ test/              auth, csv/libib mapping, barcode routing, share whitelist, FT
                    apply-migrations.ts resets + re-migrates D1 before EVERY test, and
                    fetch-mock.ts stubs outbound fetch (see §16 #25)
 scripts/           vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp config),
-                   backup.mjs, seed-demo.mjs, hash-password.mjs, federation-keygen.mjs
+                   backup.mjs, wrangler-remote.mjs + remote-config.mjs (real db id → temp
+                   config), seed-demo.mjs, hash-password.mjs, federation-keygen.mjs
 runbooks/          operational guides: deploy, backup/restore, accounts, connections,
                    libib import, goodreads import, troubleshooting — update when ops
                    procedures change

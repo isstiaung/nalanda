@@ -1,7 +1,7 @@
 node_modules/
 .wrangler/
 .wrangler-deploy.jsonc
-.wrangler-backup.jsonc
+.wrangler-remote.jsonc
 .dev.vars
 backups/
 public/vendor/

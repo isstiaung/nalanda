@@ -29,7 +29,7 @@ corrupt it).** The shell-safe pattern:
 ```sh
 HASH=$(node scripts/hash-password.mjs 'your-new-password')
 echo "UPDATE users SET password_hash='$HASH', must_change_password=0 WHERE username='<admin username>';" > reset.sql
-npx wrangler d1 execute nalanda --remote --file=reset.sql && rm reset.sql
+npm run wrangler:remote -- d1 execute nalanda --remote --file=reset.sql && rm reset.sql
 ```
 
 (Expanding `$HASH` is fine — shells don't re-expand a variable's *value*.) For local dev,
@@ -39,7 +39,7 @@ Log in with the new password. If you racked up failed attempts first, either wai
 minutes or clear the throttle:
 
 ```sh
-npx wrangler d1 execute nalanda --remote --command "DELETE FROM login_attempts"
+npm run wrangler:remote -- d1 execute nalanda --remote --command "DELETE FROM login_attempts"
 ```
 
 ## Log everyone out everywhere
