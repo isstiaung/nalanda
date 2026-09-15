@@ -164,7 +164,7 @@ function scopeLabel(v: ConnectionView): string {
 const SharedViews: FC<{ views: PageProps['views']; libraries: Library[] }> = ({ views, libraries }) => {
   const shelfName = new Map(libraries.map((l) => [l.id, l.name]));
   return (
-    <section style="margin-top:1.5rem">
+    <section class="fed-section" style="margin-top:1.5rem">
       <p class="eyebrow">Shared with connections</p>
       <p class="muted">
         Connected households see nothing until you share a view here, and every view is shared with every connection. For
@@ -179,7 +179,7 @@ const SharedViews: FC<{ views: PageProps['views']; libraries: Library[] }> = ({ 
                 <th>View</th>
                 <th class="hide-sm">Shelf</th>
                 <th>Scope</th>
-                <th class="num">Items</th>
+                <th>Items</th>
                 <th class="actions-cell"></th>
               </tr>
             </thead>
@@ -715,7 +715,7 @@ const ConnectionFeedPage: FC<
       {p.error ? <p class="error">{p.error}</p> : null}
       {p.notice ? <article class="notice">{p.notice}</article> : null}
 
-      <section>
+      <section class="fed-section">
         <p class="eyebrow">Following</p>
         {p.subscriptions.length === 0 ? (
           <p class="muted">You don’t follow any of their views yet.</p>
@@ -726,7 +726,7 @@ const ConnectionFeedPage: FC<
                 <tr>
                   <th>View</th>
                   <th>Settings</th>
-                  <th class="num">Stored</th>
+                  <th>Stored</th>
                   <th class="hide-sm">Last pulled</th>
                   <th class="actions-cell"></th>
                 </tr>
@@ -788,7 +788,7 @@ const ConnectionFeedPage: FC<
         </p>
       </section>
 
-      <section>
+      <section class="fed-section">
         <p class="eyebrow">Views they share</p>
         {p.theirViews === null ? (
           <p class="muted">Couldn’t reach {p.connection.householdName} just now. Try again later.</p>
@@ -800,8 +800,8 @@ const ConnectionFeedPage: FC<
               <thead>
                 <tr>
                   <th>View</th>
-                  <th class="num">Items</th>
-                  <th class="num hide-sm">A month</th>
+                  <th>Items</th>
+                  <th class="hide-sm">A month</th>
                   <th>Follow</th>
                 </tr>
               </thead>

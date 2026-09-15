@@ -653,3 +653,4 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .sub-settings select, .sub-settings input[type='number'] { width: auto; margin: 0; height: 30px; }
 .sub-settings input[type='number'] { width: 5.5rem; }
 .view-form select { width: auto; margin: 0; }
+.view-form input { flex: 1 1 14rem; }
