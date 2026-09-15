@@ -436,8 +436,9 @@ imported items (client-driven batches, OL → Google Books → Discogs) · respo
 per-member ratings/status · stats page · bulk edit · TMDB/IGDB providers if movies/video
 games ever matter · Cloudflare Access as an optional extra gate · custom domain hookup.
 
-**Non-goals:** multi-tenant SaaS, native mobile apps, offline sync, social features, ebook
-file hosting (calibre-web's territory), background jobs of any kind.
+**Non-goals:** multi-tenant SaaS, native mobile apps, offline sync, public social features
+or fediverse interop, ebook file hosting (calibre-web's territory), background jobs of any
+kind. (Pairwise connections between two self-hosted instances are in scope — §16 #29.)
 
 ## 15. Risks
 
@@ -690,6 +691,19 @@ file hosting (calibre-web's territory), background jobs of any kind.
     between a phone and a laptop, and putting it in D1 would mean a migration and a write
     on every toggle for something that matters to one browser. The checkboxes carry no
     `name`, so they never join the surrounding GET filter form.
+29. **Connections between self-hosted instances — approved, built in phases.** Two households
+    that both run Nalanda can connect by invite, then see a feed of each other's reading,
+    comment on each other's reviews, and borrow from each other. This reverses the "social
+    features" non-goal in §14 deliberately and narrowly: connections are strictly pairwise,
+    never a network, with no fediverse interop. ActivityPub was rejected because its value is
+    reaching the wider network, and its open inbox is exactly where its spam problem lives.
+    Instead: invite-only connections confirmed by an admin, RFC 9421 HTTP Message Signatures
+    on every later request, and ActivityStreams 2.0 as the JSON format — with no new
+    Cloudflare products and no new runtime dependency. "Background jobs of any kind" stays a
+    non-goal: pulls happen only when someone opens a page. Additive by construction — off
+    unless the instance has a federation key. The design, decisions and threat model live in
+    `docs/proposals/connections.md`; each phase's pull request updates it where the build
+    has to differ.
 
 The honest comparison, since it was asked:
 

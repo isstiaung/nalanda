@@ -1,9 +1,8 @@
 # Proposal — Connections between Nalanda instances
 
-> **Status: proposed, not implemented.** Open questions resolved with the owner on
-> 2026-09-15 (§16); still awaiting approval to build. On approval it folds into ARCH.md as a
-> new section plus a §16 decision-log entry; until then ARCH.md remains the source of truth
-> and this document changes nothing.
+> **Status: approved 2026-09-15; being built in phases (§15), one pull request per phase.**
+> Recorded as ARCH.md §16 #29, which points here for the design. When a phase's build has to
+> differ from this document, that phase's pull request updates it.
 
 Two households each self-host Nalanda. If they choose to connect, they can see a feed of
 each other's reading, comment on each other's reviews, ask to borrow a book, and lend to
@@ -43,8 +42,9 @@ consistent with §4 ("no queues, no cron, no cache layer, no second service"). I
 - **Off unless the instance has a federation key** (`FEDERATION_PRIVATE_KEY` secret).
   Without it every new route returns 404, no new UI renders, and the new triggers write
   nothing. An instance that never opts in behaves exactly as it does today.
-- New code lives in `src/federation/`. New tables arrive in **one new append-only
-  migration**; no existing table is altered and no existing migration is edited.
+- New code lives in `src/federation/`. New tables arrive in **append-only
+  migrations, one per phase**; no existing table is altered and no existing migration is
+  edited.
 - **No existing handler changes behaviour.** Existing files touched, each an insertion:
 
   | File | Insertion |
@@ -192,7 +192,7 @@ book (§10) needs A online anyway.
 
 Nalanda has no event history today — items only have current state and `updated_at`.
 
-- **Recording:** a new `activity_log` table filled by triggers in the new migration — after
+- **Recording:** a new `activity_log` table filled by triggers in that phase's migration — after
   an item's `review`, `rating`, `status` or `completed_on` changes (and on insert with those
   set). Each row records the item, a kind (reviewed, rated, finished) and a timestamp; the
   activity JSON is built at read time, not in SQL. The triggers only write while
@@ -357,7 +357,7 @@ values, to be tuned during phases 1 and 2:
 | Stored feed entries per connection | 1,000, whatever the lifecycle settings | the receiver's database |
 | Active connections | 25 | a Feed refresh stays within one request's subrequest budget |
 
-## 13. Data model — one new migration
+## 13. Data model — new tables, added phase by phase
 
 | Table | Purpose |
 |---|---|
