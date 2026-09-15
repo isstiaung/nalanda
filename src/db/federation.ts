@@ -1355,17 +1355,28 @@ export async function pendingIncoming(d1: D1Database): Promise<IncomingRequest[]
   return rows.map((r) => ({ ...r.request, householdName: r.householdName, item: r.item }));
 }
 
-export type OutgoingRequest = BorrowRequestRow & { householdName: string };
+/** `returned`: they lent it and it came back — or its Borrowed entry was removed, which only a returned book allows. */
+export type OutgoingRequest = BorrowRequestRow & { householdName: string; returned: boolean };
 
 export async function recentOutgoing(d1: D1Database, limit: number): Promise<OutgoingRequest[]> {
   const rows = await db(d1)
-    .select({ request: s.borrowRequests, householdName: s.connections.householdName })
+    .select({
+      request: s.borrowRequests,
+      householdName: s.connections.householdName,
+      borrowedId: s.borrowedItems.id,
+      returnedOn: s.borrowedItems.returnedOn,
+    })
     .from(s.borrowRequests)
     .innerJoin(s.connections, eq(s.borrowRequests.connectionId, s.connections.id))
+    .leftJoin(s.borrowedItems, eq(s.borrowedItems.requestActivityId, s.borrowRequests.activityId))
     .where(eq(s.borrowRequests.incoming, false))
     .orderBy(desc(s.borrowRequests.createdAt), desc(s.borrowRequests.id))
     .limit(limit);
-  return rows.map((r) => ({ ...r.request, householdName: r.householdName }));
+  return rows.map((r) => ({
+    ...r.request,
+    householdName: r.householdName,
+    returned: r.request.status === 'accepted' && (r.borrowedId === null || r.returnedOn !== null),
+  }));
 }
 
 /**

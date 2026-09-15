@@ -150,7 +150,7 @@ borrowing.get('/households/:id', async (c) => {
           ))}
         </ul>
       )}
-      <p>
+      <p class="back-link">
         <a href="/borrowed">← Borrowed</a>
       </p>
     </>,
@@ -211,7 +211,7 @@ borrowing.get('/households/:id/views/:viewId', async (c) => {
           <Pagination page={shelf.page} pages={shelf.pages} makeHref={(p) => `${base}?page=${p}`} />
         </>
       )}
-      <p>
+      <p class="back-link">
         <a href={`/households/${connection.id}`}>← {connection.householdName}</a>
       </p>
     </>,
@@ -233,7 +233,7 @@ borrowing.get('/households/:id/views/:viewId/items/:itemId', async (c) => {
       connection.householdName,
       <>
         {status === 404 ? <p class="muted">That book isn’t on a shelf they share any more.</p> : <Unreachable connection={connection} />}
-        <p>
+        <p class="back-link">
           <a href={back}>← back</a>
         </p>
       </>,
@@ -321,7 +321,7 @@ borrowing.get('/households/:id/views/:viewId/items/:itemId', async (c) => {
             <p class="muted">Read, but not on their shelves — nothing to lend.</p>
           )}
         </div>
-        <p>
+        <p class="back-link">
           <a href={back}>← back to the shelf</a>
         </p>
       </div>
@@ -507,7 +507,11 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
                     <td>{r.householdName}</td>
                     <td class="date hide-sm">{r.createdAt.slice(0, 10)}</td>
                     <td>
-                      <span class={STATUS_PILL[r.status][0]}>{STATUS_PILL[r.status][1]}</span>
+                      {r.returned ? (
+                        <span class="pill ghost">Returned</span>
+                      ) : (
+                        <span class={STATUS_PILL[r.status][0]}>{STATUS_PILL[r.status][1]}</span>
+                      )}
                     </td>
                     <td class="actions-cell">
                       {r.status === 'pending' ? (
@@ -653,21 +657,23 @@ export async function loanRequestsSection(c: Context<AppEnv>): Promise<Child | n
                 </td>
                 <td class="date hide-sm">{r.createdAt.slice(0, 10)}</td>
                 <td class="actions-cell">
-                  {free.get(r.item.id) ? (
-                    <form method="post" action={`/borrow-requests/${r.id}/accept`} class="inline-form">
-                      <input type="date" name="dueOn" aria-label="Due date" />
-                      <button type="submit" class="btn">
-                        Lend
+                  <div class="request-actions">
+                    {free.get(r.item.id) ? (
+                      <form method="post" action={`/borrow-requests/${r.id}/accept`} class="inline-form">
+                        <input type="date" name="dueOn" aria-label="Due date" />
+                        <button type="submit" class="btn">
+                          Lend
+                        </button>
+                      </form>
+                    ) : (
+                      <small class="muted">No copy free</small>
+                    )}
+                    <form method="post" action={`/borrow-requests/${r.id}/decline`} class="inline">
+                      <button type="submit" class="btn-danger">
+                        Decline
                       </button>
                     </form>
-                  ) : (
-                    <small class="muted">No copy free</small>
-                  )}{' '}
-                  <form method="post" action={`/borrow-requests/${r.id}/decline`} class="inline">
-                    <button type="submit" class="btn-danger">
-                      Decline
-                    </button>
-                  </form>
+                  </div>
                 </td>
               </tr>
             ))}
