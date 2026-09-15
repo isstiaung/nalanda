@@ -16,6 +16,11 @@ otherwise looks the id up by name with `wrangler d1 list`, so being logged in to
 (`npx wrangler login`) is enough. It exports through a temporary, gitignored copy of the
 config and deletes it afterwards.
 
+Each table's export makes the production database briefly unavailable, so the script asks
+once before it starts. D1's export API fails transiently now and then
+(`createMultipartUpload: internal error`); a table that fails is tried twice more, and if it
+still fails the script stops and says which table — run it again a little later.
+
 **Why per-table files instead of one dump:** D1 refuses to export any database that
 contains virtual tables — and our FTS5 search index is one. So backups are data-only
 INSERT files for the real tables (`users`, `libraries`, `items`, `tags`, `item_tags`,
