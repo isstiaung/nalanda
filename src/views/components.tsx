@@ -45,6 +45,7 @@ export const STATUS_LABEL: Record<ItemStatus, string> = {
 /** "Board games · In progress · Owned" — how a share view's captured filters read. */
 export function shareScopeLabel(v: Share): string {
   const parts: string[] = [];
+  if (v.tag) parts.push(`#${v.tag}`);
   if (v.mediaType) parts.push(MEDIA_LABEL[v.mediaType]);
   if (v.status) parts.push(STATUS_LABEL[v.status]);
   if (v.owned !== null) parts.push(v.owned ? 'Owned' : 'Not owned');

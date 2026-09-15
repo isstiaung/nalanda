@@ -115,6 +115,7 @@ export type NewShare = {
   mediaType?: MediaType | null;
   status?: ItemStatus | null;
   owned?: boolean | null;
+  tag?: string | null;
   sort?: 'added' | 'title' | 'rating' | 'completed';
 };
 
@@ -138,6 +139,11 @@ export async function listShares(d1: D1Database, libraryId?: number): Promise<Sh
     .orderBy(asc(s.shares.id));
 }
 
+/** The links published from one tag's page. */
+export async function listTagShares(d1: D1Database, tag: string): Promise<Share[]> {
+  return db(d1).select().from(s.shares).where(eq(s.shares.tag, tag)).orderBy(asc(s.shares.id));
+}
+
 export async function rotateShare(d1: D1Database, id: number, token: string): Promise<void> {
   await db(d1).update(s.shares).set({ token }).where(eq(s.shares.id, id));
 }
@@ -155,6 +161,7 @@ export type ItemFilters = {
   statuses?: ItemStatus[]; // any-of; empty/omitted = any status
   owned?: boolean; // true = copies > 0, false = copies = 0 (reading-log entries)
   q?: string; // title/creators substring, case-insensitive
+  tag?: string; // only items carrying this tag (tags are stored lowercase)
   sort?: 'added' | 'title' | 'rating' | 'completed';
   page?: number; // 1-based
 };
@@ -167,6 +174,11 @@ function itemFilterWhere(libraryId: number | null, f: ItemFilters): SQL | undefi
   if (f.mediaTypes?.length) conds.push(inArray(s.items.mediaType, f.mediaTypes));
   if (f.statuses?.length) conds.push(inArray(s.items.status, f.statuses));
   if (f.owned !== undefined) conds.push(f.owned ? gt(s.items.copies, 0) : eq(s.items.copies, 0));
+  if (f.tag) {
+    conds.push(
+      sql`EXISTS (SELECT 1 FROM ${s.itemTags} INNER JOIN ${s.tags} ON ${s.tags.id} = ${s.itemTags.tagId} WHERE ${s.itemTags.itemId} = ${s.items.id} AND ${s.tags.name} = ${f.tag})`,
+    );
+  }
   if (f.q) {
     const needle = `%${f.q.replace(/[%_\\]/g, '\\$&')}%`;
     conds.push(sql`(${s.items.title} LIKE ${needle} ESCAPE '\\' OR ${s.items.creators} LIKE ${needle} ESCAPE '\\')`);

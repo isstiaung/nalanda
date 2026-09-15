@@ -106,6 +106,7 @@ export const shares = sqliteTable('shares', {
   mediaType: text('media_type', { enum: MEDIA_TYPES }),
   status: text('status', { enum: ITEM_STATUSES }),
   owned: integer('owned', { mode: 'boolean' }),
+  tag: text('tag'), // everything carrying this tag (stored lowercase), on any shelf the other filters allow
   sort: text('sort', { enum: ['added', 'title', 'rating', 'completed'] }).notNull().default('title'),
   createdAt: text('created_at').notNull().default(now),
 });

@@ -293,7 +293,8 @@ portable, and makes share routes trivially public. CF Access remains available l
 ## 9. Public share links
 
 - Publishing mints a `shares` row: a random 128-bit token plus the **captured filters**
-  of the view being published (shelf, media type, status, owned) and a public name.
+  of the view being published (shelf, media type, status, owned) and a public name — or,
+  published from a tag's page, a tag: everything carrying it, on any shelf (§16 #31).
   `GET /share/:token` (listing) and `GET /share/:token/items/:id` (item) render
   read-only pages with **no login**. The item route re-checks the item against the
   view's filters (`itemMatchesShare`) so a token can't be walked outside its scope by
@@ -743,6 +744,16 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     sharp and its prebuilt libvips packages, and the suite passes. **Remove the override**
     once vitest-pool-workers ships a miniflare that pins sharp ≥ 0.35.4 itself — left in,
     it would hold sharp back the next time miniflare moves.
+
+31. **Share links can capture a tag.** Shelf filters can't express a hand-picked list —
+    "the books I've reviewed on my blog", or a Goodreads shelf like "to-read-2020" that
+    arrived as a tag — and a book lives on exactly one shelf, so a shelf can't serve as that
+    list without pulling books out of the shelf they belong to. `shares.tag` (migration
+    0011) publishes everything carrying the tag. Such links are published, rotated and
+    removed on the tag's own page and span every shelf (`library_id` null), owned or not.
+    Scope is enforced in both places, as before: `shareFilters()` adds an `EXISTS` over
+    `item_tags`, and `itemMatchesShare()` now takes the item's tags, so the public item
+    route loads them before deciding. A tag link never counts as exposing a shelf entire.
 
 The honest comparison, since it was asked:
 

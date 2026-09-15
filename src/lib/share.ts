@@ -6,13 +6,15 @@ import type { Item, MediaType, Share } from '../db/schema';
 /**
  * Does this item fall inside a share view's scope? Guards the public item-detail
  * route: a token only unlocks items matching ALL of its captured filters, so a
- * "reviews only" view can't be walked into the rest of the shelf by id.
+ * "reviews only" view can't be walked into the rest of the shelf by id. `tags` are
+ * the item's own tags, checked when the view captured one.
  */
-export function itemMatchesShare(share: Share, item: Item): boolean {
+export function itemMatchesShare(share: Share, item: Item, tags: string[]): boolean {
   if (share.libraryId !== null && item.libraryId !== share.libraryId) return false;
   if (share.mediaType !== null && item.mediaType !== share.mediaType) return false;
   if (share.status !== null && item.status !== share.status) return false;
   if (share.owned !== null && item.copies > 0 !== share.owned) return false;
+  if (share.tag !== null && !tags.includes(share.tag)) return false;
   return true;
 }
 
@@ -26,6 +28,7 @@ export function shareFilters(share: Share): ItemFilters {
     mediaTypes: share.mediaType ? [share.mediaType] : undefined,
     statuses: share.status ? [share.status] : undefined,
     owned: share.owned ?? undefined,
+    tag: share.tag ?? undefined,
     sort: share.sort,
   };
 }
@@ -38,7 +41,7 @@ export function shareFilters(share: Share): ItemFilters {
  * you've published.
  */
 export function isWholeShelfShare(share: Share): boolean {
-  return share.mediaType === null && share.status === null && share.owned === null;
+  return share.mediaType === null && share.status === null && share.owned === null && share.tag === null;
 }
 
 /**
