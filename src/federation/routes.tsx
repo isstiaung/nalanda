@@ -337,12 +337,13 @@ federation.get('/federation/shelf', async (c) => {
   if (!view) return c.json({ error: 'no such view' }, 404);
   const shelf = await shelfPage(c.env.DB, view, pageNum);
   const free = await availability(c.env.DB, shelf.items);
+  const stamps = await Promise.all(shelf.items.map((item) => itemStamp(item)));
   return c.json({
     view: { id: view.id, name: view.name },
     total: shelf.total,
     page: shelf.page,
     pages: shelf.pages,
-    items: shelf.items.map((item) => toShelfItem(item, free.get(item.id) ?? false)),
+    items: shelf.items.map((item, i) => toShelfItem(item, free.get(item.id) ?? false, stamps[i]!)),
   });
 });
 
@@ -358,7 +359,7 @@ federation.get('/federation/item', async (c) => {
   const [view, item] = await Promise.all([getConnectionView(c.env.DB, viewId), getItem(c.env.DB, itemId)]);
   if (!view || !item || !itemMatchesView(view, item)) return c.json({ error: 'no such item' }, 404);
   const [free, tags] = await Promise.all([availability(c.env.DB, [item]), tagsForItem(c.env.DB, item.id)]);
-  return c.json(toItemDetail(item, free.get(item.id) ?? false, tags));
+  return c.json(toItemDetail(item, free.get(item.id) ?? false, tags, await itemStamp(item)));
 });
 
 // ---------- messages from connected instances ----------

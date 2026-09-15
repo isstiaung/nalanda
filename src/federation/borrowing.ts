@@ -6,17 +6,17 @@ import {
   countPendingIncoming,
   hasPendingIncoming,
   insertBorrowRequest,
-  itemIsShared,
   markBorrowedReturned,
   recordBorrowed,
   requestByActivity,
   requestStatus,
   setRequestStatus,
+  sharedItem,
 } from '../db/federation';
-import { getItem } from '../db/queries';
 import type { Connection } from '../db/schema';
 import type { Outcome } from './comments';
 import { MAX_PENDING_REQUESTS_PER_CONNECTION } from './config';
+import { itemStamp } from './items';
 import type { BorrowMessage, BorrowRequest } from './messages';
 
 export async function receiveBorrowing(d1: D1Database, connection: Connection, message: BorrowMessage): Promise<Outcome> {
@@ -36,8 +36,11 @@ export async function receiveBorrowing(d1: D1Database, connection: Connection, m
       // Only an answer to a request we sent them.
       const request = await requestByActivity(d1, connection.id, message.request, false);
       if (!request || request.theirItemId === null) return { status: 404, body: { error: 'no such request' } };
-      // Accepted even if we withdrew meanwhile: they have lent it, so it belongs on the Borrowed page.
-      await setRequestStatus(d1, request.id, 'accepted', ['pending', 'withdrawn'], message.dueOn);
+      // Accepted even if we withdrew meanwhile: they have lent it, so it belongs on the Borrowed page. Only when
+      // the status actually moves, though — a repeat, or an answer to a declined request, records nothing.
+      if (!(await setRequestStatus(d1, request.id, 'accepted', ['pending', 'withdrawn'], message.dueOn))) {
+        return { status: 200, body: { status: 'already answered' } };
+      }
       await recordBorrowed(d1, {
         connectionId: connection.id,
         requestActivityId: request.activityId,
@@ -72,8 +75,9 @@ export async function receiveBorrowing(d1: D1Database, connection: Connection, m
  */
 async function receiveRequest(d1: D1Database, connection: Connection, m: BorrowRequest): Promise<Outcome> {
   if (await requestStatus(d1, m.id)) return { status: 200, body: { status: 'already received' } };
-  const item = await getItem(d1, m.item);
-  if (!item || !(await itemIsShared(d1, item))) return { status: 404, body: { error: 'no such item' } };
+  // One query decides, and an unknown book, an unshared one, and an earlier book whose id was since reused answer alike.
+  const item = await sharedItem(d1, m.item);
+  if (!item || (await itemStamp(item)) !== m.stamp) return { status: 404, body: { error: 'no such item' } };
   if (item.copies === 0 || !(await availability(d1, [item])).get(item.id)) {
     return { status: 409, body: { error: 'not available' } };
   }

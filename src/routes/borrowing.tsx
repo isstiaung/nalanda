@@ -56,26 +56,33 @@ function refreshAfterResponse(c: Context<AppEnv>, ctx: Enabled) {
 
 // ---------- reading a connection's shelves ----------
 
-const shelfCache = new Map<string, { body: unknown; expires: number }>();
+const shelfCache = new Map<string, { value: unknown; expires: number }>();
 
 /**
- * A signed GET to a connection, kept in this isolate's memory for SHELF_CACHE_MS. Shelves are read live and
- * never stored (§7); only successful answers are kept, and never beyond those few minutes.
+ * A signed GET to a connection, read through `parse` and kept in this isolate's memory for SHELF_CACHE_MS.
+ * Shelves are read live and never stored (§7). Only an answer that validated is kept — never a raw body, and
+ * never a failure, so a household that recovers is seen at once.
  */
-async function readFromHousehold(ctx: Enabled, connection: Connection, path: string): Promise<{ status: number; body: unknown } | null> {
+async function readFromHousehold<T>(
+  ctx: Enabled,
+  connection: Connection,
+  path: string,
+  parse: (body: unknown) => T | null,
+): Promise<{ status: number | null; value: T | null }> {
   const key = `${connection.id}|${connection.baseUrl}|${path}`;
   const hit = shelfCache.get(key);
-  if (hit && hit.expires > Date.now()) return { status: 200, body: hit.body };
+  if (hit && hit.expires > Date.now()) return { status: 200, value: hit.value as T };
   shelfCache.delete(key);
   const res = await getSigned(ctx.identity, ctx.settings.baseUrl, connection.baseUrl, path);
-  if (res?.status === 200) {
+  const value = res?.status === 200 ? parse(res.body) : null;
+  if (value !== null) {
     if (shelfCache.size >= SHELF_CACHE_ENTRIES) {
       const oldest = shelfCache.keys().next().value;
       if (oldest !== undefined) shelfCache.delete(oldest);
     }
-    shelfCache.set(key, { body: res.body, expires: Date.now() + SHELF_CACHE_MS });
+    shelfCache.set(key, { value, expires: Date.now() + SHELF_CACHE_MS });
   }
-  return res;
+  return { status: res?.status ?? null, value };
 }
 
 async function household(c: Context<AppEnv>): Promise<Connection | null> {
@@ -118,8 +125,7 @@ borrowing.get('/households/:id', async (c) => {
   const ctx = await enabled(c);
   const connection = ctx ? await household(c) : null;
   if (!ctx || !connection) return c.notFound();
-  const res = await readFromHousehold(ctx, connection, '/federation/views');
-  const views = res?.status === 200 ? parseSharedViews(res.body) : null;
+  const { value: views } = await readFromHousehold(ctx, connection, '/federation/views', parseSharedViews);
   return page(
     c,
     connection.householdName,
@@ -158,8 +164,7 @@ borrowing.get('/households/:id/views/:viewId', async (c) => {
   const viewId = digits(c.req.param('viewId'));
   if (!ctx || !connection || !viewId) return c.notFound();
   const pageNum = digits(c.req.query('page')) ?? 1;
-  const res = await readFromHousehold(ctx, connection, `/federation/shelf?view=${viewId}&page=${pageNum}`);
-  const shelf = res?.status === 200 ? parseShelf(res.body) : null;
+  const { status, value: shelf } = await readFromHousehold(ctx, connection, `/federation/shelf?view=${viewId}&page=${pageNum}`, parseShelf);
   const base = `/households/${connection.id}/views/${viewId}`;
   return page(
     c,
@@ -174,7 +179,7 @@ borrowing.get('/households/:id/views/:viewId', async (c) => {
           </span>
         </div>
       </div>
-      {res?.status === 404 ? (
+      {status === 404 ? (
         <p class="muted">{connection.householdName} no longer shares this shelf.</p>
       ) : !shelf ? (
         <Unreachable connection={connection} />
@@ -220,22 +225,21 @@ borrowing.get('/households/:id/views/:viewId/items/:itemId', async (c) => {
   const viewId = digits(c.req.param('viewId'));
   const itemId = digits(c.req.param('itemId'));
   if (!ctx || !connection || !viewId || !itemId) return c.notFound();
-  const res = await readFromHousehold(ctx, connection, `/federation/item?view=${viewId}&id=${itemId}`);
-  const item = res?.status === 200 ? parseItemDetail(res.body) : null;
+  const { status, value: item } = await readFromHousehold(ctx, connection, `/federation/item?view=${viewId}&id=${itemId}`, parseItemDetail);
   const back = `/households/${connection.id}/views/${viewId}`;
   if (!item) {
     return page(
       c,
       connection.householdName,
       <>
-        {res?.status === 404 ? <p class="muted">That book isn’t on a shelf they share any more.</p> : <Unreachable connection={connection} />}
+        {status === 404 ? <p class="muted">That book isn’t on a shelf they share any more.</p> : <Unreachable connection={connection} />}
         <p>
           <a href={back}>← back</a>
         </p>
       </>,
     );
   }
-  const asked = await hasPendingOutgoing(c.env.DB, connection.id, item.id);
+  const asked = await hasPendingOutgoing(c.env.DB, connection.id, item.id, item.stamp);
   return page(
     c,
     `${item.title} · ${connection.householdName}`,
@@ -335,7 +339,6 @@ borrowing.post('/households/:id/requests', async (c) => {
   const itemId = digits(form['itemId']);
   const rawNote = typeof form['note'] === 'string' ? form['note'].replace(/\r\n?/g, '\n').trim() : '';
   if (!viewId || !itemId || !isId(itemId) || rawNote.length > MAX_BORROW_NOTE_CHARS) return c.redirect('/borrowed');
-  if (await hasPendingOutgoing(c.env.DB, connection.id, itemId)) return c.redirect('/borrowed');
 
   // Their current word, not a cached page: the title kept, and whether a copy is still free.
   const res = await getSigned(ctx.identity, ctx.settings.baseUrl, connection.baseUrl, `/federation/item?view=${viewId}&id=${itemId}`);
@@ -347,14 +350,16 @@ borrowing.post('/households/:id/requests', async (c) => {
         : `Couldn’t reach ${connection.householdName} to ask. Nothing was sent.`,
     });
   }
+  if (await hasPendingOutgoing(c.env.DB, connection.id, item.id, item.stamp)) return c.redirect('/borrowed');
 
   const user = c.get('user');
-  const message = borrowRequest(ctx.settings.baseUrl, item.id, user.username, rawNote || null);
+  const message = borrowRequest(ctx.settings.baseUrl, item.id, item.stamp, user.username, rawNote || null);
   const row = await insertBorrowRequest(c.env.DB, {
     activityId: message.id,
     connectionId: connection.id,
     incoming: false,
     theirItemId: item.id,
+    theirItemStamp: item.stamp,
     theirViewId: viewId,
     itemTitle: item.title,
     coverKey: item.coverKey,
@@ -389,8 +394,6 @@ borrowing.post('/borrow-requests/:id/accept', async (c) => {
   const request = await getBorrowRequest(c.env.DB, Number(c.req.param('id')));
   const connection = request ? await getConnection(c.env.DB, request.connectionId) : null;
   if (!request?.incoming || request.status !== 'pending' || connection?.status !== 'active') return c.redirect('/loans');
-  const [waiting] = (await pendingIncoming(c.env.DB)).filter((r) => r.id === request.id);
-  if (!waiting || !(await availability(c.env.DB, [waiting.item])).get(waiting.item.id)) return c.redirect('/loans');
 
   const form = await c.req.parseBody();
   const dueOn = typeof form['dueOn'] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(form['dueOn']) ? form['dueOn'] : null;
@@ -574,9 +577,11 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
         </section>
       ) : null}
 
-      <p class="muted">
-        <a href="/federation/export.json">Export connections data (JSON)</a>
-      </p>
+      {c.get('user').role === 'admin' ? (
+        <p class="muted">
+          <a href="/federation/export.json">Export connections data (JSON)</a>
+        </p>
+      ) : null}
     </>,
   );
 }
@@ -592,9 +597,10 @@ borrowing.post('/borrowed/:id/remove', async (c) => {
   return c.redirect('/borrowed');
 });
 
-/** Connections data as a download: connections, views, following, comments, borrowing. Never keys. */
+/** Connections data as a download for admins: active connections, views, following, comments, borrowing. Never keys. */
 borrowing.get('/federation/export.json', async (c) => {
   if (!(await enabled(c))) return c.notFound();
+  if (c.get('user').role !== 'admin') return c.text('Admins only', 403);
   return c.json(await federationExport(c.env.DB), 200, {
     'content-disposition': 'attachment; filename="nalanda-connections.json"',
   });

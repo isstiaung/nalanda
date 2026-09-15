@@ -31,7 +31,7 @@ export type CommentCreate = Envelope & {
 export type CommentDelete = Envelope & { type: 'CommentDelete'; comment: string };
 
 /** Asks to borrow one of the receiver's books. */
-export type BorrowRequest = Envelope & { type: 'BorrowRequest'; item: number; requester: string; note: string | null };
+export type BorrowRequest = Envelope & { type: 'BorrowRequest'; item: number; stamp: string; requester: string; note: string | null };
 /** The lender's answers, and the borrower's withdrawal, each naming the request by its activity id. */
 export type BorrowAccept = Envelope & { type: 'BorrowAccept'; request: string; loanedOn: string; dueOn: string | null };
 export type BorrowDecline = Envelope & { type: 'BorrowDecline'; request: string };
@@ -84,13 +84,14 @@ export function commentDelete(actor: string, comment: string): CommentDelete {
   return { '@context': AS2_CONTEXT, type: 'CommentDelete', id: newActivityId(), actor, comment };
 }
 
-export function borrowRequest(actor: string, item: number, requester: string, note: string | null): BorrowRequest {
+export function borrowRequest(actor: string, item: number, stamp: string, requester: string, note: string | null): BorrowRequest {
   return {
     '@context': AS2_CONTEXT,
     type: 'BorrowRequest',
     id: newActivityId(),
     actor,
     item,
+    stamp,
     requester: requester.slice(0, MAX_AUTHOR_NAME),
     note,
   };
@@ -153,10 +154,10 @@ export function parseInboxMessage(value: unknown): InboxMessage | null {
 
   switch (value.type) {
     case 'BorrowRequest': {
-      const { item, requester, note } = value;
-      if (!isId(item) || typeof requester !== 'string' || !requester.trim() || requester.length > MAX_AUTHOR_NAME) return null;
+      const { item, stamp, requester, note } = value;
+      if (!isId(item) || !isStamp(stamp) || typeof requester !== 'string' || !requester.trim() || requester.length > MAX_AUTHOR_NAME) return null;
       if (!(note === null || (typeof note === 'string' && note.length <= MAX_BORROW_NOTE_CHARS))) return null;
-      return { ...base, type: 'BorrowRequest', item, requester, note };
+      return { ...base, type: 'BorrowRequest', item, stamp, requester, note };
     }
     case 'BorrowAccept': {
       const { request, loanedOn, dueOn } = value;

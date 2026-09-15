@@ -1173,6 +1173,7 @@ export type NewBorrowRequest = {
   incoming: boolean;
   ourItemId?: number | null;
   theirItemId?: number | null;
+  theirItemStamp?: string | null;
   theirViewId?: number | null;
   itemTitle: string;
   coverKey?: string | null;
@@ -1262,7 +1263,7 @@ export async function hasPendingIncoming(d1: D1Database, connectionId: number, o
 }
 
 /** Whether this household already has a request waiting for that book of theirs. */
-export async function hasPendingOutgoing(d1: D1Database, connectionId: number, theirItemId: number): Promise<boolean> {
+export async function hasPendingOutgoing(d1: D1Database, connectionId: number, theirItemId: number, stamp: string): Promise<boolean> {
   const [row] = await db(d1)
     .select({ id: s.borrowRequests.id })
     .from(s.borrowRequests)
@@ -1271,11 +1272,41 @@ export async function hasPendingOutgoing(d1: D1Database, connectionId: number, t
         eq(s.borrowRequests.connectionId, connectionId),
         eq(s.borrowRequests.incoming, false),
         eq(s.borrowRequests.theirItemId, theirItemId),
+        eq(s.borrowRequests.theirItemStamp, stamp),
         eq(s.borrowRequests.status, 'pending'),
       ),
     )
     .limit(1);
   return !!row;
+}
+
+/** Declines a request of ours that they refused outright — so it doesn't sit waiting forever. */
+export async function declineOwnRequest(d1: D1Database, activityId: string): Promise<void> {
+  await db(d1)
+    .update(s.borrowRequests)
+    .set({ status: 'declined', respondedAt: sql`(datetime('now'))` })
+    .where(and(eq(s.borrowRequests.activityId, activityId), eq(s.borrowRequests.incoming, false), eq(s.borrowRequests.status, 'pending')));
+}
+
+/**
+ * One of our items, only if it is inside a connection view — one query, so an unknown item and an unshared one
+ * can't be told apart by how long the answer takes. The SQL twin of itemMatchesView().
+ */
+export async function sharedItem(d1: D1Database, itemId: number): Promise<Item | null> {
+  const [row] = await db(d1)
+    .select()
+    .from(s.items)
+    .where(
+      and(
+        eq(s.items.id, itemId),
+        sql`EXISTS (SELECT 1 FROM connection_views v
+                    WHERE (v.library_id IS NULL OR v.library_id = ${s.items.libraryId})
+                      AND (v.media_type IS NULL OR v.media_type = ${s.items.mediaType})
+                      AND (v.status IS NULL OR v.status = ${s.items.status})
+                      AND (v.owned IS NULL OR v.owned = (${s.items.copies} > 0)))`,
+      ),
+    );
+  return row ?? null;
 }
 
 export async function countPendingIncoming(d1: D1Database, connectionId: number): Promise<number> {
@@ -1338,9 +1369,11 @@ export async function recentOutgoing(d1: D1Database, limit: number): Promise<Out
 }
 
 /**
- * Accepting a request lends the book with an ordinary loan — so the Loans page, overdue logic and return
- * button all apply unchanged — linked to the connection and the request. The status moves first, and only
- * from pending, so two members accepting at once make one loan. Null when the request was no longer pending.
+ * Accepting a request lends the book with an ordinary loan — so the Loans page, overdue logic and return button
+ * all apply unchanged — linked to the connection and the request. The status moves first, and only from pending,
+ * so one request is lent at most once. The loan is inserted only while a copy is free, decided inside that one
+ * statement, so two members lending the last copy to different households at once make one loan, not two.
+ * Null when nothing was lent; a failure leaves no loan behind and the request pending again.
  */
 export async function lendToConnection(
   d1: D1Database,
@@ -1350,12 +1383,27 @@ export async function lendToConnection(
 ): Promise<number | null> {
   if (request.ourItemId === null) return null;
   if (!(await setRequestStatus(d1, request.id, 'accepted', ['pending'], dueOn))) return null;
+  const reopen = () =>
+    db(d1)
+      .update(s.borrowRequests)
+      .set({ status: 'pending', dueOn: null, respondedAt: null })
+      .where(and(eq(s.borrowRequests.id, request.id), eq(s.borrowRequests.status, 'accepted')));
+  let loanId: number | null = null;
   try {
-    const [loan] = await db(d1)
-      .insert(s.loans)
-      .values({ itemId: request.ourItemId, borrower, dueOn })
-      .returning({ id: s.loans.id });
-    if (!loan) throw new Error('failed to create loan');
+    const loan = await d1
+      .prepare(
+        `INSERT INTO loans (item_id, borrower, due_on)
+         SELECT id, ?2, ?3 FROM items
+         WHERE id = ?1 AND copies > (SELECT count(*) FROM loans WHERE item_id = ?1 AND returned_on IS NULL)
+         RETURNING id`,
+      )
+      .bind(request.ourItemId, borrower, dueOn)
+      .first<{ id: number }>();
+    if (!loan) {
+      await reopen(); // no copy free after all
+      return null;
+    }
+    loanId = loan.id;
     await db(d1).insert(s.connectionLoans).values({
       loanId: loan.id,
       connectionId: request.connectionId,
@@ -1364,10 +1412,8 @@ export async function lendToConnection(
     });
     return loan.id;
   } catch (err) {
-    await db(d1)
-      .update(s.borrowRequests)
-      .set({ status: 'pending', dueOn: null, respondedAt: null })
-      .where(eq(s.borrowRequests.id, request.id));
+    if (loanId !== null) await db(d1).delete(s.loans).where(eq(s.loans.id, loanId));
+    await reopen();
     throw err;
   }
 }
@@ -1419,7 +1465,8 @@ export async function listBorrowed(d1: D1Database): Promise<BorrowedFrom[]> {
 }
 
 export async function deleteBorrowed(d1: D1Database, id: number): Promise<void> {
-  await db(d1).delete(s.borrowedItems).where(eq(s.borrowedItems.id, id));
+  // Only a book already given back: one still out stays until its return notice arrives.
+  await db(d1).delete(s.borrowedItems).where(and(eq(s.borrowedItems.id, id), isNotNull(s.borrowedItems.returnedOn)));
 }
 
 /**
@@ -1439,7 +1486,8 @@ export async function federationExport(d1: D1Database): Promise<Record<string, u
         since: s.connections.createdAt,
         confirmedAt: s.connections.confirmedAt,
       })
-      .from(s.connections),
+      .from(s.connections)
+      .where(eq(s.connections.status, 'active')),
     dbi.select().from(s.connectionViews),
     dbi
       .select({

@@ -141,9 +141,9 @@ export function jsonBytes(value: unknown): { json: string; bytes: number } {
 export type ShelfItem = Pick<
   ConnectionItem,
   'id' | 'mediaType' | 'title' | 'creators' | 'published' | 'coverKey' | 'rating' | 'inCollection'
-> & { available: boolean };
+> & { available: boolean; stamp: string };
 
-export function toShelfItem(item: Item, available: boolean): ShelfItem {
+export function toShelfItem(item: Item, available: boolean, stamp: string): ShelfItem {
   const c = toConnectionItem(item);
   return {
     id: c.id,
@@ -155,6 +155,7 @@ export function toShelfItem(item: Item, available: boolean): ShelfItem {
     rating: c.rating,
     inCollection: c.inCollection,
     available: c.inCollection && available,
+    stamp,
   };
 }
 
@@ -163,6 +164,7 @@ export type ItemDetail = Omit<ConnectionItem, 'details'> & {
   details: Record<string, string | number | boolean>;
   available: boolean;
   tags: string[];
+  stamp: string;
 };
 
 /** Details reduced to short, plain values — the only shape a connection's item page renders. */
@@ -176,7 +178,7 @@ function plainDetails(details: Record<string, unknown>): Record<string, string |
   return out;
 }
 
-export function toItemDetail(item: Item, available: boolean, tags: string[]): ItemDetail {
+export function toItemDetail(item: Item, available: boolean, tags: string[], stamp: string): ItemDetail {
   const c = toConnectionItem(item);
   return {
     ...c,
@@ -190,6 +192,7 @@ export function toItemDetail(item: Item, available: boolean, tags: string[]): It
     details: plainDetails(c.details),
     available: c.inCollection && available,
     tags: tags.slice(0, 50).map((t) => t.slice(0, 50)),
+    stamp,
   };
 }
 
@@ -203,7 +206,7 @@ function shelfBase(v: Record<string, unknown>): ShelfItem | null {
   if (!isText(v.creators, MAX_TITLE) || !isText(v.published, MAX_SHORT_TEXT)) return null;
   if (!(v.coverKey === null || (typeof v.coverKey === 'string' && COVER_KEY.test(v.coverKey)))) return null;
   if (!(v.rating === null || (Number.isInteger(v.rating) && (v.rating as number) >= 0 && (v.rating as number) <= 10))) return null;
-  if (typeof v.inCollection !== 'boolean' || typeof v.available !== 'boolean') return null;
+  if (typeof v.inCollection !== 'boolean' || typeof v.available !== 'boolean' || !isStamp(v.stamp)) return null;
   return {
     id: v.id,
     mediaType: v.mediaType as MediaType,
@@ -214,6 +217,7 @@ function shelfBase(v: Record<string, unknown>): ShelfItem | null {
     rating: v.rating as number | null,
     inCollection: v.inCollection,
     available: v.inCollection && v.available,
+    stamp: v.stamp,
   };
 }
 

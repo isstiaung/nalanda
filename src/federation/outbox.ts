@@ -8,12 +8,14 @@ import {
   claimPushAttempt,
   commentStates,
   countPush,
+  declineOwnRequest,
   dropOutbox,
   dueOutboxes,
   enqueueOutbox,
   markDelivered,
   pruneTombstones,
   recordOutboxPull,
+  requestStatus,
   requestStatuses,
   returnedRequests,
   undeliveredOutbox,
@@ -181,12 +183,27 @@ async function pullOutbox(db: D1Database, d1: D1Database, identity: Identity, se
   }
 }
 
-/** Retries a push that didn't land, or pushes one a trigger queued — a few per page load, each now and then. */
+/**
+ * Retries a push that didn't land, or pushes one a trigger queued — a few per page load, each now and then. A
+ * refusal ends a message's life: it leaves the outbox, and a refused request of ours is declined rather than left
+ * waiting. A request withdrawn or answered since it was queued isn't sent at all.
+ */
 async function retryPushes(db: D1Database, identity: Identity, settings: FederationSettings) {
   for (const row of await undeliveredOutbox(db, PUSH_RETRIES_PER_REQUEST, PUSH_RETRY_MINUTES, PUSH_RETRY_DAYS)) {
     if (!(await claimPushAttempt(db, row.id, row.attemptedAt))) continue;
+    const message = parseInboxMessage(JSON.parse(row.message));
+    if (message?.type === 'BorrowRequest' && (await requestStatus(db, message.id)) !== 'pending') {
+      await dropOutbox(db, row.id);
+      continue;
+    }
     const res = await postSigned(identity, settings.baseUrl, row.connection.baseUrl, '/federation/inbox', JSON.parse(row.message));
-    if (res && delivered(res.status)) await markDelivered(db, row.id);
+    if (!res) continue;
+    if (delivered(res.status)) {
+      await markDelivered(db, row.id);
+    } else if (refused(res.status)) {
+      await dropOutbox(db, row.id);
+      if (message?.type === 'BorrowRequest') await declineOwnRequest(db, message.id);
+    }
   }
 }
 

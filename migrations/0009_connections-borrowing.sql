@@ -5,6 +5,7 @@ CREATE TABLE `borrow_requests` (
 	`incoming` integer NOT NULL,
 	`our_item_id` integer,
 	`their_item_id` integer,
+	`their_item_stamp` text,
 	`their_view_id` integer,
 	`item_title` text NOT NULL,
 	`cover_key` text,

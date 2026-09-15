@@ -1,6 +1,6 @@
 {
-  "id": "6c566008-5244-448c-8a77-b18921a9ce6b",
-  "prevId": "7209cfdf-f232-4525-8a96-d180bb2a51a5",
+  "id": "4e29dbc4-d6bc-4913-8625-d91b9979dc5c",
+  "prevId": "2839f7c5-4816-4df5-ba8b-769015412512",
   "version": "6",
   "dialect": "sqlite",
   "tables": {
@@ -114,6 +114,13 @@
         "their_item_id": {
           "name": "their_item_id",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "their_item_stamp": {
+          "name": "their_item_stamp",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

@@ -347,6 +347,7 @@ export const borrowRequests = sqliteTable(
     incoming: integer('incoming', { mode: 'boolean' }).notNull(),
     ourItemId: integer('our_item_id').references(() => items.id, { onDelete: 'cascade' }),
     theirItemId: integer('their_item_id'),
+    theirItemStamp: text('their_item_stamp'),
     theirViewId: integer('their_view_id'),
     itemTitle: text('item_title').notNull(),
     coverKey: text('cover_key'),
