@@ -24,6 +24,10 @@ manuscripts.
   exposes.
 - **Family accounts**: admin + members, no email infrastructure needed.
 - **Loans**: track who borrowed what, with due dates and history.
+- **Connections between households** (optional): connect with another household that
+  self-hosts Nalanda — follow each other's reading in a feed, comment on each other's
+  reviews, and borrow each other's books with the loan tracked on both sides. One-to-one
+  and invite-only, never a network or the fediverse; off unless you give the instance a key.
 - **Tags, half-star ratings, full-text search** across the collection, plus a quick
   title/author filter inside every shelf and sorting by newest, title, rating, or date
   finished.

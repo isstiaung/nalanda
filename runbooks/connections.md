@@ -1,8 +1,8 @@
 # Runbook: Connections
 
 Connections link your library with another household's Nalanda, one pair at a time. Connected
-households can follow each other's reading in a feed and comment on each other's reviews.
-Borrowing arrives in a later release. The design is in
+households can follow each other's reading in a feed, comment on each other's reviews, and
+borrow each other's books. The design is in
 [docs/proposals/connections.md](../docs/proposals/connections.md).
 
 Connections are off until the instance has a key. Without one, every connections page and
@@ -110,6 +110,24 @@ than 1,000 entries.
 - **When their library is offline**, a comment waits in yours and reaches them the next time
   someone there opens **Feed**. It waits up to 30 days.
 
+## Borrowing
+
+**Asking:** **Borrowed → Browse connected households**, pick a shelf, open a book, and **Ask to
+borrow** — with a note if you like. Only books with a copy free can be asked for; the answer
+shows on **Borrowed** (*Waiting*, *Lent to you*, *Declined*), and you can **Withdraw** while it
+waits.
+
+**Lending:** requests appear at the top of **Loans**. Anyone in your household can **Lend** —
+optionally with a due date — or **Decline**. Lending makes an ordinary loan to "name (their
+library)", so overdue marking and **Mark returned** work as for any loan. Marking it returned
+tells them.
+
+What connections see of your books is whether a copy is free — never who has it, when it's due,
+or your loan history. Shelves are read from your library when they look, never copied to theirs.
+
+**Export:** **Borrowed → Export connections data** downloads everything about your connections
+as JSON: connections, shared views, what you follow, comments, and borrowing.
+
 ## Changing address
 
 The address is part of your identity to connected households, so it can't change under
@@ -193,5 +211,9 @@ Delete `.wrangler/connections/` to start over.
   your library a day, and the rest are dropped. It resets the next day.
 - **A comment hasn't arrived.** If the push missed, it's collected the next time someone in the
   receiving household opens **Feed**, at most every 5 minutes.
+- **A request says the book isn't available any more.** Someone borrowed the last free copy
+  since the shelf was loaded. Shelves are kept in memory for up to 5 minutes.
+- **They lent me a book but Borrowed doesn't show it.** Their answer arrives when someone in
+  your household opens Feed, Loans or Borrowed, at most every 5 minutes.
 - **Feed covers missing.** Covers load straight from the other household's library, so they
   show only while it's online.
