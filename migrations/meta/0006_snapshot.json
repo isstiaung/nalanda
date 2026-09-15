@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1d8c7ccd-f913-449e-a4e3-76f16aeaee96",
-  "prevId": "58b70245-12e7-417e-b22e-c2ebde1fd565",
+  "id": "778e0da0-2052-4deb-a42a-ae89f0feec99",
+  "prevId": "fa417e08-4494-41b2-9420-dc5b10f61f2d",
   "tables": {
     "activity_log": {
       "name": "activity_log",
@@ -148,6 +148,67 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "connection_push_counts": {
+      "name": "connection_push_counts",
+      "columns": {
+        "connection_id": {
+          "name": "connection_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "day": {
+          "name": "day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "pushes": {
+          "name": "pushes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "feed_entries": {
+          "name": "feed_entries",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "connection_push_counts_connection_id_connections_id_fk": {
+          "name": "connection_push_counts_connection_id_connections_id_fk",
+          "tableFrom": "connection_push_counts",
+          "tableTo": "connections",
+          "columnsFrom": [
+            "connection_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "connection_push_counts_connection_id_day_pk": {
+          "columns": [
+            "connection_id",
+            "day"
+          ],
+          "name": "connection_push_counts_connection_id_day_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "connection_views": {
       "name": "connection_views",
       "columns": {
@@ -156,7 +217,7 @@
           "type": "integer",
           "primaryKey": true,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": true
         },
         "name": {
           "name": "name",
@@ -238,7 +299,7 @@
           "type": "integer",
           "primaryKey": true,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": true
         },
         "base_url": {
           "name": "base_url",
@@ -338,7 +399,15 @@
           "default": "(datetime('now'))"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "idx_federation_seen_at": {
+          "name": "idx_federation_seen_at",
+          "columns": [
+            "seen_at"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
@@ -391,7 +460,7 @@
           "type": "integer",
           "primaryKey": true,
           "notNull": true,
-          "autoincrement": false
+          "autoincrement": true
         },
         "connection_id": {
           "name": "connection_id",
@@ -981,6 +1050,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "item_remote_id": {
+          "name": "item_remote_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
         "kind": {
           "name": "kind",
           "type": "text",
@@ -1031,6 +1107,13 @@
           "name": "idx_remote_activities_published",
           "columns": [
             "published_at"
+          ],
+          "isUnique": false
+        },
+        "idx_remote_activities_item": {
+          "name": "idx_remote_activities_item",
+          "columns": [
+            "item_remote_id"
           ],
           "isUnique": false
         }

@@ -75,6 +75,7 @@ import { isId } from '../federation/items';
 import { loadIdentity, type Identity } from '../federation/keys';
 import { connectRequest, inboxMessage, type InboxType } from '../federation/messages';
 import { forgetPeer } from '../federation/peers';
+import { clearSharedViewsCache } from '../federation/routes';
 import { hashToken, newInviteToken } from '../federation/tokens';
 import { MEDIA_LABEL, STATUS_LABEL } from '../views/components';
 import { page } from '../views/layout';
@@ -643,11 +644,13 @@ connections.post('/connections/views', async (c) => {
     status: (ITEM_STATUSES as readonly string[]).includes(str('status')) ? (str('status') as ItemStatus) : null,
     owned: str('owned') === '1' ? true : str('owned') === '0' ? false : null,
   });
+  clearSharedViewsCache();
   return c.redirect('/connections');
 });
 
 connections.post('/connections/views/:id/delete', async (c) => {
   await deleteConnectionView(c.env.DB, Number(c.req.param('id')));
+  clearSharedViewsCache();
   return c.redirect('/connections');
 });
 
@@ -696,7 +699,8 @@ const ConnectionFeedPage: FC<
     entries: 0,
     bytes: 0,
   });
-  const followed = new Set(p.subscriptions.map((sub) => sub.viewId));
+  // A withdrawn view doesn't count as followed: a new view under that id can be followed again.
+  const followed = new Set(p.subscriptions.filter((sub) => !sub.goneAt).map((sub) => sub.viewId));
   const base = `/connections/${p.connection.id}`;
   return (
     <>
@@ -900,7 +904,8 @@ connections.post('/connections/:id/subscriptions', async (c) => {
   }
   const view = theirViews.find((v) => v.id === viewId);
   if (!view) return renderFeedSettings(c, ctx, { error: 'They no longer share that view.' }, theirViews);
-  await createSubscription(c.env.DB, { connectionId: ctx.row.id, viewId, viewName: view.name, ...settings });
+  const created = await createSubscription(c.env.DB, { connectionId: ctx.row.id, viewId, viewName: view.name, ...settings });
+  if (!created) return renderFeedSettings(c, ctx, { error: 'You already follow that view.' }, theirViews);
   return c.redirect(`/connections/${ctx.row.id}/feed`);
 });
 

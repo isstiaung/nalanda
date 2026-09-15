@@ -13,6 +13,7 @@ import {
 import { createItem, createLibrary, createLoan, deleteItem, updateItem } from '../src/db/queries';
 import type { Bindings } from '../src/env';
 import { inboxMessage } from '../src/federation/messages';
+import { clearSharedViewsCache } from '../src/federation/routes';
 import {
   answerOutbound,
   connectPeer,
@@ -36,6 +37,7 @@ const disabled = instanceA(env);
 beforeEach(async () => {
   keysA = await makeKeys();
   a = instanceA({ ...env, FEDERATION_PRIVATE_KEY: keysA.secret } as Bindings);
+  clearSharedViewsCache(); // module state outlives the per-test database reset
 });
 
 afterEach(() => {
@@ -50,9 +52,12 @@ const shareView = (overrides: Partial<Parameters<typeof createConnectionView>[1]
 
 type FeedBody = {
   latest: number;
-  truncated: boolean;
-  entries: Array<{ id: number; kind: string; item: { title: string } }>;
+  more: boolean;
+  entries: Array<{ id: number; kind: string; item: { title: string; review: string | null; rating: number | null } }>;
 };
+
+const feedOf = async (peer: Peer, viewId: number, since: number) =>
+  (await (await a.signedGet(`/federation/feed?view=${viewId}&since=${since}`, peer)).json()) as FeedBody;
 
 // ---------- the owner's side ----------
 
@@ -70,21 +75,42 @@ describe('recording activity', () => {
       'reviewed',
     ]);
 
-    const item = await createItem(env.DB, { libraryId: shelf.id, title: 'After', review: 'Fine' });
+    const item = await createItem(env.DB, { libraryId: shelf.id, title: 'After', review: 'First line\nSecond line' });
     const reviewed = async () =>
       (await rows<{ id: number }>("SELECT id FROM activity_log WHERE item_id = ? AND kind = 'reviewed'", item.id))[0]?.id;
     const first = await reviewed();
     expect(first).toBeDefined();
+
+    // What a browser form sends back for an untouched review — CRLF, trailing whitespace — is not an edit.
+    await updateItem(env.DB, item.id, { review: 'First line\r\nSecond line\n' });
+    expect(await reviewed()).toBe(first);
 
     await updateItem(env.DB, item.id, { review: 'Better on a second read' });
     const second = await reviewed();
     expect(second).toBeGreaterThan(first!); // replaced under a new id, never duplicated
     expect(await rows('SELECT * FROM activity_log WHERE item_id = ?', item.id)).toHaveLength(1);
 
-    await updateItem(env.DB, item.id, { title: 'Retitled', review: 'Better on a second read' });
+    await updateItem(env.DB, item.id, { title: 'Retitled' });
     expect(await reviewed()).toBe(second); // nothing connections see changed
     await updateItem(env.DB, item.id, { review: null });
     expect(await reviewed()).toBe(second); // removing a review isn't activity
+  });
+
+  it('starts afresh after the last view goes: a cleared log, new view ids, and no stale reviews', async () => {
+    const shelf = await createLibrary(env.DB, 'Main');
+    const first = await shareView();
+    const item = await createItem(env.DB, { libraryId: shelf.id, title: 'Book', review: 'OLD-TEXT' });
+    await deleteConnectionView(env.DB, first.id);
+    expect(await rows('SELECT * FROM activity_log')).toHaveLength(0);
+
+    await updateItem(env.DB, item.id, { review: 'NEW-TEXT' }); // no view, so nothing records this
+    const second = await shareView();
+    expect(second.id).toBeGreaterThan(first.id);
+
+    await setUpA();
+    const peer = await makePeer('Riverbank library');
+    await connectPeer(peer);
+    expect((await feedOf(peer, second.id, 0)).entries.map((e) => e.item.review)).toEqual(['NEW-TEXT']);
   });
 });
 
@@ -97,7 +123,7 @@ describe('the feed this household serves', () => {
     await connectPeer(peer);
   });
 
-  it('serves activity in a view to an active connection, with whitelisted fields only', async () => {
+  it('serves activity in a view to an active connection, each entry carrying only its own fields', async () => {
     const shelf = await createLibrary(env.DB, 'Main');
     const hidden = await createLibrary(env.DB, 'Private');
     const view = await shareView({ libraryId: shelf.id });
@@ -120,15 +146,14 @@ describe('the feed this household serves', () => {
       expect(text).not.toContain(secret);
     }
     const body = JSON.parse(text) as FeedBody;
-    expect(body.entries.map((e) => [e.kind, e.item.title]).sort()).toEqual([
-      ['finished', 'Inside'],
-      ['rated', 'Inside'],
-      ['reviewed', 'Inside'],
-    ]);
-    expect(body.truncated).toBe(false);
+    const byKind = Object.fromEntries(body.entries.map((e) => [e.kind, e.item]));
+    expect(Object.keys(byKind).sort()).toEqual(['finished', 'rated', 'reviewed']);
+    expect(byKind.reviewed).toMatchObject({ title: 'Inside', review: 'Loved it', rating: null });
+    expect(byKind.rated).toMatchObject({ review: null, rating: 9 });
+    expect(byKind.finished).toMatchObject({ review: null, rating: null });
+    expect(body.more).toBe(false);
 
-    const again = (await (await a.signedGet(`/federation/feed?view=${view.id}&since=${body.latest}`, peer)).json()) as FeedBody;
-    expect(again.entries).toEqual([]);
+    expect(await feedOf(peer, view.id, body.latest)).toMatchObject({ entries: [], latest: body.latest });
   });
 
   it('turns away unsigned requests, strangers and unconfirmed connections, and says when a view is gone', async () => {
@@ -146,18 +171,41 @@ describe('the feed this household serves', () => {
     expect((await disabled.signedGet(path, peer)).status).toBe(404);
   });
 
-  it('sends the newest 100 entries when more happened, and says the rest were cut', async () => {
+  it('starts a new subscriber at the newest page, then delivers everything after its cursor, in order', async () => {
     const shelf = await createLibrary(env.DB, 'Main');
     const view = await shareView();
-    await env.DB.batch(
-      Array.from({ length: 105 }, (_, i) =>
-        env.DB.prepare("INSERT INTO items (library_id, title, review) VALUES (?, ?, 'ok')").bind(shelf.id, `Book ${i}`),
-      ),
-    );
-    const body = (await (await a.signedGet(`/federation/feed?view=${view.id}&since=0`, peer)).json()) as FeedBody;
-    expect(body.entries).toHaveLength(100);
-    expect(body.truncated).toBe(true);
-    expect(body.entries[0]!.item.title).toBe('Book 104');
+    const addBooks = (from: number, n: number) =>
+      env.DB.batch(
+        Array.from({ length: n }, (_, i) =>
+          env.DB.prepare("INSERT INTO items (library_id, title, review) VALUES (?, ?, 'ok')").bind(shelf.id, `Book ${from + i}`),
+        ),
+      );
+    await addBooks(0, 105);
+    const start = await feedOf(peer, view.id, 0);
+    expect(start.entries).toHaveLength(100);
+    expect(start.entries[0]!.item.title).toBe('Book 104');
+    expect(start.more).toBe(false);
+
+    await addBooks(105, 150);
+    const next = await feedOf(peer, view.id, start.latest);
+    expect(next.entries).toHaveLength(100);
+    expect(next.entries[0]!.item.title).toBe('Book 105');
+    expect(next.more).toBe(true);
+    const rest = await feedOf(peer, view.id, next.latest);
+    expect(rest.entries.map((e) => e.item.title)).toEqual(Array.from({ length: 50 }, (_, i) => `Book ${205 + i}`));
+    expect(rest.more).toBe(false);
+  });
+
+  it('moves its cursor only for activity the connection can see', async () => {
+    const shared = await createLibrary(env.DB, 'Shared');
+    const hidden = await createLibrary(env.DB, 'Private');
+    const view = await shareView({ libraryId: shared.id });
+    await createItem(env.DB, { libraryId: shared.id, title: 'Seen', review: 'Yes' });
+    const start = await feedOf(peer, view.id, 0);
+
+    const secret = await createItem(env.DB, { libraryId: hidden.id, title: 'Unseen', review: 'One' });
+    await updateItem(env.DB, secret.id, { review: 'Two', rating: 4, status: 'completed' });
+    expect(await feedOf(peer, view.id, start.latest)).toMatchObject({ latest: start.latest, entries: [] });
   });
 
   it('tells a connection which of its stored entries are no longer shared', async () => {
@@ -169,7 +217,7 @@ describe('the feed this household serves', () => {
     const moved = await createItem(env.DB, { libraryId: shelf.id, title: 'Moved later', status: 'completed' });
     await createItem(env.DB, { libraryId: shelf.id, title: 'Kept', review: 'Yes' });
 
-    const feed = (await (await a.signedGet(`/federation/feed?view=${view.id}&since=0`, peer)).json()) as FeedBody;
+    const feed = await feedOf(peer, view.id, 0);
     const ids = ['Unreviewed later', 'Deleted later', 'Moved later', 'Kept'].map(
       (title) => feed.entries.find((e) => e.item.title === title)!.id,
     );
@@ -201,6 +249,12 @@ describe('the feed this household serves', () => {
       { id: view.id, name: 'Everything', itemCount: 2, recent: { days: 90, activities: 1, bytes: expect.any(Number) } },
     ]);
     expect(body.views[0]!.recent.bytes).toBeGreaterThan(100);
+  });
+
+  it('limits how often one connection may read', async () => {
+    await shareView();
+    for (let i = 0; i < 60; i++) expect((await a.signedGet('/federation/views', peer)).status).toBe(200);
+    expect((await a.signedGet('/federation/views', peer)).status).toBe(429);
   });
 
   it('shares a view from the Connections page, admins only', async () => {
@@ -253,10 +307,10 @@ describe('following another household', () => {
       ...overrides,
     }).then((sub) => sub!);
 
-  const entry = (id: number, title: string, item: Record<string, unknown> = {}) => ({
+  const entry = (id: number, title: string, item: Record<string, unknown> = {}, kind = 'reviewed', published = sqlAgo(10)) => ({
     id,
-    kind: 'reviewed',
-    published: sqlAgo(10),
+    kind,
+    published,
     item: {
       id,
       mediaType: 'book',
@@ -275,6 +329,7 @@ describe('following another household', () => {
 
   const stored = (remoteId: number, minutesAgo: number): NewRemoteActivity => ({
     remoteId,
+    itemRemoteId: remoteId,
     kind: 'rated',
     publishedAt: sqlAgo(minutesAgo),
     item: '{}',
@@ -302,6 +357,21 @@ describe('following another household', () => {
     ).toEqual([{ view_id: 7, view_name: 'Finished this year', interval_minutes: 1440, retention_days: 30, max_entries: 200 }]);
   });
 
+  it('can follow a view again after a withdrawn one with the same id', async () => {
+    const gone = await follow();
+    await env.DB.prepare("UPDATE feed_subscriptions SET gone_at = datetime('now') WHERE id = ?").bind(gone.id).run();
+    answerOutbound(() =>
+      json({ views: [{ id: 7, name: 'Shared again', itemCount: 1, recent: { days: 90, activities: 0, bytes: 0 } }] }),
+    );
+    expect(await (await a.get(`/connections/${connectionId}/feed`, admin)).text()).toContain('name="viewId" value="7"');
+    await a.postForm(
+      `/connections/${connectionId}/subscriptions`,
+      { viewId: '7', intervalMinutes: '60', retentionDays: '90', maxEntries: '500' },
+      admin,
+    );
+    expect(await rows('SELECT view_name, gone_at FROM feed_subscriptions')).toEqual([{ view_name: 'Shared again', gone_at: null }]);
+  });
+
   it('pulls when Feed opens, keeps only what validates, and honours the removal check', async () => {
     const sub = await follow();
     const cover = crypto.randomUUID();
@@ -311,12 +381,13 @@ describe('following another household', () => {
       if (pathname === '/federation/feed') {
         return json({
           view: 7,
-          latest: 12,
-          truncated: false,
+          latest: 13,
+          more: false,
           entries: [
             entry(10, 'Withdrawn later'),
             entry(11, 'Hostile', { review: '<img src=x onerror=alert(1)>', coverKey: cover }),
             entry(12, 'Bad cover', { coverKey: 'https://evil.example/x.png' }),
+            entry(13, 'Rated', { review: 'NOT-KEPT-ON-A-RATING', rating: 8 }, 'rated', '2999-01-01 00:00:00'),
           ],
         });
       }
@@ -334,9 +405,14 @@ describe('following another household', () => {
       '/federation/feed/check',
     ]);
     expect(await signedBy(keysA.pair.publicKey, outbound[0]!)).toBe(true);
-    expect(checked).toEqual({ view: 7, ids: expect.arrayContaining([10, 11]) });
-    expect(await rows('SELECT remote_id FROM remote_activities')).toEqual([{ remote_id: 11 }]);
-    expect(await rows('SELECT cursor FROM feed_subscriptions WHERE id = ?', sub.id)).toEqual([{ cursor: 12 }]);
+    expect(checked).toEqual({ view: 7, ids: expect.arrayContaining([10, 11, 13]) });
+    const kept = await rows<{ remote_id: number; item: string; published_at: string }>(
+      'SELECT remote_id, item, published_at FROM remote_activities ORDER BY remote_id',
+    );
+    expect(kept.map((r) => r.remote_id)).toEqual([11, 13]);
+    expect(kept[1]!.item).not.toContain('NOT-KEPT-ON-A-RATING'); // a rating entry keeps no review
+    expect(kept[1]!.published_at <= sqlAgo(0)).toBe(true); // a date from the future is clamped to now
+    expect(await rows('SELECT cursor FROM feed_subscriptions WHERE id = ?', sub.id)).toEqual([{ cursor: 13 }]);
 
     const html = await (await a.get('/feed', member)).text();
     expect(outbound).toHaveLength(2); // not due again within its interval
@@ -345,6 +421,7 @@ describe('following another household', () => {
     expect(html).not.toContain('<img src=x');
     expect(html).toContain(`${peer.url}/covers/${cover}`);
     expect(html).not.toContain('evil.example');
+    expect(html).toContain('★★★★');
     expect(html).toContain('1 entry was removed');
   });
 
@@ -365,6 +442,64 @@ describe('following another household', () => {
     await storeEntries(env.DB, bigger.id, Array.from({ length: 700 }, (_, i) => stored(5000 + i, i)));
     await applyLifecycle(env.DB, big);
     expect(await rows('SELECT count(*) AS n FROM remote_activities')).toEqual([{ n: 1000 }]);
+  });
+
+  it('applies its limits even when a pull fails', async () => {
+    const sub = await follow({ retentionDays: 30 });
+    await storeEntries(env.DB, sub.id, [stored(1, 60 * 24 * 200), stored(2, 5)]);
+    answerOutbound(() => new Response('down', { status: 500 }));
+    await a.get('/feed', await sessionCookie('member'));
+    expect(await rows('SELECT remote_id FROM remote_activities')).toEqual([{ remote_id: 2 }]);
+  });
+
+  it('stores no more than a day’s allowance of entries from one connection', async () => {
+    const sub = await follow();
+    await env.DB.prepare(
+      "INSERT INTO connection_push_counts (connection_id, day, pushes, feed_entries) VALUES (?, date('now'), 0, 499)",
+    )
+      .bind(connectionId)
+      .run();
+    answerOutbound((req) =>
+      new URL(req.url).pathname === '/federation/feed'
+        ? json({ view: 7, latest: 3, more: false, entries: [entry(1, 'One'), entry(2, 'Two'), entry(3, 'Three')] })
+        : json({ invalid: [], viewGone: false }),
+    );
+    await a.get('/feed', await sessionCookie('member'));
+    expect(await rows('SELECT count(*) AS n FROM remote_activities WHERE subscription_id = ?', sub.id)).toEqual([{ n: 1 }]);
+    expect((await rows<{ last_error: string }>('SELECT last_error FROM feed_subscriptions'))[0]!.last_error).toContain('allowance');
+  });
+
+  it('renders a page within a byte budget, with a link to older entries', async () => {
+    const sub = await follow();
+    const long = (i: number): NewRemoteActivity => {
+      const item = JSON.stringify({
+        id: i,
+        mediaType: 'book',
+        title: `Long ${i}`,
+        creators: null,
+        published: null,
+        coverKey: null,
+        rating: null,
+        review: 'x'.repeat(7000),
+        reviewTruncated: false,
+        inCollection: true,
+        completedOn: null,
+      });
+      return { remoteId: i, itemRemoteId: i, kind: 'reviewed', publishedAt: sqlAgo(i * 120), item, bytes: item.length };
+    };
+    await storeEntries(env.DB, sub.id, Array.from({ length: 40 }, (_, i) => long(i + 1)));
+    answerOutbound(() => new Response('down', { status: 500 }));
+    const member = await sessionCookie('member');
+
+    const first = await (await a.get('/feed', member)).text();
+    const shown = first.match(/class="feed-card"/g)?.length ?? 0;
+    expect(shown).toBeGreaterThan(0);
+    expect(shown).toBeLessThan(40);
+    const older = /href="(\/feed\?before=[^"]+)"/.exec(first)?.[1];
+    expect(older).toBeDefined();
+    const second = await (await a.get(older!, member)).text();
+    expect(second).toContain(`>Long ${shown + 1}<`);
+    expect(second).not.toContain('>Long 1<');
   });
 
   it('drops everything from a view they stop sharing', async () => {

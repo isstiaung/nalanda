@@ -1,6 +1,6 @@
 // All D1 access for connections between instances (docs/proposals/connections.md). Its own
 // module so queries.ts stays untouched, while src/db/ remains the only code touching D1.
-import { and, asc, count, desc, eq, gt, isNull, lte, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import * as s from './schema';
 import {
@@ -238,9 +238,16 @@ function inView(view: ConnectionView): SQL | undefined {
   return and(...conds);
 }
 
+/**
+ * Whether an item has a review, as connections see it: carriage returns dropped and surrounding whitespace
+ * trimmed, the same normalisation migration 0007's triggers apply — so the CRLF a browser submits for a
+ * review stored with LF is neither an edit nor a review.
+ */
+const hasReview = sql`trim(replace(coalesce(${s.items.review}, ''), char(13), ''), ' ' || char(9) || char(10)) <> ''`;
+
 /** An activity is shared only while its item still shows it: a review entry needs its review. */
 const stillShows = sql`(
-  (${s.activityLog.kind} = 'reviewed' AND trim(coalesce(${s.items.review}, '')) <> '')
+  (${s.activityLog.kind} = 'reviewed' AND ${hasReview})
   OR (${s.activityLog.kind} = 'rated' AND coalesce(${s.items.rating}, 0) > 0)
   OR (${s.activityLog.kind} = 'finished' AND ${s.items.status} = 'completed')
 )`;
@@ -269,17 +276,17 @@ export async function createConnectionView(
     owned: boolean | null;
   },
 ): Promise<ConnectionView> {
+  const first = (await countConnectionViews(d1)) === 0;
   const [row] = await db(d1).insert(s.connectionViews).values(values).returning();
   if (!row) throw new Error('failed to create connection view');
-  await recordRecentActivity(d1);
+  if (first) await recordRecentActivity(d1);
   return row;
 }
 
 /**
- * The triggers only record while a view exists, so a household that has just shared its first view
- * would have nothing for connections to follow. This starts the log with recent activity — the last
- * VOLUME_WINDOW_DAYS, newest BACKFILL_ENTRIES — in time order, so ids follow time. OR IGNORE keeps
- * rows the triggers already wrote.
+ * The triggers only record while a view exists, so a household sharing its first view would have nothing
+ * for connections to follow. This starts the log with recent activity — the last VOLUME_WINDOW_DAYS, newest
+ * BACKFILL_ENTRIES — in time order, so ids follow time. Only for a first view: later ones share the log.
  */
 async function recordRecentActivity(d1: D1Database): Promise<void> {
   await d1
@@ -287,7 +294,8 @@ async function recordRecentActivity(d1: D1Database): Promise<void> {
       `INSERT OR IGNORE INTO activity_log (item_id, kind, at)
        SELECT item_id, kind, at FROM (
          SELECT id AS item_id, 'reviewed' AS kind, datetime(updated_at) AS at FROM items
-           WHERE trim(coalesce(review, '')) <> '' AND datetime(updated_at) > datetime('now', ?1)
+           WHERE trim(replace(coalesce(review, ''), char(13), ''), ' ' || char(9) || char(10)) <> ''
+             AND datetime(updated_at) > datetime('now', ?1)
          UNION ALL
          SELECT id, 'rated', datetime(updated_at) FROM items
            WHERE coalesce(rating, 0) > 0 AND datetime(updated_at) > datetime('now', ?1)
@@ -301,8 +309,14 @@ async function recordRecentActivity(d1: D1Database): Promise<void> {
     .run();
 }
 
+/**
+ * With the last view gone the triggers stop recording, and the log would go stale: an edit made meanwhile
+ * never replaces its row, so an old review would still look current. The log is cleared instead, and the
+ * next first view starts it again under new ids.
+ */
 export async function deleteConnectionView(d1: D1Database, id: number): Promise<void> {
   await db(d1).delete(s.connectionViews).where(eq(s.connectionViews.id, id));
+  if ((await countConnectionViews(d1)) === 0) await d1.prepare('DELETE FROM activity_log').run();
 }
 
 export async function countItemsInView(d1: D1Database, view: ConnectionView): Promise<number> {
@@ -313,30 +327,30 @@ export async function countItemsInView(d1: D1Database, view: ConnectionView): Pr
 export type SharedActivity = { id: number; kind: ActivityKind; at: string; item: Item };
 
 /**
- * Activity on items in a view with ids in (since, latest], newest first. `latest` is the log's
- * highest id when the read began — the caller's next cursor, whether or not every row fitted.
+ * Activity in a view after a cursor, oldest first, so a busy stretch arrives over several pulls instead
+ * of being cut. With no cursor — a new subscriber — the newest come first instead: a feed starts from the
+ * present rather than replaying the past. `fromStart` says which the caller got.
  */
 export async function activityInView(
   d1: D1Database,
   view: ConnectionView,
   since: number,
   limit: number,
-): Promise<{ latest: number; rows: SharedActivity[] }> {
+): Promise<{ fromStart: boolean; rows: SharedActivity[] }> {
   const dbi = db(d1);
   const [top] = await dbi
     .select({ latest: sql`coalesce(max(${s.activityLog.id}), 0)`.mapWith(Number) })
     .from(s.activityLog);
-  const latest = top?.latest ?? 0;
   // A cursor past the end came from before a restore: start again rather than wait forever.
-  const from = since > latest ? 0 : since;
+  const from = since > (top?.latest ?? 0) ? 0 : since;
   const rows = await dbi
     .select({ id: s.activityLog.id, kind: s.activityLog.kind, at: s.activityLog.at, item: s.items })
     .from(s.activityLog)
     .innerJoin(s.items, eq(s.activityLog.itemId, s.items.id))
-    .where(and(gt(s.activityLog.id, from), lte(s.activityLog.id, latest), inView(view), stillShows))
-    .orderBy(desc(s.activityLog.id))
+    .where(and(gt(s.activityLog.id, from), inView(view), stillShows))
+    .orderBy(from === 0 ? desc(s.activityLog.id) : asc(s.activityLog.id))
     .limit(limit);
-  return { latest, rows };
+  return { fromStart: from === 0, rows };
 }
 
 /** Which of these activity ids are still shared through this view. ids travel as one JSON parameter. */
@@ -363,7 +377,8 @@ export async function viewVolume(
       activities: count(),
       // an entry is its JSON: ~360 bytes of keys and short fields, plus title, creators and review
       bytes: sql`coalesce(sum(360 + length(${s.items.title}) + coalesce(length(${s.items.creators}), 0)
-        + min(coalesce(length(${s.items.review}), 0), ${MAX_FEED_REVIEW_CHARS})), 0)`.mapWith(Number),
+        + CASE WHEN ${s.activityLog.kind} = 'reviewed'
+               THEN min(coalesce(length(${s.items.review}), 0), ${MAX_FEED_REVIEW_CHARS}) ELSE 0 END), 0)`.mapWith(Number),
     })
     .from(s.activityLog)
     .innerJoin(s.items, eq(s.activityLog.itemId, s.items.id))
@@ -423,12 +438,22 @@ export async function getSubscription(
 
 export type SubscriptionSettings = { intervalMinutes: number; retentionDays: number; maxEntries: number };
 
-/** Null when this household already follows that view. */
+/** Null when this household already follows that view. A subscription to a view they withdrew is replaced. */
 export async function createSubscription(
   d1: D1Database,
   values: SubscriptionSettings & { connectionId: number; viewId: number; viewName: string },
 ): Promise<FeedSubscription | null> {
-  const [row] = await db(d1).insert(s.feedSubscriptions).values(values).onConflictDoNothing().returning();
+  const dbi = db(d1);
+  await dbi
+    .delete(s.feedSubscriptions)
+    .where(
+      and(
+        eq(s.feedSubscriptions.connectionId, values.connectionId),
+        eq(s.feedSubscriptions.viewId, values.viewId),
+        isNotNull(s.feedSubscriptions.goneAt),
+      ),
+    );
+  const [row] = await dbi.insert(s.feedSubscriptions).values(values).onConflictDoNothing().returning();
   return row ?? null;
 }
 
@@ -484,11 +509,16 @@ export async function claimSubscription(d1: D1Database, id: number, lastPulledAt
   return rows.length === 1;
 }
 
-export async function recordPull(d1: D1Database, id: number, result: { cursor?: number; error: string | null }): Promise<void> {
-  await db(d1)
-    .update(s.feedSubscriptions)
-    .set(result.cursor === undefined ? { lastError: result.error } : { lastError: result.error, cursor: result.cursor })
-    .where(eq(s.feedSubscriptions.id, id));
+/** What a pull came to. `again` makes the subscription due at once, when the owner has more waiting. */
+export async function recordPull(
+  d1: D1Database,
+  id: number,
+  result: { cursor?: number; error: string | null; again?: boolean },
+): Promise<void> {
+  const set: Partial<typeof s.feedSubscriptions.$inferInsert> = { lastError: result.error };
+  if (result.cursor !== undefined) set.cursor = result.cursor;
+  if (result.again) set.lastPulledAt = null;
+  await db(d1).update(s.feedSubscriptions).set(set).where(eq(s.feedSubscriptions.id, id));
 }
 
 /** They stopped sharing the view: everything stored from it goes, and the Feed page says how much. */
@@ -508,20 +538,55 @@ export async function markSubscriptionGone(d1: D1Database, id: number): Promise<
 
 // ---------- stored feed entries (phase 2) ----------
 
-export type NewRemoteActivity = { remoteId: number; kind: ActivityKind; publishedAt: string; item: string; bytes: number };
+export type NewRemoteActivity = {
+  remoteId: number;
+  itemRemoteId: number;
+  kind: ActivityKind;
+  publishedAt: string;
+  item: string;
+  bytes: number;
+};
 
-/** One statement whatever the page size: entries travel as a single JSON parameter (D1 caps bound parameters at 100). */
+/**
+ * One statement whatever the page size: entries travel as a single JSON parameter (D1 caps bound parameters
+ * at 100). A date from the future is stored as now, so it can neither top the Feed page nor outlive retention.
+ */
 export async function storeEntries(d1: D1Database, subscriptionId: number, entries: NewRemoteActivity[]): Promise<void> {
   if (!entries.length) return;
   await d1
     .prepare(
-      `INSERT OR IGNORE INTO remote_activities (subscription_id, remote_id, kind, published_at, item, bytes)
-       SELECT ?1, json_extract(value, '$.remoteId'), json_extract(value, '$.kind'),
-              json_extract(value, '$.publishedAt'), json_extract(value, '$.item'), json_extract(value, '$.bytes')
+      `INSERT OR IGNORE INTO remote_activities
+         (subscription_id, remote_id, item_remote_id, kind, published_at, item, bytes)
+       SELECT ?1, json_extract(value, '$.remoteId'), json_extract(value, '$.itemRemoteId'), json_extract(value, '$.kind'),
+              min(json_extract(value, '$.publishedAt'), datetime('now')), json_extract(value, '$.item'),
+              json_extract(value, '$.bytes')
        FROM json_each(?2)`,
     )
     .bind(subscriptionId, JSON.stringify(entries))
     .run();
+}
+
+/**
+ * How many of `wanted` new feed entries a connection may still store today — counted as taken. Honest
+ * households stay far below the limit; it caps the D1 writes a flood from a modified one could cause.
+ */
+export async function takeFeedAllowance(d1: D1Database, connectionId: number, wanted: number, limit: number): Promise<number> {
+  if (wanted <= 0) return 0;
+  const today = await d1
+    .prepare(`SELECT feed_entries FROM connection_push_counts WHERE connection_id = ?1 AND day = date('now')`)
+    .bind(connectionId)
+    .first<{ feed_entries: number }>();
+  const allowed = Math.max(0, Math.min(wanted, limit - (today?.feed_entries ?? 0)));
+  if (allowed > 0) {
+    await d1
+      .prepare(
+        `INSERT INTO connection_push_counts (connection_id, day, pushes, feed_entries) VALUES (?1, date('now'), 0, ?2)
+         ON CONFLICT (connection_id, day) DO UPDATE SET feed_entries = feed_entries + ?2`,
+      )
+      .bind(connectionId, allowed)
+      .run();
+  }
+  return allowed;
 }
 
 export async function storedRemoteIds(d1: D1Database, subscriptionId: number): Promise<number[]> {
@@ -587,33 +652,68 @@ export async function applyLifecycle(
 }
 
 export type StoredEntry = {
+  id: number;
   remoteId: number;
+  itemRemoteId: number;
   kind: ActivityKind;
   publishedAt: string;
   item: string;
+  bytes: number;
   connectionId: number;
   householdName: string;
   baseUrl: string;
 };
 
-/** The newest stored entries from active connections. */
-export async function feedEntries(d1: D1Database, limit: number): Promise<StoredEntry[]> {
-  return db(d1)
-    .select({
-      remoteId: s.remoteActivities.remoteId,
-      kind: s.remoteActivities.kind,
-      publishedAt: s.remoteActivities.publishedAt,
-      item: s.remoteActivities.item,
-      connectionId: s.connections.id,
-      householdName: s.connections.householdName,
-      baseUrl: s.connections.baseUrl,
-    })
-    .from(s.remoteActivities)
-    .innerJoin(s.feedSubscriptions, eq(s.remoteActivities.subscriptionId, s.feedSubscriptions.id))
-    .innerJoin(s.connections, eq(s.feedSubscriptions.connectionId, s.connections.id))
-    .where(eq(s.connections.status, 'active'))
-    .orderBy(desc(s.remoteActivities.publishedAt), desc(s.remoteActivities.id))
-    .limit(limit);
+export type FeedCursor = { publishedAt: string; id: number };
+
+/**
+ * A page of stored entries from active connections, newest first and within their subscriptions'
+ * retention: at most `maxEntries`, and no more than `maxBytes` of entry JSON beyond the first. Sizes are
+ * chosen from a narrow read before any entry JSON is fetched. `next` continues after the last one shown.
+ */
+export async function feedPage(
+  d1: D1Database,
+  opts: { before: FeedCursor | null; maxEntries: number; maxBytes: number },
+): Promise<{ entries: StoredEntry[]; next: FeedCursor | null }> {
+  const { results: candidates } = await d1
+    .prepare(
+      `SELECT ra.id, ra.bytes, ra.published_at AS publishedAt FROM remote_activities ra
+       JOIN feed_subscriptions fs ON fs.id = ra.subscription_id
+       JOIN connections c ON c.id = fs.connection_id
+       WHERE c.status = 'active'
+         AND ra.published_at >= datetime('now', '-' || fs.retention_days || ' days')
+         AND (?1 IS NULL OR ra.published_at < ?1 OR (ra.published_at = ?1 AND ra.id < ?2))
+       ORDER BY ra.published_at DESC, ra.id DESC
+       LIMIT ?3`,
+    )
+    .bind(opts.before?.publishedAt ?? null, opts.before?.id ?? 0, opts.maxEntries + 1)
+    .all<{ id: number; bytes: number; publishedAt: string }>();
+
+  const chosen: typeof candidates = [];
+  let bytes = 0;
+  for (const row of candidates) {
+    if (chosen.length === opts.maxEntries || (chosen.length > 0 && bytes + row.bytes > opts.maxBytes)) break;
+    chosen.push(row);
+    bytes += row.bytes;
+  }
+  const last = chosen[chosen.length - 1];
+  if (!last) return { entries: [], next: null };
+  const next = chosen.length < candidates.length ? { publishedAt: last.publishedAt, id: last.id } : null;
+
+  const { results } = await d1
+    .prepare(
+      `SELECT ra.id, ra.remote_id AS remoteId, ra.item_remote_id AS itemRemoteId, ra.kind,
+              ra.published_at AS publishedAt, ra.item, ra.bytes,
+              c.id AS connectionId, c.household_name AS householdName, c.base_url AS baseUrl
+       FROM remote_activities ra
+       JOIN feed_subscriptions fs ON fs.id = ra.subscription_id
+       JOIN connections c ON c.id = fs.connection_id
+       WHERE ra.id IN (SELECT value FROM json_each(?1))
+       ORDER BY ra.published_at DESC, ra.id DESC`,
+    )
+    .bind(JSON.stringify(chosen.map((r) => r.id)))
+    .all<StoredEntry>();
+  return { entries: results, next };
 }
 
 /** How many entries owners removed since the Feed page last said so — and resets the count. */

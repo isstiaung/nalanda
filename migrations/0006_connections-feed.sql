@@ -9,7 +9,7 @@ CREATE TABLE `activity_log` (
 CREATE UNIQUE INDEX `activity_log_item_kind` ON `activity_log` (`item_id`,`kind`);--> statement-breakpoint
 CREATE INDEX `idx_activity_log_at` ON `activity_log` (`at`);--> statement-breakpoint
 CREATE TABLE `connection_views` (
-	`id` integer PRIMARY KEY NOT NULL,
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`name` text NOT NULL,
 	`library_id` integer,
 	`media_type` text,
@@ -21,7 +21,7 @@ CREATE TABLE `connection_views` (
 );
 --> statement-breakpoint
 CREATE TABLE `feed_subscriptions` (
-	`id` integer PRIMARY KEY NOT NULL,
+	`id` integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	`connection_id` integer NOT NULL,
 	`view_id` integer NOT NULL,
 	`view_name` text NOT NULL,
@@ -42,6 +42,7 @@ CREATE TABLE `remote_activities` (
 	`id` integer PRIMARY KEY NOT NULL,
 	`subscription_id` integer NOT NULL,
 	`remote_id` integer NOT NULL,
+	`item_remote_id` integer NOT NULL,
 	`kind` text NOT NULL,
 	`published_at` text NOT NULL,
 	`item` text NOT NULL,
@@ -51,4 +52,6 @@ CREATE TABLE `remote_activities` (
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `remote_activities_subscription_remote` ON `remote_activities` (`subscription_id`,`remote_id`);--> statement-breakpoint
-CREATE INDEX `idx_remote_activities_published` ON `remote_activities` (`published_at`);
+CREATE INDEX `idx_remote_activities_published` ON `remote_activities` (`published_at`);--> statement-breakpoint
+CREATE INDEX `idx_remote_activities_item` ON `remote_activities` (`item_remote_id`);--> statement-breakpoint
+ALTER TABLE `connection_push_counts` ADD `feed_entries` integer DEFAULT 0 NOT NULL;

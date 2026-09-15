@@ -153,6 +153,7 @@ async function sendSigned(
   method: 'GET' | 'POST',
   url: string,
   payload?: unknown,
+  maxBytes = MAX_RESPONSE_BYTES,
 ): Promise<{ status: number; body: unknown } | null> {
   const body = method === 'POST' ? new TextEncoder().encode(JSON.stringify(payload)) : undefined;
   const signed = await signRequest({ method, url, body, keyid: fromBaseUrl, privateKey: identity.privateKey });
@@ -170,7 +171,7 @@ async function sendSigned(
   } catch {
     return null;
   }
-  return { status: res.status, body: parseJson(await readLimited(res, MAX_RESPONSE_BYTES)) };
+  return { status: res.status, body: parseJson(await readLimited(res, maxBytes)) };
 }
 
 /** A signed JSON POST to another instance. Null if it couldn't be reached at all. */
@@ -190,6 +191,7 @@ export function getSigned(
   fromBaseUrl: string,
   toBaseUrl: string,
   path: string,
+  maxBytes = MAX_RESPONSE_BYTES,
 ): Promise<{ status: number; body: unknown } | null> {
-  return sendSigned(identity, fromBaseUrl, 'GET', new URL(path, toBaseUrl).href);
+  return sendSigned(identity, fromBaseUrl, 'GET', new URL(path, toBaseUrl).href, undefined, maxBytes);
 }

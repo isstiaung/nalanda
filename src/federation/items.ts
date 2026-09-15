@@ -6,7 +6,7 @@
 // field by field before it is stored or rendered.
 import { ACTIVITY_KINDS, MEDIA_TYPES, type ActivityKind, type Item, type MediaType } from '../db/schema';
 import { toPublicItem, type PublicItem } from '../lib/share';
-import { MAX_FEED_REVIEW_CHARS } from './config';
+import { MAX_FEED_REVIEW_CHARS, MAX_FEED_TEXT_CHARS } from './config';
 
 /** Share-page fields, plus what connections need on top: when it was finished and last changed. */
 export type ConnectionItem = PublicItem & { completedOn: string | null; updatedAt: string };
@@ -21,32 +21,50 @@ export type FeedItem = Pick<
   'id' | 'mediaType' | 'title' | 'creators' | 'published' | 'coverKey' | 'rating' | 'review' | 'inCollection' | 'completedOn'
 > & { reviewTruncated: boolean };
 
-export function toFeedItem(item: Item): FeedItem {
+/**
+ * A feed entry's item, carrying only what its kind shows: the review only on a `reviewed` entry, the
+ * rating only on a `rated` one. Withdrawing a review then leaves no copy of it in the entries that remain.
+ */
+export function toFeedItem(item: Item, kind: ActivityKind): FeedItem {
   const c = toConnectionItem(item);
   const long = c.review !== null && c.review.length > MAX_FEED_REVIEW_CHARS;
+  return keepForKind(
+    {
+      id: c.id,
+      mediaType: c.mediaType,
+      title: c.title.slice(0, MAX_FEED_TEXT_CHARS),
+      creators: c.creators?.slice(0, MAX_FEED_TEXT_CHARS) ?? null,
+      published: c.published?.slice(0, MAX_SHORT_TEXT) ?? null,
+      coverKey: c.coverKey,
+      rating: c.rating,
+      review: long ? c.review!.slice(0, MAX_FEED_REVIEW_CHARS) : c.review,
+      reviewTruncated: long,
+      inCollection: c.inCollection,
+      completedOn: c.completedOn?.slice(0, MAX_SHORT_TEXT) ?? null,
+    },
+    kind,
+  );
+}
+
+/** Blanks what an entry's kind doesn't show. The receiver applies it again before storing: it's the owner's rule to keep. */
+export function keepForKind(item: FeedItem, kind: ActivityKind): FeedItem {
   return {
-    id: c.id,
-    mediaType: c.mediaType,
-    title: c.title,
-    creators: c.creators,
-    published: c.published,
-    coverKey: c.coverKey,
-    rating: c.rating,
-    review: long ? c.review!.slice(0, MAX_FEED_REVIEW_CHARS) : c.review,
-    reviewTruncated: long,
-    inCollection: c.inCollection,
-    completedOn: c.completedOn,
+    ...item,
+    review: kind === 'reviewed' ? item.review : null,
+    reviewTruncated: kind === 'reviewed' && item.reviewTruncated,
+    rating: kind === 'rated' ? item.rating : null,
   };
 }
 
 export type FeedEntry = { id: number; kind: ActivityKind; published: string; item: FeedItem };
 
+const MAX_TITLE = MAX_FEED_TEXT_CHARS;
+const MAX_SHORT_TEXT = 200;
+
 // ---------- validating what a connection sends ----------
 
 const COVER_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
-const MAX_TITLE = 1_000;
-const MAX_SHORT_TEXT = 200;
 
 export const isId = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0;
 const isText = (v: unknown, max: number): v is string | null => v === null || (typeof v === 'string' && v.length <= max);

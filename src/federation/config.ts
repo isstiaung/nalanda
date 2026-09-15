@@ -28,17 +28,27 @@ export const MAX_RESPONSE_BYTES = 256 * 1024;
 
 /** Most entries in one feed response, whatever the caller asks for. */
 export const FEED_PAGE_SIZE = 100;
-/** A feed response stops adding entries past this size, staying under MAX_RESPONSE_BYTES. */
-export const FEED_RESPONSE_BUDGET_BYTES = 192 * 1024;
-/** Reviews are cut to this many characters in feed entries. */
+/** A feed response stops adding entries past this size — small enough to parse well inside the CPU budget. */
+export const FEED_RESPONSE_BUDGET_BYTES = 64 * 1024;
+/** The most of a feed response a receiver reads. */
+export const MAX_FEED_RESPONSE_BYTES = 128 * 1024;
+/** Titles and creators are cut to this in feed entries, reviews to MAX_FEED_REVIEW_CHARS. */
+export const MAX_FEED_TEXT_CHARS = 1_000;
 export const MAX_FEED_REVIEW_CHARS = 8_000;
 /** Most ids one removal check may ask about — the largest a subscription can hold. */
 export const MAX_CHECK_IDS = 1_000;
 export const MAX_CHECK_BODY_BYTES = 64 * 1024;
 /** Stored feed entries per connection, whatever its subscriptions allow. */
 export const MAX_STORED_ENTRIES_PER_CONNECTION = 1_000;
+/** New feed entries stored from one connection per day; the rest of a flood is dropped. */
+export const MAX_FEED_ENTRIES_PER_DAY = 500;
 export const MAX_CONNECTION_VIEWS = 20;
 export const MAX_VIEW_NAME = 80;
+/** Requests one connection may make to the feed endpoints per window, per isolate — each costs D1 reads. */
+export const FEED_READS_PER_WINDOW = 60;
+export const FEED_READ_WINDOW_MS = 10 * 60_000;
+/** How long an isolate reuses the list of shared views it serves. */
+export const SHARED_VIEWS_CACHE_MS = 5 * 60_000;
 
 /** How often a subscription may pull, in minutes. */
 export const PULL_INTERVALS = [15, 60, 1440] as const;
@@ -49,10 +59,12 @@ export const MAX_RETENTION_DAYS = 365;
 export const DEFAULT_MAX_ENTRIES = 500;
 export const MIN_MAX_ENTRIES = 10;
 
-/** Subscriptions refreshed per page load. Each costs two subrequests; the rest wait their turn. */
-export const REFRESHES_PER_REQUEST = 4;
+/** Subscriptions refreshed per page load. Each costs up to two subrequests and a JSON parse; the rest wait. */
+export const REFRESHES_PER_REQUEST = 2;
 /** The window a view's activity volume is measured over, for size estimates. */
 export const VOLUME_WINDOW_DAYS = 90;
-/** Activity recorded from before a household's first connection view: the newest this many, within the window. */
+/** Activity recorded when a household shares its first view: the newest this many, within the window. */
 export const BACKFILL_ENTRIES = 300;
-
+/** Stored entries the Feed page renders at once, by count and by bytes of entry JSON. */
+export const FEED_PAGE_ENTRIES = 200;
+export const FEED_PAGE_BYTES = 128 * 1024;

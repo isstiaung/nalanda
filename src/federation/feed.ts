@@ -10,12 +10,20 @@ import {
   removeEntries,
   storedRemoteIds,
   storeEntries,
+  takeFeedAllowance,
   type DueSubscription,
 } from '../db/federation';
 import type { Connection, FederationSettings } from '../db/schema';
-import { FEED_PAGE_SIZE, MAX_CHECK_IDS, MAX_VIEW_NAME, REFRESHES_PER_REQUEST } from './config';
+import {
+  FEED_PAGE_SIZE,
+  MAX_CHECK_IDS,
+  MAX_FEED_ENTRIES_PER_DAY,
+  MAX_FEED_RESPONSE_BYTES,
+  MAX_VIEW_NAME,
+  REFRESHES_PER_REQUEST,
+} from './config';
 import { getSigned, postSigned } from './http';
-import { isId, jsonBytes, parseFeedEntry, type FeedEntry } from './items';
+import { isId, jsonBytes, keepForKind, parseFeedEntry, type FeedEntry } from './items';
 import type { Identity } from './keys';
 
 const isCount = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
@@ -83,18 +91,18 @@ export function formatBytes(n: number): string {
 
 // ---------- pulling ----------
 
-type FeedPage = { latest: number; truncated: boolean; entries: FeedEntry[] };
+type FeedPage = { latest: number; more: boolean; entries: FeedEntry[] };
 
 export function parseFeedPage(value: unknown): FeedPage | null {
   const v = asObject(value);
-  if (!v || !isCount(v.latest) || typeof v.truncated !== 'boolean' || !Array.isArray(v.entries)) return null;
+  if (!v || !isCount(v.latest) || typeof v.more !== 'boolean' || !Array.isArray(v.entries)) return null;
   const entries: FeedEntry[] = [];
   // Past the page size the owner broke the protocol; what it sent beyond that isn't read.
   for (const raw of v.entries.slice(0, FEED_PAGE_SIZE)) {
     const entry = parseFeedEntry(raw);
     if (entry) entries.push(entry);
   }
-  return { latest: v.latest, truncated: v.truncated, entries };
+  return { latest: v.latest, more: v.more, entries };
 }
 
 function parseCheck(value: unknown): { invalid: number[]; viewGone: boolean } | null {
@@ -106,9 +114,9 @@ function parseCheck(value: unknown): { invalid: number[]; viewGone: boolean } | 
 const isNoSuchView = (body: unknown) => asObject(body)?.error === 'no such view';
 
 /**
- * One pull: new entries since the cursor, then the receiver's lifecycle rules, then the removal
- * check over everything still stored. Failures are recorded on the subscription for the Connections
- * page; the next pull tries again.
+ * One pull. The receiver's own lifecycle rules run first, so expired entries go even when the owner can't
+ * be reached. Then new entries since the cursor, within the connection's daily allowance, then the removal
+ * check over everything still stored. Failures are recorded on the subscription for the Connections page.
  */
 export async function refreshSubscription(
   d1: D1Database,
@@ -116,12 +124,14 @@ export async function refreshSubscription(
   settings: FederationSettings,
   sub: DueSubscription,
 ): Promise<void> {
+  await applyLifecycle(d1, sub);
   const { connection } = sub;
   const res = await getSigned(
     identity,
     settings.baseUrl,
     connection.baseUrl,
     `/federation/feed?view=${sub.viewId}&since=${sub.cursor}`,
+    MAX_FEED_RESPONSE_BYTES,
   );
   if (!res) return recordPull(d1, sub.id, { error: 'Couldn’t reach them.' });
   if (res.status === 404 && isNoSuchView(res.body)) return markSubscriptionGone(d1, sub.id);
@@ -130,16 +140,23 @@ export async function refreshSubscription(
   const page = parseFeedPage(res.body);
   if (!page) return recordPull(d1, sub.id, { error: 'They sent a feed this library couldn’t read.' });
 
+  const allowed = await takeFeedAllowance(d1, connection.id, page.entries.length, MAX_FEED_ENTRIES_PER_DAY);
   await storeEntries(
     d1,
     sub.id,
-    page.entries.map((e) => {
-      const { json, bytes } = jsonBytes(e.item);
-      return { remoteId: e.id, kind: e.kind, publishedAt: e.published, item: json, bytes };
+    page.entries.slice(0, allowed).map((e) => {
+      const { json, bytes } = jsonBytes(keepForKind(e.item, e.kind));
+      return { remoteId: e.id, itemRemoteId: e.item.id, kind: e.kind, publishedAt: e.published, item: json, bytes };
     }),
   );
-  await recordPull(d1, sub.id, { cursor: page.latest, error: null });
-  await applyLifecycle(d1, sub);
+  const dropped = allowed < page.entries.length;
+  await recordPull(d1, sub.id, {
+    cursor: page.latest,
+    error: dropped ? 'Some entries were dropped: they sent more than a day’s allowance.' : null,
+    // More waiting: due again on the next page load, instead of after the interval.
+    again: page.more && !dropped,
+  });
+  if (allowed > 0) await applyLifecycle(d1, sub);
   await checkRemovals(d1, identity, settings, sub);
 }
 
@@ -162,7 +179,7 @@ async function checkRemovals(d1: D1Database, identity: Identity, settings: Feder
   );
 }
 
-/** Refreshes the most overdue subscriptions — a few per page load, staying inside one request's subrequest budget. */
+/** Refreshes the most overdue subscriptions — a couple per page load, inside one request's CPU and subrequest budgets. */
 export async function refreshDue(d1: D1Database, identity: Identity, settings: FederationSettings): Promise<void> {
   for (const sub of await dueSubscriptions(d1, REFRESHES_PER_REQUEST)) {
     if (!(await claimSubscription(d1, sub.id, sub.lastPulledAt))) continue;

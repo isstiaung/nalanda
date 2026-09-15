@@ -182,6 +182,7 @@ export const connectionPushCounts = sqliteTable(
       .references(() => connections.id, { onDelete: 'cascade' }),
     day: text('day').notNull(),
     pushes: integer('pushes').notNull(),
+    feedEntries: integer('feed_entries').notNull().default(0), // phase 2: feed entries stored from them
   },
   (t) => [primaryKey({ columns: [t.connectionId, t.day] })],
 );
@@ -191,7 +192,8 @@ export const connectionPushCounts = sqliteTable(
 
 /** A slice of the catalog shared with every connection — the same captured filters as `shares`. */
 export const connectionViews = sqliteTable('connection_views', {
-  id: integer('id').primaryKey(),
+  // AUTOINCREMENT: a withdrawn view's id never names a different view to the households that followed it
+  id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
   libraryId: integer('library_id').references(() => libraries.id, { onDelete: 'cascade' }),
   mediaType: text('media_type', { enum: MEDIA_TYPES }),
@@ -226,7 +228,7 @@ export const activityLog = sqliteTable(
 export const feedSubscriptions = sqliteTable(
   'feed_subscriptions',
   {
-    id: integer('id').primaryKey(),
+    id: integer('id').primaryKey({ autoIncrement: true }),
     connectionId: integer('connection_id')
       .notNull()
       .references(() => connections.id, { onDelete: 'cascade' }),
@@ -254,6 +256,7 @@ export const remoteActivities = sqliteTable(
       .notNull()
       .references(() => feedSubscriptions.id, { onDelete: 'cascade' }),
     remoteId: integer('remote_id').notNull(), // their activity_log id
+    itemRemoteId: integer('item_remote_id').notNull(), // their items id
     kind: text('kind', { enum: ACTIVITY_KINDS }).notNull(),
     publishedAt: text('published_at').notNull(),
     item: text('item').notNull(), // the validated FeedItem, as JSON
@@ -263,6 +266,7 @@ export const remoteActivities = sqliteTable(
   (t) => [
     uniqueIndex('remote_activities_subscription_remote').on(t.subscriptionId, t.remoteId),
     index('idx_remote_activities_published').on(t.publishedAt),
+    index('idx_remote_activities_item').on(t.itemRemoteId),
   ],
 );
 

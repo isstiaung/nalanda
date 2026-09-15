@@ -3,12 +3,21 @@
 // pull interval refresh after the response, so the page never waits on another instance.
 //
 // Everything shown here came from another instance. It is re-validated as it is read back, rendered
-// only as escaped text, and covers load only from the connection's own /covers/<uuid>.
+// only as escaped text, and covers load only from the connection's own /covers/<uuid>. A page holds a
+// bounded number of bytes of it, so what a connection sends can't push rendering past the CPU budget.
 import { Hono } from 'hono';
 import type { FC } from 'hono/jsx';
-import { countSubscriptions, feedEntries, getFederationSettings, takeRemovedCount, type StoredEntry } from '../db/federation';
+import {
+  countSubscriptions,
+  feedPage,
+  getFederationSettings,
+  takeRemovedCount,
+  type FeedCursor,
+  type StoredEntry,
+} from '../db/federation';
 import type { ActivityKind } from '../db/schema';
 import type { AppEnv } from '../env';
+import { FEED_PAGE_BYTES, FEED_PAGE_ENTRIES } from '../federation/config';
 import { refreshDue } from '../federation/feed';
 import { coverUrl, parseFeedItem, type FeedItem } from '../federation/items';
 import { loadIdentity } from '../federation/keys';
@@ -17,7 +26,6 @@ import { page } from '../views/layout';
 
 const feed = new Hono<AppEnv>();
 
-const ENTRIES_SHOWN = 300;
 /** Cards from one household this close together read as one burst — an import, say. */
 const BURST_GAP_MINUTES = 60;
 const BURST_MIN_CARDS = 6;
@@ -29,9 +37,16 @@ type Card = {
   item: FeedItem;
   kinds: Set<ActivityKind>;
   published: string;
+  review: string | null;
+  reviewTruncated: boolean;
+  rating: number | null;
 };
 
-/** One card per book per household, newest first: "finished and reviewed" rather than two cards. */
+/**
+ * One card per book per household, newest first: "finished and reviewed" rather than two cards. Each
+ * entry carries only its own kind's field, so the review comes from the `reviewed` entry and the rating
+ * from the `rated` one.
+ */
 function toCards(entries: StoredEntry[]): Card[] {
   const cards = new Map<string, Card>();
   for (const e of entries) {
@@ -42,20 +57,28 @@ function toCards(entries: StoredEntry[]): Card[] {
       item = null;
     }
     if (!item) continue;
-    const cardKey = `${e.connectionId}:${item.id}`;
-    const existing = cards.get(cardKey);
-    if (existing) {
-      existing.kinds.add(e.kind);
-      continue;
+    const key = `${e.connectionId}:${e.itemRemoteId}`;
+    let card = cards.get(key);
+    if (!card) {
+      card = {
+        connectionId: e.connectionId,
+        householdName: e.householdName,
+        baseUrl: e.baseUrl,
+        item,
+        kinds: new Set(),
+        published: e.publishedAt,
+        review: null,
+        reviewTruncated: false,
+        rating: null,
+      };
+      cards.set(key, card);
     }
-    cards.set(cardKey, {
-      connectionId: e.connectionId,
-      householdName: e.householdName,
-      baseUrl: e.baseUrl,
-      item,
-      kinds: new Set([e.kind]),
-      published: e.publishedAt,
-    });
+    card.kinds.add(e.kind);
+    if (e.kind === 'reviewed' && card.review === null) {
+      card.review = item.review;
+      card.reviewTruncated = item.reviewTruncated;
+    }
+    if (e.kind === 'rated' && card.rating === null) card.rating = item.rating;
   }
   return [...cards.values()];
 }
@@ -68,7 +91,12 @@ function runs(cards: Card[]): Card[][] {
   for (const card of cards) {
     const run = out[out.length - 1];
     const prev = run?.[run.length - 1];
-    if (run && prev && prev.connectionId === card.connectionId && minutes(prev.published) - minutes(card.published) <= BURST_GAP_MINUTES) {
+    if (
+      run &&
+      prev &&
+      prev.connectionId === card.connectionId &&
+      minutes(prev.published) - minutes(card.published) <= BURST_GAP_MINUTES
+    ) {
       run.push(card);
     } else {
       out.push([card]);
@@ -107,11 +135,11 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean }> = ({ card, showHouseh
           <span class="muted">{verbs(card.kinds)}</span> <strong>{item.title}</strong>
           {item.creators ? <small> · {item.creators}</small> : null}
         </p>
-        {item.rating && card.kinds.has('rated') ? <span class="rating">{stars(item.rating)}</span> : null}
-        {item.review && card.kinds.has('reviewed') ? (
+        {card.rating ? <span class="rating">{stars(card.rating)}</span> : null}
+        {card.review ? (
           <p class="prewrap feed-review">
-            {item.review}
-            {item.reviewTruncated ? '…' : ''}
+            {card.review}
+            {card.reviewTruncated ? '…' : ''}
           </p>
         ) : null}
       </div>
@@ -119,15 +147,29 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean }> = ({ card, showHouseh
   );
 };
 
+const BEFORE = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})~(\d{1,15})$/;
+
+function parseBefore(raw: string | undefined): FeedCursor | null {
+  const m = raw ? BEFORE.exec(raw) : null;
+  return m ? { publishedAt: m[1]!, id: Number(m[2]) } : null;
+}
+
 feed.get('/feed', async (c) => {
   const identity = await loadIdentity(c.env.FEDERATION_PRIVATE_KEY);
   if (!identity) return c.notFound();
   const user = c.get('user');
   const settings = await getFederationSettings(c.env.DB);
-  const [entries, subscriptions, removed] = settings
-    ? await Promise.all([feedEntries(c.env.DB, ENTRIES_SHOWN), countSubscriptions(c.env.DB), takeRemovedCount(c.env.DB)])
-    : [[], 0, 0];
-  if (settings && subscriptions > 0) {
+  const before = parseBefore(c.req.query('before'));
+  const firstPage = before === null;
+
+  const [{ entries, next }, subscriptions, removed] = settings
+    ? await Promise.all([
+        feedPage(c.env.DB, { before, maxEntries: FEED_PAGE_ENTRIES, maxBytes: FEED_PAGE_BYTES }),
+        countSubscriptions(c.env.DB),
+        firstPage ? takeRemovedCount(c.env.DB) : Promise.resolve(0),
+      ])
+    : [{ entries: [], next: null }, 0, 0];
+  if (settings && subscriptions > 0 && firstPage) {
     c.executionCtx.waitUntil(refreshDue(c.env.DB, identity, settings).catch((err) => console.error('feed refresh failed', err)));
   }
   const groups = runs(toCards(entries));
@@ -171,7 +213,9 @@ feed.get('/feed', async (c) => {
         </p>
       ) : groups.length === 0 ? (
         <p class="muted">
-          Nothing yet. New activity is fetched in the background whenever this page opens — check back in a moment.
+          {firstPage
+            ? 'Nothing yet. New activity is fetched in the background whenever this page opens — check back in a moment.'
+            : 'Nothing older.'}
         </p>
       ) : (
         <div class="feed">
@@ -194,6 +238,13 @@ feed.get('/feed', async (c) => {
           )}
         </div>
       )}
+      {next ? (
+        <nav class="pagination">
+          <span />
+          <span />
+          <a href={`/feed?before=${encodeURIComponent(`${next.publishedAt}~${next.id}`)}`}>Older →</a>
+        </nav>
+      ) : null}
     </>,
   );
 });
