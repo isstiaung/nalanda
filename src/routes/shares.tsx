@@ -49,8 +49,9 @@ shares.get('/shares', async (c) => {
       {views.length === 0 ? (
         <p class="muted">
           Nothing is published. To share a slice of the catalogue, open a shelf, filter it to what you
-          want public, and use <strong>Publish current view</strong> under Shelf settings. Each link
-          gets its own unguessable URL that you can rotate or remove independently.
+          want public, and use <strong>Publish current view</strong> under Shelf settings — or open a
+          tag and use <strong>Publish this tag</strong>. Each link gets its own unguessable URL that you
+          can rotate or remove independently.
         </p>
       ) : (
         <>
@@ -132,14 +133,18 @@ shares.post('/shares', async (c) => {
     const v = body[k];
     return typeof v === 'string' ? v.trim() : '';
   };
+  // Published from a shelf (its current filters) or from a tag's page (everything carrying the tag, on any
+  // shelf). Tags are stored lowercase.
+  const tag = str('tag').toLowerCase();
   const libraryId = Number.parseInt(str('libraryId'), 10);
   const lib = Number.isInteger(libraryId) ? await getLibrary(c.env.DB, libraryId) : null;
-  if (!lib) return c.text('No such shelf.', 400);
-  const name = str('name') || lib.name;
+  if (!lib && !tag) return c.text('No such shelf.', 400);
+  const name = str('name') || lib?.name || tag;
   await createShare(c.env.DB, {
     token: newShareToken(),
     name,
-    libraryId,
+    libraryId: lib?.id ?? null,
+    tag: tag || null,
     mediaType: (MEDIA_TYPES as readonly string[]).includes(str('mediaType')) ? (str('mediaType') as MediaType) : null,
     status: (ITEM_STATUSES as readonly string[]).includes(str('status')) ? (str('status') as ItemStatus) : null,
     owned: str('owned') === '1' ? true : str('owned') === '0' ? false : null,
@@ -148,7 +153,7 @@ shares.post('/shares', async (c) => {
         ? (str('sort') as 'added' | 'rating' | 'completed')
         : 'title',
   });
-  return c.redirect(`/libraries/${libraryId}`);
+  return c.redirect(lib ? `/libraries/${lib.id}` : `/tags/${encodeURIComponent(tag)}`);
 });
 
 shares.post('/shares/:id', async (c) => {
@@ -158,9 +163,11 @@ shares.post('/shares/:id', async (c) => {
   const action = String(body['action'] ?? '');
   if (action === 'rotate') await rotateShare(c.env.DB, id, newShareToken());
   else if (action === 'delete') await deleteShare(c.env.DB, id);
-  // Posted from a shelf's settings panel, or from /shares with no shelf in hand.
+  // Posted from a shelf's settings panel, a tag's page, or /shares with neither in hand.
   const back = Number.parseInt(String(body['libraryId'] ?? ''), 10);
-  return c.redirect(Number.isInteger(back) ? `/libraries/${back}` : '/shares');
+  const backTag = typeof body['tag'] === 'string' ? body['tag'] : '';
+  if (Number.isInteger(back)) return c.redirect(`/libraries/${back}`);
+  return c.redirect(backTag ? `/tags/${encodeURIComponent(backTag)}` : '/shares');
 });
 
 export default shares;

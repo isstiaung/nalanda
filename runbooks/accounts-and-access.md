@@ -65,6 +65,10 @@ have leaked.
   link shows exactly that view; publish with no filters for the whole shelf. Any
   number of links per shelf — e.g. a "My reviews" link (holding: Not owned) alongside
   the full catalog.
+- **Publish a tag**: *Tags* → open the tag → *Publish this tag*. The link shows every
+  item carrying that tag, on any shelf, owned or not — a hand-picked list such as
+  "reviewed-books" that no combination of shelf filters could express. That tag's page
+  lists its links with rotate and remove, and they appear under *Shared links* too.
 - **Reading the shelf badges**: a shelf reads *Shared* only when a link exposes it
   entire. If you've only published slices of it, it reads "2 views shared" instead —
   the shelf itself is not reachable, just those views.

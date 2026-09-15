@@ -18,7 +18,7 @@ manuscripts.
   their ratings/reviews/read-dates onto existing books; the rest arrive as reading-log
   entries. Re-runs merge instead of duplicating. libib CSV import too.
 - **Public share links, per view**: publish any filtered slice of a shelf ("my reviews",
-  "owned sci-fi") at its own unguessable URL — rotate or remove each link independently.
+  "owned sci-fi"), or everything carrying a tag, at its own unguessable URL — rotate or remove each link independently.
   Private notes, loans, and copy counts never appear. Reviews can link out to blog posts.
   One admin page lists everything you've published, with the item count each link
   exposes.

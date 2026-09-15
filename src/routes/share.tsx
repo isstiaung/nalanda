@@ -141,9 +141,10 @@ share.get('/:token/items/:id', async (c) => {
   const view = await getShareByToken(c.env.DB, token);
   if (!view) return c.notFound();
   const item = await getItem(c.env.DB, Number(c.req.param('id')));
-  if (!item || !itemMatchesShare(view, item)) return c.notFound(); // token only unlocks its own view
-  const pub = toPublicItem(item);
+  if (!item) return c.notFound();
   const tags = (await tagsForItems(c.env.DB, [item.id])).get(item.id) ?? [];
+  if (!itemMatchesShare(view, item, tags)) return c.notFound(); // token only unlocks its own view
+  const pub = toPublicItem(item);
 
   return renderShare(
     c,

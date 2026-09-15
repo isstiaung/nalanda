@@ -72,8 +72,8 @@ shape from this file.
   `added_by`, usernames, or links into the authenticated app. (The derived boolean
   `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge.)
   Share pages get `noindex`.
-- Share tokens are random 128-bit, **one per published view** (`shares` table — filters
-  captured at publish time; `itemMatchesShare()` guards the public item route, and its
+- Share tokens are random 128-bit, **one per published view** (`shares` table — filters, or a
+  tag, captured at publish time; `itemMatchesShare()` guards the public item route, and its
   query-side twin `shareFilters()` must stay in step with it).
   Publish/rotate/remove is admin-only; `/shares` (`src/routes/shares.tsx`) is the
   admin-only inventory of everything published. A shelf is only "Shared" when a
