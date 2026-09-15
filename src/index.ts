@@ -9,6 +9,7 @@ import { serveCover } from './lib/covers';
 import accountRoutes from './routes/account';
 import addRoutes from './routes/add';
 import authRoutes from './routes/auth';
+import commentsRoutes from './routes/comments';
 import connectionsRoutes from './routes/connections';
 import dashboardRoutes from './routes/dashboard';
 import feedRoutes from './routes/feed';
@@ -115,6 +116,7 @@ app.route('/', accountRoutes);
 app.route('/', settingsRoutes);
 app.route('/', connectionsRoutes);
 app.route('/', feedRoutes);
+app.route('/', commentsRoutes);
 
 app.notFound((c) => c.text('Not found', 404));
 app.onError((err, c) => {

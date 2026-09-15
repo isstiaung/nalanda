@@ -324,6 +324,7 @@ describe('following another household', () => {
       reviewTruncated: false,
       inCollection: true,
       completedOn: null,
+      stamp: '0123456789abcdef',
       ...item,
     },
   });
@@ -331,6 +332,7 @@ describe('following another household', () => {
   const stored = (remoteId: number, minutesAgo: number): NewRemoteActivity => ({
     remoteId,
     itemRemoteId: remoteId,
+    itemStamp: '0123456789abcdef',
     kind: 'rated',
     publishedAt: sqlAgo(minutesAgo),
     item: '{}',
@@ -401,7 +403,8 @@ describe('following another household', () => {
     const member = await sessionCookie('member');
 
     await a.get('/feed', member); // the pull runs after the response
-    expect(outbound.map((r) => `${new URL(r.url).pathname}${new URL(r.url).search}`)).toEqual([
+    const feedCalls = () => outbound.filter((r) => new URL(r.url).pathname.startsWith('/federation/feed'));
+    expect(feedCalls().map((r) => `${new URL(r.url).pathname}${new URL(r.url).search}`)).toEqual([
       '/federation/feed?view=7&since=0',
       '/federation/feed/check',
     ]);
@@ -416,7 +419,7 @@ describe('following another household', () => {
     expect(await rows('SELECT cursor FROM feed_subscriptions WHERE id = ?', sub.id)).toEqual([{ cursor: 13 }]);
 
     const html = await (await a.get('/feed', member)).text();
-    expect(outbound).toHaveLength(2); // not due again within its interval
+    expect(feedCalls()).toHaveLength(2); // not due again within its interval
     expect(html).toContain('Hostile');
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
     expect(html).not.toContain('<img src=x');
@@ -509,8 +512,9 @@ describe('following another household', () => {
         reviewTruncated: false,
         inCollection: true,
         completedOn: null,
+        stamp: '0123456789abcdef',
       });
-      return { remoteId: i, itemRemoteId: i, kind: 'reviewed', publishedAt: sqlAgo(i * 120), item, bytes: item.length };
+      return { remoteId: i, itemRemoteId: i, itemStamp: '0123456789abcdef', kind: 'reviewed', publishedAt: sqlAgo(i * 120), item, bytes: item.length };
     };
     await storeEntries(env.DB, sub.id, Array.from({ length: 40 }, (_, i) => long(i + 1)));
     answerOutbound(() => new Response('down', { status: 500 }));

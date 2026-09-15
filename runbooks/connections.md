@@ -1,8 +1,8 @@
 # Runbook: Connections
 
 Connections link your library with another household's Nalanda, one pair at a time. Connected
-households can follow each other's reading in a feed. Comments on reviews and borrowing arrive
-in later releases. The design is in
+households can follow each other's reading in a feed and comment on each other's reviews.
+Borrowing arrives in a later release. The design is in
 [docs/proposals/connections.md](../docs/proposals/connections.md).
 
 Connections are off until the instance has a key. Without one, every connections page and
@@ -94,6 +94,22 @@ The same page shows what each view actually stores. **Save** new limits (applied
 entries a household stops sharing are deleted at the next pull, and no connection stores more
 than 1,000 entries.
 
+## Comments
+
+- **On their reviews:** a review card on **Feed** has **Comment**. Only reviews you follow
+  can be commented on, and a thread stays on your side only while you follow that review.
+- **On yours:** comments appear under the review on the book's page, one thread per
+  household, and recent ones are listed at the top of **Feed**. **Reply** in the thread.
+- **Who sees a thread:** only your library and that household — never your other connections.
+- **Deleting:** anyone in your household can delete a comment on your reviews, or one of your
+  own anywhere, and the deletion reaches the other household too. Withdraw a comment on their
+  review while you still follow it: once its entry leaves your feed, your copy of the thread
+  goes with it, though theirs stays.
+- **Limits:** plain text, up to 2,000 characters. A household can send you 200 messages a day;
+  yours can send 100 to each household.
+- **When their library is offline**, a comment waits in yours and reaches them the next time
+  someone there opens **Feed**. It waits up to 30 days.
+
 ## Changing address
 
 The address is part of your identity to connected households, so it can't change under
@@ -175,5 +191,7 @@ Delete `.wrangler/connections/` to start over.
   "They turned the request away" usually means they disconnected on their side.
 - **"They sent more than a day's allowance."** A household can add at most 500 feed entries to
   your library a day, and the rest are dropped. It resets the next day.
+- **A comment hasn't arrived.** If the push missed, it's collected the next time someone in the
+  receiving household opens **Feed**, at most every 5 minutes.
 - **Feed covers missing.** Covers load straight from the other household's library, so they
   show only while it's online.

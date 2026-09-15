@@ -16,6 +16,8 @@ import {
   getFederationSettings,
   listConnectionViews,
   markActivitySeen,
+  outboxAfter,
+  outboxHead,
   redeemInvite,
   stillShared,
   viewVolume,
@@ -36,13 +38,16 @@ import {
   MAX_CONNECT_BODY_BYTES,
   MAX_INBOX_BODY_BYTES,
   MAX_PUSHES_PER_DAY,
+  OUTBOX_PAGE_SIZE,
+  OUTBOX_RESPONSE_BUDGET_BYTES,
   PROTOCOL,
   PROTOCOL_VERSION,
   SHARED_VIEWS_CACHE_MS,
   VOLUME_WINDOW_DAYS,
 } from './config';
 import { fetchDescriptor, parseJson, readLimited, type Descriptor } from './http';
-import { isId, jsonBytes, toFeedItem, type FeedEntry } from './items';
+import { receiveDirected } from './comments';
+import { isId, itemStamp, jsonBytes, toFeedItem, type FeedEntry } from './items';
 import { importPublicKey, loadIdentity } from './keys';
 import { parseConnectRequest, parseInboxMessage } from './messages';
 import { forgetPeer, peerByKeyid, rememberPeer } from './peers';
@@ -244,8 +249,15 @@ federation.get('/federation/feed', async (c) => {
   const { fromStart, rows } = await activityInView(c.env.DB, view, since, FEED_PAGE_SIZE + 1);
   const entries: FeedEntry[] = [];
   let bytes = 0;
+  const stamps = new Map<number, string>();
+  for (const row of rows) if (!stamps.has(row.item.id)) stamps.set(row.item.id, await itemStamp(row.item));
   for (const row of rows.slice(0, FEED_PAGE_SIZE)) {
-    const entry: FeedEntry = { id: row.id, kind: row.kind, published: row.at, item: toFeedItem(row.item, row.kind) };
+    const entry: FeedEntry = {
+      id: row.id,
+      kind: row.kind,
+      published: row.at,
+      item: toFeedItem(row.item, row.kind, stamps.get(row.item.id)!),
+    };
     const size = jsonBytes(entry).bytes;
     if (entries.length > 0 && bytes + size > FEED_RESPONSE_BUDGET_BYTES) break;
     entries.push(entry);
@@ -277,6 +289,33 @@ federation.post('/federation/feed/check', async (c) => {
   if (!view) return c.json({ invalid: asked, viewGone: true });
   const valid = await stillShared(c.env.DB, view, asked);
   return c.json({ invalid: asked.filter((id) => !valid.has(id)), viewGone: false });
+});
+
+/**
+ * Messages this household addressed to the caller, after its cursor, oldest first (docs/proposals/
+ * connections.md §8). The fallback for pushes that didn't arrive: only that connection's messages, ever.
+ */
+federation.get('/federation/outbox', async (c) => {
+  if (!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY))) return c.notFound();
+  const from = await fromActiveConnection(c, 0);
+  if (from instanceof Response) return from;
+  if (!(await getFederationSettings(c.env.DB))) return c.notFound();
+  const since = digits(c.req.query('since') ?? '0');
+  if (since === null) return c.json({ error: 'malformed request' }, 400);
+
+  // A cursor past the end came from before a restore on this side: start again. Receiving is idempotent.
+  const after = since > (await outboxHead(c.env.DB, from.connection.id)) ? 0 : since;
+  const rows = await outboxAfter(c.env.DB, from.connection.id, after, OUTBOX_PAGE_SIZE + 1);
+  const messages: Array<{ seq: number; message: unknown }> = [];
+  let bytes = 0;
+  for (const row of rows.slice(0, OUTBOX_PAGE_SIZE)) {
+    const size = new TextEncoder().encode(row.message).byteLength;
+    if (messages.length > 0 && bytes + size > OUTBOX_RESPONSE_BUDGET_BYTES) break;
+    messages.push({ seq: row.seq, message: JSON.parse(row.message) });
+    bytes += size;
+  }
+  const last = messages[messages.length - 1];
+  return c.json({ latest: last?.seq ?? after, more: rows.length > messages.length, messages });
 });
 
 // ---------- messages from connected instances ----------
@@ -321,9 +360,20 @@ federation.post('/federation/inbox', async (c) => {
       break;
     case 'Disconnect':
       break; // in any state: for a household still waiting on us, this withdraws their request
+    case 'CommentCreate':
+    case 'CommentDelete':
+      if (connection.status !== 'active') return c.json({ error: 'not connected' }, 409);
+      break;
   }
   if (!(await countPush(c.env.DB, connection.id, MAX_PUSHES_PER_DAY))) {
     return c.json({ error: 'daily message limit reached' }, 429);
+  }
+  if (message.type === 'CommentCreate' || message.type === 'CommentDelete') {
+    // Idempotent by comment id, so no replay record: the same message may arrive again from their outbox anyway.
+    const settings = await getFederationSettings(c.env.DB);
+    if (!settings) return c.notFound();
+    const outcome = await receiveDirected(c.env.DB, settings, connection, message);
+    return c.json(outcome.body, outcome.status);
   }
   if (!(await markActivitySeen(c.env.DB, message.id))) return c.json({ status: 'already processed' });
 

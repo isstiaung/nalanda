@@ -7,10 +7,13 @@ import {
   BACKFILL_ENTRIES,
   MAX_FEED_REVIEW_CHARS,
   MAX_STORED_ENTRIES_PER_CONNECTION,
+  OUTBOX_PULL_MINUTES,
+  OUTBOX_RETENTION_DAYS,
   VOLUME_WINDOW_DAYS,
 } from '../federation/config';
 import type {
   ActivityKind,
+  Comment,
   Connection,
   ConnectionInvite,
   ConnectionStatus,
@@ -20,6 +23,7 @@ import type {
   Item,
   ItemStatus,
   MediaType,
+  OutboxRow,
 } from './schema';
 
 const db = (d1: D1Database) => drizzle(d1);
@@ -549,6 +553,7 @@ export async function markSubscriptionGone(d1: D1Database, id: number): Promise<
 export type NewRemoteActivity = {
   remoteId: number;
   itemRemoteId: number;
+  itemStamp: string;
   kind: ActivityKind;
   publishedAt: string;
   item: string;
@@ -564,8 +569,9 @@ export async function storeEntries(d1: D1Database, subscriptionId: number, entri
   await d1
     .prepare(
       `INSERT OR IGNORE INTO remote_activities
-         (subscription_id, remote_id, item_remote_id, kind, published_at, item, bytes)
-       SELECT ?1, json_extract(value, '$.remoteId'), json_extract(value, '$.itemRemoteId'), json_extract(value, '$.kind'),
+         (subscription_id, remote_id, item_remote_id, item_stamp, kind, published_at, item, bytes)
+       SELECT ?1, json_extract(value, '$.remoteId'), json_extract(value, '$.itemRemoteId'),
+              json_extract(value, '$.itemStamp'), json_extract(value, '$.kind'),
               min(json_extract(value, '$.publishedAt'), datetime('now')), json_extract(value, '$.item'),
               json_extract(value, '$.bytes')
        FROM json_each(?2)`,
@@ -663,6 +669,7 @@ export type StoredEntry = {
   id: number;
   remoteId: number;
   itemRemoteId: number;
+  itemStamp: string;
   kind: ActivityKind;
   publishedAt: string;
   item: string;
@@ -710,7 +717,7 @@ export async function feedPage(
 
   const { results } = await d1
     .prepare(
-      `SELECT ra.id, ra.remote_id AS remoteId, ra.item_remote_id AS itemRemoteId, ra.kind,
+      `SELECT ra.id, ra.remote_id AS remoteId, ra.item_remote_id AS itemRemoteId, ra.item_stamp AS itemStamp, ra.kind,
               ra.published_at AS publishedAt, ra.item, ra.bytes,
               c.id AS connectionId, c.household_name AS householdName, c.base_url AS baseUrl
        FROM remote_activities ra
@@ -733,3 +740,355 @@ export async function takeRemovedCount(d1: D1Database): Promise<number> {
   if (n > 0) await d1.prepare('UPDATE feed_subscriptions SET removed_unseen = 0 WHERE removed_unseen > 0').run();
   return n;
 }
+
+// ---------- comments (phase 3) ----------
+
+/** Does this item fall inside a connection view? The in-memory twin of inView() — the two must agree. */
+export function itemMatchesView(view: ConnectionView, item: Item): boolean {
+  if (view.libraryId !== null && item.libraryId !== view.libraryId) return false;
+  if (view.mediaType !== null && item.mediaType !== view.mediaType) return false;
+  if (view.status !== null && item.status !== view.status) return false;
+  if (view.owned !== null && item.copies > 0 !== view.owned) return false;
+  return true;
+}
+
+/** Whether connections can see this item at all: inside at least one connection view. */
+export async function itemIsShared(d1: D1Database, item: Item): Promise<boolean> {
+  return (await listConnectionViews(d1)).some((view) => itemMatchesView(view, item));
+}
+
+export type ThreadComment = Comment & { householdName: string; connectionStatus: ConnectionStatus };
+
+/** The comments on one of our items, oldest first, with the household each thread is with. */
+export async function commentsOnOurItem(d1: D1Database, itemId: number): Promise<ThreadComment[]> {
+  const rows = await db(d1)
+    .select({ comment: s.comments, householdName: s.connections.householdName, connectionStatus: s.connections.status })
+    .from(s.comments)
+    .innerJoin(s.connections, eq(s.comments.connectionId, s.connections.id))
+    .where(and(eq(s.comments.ourItemId, itemId), isNull(s.comments.deletedAt)))
+    .orderBy(asc(s.comments.createdAt), asc(s.comments.id));
+  return rows.map((r) => ({ ...r.comment, householdName: r.householdName, connectionStatus: r.connectionStatus }));
+}
+
+/** Our copies of the threads on their reviews, for these [connection, their item, stamp] keys, oldest first. */
+export async function commentsOnTheirItems(d1: D1Database, keys: Array<[number, number, string]>): Promise<Comment[]> {
+  if (!keys.length) return [];
+  return db(d1)
+    .select()
+    .from(s.comments)
+    .where(
+      and(
+        isNull(s.comments.deletedAt),
+        isNotNull(s.comments.theirItemId),
+        sql`EXISTS (SELECT 1 FROM json_each(${JSON.stringify(keys)}) AS pair
+                    WHERE json_extract(pair.value, '$[0]') = ${s.comments.connectionId}
+                      AND json_extract(pair.value, '$[1]') = ${s.comments.theirItemId}
+                      AND json_extract(pair.value, '$[2]') = ${s.comments.theirItemStamp})`,
+      ),
+    )
+    .orderBy(asc(s.comments.createdAt), asc(s.comments.id));
+}
+
+export type RecentComment = {
+  id: number;
+  itemId: number;
+  itemTitle: string;
+  authorName: string;
+  householdName: string;
+  createdAt: string;
+};
+
+/** Comments connections left on our reviews recently, newest first — for the top of the Feed page. */
+export async function recentCommentsOnOurReviews(d1: D1Database, days: number, limit: number): Promise<RecentComment[]> {
+  return db(d1)
+    .select({
+      id: s.comments.id,
+      itemId: s.items.id,
+      itemTitle: s.items.title,
+      authorName: s.comments.authorName,
+      householdName: s.connections.householdName,
+      createdAt: s.comments.createdAt,
+    })
+    .from(s.comments)
+    .innerJoin(s.items, eq(s.comments.ourItemId, s.items.id))
+    .innerJoin(s.connections, eq(s.comments.connectionId, s.connections.id))
+    .where(
+      and(
+        eq(s.comments.fromUs, false),
+        isNull(s.comments.deletedAt),
+        sql`${s.comments.createdAt} > datetime('now', ${`-${days} days`})`,
+      ),
+    )
+    .orderBy(desc(s.comments.createdAt), desc(s.comments.id))
+    .limit(limit);
+}
+
+export async function getComment(d1: D1Database, id: number): Promise<Comment | null> {
+  const [row] = await db(d1).select().from(s.comments).where(eq(s.comments.id, id));
+  return row ?? null;
+}
+
+/** A comment in a thread with this connection, by its activity id. */
+export async function commentByActivity(d1: D1Database, connectionId: number, activityId: string): Promise<Comment | null> {
+  const [row] = await db(d1)
+    .select()
+    .from(s.comments)
+    .where(and(eq(s.comments.connectionId, connectionId), eq(s.comments.activityId, activityId)));
+  return row ?? null;
+}
+
+/** Whether a comment id is unknown here, present, or deleted. */
+export async function commentState(d1: D1Database, activityId: string): Promise<'absent' | 'present' | 'deleted'> {
+  const [row] = await db(d1)
+    .select({ deletedAt: s.comments.deletedAt })
+    .from(s.comments)
+    .where(eq(s.comments.activityId, activityId));
+  return !row ? 'absent' : row.deletedAt ? 'deleted' : 'present';
+}
+
+export type NewComment = {
+  activityId: string;
+  connectionId: number;
+  ourItemId?: number | null;
+  theirItemId?: number | null;
+  theirItemStamp?: string | null;
+  fromUs: boolean;
+  authorName: string;
+  authorId?: number | null;
+  body: string;
+  createdAt: string;
+};
+
+/** Null when a comment with that activity id exists already — including one deleted since. */
+export async function insertComment(d1: D1Database, values: NewComment): Promise<Comment | null> {
+  const [row] = await db(d1).insert(s.comments).values(values).onConflictDoNothing().returning();
+  return row ?? null;
+}
+
+/** Deleting keeps the row with its body cleared, so a copy still waiting in an outbox can't bring it back. */
+export async function softDeleteComment(d1: D1Database, id: number): Promise<void> {
+  await db(d1)
+    .update(s.comments)
+    .set({ body: null, deletedAt: sql`(datetime('now'))` })
+    .where(eq(s.comments.id, id));
+}
+
+/** A deletion that arrived before its comment: kept as an empty, deleted row, so the comment never appears. */
+export async function recordDeletionFirst(d1: D1Database, connectionId: number, activityId: string): Promise<void> {
+  await db(d1)
+    .insert(s.comments)
+    .values({ activityId, connectionId, fromUs: false, authorName: '', body: null, deletedAt: sql`(datetime('now'))` })
+    .onConflictDoNothing();
+}
+
+/** Whether this household holds a feed entry for that connection's review of this book — i.e. follows it. */
+export async function holdsReviewEntry(d1: D1Database, connectionId: number, itemRemoteId: number, stamp: string): Promise<boolean> {
+  const [row] = await db(d1)
+    .select({ id: s.remoteActivities.id })
+    .from(s.remoteActivities)
+    .innerJoin(s.feedSubscriptions, eq(s.remoteActivities.subscriptionId, s.feedSubscriptions.id))
+    .where(
+      and(
+        eq(s.feedSubscriptions.connectionId, connectionId),
+        eq(s.remoteActivities.itemRemoteId, itemRemoteId),
+        eq(s.remoteActivities.itemStamp, stamp),
+        eq(s.remoteActivities.kind, 'reviewed'),
+      ),
+    )
+    .limit(1);
+  return !!row;
+}
+
+/** Whether this household has commented on that connection's review of this book — the thread is ours to have started. */
+export async function weCommented(d1: D1Database, connectionId: number, theirItemId: number, stamp: string): Promise<boolean> {
+  const [row] = await db(d1)
+    .select({ id: s.comments.id })
+    .from(s.comments)
+    .where(
+      and(
+        eq(s.comments.connectionId, connectionId),
+        eq(s.comments.theirItemId, theirItemId),
+        eq(s.comments.theirItemStamp, stamp),
+        eq(s.comments.fromUs, true),
+      ),
+    )
+    .limit(1);
+  return !!row;
+}
+
+/**
+ * One of our items, only if it has a review and is inside a connection view — one query, so an unknown item, an
+ * unreviewed one and an unshared one can't be told apart by how long the answer takes. The view test is the SQL
+ * twin of itemMatchesView().
+ */
+export async function sharedReviewedItem(d1: D1Database, itemId: number): Promise<Item | null> {
+  const [row] = await db(d1)
+    .select()
+    .from(s.items)
+    .where(
+      and(
+        eq(s.items.id, itemId),
+        hasReview,
+        sql`EXISTS (SELECT 1 FROM connection_views v
+                    WHERE (v.library_id IS NULL OR v.library_id = ${s.items.libraryId})
+                      AND (v.media_type IS NULL OR v.media_type = ${s.items.mediaType})
+                      AND (v.status IS NULL OR v.status = ${s.items.status})
+                      AND (v.owned IS NULL OR v.owned = (${s.items.copies} > 0)))`,
+      ),
+    );
+  return row ?? null;
+}
+
+/** Whether that household has commented on our item — replies go into threads they started. */
+export async function theyStartedThread(d1: D1Database, connectionId: number, ourItemId: number): Promise<boolean> {
+  const [row] = await db(d1)
+    .select({ id: s.comments.id })
+    .from(s.comments)
+    .where(and(eq(s.comments.connectionId, connectionId), eq(s.comments.ourItemId, ourItemId), eq(s.comments.fromUs, false)))
+    .limit(1);
+  return !!row;
+}
+
+/**
+ * Our copies of threads on their reviews go with the feed entries they hang from: once no stored `reviewed`
+ * entry remains for that book — the same id and stamp — its thread is deleted here too. Callers skip this after
+ * a pull that stopped partway, when an edited review's new entry may still be waiting on a later page.
+ */
+export async function pruneOrphanThreads(d1: D1Database): Promise<void> {
+  await d1
+    .prepare(
+      `DELETE FROM comments WHERE their_item_id IS NOT NULL AND NOT EXISTS (
+         SELECT 1 FROM remote_activities ra JOIN feed_subscriptions fs ON fs.id = ra.subscription_id
+         WHERE fs.connection_id = comments.connection_id AND ra.item_remote_id = comments.their_item_id
+           AND ra.item_stamp = comments.their_item_stamp AND ra.kind = 'reviewed')`,
+    )
+    .run();
+}
+
+/** Deletions remembered for comments that never arrived, dropped once no outbox could still hold those comments. */
+export async function pruneTombstones(d1: D1Database): Promise<void> {
+  await d1
+    .prepare(
+      `DELETE FROM comments WHERE our_item_id IS NULL AND their_item_id IS NULL
+         AND deleted_at < datetime('now', ?1)`,
+    )
+    .bind(`-${OUTBOX_RETENTION_DAYS * 2} days`)
+    .run();
+}
+
+/** Which of these comment ids are known here, and whether each is deleted. */
+export async function commentStates(d1: D1Database, activityIds: string[]): Promise<Map<string, 'present' | 'deleted'>> {
+  if (!activityIds.length) return new Map();
+  const rows = await db(d1)
+    .select({ activityId: s.comments.activityId, deletedAt: s.comments.deletedAt })
+    .from(s.comments)
+    .where(sql`${s.comments.activityId} IN (SELECT value FROM json_each(${JSON.stringify(activityIds)}))`);
+  return new Map(rows.map((r) => [r.activityId, r.deletedAt ? 'deleted' : 'present']));
+}
+
+/** Messages queued for a connection since midnight UTC. */
+export async function sentToday(d1: D1Database, connectionId: number): Promise<number> {
+  const [row] = await db(d1)
+    .select({ n: count() })
+    .from(s.outbox)
+    .where(and(eq(s.outbox.connectionId, connectionId), sql`${s.outbox.createdAt} >= date('now')`));
+  return row?.n ?? 0;
+}
+
+// ---------- the outbox (phase 3) ----------
+
+/**
+ * Queues a message for a connection under that connection's next sequence number, pruning what has waited
+ * longer than any pull would.
+ */
+export async function enqueueOutbox(d1: D1Database, connectionId: number, message: { id: string }): Promise<OutboxRow> {
+  const counter = await d1
+    .prepare('UPDATE connections SET outbox_seq = outbox_seq + 1 WHERE id = ?1 RETURNING outbox_seq AS seq')
+    .bind(connectionId)
+    .first<{ seq: number }>();
+  if (!counter) throw new Error('no such connection to queue a message for');
+  const dbi = db(d1);
+  const [row] = await dbi
+    .insert(s.outbox)
+    .values({ connectionId, seq: counter.seq, activityId: message.id, message: JSON.stringify(message) })
+    .returning();
+  if (!row) throw new Error('failed to queue message');
+  await dbi
+    .delete(s.outbox)
+    .where(
+      and(
+        eq(s.outbox.connectionId, connectionId),
+        sql`${s.outbox.createdAt} < datetime('now', ${`-${OUTBOX_RETENTION_DAYS} days`})`,
+      ),
+    );
+  return row;
+}
+
+/** The last sequence number queued for a connection. */
+export async function outboxHead(d1: D1Database, connectionId: number): Promise<number> {
+  const [row] = await db(d1).select({ seq: s.connections.outboxSeq }).from(s.connections).where(eq(s.connections.id, connectionId));
+  return row?.seq ?? 0;
+}
+
+export async function markDelivered(d1: D1Database, id: number): Promise<void> {
+  await db(d1)
+    .update(s.outbox)
+    .set({ deliveredAt: sql`(datetime('now'))` })
+    .where(eq(s.outbox.id, id));
+}
+
+/** A connection's queued messages after a cursor in its own sequence, oldest first. */
+export async function outboxAfter(d1: D1Database, connectionId: number, since: number, limit: number): Promise<OutboxRow[]> {
+  return db(d1)
+    .select()
+    .from(s.outbox)
+    .where(and(eq(s.outbox.connectionId, connectionId), gt(s.outbox.seq, since)))
+    .orderBy(asc(s.outbox.seq))
+    .limit(limit);
+}
+
+/** Active connections whose outbox is due a pull, least recently pulled first. */
+export async function dueOutboxes(d1: D1Database, minutes: number, limit: number): Promise<Connection[]> {
+  return db(d1)
+    .select()
+    .from(s.connections)
+    .where(
+      and(
+        eq(s.connections.status, 'active'),
+        sql`(${s.connections.outboxPulledAt} IS NULL
+          OR ${s.connections.outboxPulledAt} <= datetime('now', ${`-${minutes} minutes`}))`,
+      ),
+    )
+    .orderBy(sql`${s.connections.outboxPulledAt} IS NOT NULL`, asc(s.connections.outboxPulledAt))
+    .limit(limit);
+}
+
+/** Stamps an outbox pull as started, unless another request already did since it was read as due. */
+export async function claimOutbox(d1: D1Database, connectionId: number, pulledAt: string | null): Promise<boolean> {
+  const rows = await db(d1)
+    .update(s.connections)
+    .set({ outboxPulledAt: sql`(datetime('now'))` })
+    .where(
+      and(
+        eq(s.connections.id, connectionId),
+        pulledAt === null ? isNull(s.connections.outboxPulledAt) : eq(s.connections.outboxPulledAt, pulledAt),
+      ),
+    )
+    .returning({ id: s.connections.id });
+  return rows.length === 1;
+}
+
+/**
+ * Where a pull got to. `again`, when more was waiting, makes the outbox due at once — stamped as pulled one
+ * interval ago rather than never, so it queues behind outboxes that have waited longer.
+ */
+export async function recordOutboxPull(d1: D1Database, connectionId: number, result: { cursor: number; again?: boolean }): Promise<void> {
+  await db(d1)
+    .update(s.connections)
+    .set({
+      outboxCursor: result.cursor,
+      ...(result.again ? { outboxPulledAt: sql`(datetime('now', ${`-${OUTBOX_PULL_MINUTES} minutes`}))` } : {}),
+    })
+    .where(eq(s.connections.id, connectionId));
+}
+

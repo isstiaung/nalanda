@@ -158,6 +158,11 @@ export const connections = sqliteTable('connections', {
   inviteId: integer('invite_id').references(() => connectionInvites.id, { onDelete: 'set null' }),
   createdAt: text('created_at').notNull().default(now),
   confirmedAt: text('confirmed_at'),
+  // phase 3: how far into their outbox this household has read, and when it last pulled
+  outboxCursor: integer('outbox_cursor').notNull().default(0),
+  outboxPulledAt: text('outbox_pulled_at'),
+  // and the other way: how many messages this household has queued for them, numbered per connection
+  outboxSeq: integer('outbox_seq').notNull().default(0),
 });
 
 /**
@@ -257,6 +262,7 @@ export const remoteActivities = sqliteTable(
       .references(() => feedSubscriptions.id, { onDelete: 'cascade' }),
     remoteId: integer('remote_id').notNull(), // their activity_log id
     itemRemoteId: integer('item_remote_id').notNull(), // their items id
+    itemStamp: text('item_stamp').notNull().default(''), // phase 3: which of their books that id meant
     kind: text('kind', { enum: ACTIVITY_KINDS }).notNull(),
     publishedAt: text('published_at').notNull(),
     item: text('item').notNull(), // the validated FeedItem, as JSON
@@ -268,6 +274,55 @@ export const remoteActivities = sqliteTable(
     index('idx_remote_activities_published').on(t.publishedAt),
     index('idx_remote_activities_item').on(t.itemRemoteId),
   ],
+);
+
+// Phase 3: comments on reviews, and the outbox behind every message addressed to one connection.
+
+/**
+ * A comment in a thread between this household and one connection, on a review that belongs to one of the
+ * two — `ourItemId` or `theirItemId` says which. The same activity id names it on both sides. Deleting keeps
+ * the row with its body cleared, so a copy of the original still waiting in an outbox can't bring it back.
+ */
+export const comments = sqliteTable(
+  'comments',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    activityId: text('activity_id').notNull().unique(),
+    connectionId: integer('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    ourItemId: integer('our_item_id').references(() => items.id, { onDelete: 'cascade' }),
+    theirItemId: integer('their_item_id'),
+    theirItemStamp: text('their_item_stamp'),
+    fromUs: integer('from_us', { mode: 'boolean' }).notNull(),
+    authorName: text('author_name').notNull(),
+    authorId: integer('author_id').references(() => users.id, { onDelete: 'set null' }),
+    body: text('body'),
+    createdAt: text('created_at').notNull().default(now),
+    deletedAt: text('deleted_at'),
+  },
+  (t) => [index('idx_comments_our_item').on(t.ourItemId), index('idx_comments_their_item').on(t.connectionId, t.theirItemId)],
+);
+
+/**
+ * Messages addressed to one connection. Each is pushed once when written, and kept here for that connection to
+ * pull, so a push that failed isn't lost. Pruned after OUTBOX_RETENTION_DAYS.
+ */
+export const outbox = sqliteTable(
+  'outbox',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    connectionId: integer('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    activityId: text('activity_id').notNull().unique(),
+    // numbered per connection, so the numbers a connection sees say nothing about messages to anyone else
+    seq: integer('seq').notNull(),
+    message: text('message').notNull(),
+    createdAt: text('created_at').notNull().default(now),
+    deliveredAt: text('delivered_at'),
+  },
+  (t) => [uniqueIndex('outbox_connection_seq').on(t.connectionId, t.seq)],
 );
 
 export type User = typeof users.$inferSelect;
@@ -283,3 +338,5 @@ export type Connection = typeof connections.$inferSelect;
 export type ConnectionView = typeof connectionViews.$inferSelect;
 export type FeedSubscription = typeof feedSubscriptions.$inferSelect;
 export type RemoteActivity = typeof remoteActivities.$inferSelect;
+export type Comment = typeof comments.$inferSelect;
+export type OutboxRow = typeof outbox.$inferSelect;

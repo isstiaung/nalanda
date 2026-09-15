@@ -30,6 +30,7 @@ import {
   stars,
 } from '../views/components';
 import { page } from '../views/layout';
+import { itemComments } from './comments';
 
 const items = new Hono<AppEnv>();
 
@@ -143,6 +144,7 @@ items.get('/items/:id', async (c) => {
   const today = new Date().toISOString().slice(0, 10);
   const overdue = !!(loan?.dueOn && loan.dueOn < today);
   const details = parseDetails(item.details);
+  const discussion = await itemComments(c, item); // null unless connections are enabled and someone commented
 
   return page(
     c,
@@ -262,6 +264,8 @@ items.get('/items/:id', async (c) => {
             <p class="prewrap">{item.review}</p>
           </div>
         ) : null}
+
+        {discussion}
 
         {item.notes ? (
           <div class="detail-section">

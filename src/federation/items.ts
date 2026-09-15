@@ -19,13 +19,13 @@ export function toConnectionItem(item: Item): ConnectionItem {
 export type FeedItem = Pick<
   ConnectionItem,
   'id' | 'mediaType' | 'title' | 'creators' | 'published' | 'coverKey' | 'rating' | 'review' | 'inCollection' | 'completedOn'
-> & { reviewTruncated: boolean };
+> & { reviewTruncated: boolean; stamp: string };
 
 /**
  * A feed entry's item, carrying only what its kind shows: the review only on a `reviewed` entry, the
  * rating only on a `rated` one. Withdrawing a review then leaves no copy of it in the entries that remain.
  */
-export function toFeedItem(item: Item, kind: ActivityKind): FeedItem {
+export function toFeedItem(item: Item, kind: ActivityKind, stamp: string): FeedItem {
   const c = toConnectionItem(item);
   const long = c.review !== null && c.review.length > MAX_FEED_REVIEW_CHARS;
   return keepForKind(
@@ -41,6 +41,7 @@ export function toFeedItem(item: Item, kind: ActivityKind): FeedItem {
       reviewTruncated: long,
       inCollection: c.inCollection,
       completedOn: c.completedOn?.slice(0, MAX_SHORT_TEXT) ?? null,
+      stamp,
     },
     kind,
   );
@@ -67,6 +68,20 @@ const COVER_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
 const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
 export const isId = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0;
+export const isSqlDatetime = (v: unknown): v is string => typeof v === 'string' && SQL_DATETIME.test(v);
+
+const STAMP = /^[0-9a-f]{16}$/;
+export const isStamp = (v: unknown): v is string => typeof v === 'string' && STAMP.test(v);
+
+/**
+ * Which book an item id means. SQLite reuses the id of a deleted newest item, so an id alone can come to name a
+ * different book; every reference a connection keeps — feed entries, comment threads — carries this stamp too.
+ * A hash of the id and when the row was added: stable for the row, opaque to the connection.
+ */
+export async function itemStamp(item: Pick<Item, 'id' | 'addedAt'>): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${item.id}|${item.addedAt}`));
+  return Array.from(new Uint8Array(digest).slice(0, 8), (b) => b.toString(16).padStart(2, '0')).join('');
+}
 const isText = (v: unknown, max: number): v is string | null => v === null || (typeof v === 'string' && v.length <= max);
 
 export function parseFeedItem(value: unknown): FeedItem | null {
@@ -84,7 +99,7 @@ export function parseFeedItem(value: unknown): FeedItem | null {
     return null;
   }
   if (!isText(v.review, MAX_FEED_REVIEW_CHARS)) return null;
-  if (typeof v.reviewTruncated !== 'boolean' || typeof v.inCollection !== 'boolean') return null;
+  if (typeof v.reviewTruncated !== 'boolean' || typeof v.inCollection !== 'boolean' || !isStamp(v.stamp)) return null;
   return {
     id: v.id,
     mediaType: v.mediaType as MediaType,
@@ -97,6 +112,7 @@ export function parseFeedItem(value: unknown): FeedItem | null {
     reviewTruncated: v.reviewTruncated,
     inCollection: v.inCollection,
     completedOn: v.completedOn,
+    stamp: v.stamp,
   };
 }
 
