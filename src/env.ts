@@ -5,6 +5,8 @@ export type Bindings = {
   DISCOGS_TOKEN?: string;
   GOOGLE_BOOKS_KEY?: string;
   HOME_SHARE_TOKEN?: string; // front door: anonymous "/" redirects to /share/<this token>
+  // Ed25519 private JWK (JSON). Unset — or invalid — means connections are disabled entirely.
+  FEDERATION_PRIVATE_KEY?: string;
 };
 
 export type SessionUser = {
