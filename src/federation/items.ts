@@ -6,7 +6,7 @@
 // field by field before it is stored or rendered.
 import { ACTIVITY_KINDS, MEDIA_TYPES, type ActivityKind, type Item, type MediaType } from '../db/schema';
 import { toPublicItem, type PublicItem } from '../lib/share';
-import { MAX_FEED_REVIEW_CHARS, MAX_FEED_TEXT_CHARS } from './config';
+import { MAX_DETAIL_TEXT_CHARS, MAX_FEED_REVIEW_CHARS, MAX_FEED_TEXT_CHARS } from './config';
 
 /** Share-page fields, plus what connections need on top: when it was finished and last changed. */
 export type ConnectionItem = PublicItem & { completedOn: string | null; updatedAt: string };
@@ -134,3 +134,120 @@ export function jsonBytes(value: unknown): { json: string; bytes: number } {
   const json = JSON.stringify(value);
   return { json, bytes: new TextEncoder().encode(json).byteLength };
 }
+
+// ---------- shelves and item pages (phase 4) ----------
+
+/** A connection's shelf card: what a card shows, and whether a copy is free to borrow — never who has one. */
+export type ShelfItem = Pick<
+  ConnectionItem,
+  'id' | 'mediaType' | 'title' | 'creators' | 'published' | 'coverKey' | 'rating' | 'inCollection'
+> & { available: boolean; stamp: string };
+
+export function toShelfItem(item: Item, available: boolean, stamp: string): ShelfItem {
+  const c = toConnectionItem(item);
+  return {
+    id: c.id,
+    mediaType: c.mediaType,
+    title: c.title.slice(0, MAX_FEED_TEXT_CHARS),
+    creators: c.creators?.slice(0, MAX_FEED_TEXT_CHARS) ?? null,
+    published: c.published?.slice(0, MAX_SHORT_TEXT) ?? null,
+    coverKey: c.coverKey,
+    rating: c.rating,
+    inCollection: c.inCollection,
+    available: c.inCollection && available,
+    stamp,
+  };
+}
+
+/** One item in full, for its page on a connection's instance: the share-page fields, availability and tags. */
+export type ItemDetail = Omit<ConnectionItem, 'details'> & {
+  details: Record<string, string | number | boolean>;
+  available: boolean;
+  tags: string[];
+  stamp: string;
+};
+
+/** Details reduced to short, plain values — the only shape a connection's item page renders. */
+function plainDetails(details: Record<string, unknown>): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  for (const [key, value] of Object.entries(details).slice(0, 30)) {
+    if (key.length > 40) continue;
+    if (typeof value === 'string') out[key] = value.slice(0, 500);
+    else if ((typeof value === 'number' && Number.isFinite(value)) || typeof value === 'boolean') out[key] = value;
+  }
+  return out;
+}
+
+export function toItemDetail(item: Item, available: boolean, tags: string[], stamp: string): ItemDetail {
+  const c = toConnectionItem(item);
+  return {
+    ...c,
+    title: c.title.slice(0, MAX_FEED_TEXT_CHARS),
+    creators: c.creators?.slice(0, MAX_FEED_TEXT_CHARS) ?? null,
+    publisher: c.publisher?.slice(0, MAX_FEED_TEXT_CHARS) ?? null,
+    published: c.published?.slice(0, MAX_SHORT_TEXT) ?? null,
+    description: c.description?.slice(0, MAX_DETAIL_TEXT_CHARS) ?? null,
+    review: c.review?.slice(0, MAX_DETAIL_TEXT_CHARS) ?? null,
+    completedOn: c.completedOn?.slice(0, MAX_SHORT_TEXT) ?? null,
+    details: plainDetails(c.details),
+    available: c.inCollection && available,
+    tags: tags.slice(0, 50).map((t) => t.slice(0, 50)),
+    stamp,
+  };
+}
+
+const asRecord = (v: unknown): Record<string, unknown> | null =>
+  v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+
+/** The fields a shelf card and an item page share, checked as feed items are. */
+function shelfBase(v: Record<string, unknown>): ShelfItem | null {
+  if (!isId(v.id) || !(MEDIA_TYPES as readonly unknown[]).includes(v.mediaType)) return null;
+  if (typeof v.title !== 'string' || !v.title.trim() || v.title.length > MAX_TITLE) return null;
+  if (!isText(v.creators, MAX_TITLE) || !isText(v.published, MAX_SHORT_TEXT)) return null;
+  if (!(v.coverKey === null || (typeof v.coverKey === 'string' && COVER_KEY.test(v.coverKey)))) return null;
+  if (!(v.rating === null || (Number.isInteger(v.rating) && (v.rating as number) >= 0 && (v.rating as number) <= 10))) return null;
+  if (typeof v.inCollection !== 'boolean' || typeof v.available !== 'boolean' || !isStamp(v.stamp)) return null;
+  return {
+    id: v.id,
+    mediaType: v.mediaType as MediaType,
+    title: v.title,
+    creators: v.creators,
+    published: v.published,
+    coverKey: v.coverKey,
+    rating: v.rating as number | null,
+    inCollection: v.inCollection,
+    available: v.inCollection && v.available,
+    stamp: v.stamp,
+  };
+}
+
+export function parseShelfItem(value: unknown): ShelfItem | null {
+  const v = asRecord(value);
+  return v ? shelfBase(v) : null;
+}
+
+export function parseItemDetail(value: unknown): ItemDetail | null {
+  const v = asRecord(value);
+  const base = v ? shelfBase(v) : null;
+  if (!v || !base) return null;
+  if (!isText(v.publisher, MAX_TITLE) || !isText(v.description, MAX_DETAIL_TEXT_CHARS) || !isText(v.review, MAX_DETAIL_TEXT_CHARS)) {
+    return null;
+  }
+  if (!isText(v.completedOn, MAX_SHORT_TEXT) || typeof v.updatedAt !== 'string' || v.updatedAt.length > MAX_SHORT_TEXT) return null;
+  if (!(v.length === null || (Number.isSafeInteger(v.length) && (v.length as number) >= 0))) return null;
+  const details = asRecord(v.details);
+  if (!details || !Array.isArray(v.tags) || v.tags.length > 50) return null;
+  if (!v.tags.every((t) => typeof t === 'string' && t.length <= 50)) return null;
+  return {
+    ...base,
+    publisher: v.publisher,
+    description: v.description,
+    length: v.length as number | null,
+    review: v.review,
+    completedOn: v.completedOn,
+    updatedAt: v.updatedAt,
+    details: plainDetails(details),
+    tags: v.tags as string[],
+  };
+}
+

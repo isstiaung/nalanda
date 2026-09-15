@@ -54,6 +54,10 @@ shape from this file.
   Durable Objects) or any AWS service.
 - **10 ms CPU per request**: no server-side image processing; no server-side bulk parsing —
   CSV imports are parsed in the browser and posted as JSON batches; CSV export streams.
+- **50 D1 queries per Worker invocation** on the free plan — each statement in a `batch()`
+  counts, and so does work handed to `waitUntil`, which belongs to the page's invocation.
+  Connections' background work (feed and outbox pulls, push retries) runs through the
+  budgeted handle in `src/federation/budget.ts`; tests count queries per page load with it.
 - Password hashing is WebCrypto PBKDF2 only (100k iterations — also workerd's cap). Never
   add bcrypt/argon2 packages (pure-JS, blows the CPU budget).
 - Workers runtime is not Node: no `fs`/`net`/native modules — fetch, WebCrypto, and Web
@@ -79,7 +83,8 @@ shape from this file.
 - `/covers/:key` is intentionally public — keys are random UUIDs; never make them
   enumerable or derived from item data.
 - Connections see only `toConnectionItem()` fields (`src/federation/items.ts`, built on
-  `toPublicItem()`), and only for items inside a connection view. Triggers on `items` record
+  `toPublicItem()`), and only for items inside a connection view. Availability is a derived
+  boolean — never a borrower, due date or copies count. Triggers on `items` record
   activity only while a connection view exists (migration 0007).
 - Strings from another instance — household names, view names, feed entries, comments —
   render only as escaped text. A comment thread is only ever shown to the two households in it. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:
@@ -121,10 +126,11 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    (export + libib mapping), covers.ts (only R2 code)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
-                   feed pulls (feed.ts), receiving comments (comments.ts), the outbox
-                   (outbox.ts), public routes. Its D1 queries live in src/db/federation.ts;
-                   admin pages in routes/connections, Feed in routes/feed, comment routes
-                   and the item-page section in routes/comments
+                   feed pulls (feed.ts), receiving comments and borrowing (comments.ts,
+                   borrowing.ts, dispatched by directed.ts), the outbox (outbox.ts), public
+                   routes. Its D1 queries live in src/db/federation.ts; admin pages in
+                   routes/connections, Feed in routes/feed, comments in routes/comments,
+                   shelves/requests/Borrowed and the Loans-page section in routes/borrowing
 public/            app.css, scanner.js, import.js, app.js + vendor/ (htmx, zxing, eczar fonts)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;

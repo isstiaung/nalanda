@@ -24,6 +24,10 @@ manuscripts.
   exposes.
 - **Family accounts**: admin + members, no email infrastructure needed.
 - **Loans**: track who borrowed what, with due dates and history.
+- **Connections between households** (optional): connect with another household that
+  self-hosts Nalanda — follow each other's reading in a feed, comment on each other's
+  reviews, and borrow each other's books with the loan tracked on both sides. One-to-one
+  and invite-only, never a network or the fediverse; off unless you give the instance a key.
 - **Tags, half-star ratings, full-text search** across the collection, plus a quick
   title/author filter inside every shelf and sorting by newest, title, rating, or date
   finished.
@@ -109,7 +113,7 @@ by step in [runbooks/deploy.md](runbooks/deploy.md).
 | [deploy.md](runbooks/deploy.md) | First deploy, updates, rollback, custom domain, API tokens |
 | [backup-and-restore.md](runbooks/backup-and-restore.md) | Routine backups, restoring after a mistake |
 | [accounts-and-access.md](runbooks/accounts-and-access.md) | Family accounts, lost passwords, admin lockout, share links |
-| [connections.md](runbooks/connections.md) | Connecting with another household's Nalanda, keys, disconnecting |
+| [connections.md](runbooks/connections.md) | Connecting with another household's Nalanda: keys, feed, comments, borrowing, disconnecting |
 | [import-from-goodreads.md](runbooks/import-from-goodreads.md) | Bringing your Goodreads history over (and leaving) |
 | [import-from-libib.md](runbooks/import-from-libib.md) | Migrating your libib collection |
 | [troubleshooting.md](runbooks/troubleshooting.md) | Scanner, lookups, deploys, logs |

@@ -321,9 +321,73 @@ export const outbox = sqliteTable(
     message: text('message').notNull(),
     createdAt: text('created_at').notNull().default(now),
     deliveredAt: text('delivered_at'),
+    attemptedAt: text('attempted_at'), // phase 4: last push attempt, for retries on page loads
   },
   (t) => [uniqueIndex('outbox_connection_seq').on(t.connectionId, t.seq)],
 );
+
+// Phase 4: borrowing — requests both ways, loans made to connections, and books borrowed from them.
+
+export const BORROW_STATUSES = ['pending', 'accepted', 'declined', 'withdrawn'] as const;
+export type BorrowStatus = (typeof BORROW_STATUSES)[number];
+
+/**
+ * A request to borrow one book. `incoming`: a connection asked for one of ours (`ourItemId`). Otherwise this
+ * household asked for one of theirs (`theirItemId`), keeping the title and cover to show. The same activity id
+ * names it on both sides.
+ */
+export const borrowRequests = sqliteTable(
+  'borrow_requests',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    activityId: text('activity_id').notNull().unique(),
+    connectionId: integer('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    incoming: integer('incoming', { mode: 'boolean' }).notNull(),
+    ourItemId: integer('our_item_id').references(() => items.id, { onDelete: 'cascade' }),
+    theirItemId: integer('their_item_id'),
+    theirItemStamp: text('their_item_stamp'),
+    theirViewId: integer('their_view_id'),
+    itemTitle: text('item_title').notNull(),
+    coverKey: text('cover_key'),
+    requesterName: text('requester_name').notNull(),
+    requesterId: integer('requester_id').references(() => users.id, { onDelete: 'set null' }),
+    note: text('note'),
+    status: text('status', { enum: BORROW_STATUSES }).notNull().default('pending'),
+    dueOn: text('due_on'),
+    createdAt: text('created_at').notNull().default(now),
+    respondedAt: text('responded_at'),
+  },
+  (t) => [index('idx_borrow_requests_connection').on(t.connectionId, t.status)],
+);
+
+/** Links an ordinary loan to the connection that borrowed the book, and the request it answered. */
+export const connectionLoans = sqliteTable('connection_loans', {
+  loanId: integer('loan_id')
+    .primaryKey()
+    .references(() => loans.id, { onDelete: 'cascade' }),
+  connectionId: integer('connection_id')
+    .notNull()
+    .references(() => connections.id, { onDelete: 'cascade' }),
+  requestId: integer('request_id').references(() => borrowRequests.id, { onDelete: 'set null' }),
+  requestActivityId: text('request_activity_id').notNull(),
+});
+
+/** A book this household has borrowed from a connection. Never part of the catalog. */
+export const borrowedItems = sqliteTable('borrowed_items', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  connectionId: integer('connection_id')
+    .notNull()
+    .references(() => connections.id, { onDelete: 'cascade' }),
+  requestActivityId: text('request_activity_id').notNull().unique(),
+  theirItemId: integer('their_item_id').notNull(),
+  title: text('title').notNull(),
+  coverKey: text('cover_key'),
+  borrowedOn: text('borrowed_on').notNull(),
+  dueOn: text('due_on'),
+  returnedOn: text('returned_on'),
+});
 
 export type User = typeof users.$inferSelect;
 export type Library = typeof libraries.$inferSelect;
@@ -340,3 +404,5 @@ export type FeedSubscription = typeof feedSubscriptions.$inferSelect;
 export type RemoteActivity = typeof remoteActivities.$inferSelect;
 export type Comment = typeof comments.$inferSelect;
 export type OutboxRow = typeof outbox.$inferSelect;
+export type BorrowRequestRow = typeof borrowRequests.$inferSelect;
+export type BorrowedItem = typeof borrowedItems.$inferSelect;

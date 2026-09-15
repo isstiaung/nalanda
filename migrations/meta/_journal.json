@@ -64,6 +64,20 @@
       "when": 1789467709560,
       "tag": "0008_connections-comments",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1789468388279,
+      "tag": "0009_connections-borrowing",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1789468388933,
+      "tag": "0010_connections-return-notices",
+      "breakpoints": true
     }
   ]
 }

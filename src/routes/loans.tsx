@@ -2,12 +2,14 @@ import { Hono } from 'hono';
 import { activeLoans, createLoan, getItem, loanHistory, returnLoan } from '../db/queries';
 import type { AppEnv } from '../env';
 import { page } from '../views/layout';
+import { loanRequestsSection } from './borrowing';
 
 const loans = new Hono<AppEnv>();
 
 loans.get('/loans', async (c) => {
   const [active, history] = await Promise.all([activeLoans(c.env.DB), loanHistory(c.env.DB, 100)]);
   const today = new Date().toISOString().slice(0, 10);
+  const requests = await loanRequestsSection(c); // null unless connections are enabled and someone asked
 
   return page(
     c,
@@ -21,6 +23,8 @@ loans.get('/loans', async (c) => {
           </span>
         </div>
       </div>
+
+      {requests}
 
       <section>
         <p class="eyebrow">Out now</p>

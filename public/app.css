@@ -672,3 +672,17 @@ button.comment-delete:hover { background: none; color: var(--stamp); }
 .comment-form button { justify-self: start; }
 .recent-comments { list-style: none; padding: 0; margin: 0 0 1.25rem; display: grid; gap: 0.3rem; font-size: 13px; }
 
+/* ── connections: borrowing ───────────────────────────────────────────────── */
+
+.household-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.35rem; }
+.household-list small { margin-left: 0.4rem; }
+.request-form { display: grid; gap: 0.45rem; max-width: 30rem; margin-top: 0.4rem; }
+.request-form textarea { margin: 0; min-height: 3rem; }
+.request-form button { justify-self: start; }
+.request-actions { display: flex; gap: 0.5rem; align-items: center; justify-content: flex-end; }
+.back-link { margin: 1.25rem 0 0; }
+/* on a phone the date, Lend and Decline stack, leaving the book and who asked room to read */
+@media (max-width: 880px) {
+  .request-actions, .data-table .request-actions .inline-form { flex-wrap: wrap; }
+}
+

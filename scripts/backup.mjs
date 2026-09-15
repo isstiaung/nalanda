@@ -30,6 +30,9 @@ export const TABLES = [
   'remote_activities', // after feed_subscriptions
   'comments',
   'outbox',
+  'borrow_requests',
+  'connection_loans', // after loans and borrow_requests
+  'borrowed_items',
 ];
 
 const local = process.argv.includes('--local');

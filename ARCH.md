@@ -353,7 +353,9 @@ POST /federation/inbox          public, signed by a connection: accept · declin
 GET  /federation/views          signed by a connection: shared views, their size and recent volume
 GET  /federation/feed           signed by a connection: activity in a view since a cursor
 POST /federation/feed/check     signed by a connection: which stored entries are no longer shared
-GET  /federation/outbox         signed by a connection: comments addressed to it, after a cursor
+GET  /federation/outbox         signed by a connection: messages addressed to it, after a cursor
+GET  /federation/shelf          signed by a connection: a page of a shared shelf, with availability
+GET  /federation/item           signed by a connection: one shared item in full, with availability
 GET  /connections              admin: name, invitations, pending and active connections
 POST /connections/…            admin: settings · invites · redeem · confirm · decline · disconnect ·
                                 views · follow · purge · unfollow
@@ -362,6 +364,11 @@ GET  /feed                      members: activity from followed views, with comm
 POST /items/:id/comments        members: reply in a connection's thread on one of our reviews
 POST /feed/comments             members: comment on a connection's review we follow
 POST /comments/:id/delete       members: delete our own comment, or any on our review
+GET  /borrowed                  members: books borrowed from connections, requests, households
+GET  /households/:id/…          members: a connection's shared shelves and items, read live
+POST /households/:id/requests   members: ask a connection to borrow a book
+POST /borrow-requests/:id/…     members: lend · decline (theirs) · withdraw (ours)
+GET  /federation/export.json    admins: connections data as JSON
 ```
 
 Every authenticated page route returns a full document normally and a partial when htmx's

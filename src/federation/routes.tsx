@@ -6,6 +6,7 @@ import { Hono, type Context } from 'hono';
 import {
   activateConnection,
   activityInView,
+  availability,
   countConnections,
   countItemsInView,
   countPush,
@@ -14,14 +15,17 @@ import {
   getConnectionByBaseUrl,
   getConnectionView,
   getFederationSettings,
+  itemMatchesView,
   listConnectionViews,
   markActivitySeen,
   outboxAfter,
   outboxHead,
   redeemInvite,
+  shelfPage,
   stillShared,
   viewVolume,
 } from '../db/federation';
+import { getItem, tagsForItem } from '../db/queries';
 import type { Connection } from '../db/schema';
 import type { AppEnv } from '../env';
 import { page } from '../views/layout';
@@ -46,10 +50,10 @@ import {
   VOLUME_WINDOW_DAYS,
 } from './config';
 import { fetchDescriptor, parseJson, readLimited, type Descriptor } from './http';
-import { receiveDirected } from './comments';
-import { isId, itemStamp, jsonBytes, toFeedItem, type FeedEntry } from './items';
+import { receiveDirected } from './directed';
+import { isId, itemStamp, jsonBytes, toFeedItem, toItemDetail, toShelfItem, type FeedEntry } from './items';
 import { importPublicKey, loadIdentity } from './keys';
-import { parseConnectRequest, parseInboxMessage } from './messages';
+import { isDirected, parseConnectRequest, parseInboxMessage } from './messages';
 import { forgetPeer, peerByKeyid, rememberPeer } from './peers';
 import { parseSignature, verifyRequest } from './signatures';
 import { hashToken } from './tokens';
@@ -318,6 +322,46 @@ federation.get('/federation/outbox', async (c) => {
   return c.json({ latest: last?.seq ?? after, more: rows.length > messages.length, messages });
 });
 
+// ---------- shelves, read live by connections (phase 4) ----------
+
+/** One page of a connection view, in the view's own order, with whether a copy of each book is free — never who has it. */
+federation.get('/federation/shelf', async (c) => {
+  if (!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY))) return c.notFound();
+  const from = await fromActiveConnection(c, 0);
+  if (from instanceof Response) return from;
+  if (!(await getFederationSettings(c.env.DB))) return c.notFound();
+  const viewId = digits(c.req.query('view'));
+  const pageNum = digits(c.req.query('page') ?? '1');
+  if (!viewId || !pageNum) return c.json({ error: 'malformed request' }, 400);
+  const view = await getConnectionView(c.env.DB, viewId);
+  if (!view) return c.json({ error: 'no such view' }, 404);
+  const shelf = await shelfPage(c.env.DB, view, pageNum);
+  const free = await availability(c.env.DB, shelf.items);
+  const stamps = await Promise.all(shelf.items.map((item) => itemStamp(item)));
+  return c.json({
+    view: { id: view.id, name: view.name },
+    total: shelf.total,
+    page: shelf.page,
+    pages: shelf.pages,
+    items: shelf.items.map((item, i) => toShelfItem(item, free.get(item.id) ?? false, stamps[i]!)),
+  });
+});
+
+/** One item of a connection view in full, for its page — only while it is inside that view. */
+federation.get('/federation/item', async (c) => {
+  if (!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY))) return c.notFound();
+  const from = await fromActiveConnection(c, 0);
+  if (from instanceof Response) return from;
+  if (!(await getFederationSettings(c.env.DB))) return c.notFound();
+  const viewId = digits(c.req.query('view'));
+  const itemId = digits(c.req.query('id'));
+  if (!viewId || !itemId) return c.json({ error: 'malformed request' }, 400);
+  const [view, item] = await Promise.all([getConnectionView(c.env.DB, viewId), getItem(c.env.DB, itemId)]);
+  if (!view || !item || !itemMatchesView(view, item)) return c.json({ error: 'no such item' }, 404);
+  const [free, tags] = await Promise.all([availability(c.env.DB, [item]), tagsForItem(c.env.DB, item.id)]);
+  return c.json(toItemDetail(item, free.get(item.id) ?? false, tags, await itemStamp(item)));
+});
+
 // ---------- messages from connected instances ----------
 
 federation.post('/federation/inbox', async (c) => {
@@ -360,16 +404,15 @@ federation.post('/federation/inbox', async (c) => {
       break;
     case 'Disconnect':
       break; // in any state: for a household still waiting on us, this withdraws their request
-    case 'CommentCreate':
-    case 'CommentDelete':
+    default: // comments and borrowing pass only between connected households
       if (connection.status !== 'active') return c.json({ error: 'not connected' }, 409);
       break;
   }
   if (!(await countPush(c.env.DB, connection.id, MAX_PUSHES_PER_DAY))) {
     return c.json({ error: 'daily message limit reached' }, 429);
   }
-  if (message.type === 'CommentCreate' || message.type === 'CommentDelete') {
-    // Idempotent by comment id, so no replay record: the same message may arrive again from their outbox anyway.
+  if (isDirected(message)) {
+    // Idempotent by activity id, so no replay record: the same message may arrive again from their outbox anyway.
     const settings = await getFederationSettings(c.env.DB);
     if (!settings) return c.notFound();
     const outcome = await receiveDirected(c.env.DB, settings, connection, message);

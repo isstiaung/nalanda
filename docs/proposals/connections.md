@@ -2,8 +2,8 @@
 
 > **Status: approved 2026-09-15; being built in phases (§15), one pull request per phase.**
 > Recorded as ARCH.md §16 #29, which points here for the design. When a phase's build has to
-> differ from this document, that phase's pull request updates it. **Phases 1 (keys and
-> connections), 2 (feed) and 3 (comments) are built.**
+> differ from this document, that phase's pull request updates it. **All four phases are
+> built:** keys and connections, the feed, comments, and borrowing.
 
 Two households each self-host Nalanda. If they choose to connect, they can see a feed of
 each other's reading, comment on each other's reviews, ask to borrow a book, and lend to
@@ -219,6 +219,13 @@ A refuses B's requests, and anything still in B's memory expires within those fi
 The trade-off is that browsing needs A online. That costs nothing in practice: requesting a
 book (§10) needs A online anyway.
 
+As built: `GET /federation/shelf?view=&page=` returns a page of cards (title, creators,
+published, cover key, rating, `inCollection`, `available`) in the view's own order, and
+`GET /federation/item?view=&id=` one item in full — the share-page fields, `completedOn`,
+`updatedAt`, tags and `available` — only while it is inside that view, with long texts cut at
+20,000 characters. Both carry each book's stamp (§9), and a borrow request names the book by id
+and stamp, so a request can't land on a later book under a reused id. B's cache holds up to 100 answers per isolate.
+
 ## 8. Feed
 
 Nalanda has no event history today — items only have current state and `updated_at`.
@@ -297,8 +304,8 @@ Phase 3 adds the same on Loans, together with the outbox.
 (and, from phase 4, borrow requests, responses and return notices) meant for one household go
 into an outbox for that connection, pushed once as they're written and listed at
 `GET /federation/outbox?since=<cursor>`. That outbox is pulled from **every** active
-connection when a member opens Feed — whether or not you follow any of their views — at most
-every 5 minutes per connection and two connections per page load; phase 4 adds Loans. It is
+connection when a member opens Feed, Loans or Borrowed — whether or not you follow any of their
+views — at most every 5 minutes per connection and two connections per page load. It is
 the delivery fallback for pushes that failed (§9, §10), so a friend's comment can't be lost
 just because you don't follow their feed.
 
@@ -385,20 +392,29 @@ The reviewer's household is authoritative for the thread.
 
 ## 10. Requests and lending
 
-1. B browses A's shared shelves live (§7). Only items with `inCollection` and `available`
-   both true can be requested.
+1. B browses A's shared shelves live (§7), from the Borrowed page. Only items with
+   `inCollection` and `available` both true can be requested.
 2. A member of B requests one, with an optional note: a signed `BorrowRequest` to A's inbox,
-   recorded on both sides in `borrow_requests`.
-3. Any member of A accepts or declines. **Accepting creates an ordinary loan** in the
+   recorded on both sides in `borrow_requests`. B checks availability with A first and sends
+   the request straight away, so the member learns at once if A refuses it; a request A
+   can't be reached for waits in B's outbox. B can withdraw a waiting request
+   (`BorrowWithdraw`).
+3. Any member of A accepts (**Lend**, with an optional due date) or declines, in a section at
+   the top of the Loans page. **Accepting creates an ordinary loan** in the
    existing `loans` table — borrower "Narain (Narain's Library)", due date as usual — plus a
    row in a new `connection_loans` table linking that loan to the connection and request.
    The existing Loans page, overdue logic and return button keep working unchanged.
 4. B records it in a new `borrowed_items` table and shows it on a new Borrowed page. It
    never enters B's catalog.
 5. When A marks the loan returned with the existing button, a trigger on
-   `loans.returned_on` — only for loans linked in `connection_loans` — records that the loan
-   was returned. The notice is built, signed and sent in `waitUntil` on A's next
-   authenticated page load, and also listed in A's outbox for B to pull (§8).
+   `loans.returned_on` (migration 0010) — only for loans linked in `connection_loans` — queues
+   a `Returned` message straight into A's outbox for B. B collects it on its next pull, and
+   A's next Feed, Loans or Borrowed page load pushes it sooner: undelivered outbox messages are
+   retried one per page load, at most every 10 minutes each, for two days. A refusal ends a
+   message's life — it leaves the outbox, and a refused request is declined rather than left
+   waiting — and a request withdrawn meanwhile is never sent. Deleting a book that is lent to a
+   connection, or has a request waiting, tells them too: triggers on `items` queue a `Returned`
+   or a `BorrowDecline`.
 
 - Connections **can see whether a book is available**: a derived boolean, `available`,
   true while at least one copy is not out on loan (`copies` greater than the number of
@@ -407,8 +423,11 @@ The reviewer's household is authoritative for the thread.
 - **Who** has it, when it's **due**, and loan **history** are never shown — the same line
   §9 draws for share pages. The one inference this allows is intended: a connection can
   see a book become unavailable.
+- A connection may have 20 requests waiting at once. A request is lent at most once, and the
+  loan is inserted only while a copy is free — decided inside that one statement — so two
+  members lending the last copy to different households at once make one loan.
 - Lending activities are Nalanda-specific types (`BorrowRequest`, `BorrowAccept`,
-  `BorrowDecline`, `Returned`) in an ActivityStreams envelope. No interop is needed, so they
+  `BorrowDecline`, `BorrowWithdraw`, `Returned`) in an ActivityStreams envelope. No interop is needed, so they
   are named for what they mean.
 
 ## 11. Threat model
@@ -450,7 +469,7 @@ values, to be tuned during phases 1 and 2:
 | Feed entries per response | 100, within 64 KB; titles cut at 1,000 characters, reviews at 8,000 | the receiver's CPU and storage |
 | Feed response read | 128 KB | the receiver's CPU |
 | New feed entries stored per connection per day | 500, then dropped | the receiver's daily D1 write allowance |
-| Feed reads per connection | 60 per 10 minutes, per isolate; the view list cached for 5 minutes | the owner's daily D1 read allowance |
+| Reads per connection (feed, shelves, outbox) | 120 per 10 minutes, per isolate; the view list cached for 5 minutes | the owner's daily D1 read allowance |
 | Stored entries per Feed page | 200, within 128 KB | the receiver's CPU |
 | Ids in one removal check | 1,000 | the owner's CPU |
 | Connection views | 20 | the size of `/federation/views` |
@@ -462,6 +481,9 @@ values, to be tuned during phases 1 and 2:
 | Outbox messages per response | 50, within 64 KB; kept 30 days | the receiver's CPU, the sender's storage |
 | Outbox pulls per page load | up to 16 of the 30 background queries; five messages applied per pull; each outbox at most every 5 minutes | the free plan's 50 D1 queries per invocation |
 | Borrow-request note | 500 characters | the owner's database |
+| Borrow requests waiting per connection | 20 | the owner's database |
+| Shelf answers cached | 100 per isolate, 5 minutes | the owner's CPU and D1 reads |
+| Undelivered pushes retried | one per page load, each at most every 10 minutes, for 2 days | the per-request subrequest limit |
 | Pushes accepted per connection per day | 200, then refused | the owner's daily D1 write allowance |
 | Stored feed entries per connection | 1,000, whatever the lifecycle settings | the receiver's database |
 | Active connections | 25 | a Feed refresh stays within one request's subrequest budget |
@@ -492,7 +514,9 @@ dropped (§5, step 2). Phase 2 created `connection_views`, `activity_log`, `feed
 and `remote_activities`. The enabled flag planned for `federation_settings` was dropped too: a
 connection view's existence is the triggers' switch (§8). Phase 3 created `comments` and
 `outbox` — the planned `remote_comments` and `outgoing_activities`, folded into one comments
-table holding both directions plus an outbox — and added the outbox cursor to `connections`.
+table holding both directions plus an outbox — and added the outbox cursor to `connections`. Phase 4 created `borrow_requests`,
+`connection_loans` and `borrowed_items`, and added a last-attempt time to `outbox` for push
+retries.
 
 Durable tables are appended to `scripts/backup.mjs`. `federation_seen` and
 `connection_push_counts` are replay and rate bookkeeping, worthless within a day, and are left
@@ -501,8 +525,8 @@ out on purpose. Folding tables together
 later phases land.
 
 **Data portability:** this is not catalog data, so the existing `/export.csv` stays exactly
-as it is. A separate `/federation/export.json` covers connections, comments sent and
-received, and borrow history.
+as it is. A separate `/federation/export.json`, for admins, covers active connections,
+shared views, what the household follows, comments, and borrowing.
 
 ### Where each piece of data lives
 
@@ -544,6 +568,7 @@ GET  /federation/feed?view=&since=  activities on items in that view
 POST /federation/feed/check         which of the caller's stored entry ids are no longer shared
 GET  /federation/outbox?since=      comments, requests, responses and return notices addressed to the caller
 GET  /federation/shelf?view=&page=  one page of a shared shelf, with availability — never stored
+GET  /federation/item?view=&id=     one item of a shared shelf in full, with availability
 POST /federation/inbox              comments, deletes, borrow requests and responses, returns, disconnect
 
 session — rendered only when enabled
@@ -553,10 +578,14 @@ GET  /connections/:id/feed          admin: that household's shared views, what y
                                     rules, storage, purge
 GET  /feed                          members: connections' activity
 GET  /borrowed                      members: books borrowed from connections
-GET  /federation/export.json        members: federation data export
+GET  /federation/export.json        admins: federation data export
 POST /items/:id/comments            members: reply in a connection's thread on one of our reviews
 POST /feed/comments                 members: comment on a connection's review we follow
 POST /comments/:id/delete           members: delete our own comment, or any on our review
+GET  /households/:id[/views/:v[/items/:i]]  members: a connection's shared shelves, read live
+POST /households/:id/requests       members: ask to borrow
+POST /borrow-requests/:id/accept|decline|withdraw  members: answer or withdraw a request
+POST /borrowed/:id/remove           members: forget a returned book
      plus a comments section on /items/:id and a requests section on /loans
 ```
 
