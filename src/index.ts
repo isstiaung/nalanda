@@ -11,6 +11,7 @@ import addRoutes from './routes/add';
 import authRoutes from './routes/auth';
 import connectionsRoutes from './routes/connections';
 import dashboardRoutes from './routes/dashboard';
+import feedRoutes from './routes/feed';
 import importExportRoutes from './routes/importexport';
 import itemRoutes from './routes/items';
 import libraryRoutes from './routes/libraries';
@@ -22,6 +23,16 @@ import shareAdminRoutes from './routes/shares';
 import tagRoutes from './routes/tags';
 
 const app = new Hono<AppEnv>();
+
+// Connected households' pages load covers from here (docs/proposals/connections.md §7), which
+// secureHeaders' same-origin resource policy would block. Registered first, so it runs last on the
+// way out: it relaxes that policy for covers alone, and only on an instance with a federation key.
+app.use('/covers/*', async (c, next) => {
+  await next();
+  if (c.env.FEDERATION_PRIVATE_KEY && c.res.status === 200) {
+    c.res.headers.set('cross-origin-resource-policy', 'cross-origin');
+  }
+});
 
 // nosniff, frame denial, HSTS — no CSP (we use inline onsubmit= confirms).
 // Referrer policy must NOT be no-referrer: browsers apply referrer policy to the
@@ -103,6 +114,7 @@ app.route('/', importExportRoutes);
 app.route('/', accountRoutes);
 app.route('/', settingsRoutes);
 app.route('/', connectionsRoutes);
+app.route('/', feedRoutes);
 
 app.notFound((c) => c.text('Not found', 404));
 app.onError((err, c) => {

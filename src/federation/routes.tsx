@@ -2,31 +2,44 @@
 // Mounted before the session middleware: peers authenticate by signature, not by cookie. Every
 // route here 404s unless this instance has a federation key, and all but the key check also need
 // a household name to have been saved.
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import {
   activateConnection,
+  activityInView,
   countConnections,
+  countItemsInView,
   countPush,
   deleteConnection,
   findRedeemableInvite,
   getConnectionByBaseUrl,
+  getConnectionView,
   getFederationSettings,
+  listConnectionViews,
   markActivitySeen,
   redeemInvite,
+  stillShared,
+  viewVolume,
 } from '../db/federation';
+import type { Connection } from '../db/schema';
 import type { AppEnv } from '../env';
 import { page } from '../views/layout';
 import {
   DESCRIPTOR_PATH,
+  FEED_PAGE_SIZE,
+  FEED_RESPONSE_BUDGET_BYTES,
   INVITE_PATH,
   MAX_ACTIVE_CONNECTIONS,
+  MAX_CHECK_BODY_BYTES,
+  MAX_CHECK_IDS,
   MAX_CONNECT_BODY_BYTES,
   MAX_INBOX_BODY_BYTES,
   MAX_PUSHES_PER_DAY,
   PROTOCOL,
   PROTOCOL_VERSION,
+  VOLUME_WINDOW_DAYS,
 } from './config';
 import { fetchDescriptor, parseJson, readLimited, type Descriptor } from './http';
+import { isId, jsonBytes, toFeedItem, type FeedEntry } from './items';
 import { importPublicKey, loadIdentity } from './keys';
 import { parseConnectRequest, parseInboxMessage } from './messages';
 import { forgetPeer, peerByKeyid, rememberPeer } from './peers';
@@ -136,6 +149,101 @@ federation.post('/federation/connect', async (c) => {
     case 'already connected':
       return c.json({ error: 'already connected' }, 409);
   }
+});
+
+// ---------- what connections may read (phase 2) ----------
+
+type FromConnection = { connection: Connection; body: Uint8Array };
+
+/**
+ * A request signed by an active connection — or the response turning it away. Unsigned requests are
+ * refused before the database is touched, and a connection still waiting for confirmation reads nothing.
+ */
+async function fromActiveConnection(c: Context<AppEnv>, maxBodyBytes: number): Promise<FromConnection | Response> {
+  const sig = parseSignature(c.req.raw.headers);
+  if (!sig) return c.json({ error: 'unsigned request' }, 401);
+  const peer = await peerByKeyid(c.env.DB, sig.keyid);
+  if (!peer || peer.connection.status !== 'active') return c.json({ error: 'unknown sender' }, 401);
+  const body = c.req.method === 'POST' ? await readLimited(c.req.raw, maxBodyBytes) : new Uint8Array();
+  if (!body) return c.json({ error: 'request too large' }, 413);
+  const verdict = await verifyRequest({ method: c.req.method, url: c.req.url, headers: c.req.raw.headers, body }, sig, peer.key);
+  if (!verdict.ok) return c.json({ error: 'signature rejected' }, 401);
+  return { connection: peer.connection, body };
+}
+
+const digits = (raw: string | undefined): number | null => (raw !== undefined && /^\d{1,15}$/.test(raw) ? Number(raw) : null);
+
+/** The views shared with connections, each with its size and how busy it has been — for subscribing. */
+federation.get('/federation/views', async (c) => {
+  if (!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY))) return c.notFound();
+  const from = await fromActiveConnection(c, 0);
+  if (from instanceof Response) return from;
+  if (!(await getFederationSettings(c.env.DB))) return c.notFound();
+  const views = await listConnectionViews(c.env.DB);
+  const described = await Promise.all(
+    views.map(async (view) => ({
+      id: view.id,
+      name: view.name,
+      itemCount: await countItemsInView(c.env.DB, view),
+      recent: { days: VOLUME_WINDOW_DAYS, ...(await viewVolume(c.env.DB, view, VOLUME_WINDOW_DAYS)) },
+    })),
+  );
+  return c.json({ views: described });
+});
+
+/**
+ * Activity in a view since the caller's cursor, newest first. At most FEED_PAGE_SIZE entries within
+ * FEED_RESPONSE_BUDGET_BYTES; when more happened, the newest are sent and `truncated` says so. `latest`
+ * is the next cursor either way — a feed keeps up with the present rather than replaying a backlog.
+ */
+federation.get('/federation/feed', async (c) => {
+  if (!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY))) return c.notFound();
+  const from = await fromActiveConnection(c, 0);
+  if (from instanceof Response) return from;
+  if (!(await getFederationSettings(c.env.DB))) return c.notFound();
+  const viewId = digits(c.req.query('view'));
+  const since = digits(c.req.query('since') ?? '0');
+  if (!viewId || since === null) return c.json({ error: 'malformed request' }, 400);
+  const view = await getConnectionView(c.env.DB, viewId);
+  if (!view) return c.json({ error: 'no such view' }, 404);
+
+  const { latest, rows } = await activityInView(c.env.DB, view, since, FEED_PAGE_SIZE + 1);
+  const entries: FeedEntry[] = [];
+  let bytes = 0;
+  let truncated = rows.length > FEED_PAGE_SIZE;
+  for (const row of rows.slice(0, FEED_PAGE_SIZE)) {
+    const entry: FeedEntry = { id: row.id, kind: row.kind, published: row.at, item: toFeedItem(row.item) };
+    const size = jsonBytes(entry).bytes;
+    if (bytes + size > FEED_RESPONSE_BUDGET_BYTES) {
+      truncated = true;
+      break;
+    }
+    entries.push(entry);
+    bytes += size;
+  }
+  return c.json({ view: view.id, latest, truncated, entries });
+});
+
+/**
+ * The removal check (docs/proposals/connections.md §8): which of the caller's stored entries this
+ * household no longer shares. Nothing records what was sent to whom — validity is worked out now.
+ */
+federation.post('/federation/feed/check', async (c) => {
+  if (!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY))) return c.notFound();
+  const from = await fromActiveConnection(c, MAX_CHECK_BODY_BYTES);
+  if (from instanceof Response) return from;
+  if (!(await getFederationSettings(c.env.DB))) return c.notFound();
+  const request = parseJson(from.body) as { view?: unknown; ids?: unknown } | null;
+  const viewId = request?.view;
+  const ids = request?.ids;
+  if (!isId(viewId) || !Array.isArray(ids) || ids.length > MAX_CHECK_IDS || !ids.every(isId)) {
+    return c.json({ error: 'malformed request' }, 400);
+  }
+  const asked = [...new Set(ids)];
+  const view = await getConnectionView(c.env.DB, viewId);
+  if (!view) return c.json({ invalid: asked, viewGone: true });
+  const valid = await stillShared(c.env.DB, view, asked);
+  return c.json({ invalid: asked.filter((id) => !valid.has(id)), viewGone: false });
 });
 
 // ---------- messages from connected instances ----------

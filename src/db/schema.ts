@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const MEDIA_TYPES = ['book', 'boardgame', 'vinyl', 'movie', 'music', 'videogame', 'other'] as const;
 export type MediaType = (typeof MEDIA_TYPES)[number];
@@ -186,6 +186,86 @@ export const connectionPushCounts = sqliteTable(
   (t) => [primaryKey({ columns: [t.connectionId, t.day] })],
 );
 
+// Phase 2: the feed. Connection views are what this household shares; activity_log records what
+// happened to items inside them; subscriptions and remote_activities are what it follows and keeps.
+
+/** A slice of the catalog shared with every connection — the same captured filters as `shares`. */
+export const connectionViews = sqliteTable('connection_views', {
+  id: integer('id').primaryKey(),
+  name: text('name').notNull(),
+  libraryId: integer('library_id').references(() => libraries.id, { onDelete: 'cascade' }),
+  mediaType: text('media_type', { enum: MEDIA_TYPES }),
+  status: text('status', { enum: ITEM_STATUSES }),
+  owned: integer('owned', { mode: 'boolean' }),
+  sort: text('sort', { enum: ['added', 'title', 'rating', 'completed'] }).notNull().default('title'),
+  createdAt: text('created_at').notNull().default(now),
+});
+
+export const ACTIVITY_KINDS = ['reviewed', 'rated', 'finished'] as const;
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
+
+/**
+ * Written only by triggers on `items` (migration 0007), and only while a connection view exists.
+ * One row per item and kind: a repeat replaces the row under a new id, so the id doubles as the
+ * feed cursor and a replaced id tells a connection its stored copy is out of date.
+ */
+export const activityLog = sqliteTable(
+  'activity_log',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: ACTIVITY_KINDS }).notNull(),
+    at: text('at').notNull().default(now),
+  },
+  (t) => [uniqueIndex('activity_log_item_kind').on(t.itemId, t.kind), index('idx_activity_log_at').on(t.at)],
+);
+
+/** A view of a connection's that this household follows, with the limits it chose. */
+export const feedSubscriptions = sqliteTable(
+  'feed_subscriptions',
+  {
+    id: integer('id').primaryKey(),
+    connectionId: integer('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    viewId: integer('view_id').notNull(), // the view's id on their instance
+    viewName: text('view_name').notNull(),
+    intervalMinutes: integer('interval_minutes').notNull(),
+    retentionDays: integer('retention_days').notNull(),
+    maxEntries: integer('max_entries').notNull(),
+    cursor: integer('cursor').notNull().default(0),
+    lastPulledAt: text('last_pulled_at'),
+    lastError: text('last_error'),
+    removedUnseen: integer('removed_unseen').notNull().default(0), // removals not yet noted on the Feed page
+    goneAt: text('gone_at'), // they stopped sharing the view
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (t) => [uniqueIndex('feed_subscriptions_connection_view').on(t.connectionId, t.viewId)],
+);
+
+/** Feed entries received from a connection, kept under the subscription's lifecycle rules. */
+export const remoteActivities = sqliteTable(
+  'remote_activities',
+  {
+    id: integer('id').primaryKey(),
+    subscriptionId: integer('subscription_id')
+      .notNull()
+      .references(() => feedSubscriptions.id, { onDelete: 'cascade' }),
+    remoteId: integer('remote_id').notNull(), // their activity_log id
+    kind: text('kind', { enum: ACTIVITY_KINDS }).notNull(),
+    publishedAt: text('published_at').notNull(),
+    item: text('item').notNull(), // the validated FeedItem, as JSON
+    bytes: integer('bytes').notNull(),
+    receivedAt: text('received_at').notNull().default(now),
+  },
+  (t) => [
+    uniqueIndex('remote_activities_subscription_remote').on(t.subscriptionId, t.remoteId),
+    index('idx_remote_activities_published').on(t.publishedAt),
+  ],
+);
+
 export type User = typeof users.$inferSelect;
 export type Library = typeof libraries.$inferSelect;
 export type Share = typeof shares.$inferSelect;
@@ -196,3 +276,6 @@ export type Tag = typeof tags.$inferSelect;
 export type FederationSettings = typeof federationSettings.$inferSelect;
 export type ConnectionInvite = typeof connectionInvites.$inferSelect;
 export type Connection = typeof connections.$inferSelect;
+export type ConnectionView = typeof connectionViews.$inferSelect;
+export type FeedSubscription = typeof feedSubscriptions.$inferSelect;
+export type RemoteActivity = typeof remoteActivities.$inferSelect;
