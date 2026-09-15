@@ -223,7 +223,8 @@ As built: `GET /federation/shelf?view=&page=` returns a page of cards (title, cr
 published, cover key, rating, `inCollection`, `available`) in the view's own order, and
 `GET /federation/item?view=&id=` one item in full — the share-page fields, `completedOn`,
 `updatedAt`, tags and `available` — only while it is inside that view, with long texts cut at
-20,000 characters. B's cache holds up to 100 answers per isolate.
+20,000 characters. Both carry each book's stamp (§9), and a borrow request names the book by id
+and stamp, so a request can't land on a later book under a reused id. B's cache holds up to 100 answers per isolate.
 
 ## 8. Feed
 
@@ -409,7 +410,11 @@ The reviewer's household is authoritative for the thread.
    `loans.returned_on` (migration 0010) — only for loans linked in `connection_loans` — queues
    a `Returned` message straight into A's outbox for B. B collects it on its next pull, and
    A's next Feed, Loans or Borrowed page load pushes it sooner: undelivered outbox messages are
-   retried one per page load, at most every 10 minutes each, for two days.
+   retried one per page load, at most every 10 minutes each, for two days. A refusal ends a
+   message's life — it leaves the outbox, and a refused request is declined rather than left
+   waiting — and a request withdrawn meanwhile is never sent. Deleting a book that is lent to a
+   connection, or has a request waiting, tells them too: triggers on `items` queue a `Returned`
+   or a `BorrowDecline`.
 
 - Connections **can see whether a book is available**: a derived boolean, `available`,
   true while at least one copy is not out on loan (`copies` greater than the number of
@@ -418,8 +423,9 @@ The reviewer's household is authoritative for the thread.
 - **Who** has it, when it's **due**, and loan **history** are never shown — the same line
   §9 draws for share pages. The one inference this allows is intended: a connection can
   see a book become unavailable.
-- A connection may have 20 requests waiting at once. Availability is checked again when a
-  member lends, and a request is lent at most once.
+- A connection may have 20 requests waiting at once. A request is lent at most once, and the
+  loan is inserted only while a copy is free — decided inside that one statement — so two
+  members lending the last copy to different households at once make one loan.
 - Lending activities are Nalanda-specific types (`BorrowRequest`, `BorrowAccept`,
   `BorrowDecline`, `BorrowWithdraw`, `Returned`) in an ActivityStreams envelope. No interop is needed, so they
   are named for what they mean.
@@ -519,8 +525,8 @@ out on purpose. Folding tables together
 later phases land.
 
 **Data portability:** this is not catalog data, so the existing `/export.csv` stays exactly
-as it is. A separate `/federation/export.json` covers connections, comments sent and
-received, and borrow history.
+as it is. A separate `/federation/export.json`, for admins, covers active connections,
+shared views, what the household follows, comments, and borrowing.
 
 ### Where each piece of data lives
 
@@ -572,7 +578,7 @@ GET  /connections/:id/feed          admin: that household's shared views, what y
                                     rules, storage, purge
 GET  /feed                          members: connections' activity
 GET  /borrowed                      members: books borrowed from connections
-GET  /federation/export.json        members: federation data export
+GET  /federation/export.json        admins: federation data export
 POST /items/:id/comments            members: reply in a connection's thread on one of our reviews
 POST /feed/comments                 members: comment on a connection's review we follow
 POST /comments/:id/delete           members: delete our own comment, or any on our review

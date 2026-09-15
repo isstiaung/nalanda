@@ -368,7 +368,7 @@ GET  /borrowed                  members: books borrowed from connections, reques
 GET  /households/:id/…          members: a connection's shared shelves and items, read live
 POST /households/:id/requests   members: ask a connection to borrow a book
 POST /borrow-requests/:id/…     members: lend · decline (theirs) · withdraw (ours)
-GET  /federation/export.json    members: connections data as JSON
+GET  /federation/export.json    admins: connections data as JSON
 ```
 
 Every authenticated page route returns a full document normally and a partial when htmx's

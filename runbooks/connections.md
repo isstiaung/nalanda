@@ -125,8 +125,12 @@ tells them.
 What connections see of your books is whether a copy is free — never who has it, when it's due,
 or your loan history. Shelves are read from your library when they look, never copied to theirs.
 
-**Export:** **Borrowed → Export connections data** downloads everything about your connections
-as JSON: connections, shared views, what you follow, comments, and borrowing.
+**Export:** admins can use **Borrowed → Export connections data** to download everything about
+your connections as JSON: active connections, shared views, what you follow, comments, and
+borrowing.
+
+If a book lent to a household is deleted from your catalog, or one they asked for, they're told
+— as a return, or a declined request — so nothing stays waiting on their side.
 
 ## Changing address
 
