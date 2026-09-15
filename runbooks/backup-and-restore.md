@@ -10,6 +10,12 @@ npm run backup          # production → backups/remote-<date>/<table>.sql
 npm run backup:local    # local dev  → backups/local-<date>/<table>.sql
 ```
 
+A production backup needs the database's real id, which this repo doesn't carry —
+`wrangler.jsonc` holds a placeholder. The script uses `D1_DATABASE_ID` when it's set and
+otherwise looks the id up by name with `wrangler d1 list`, so being logged in to wrangler
+(`npx wrangler login`) is enough. It exports through a temporary, gitignored copy of the
+config and deletes it afterwards.
+
 **Why per-table files instead of one dump:** D1 refuses to export any database that
 contains virtual tables — and our FTS5 search index is one. So backups are data-only
 INSERT files for the real tables (`users`, `libraries`, `items`, `tags`, `item_tags`,

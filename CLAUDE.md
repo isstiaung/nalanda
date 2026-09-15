@@ -105,7 +105,9 @@ npm run deploy             # needs D1_DATABASE_ID in the env (never in the repo 
                            # resolves it into a gitignored config, migrates, deploys
 npm run backup             # per-table data-only export → backups/remote-<date>/
                            # (D1 cannot dump databases with FTS5 virtual tables;
-                           #  schema comes from migrations/ — see backup runbook)
+                           #  schema comes from migrations/ — see backup runbook);
+                           # real database id from D1_DATABASE_ID, else by name
+                           # via `wrangler d1 list`, in a gitignored temp config
 npm run backup:local       # same, for the local dev database
 npm run vendor             # re-copy vendored assets after bumping htmx/zxing/font versions
 npm run federation:keygen  # Ed25519 identity for connections → FEDERATION_PRIVATE_KEY
