@@ -349,15 +349,19 @@ connections between instances — every route 404s without a federation key (§1
 GET  /.well-known/nalanda       public: household name, public key, protocol version
 GET  /connect                   public: explains an invitation link opened in a browser
 POST /federation/connect        public, signed: redeem an invitation
-POST /federation/inbox          public, signed by a connection: accept · decline · disconnect
+POST /federation/inbox          public, signed by a connection: accept · decline · disconnect · comments
 GET  /federation/views          signed by a connection: shared views, their size and recent volume
 GET  /federation/feed           signed by a connection: activity in a view since a cursor
 POST /federation/feed/check     signed by a connection: which stored entries are no longer shared
+GET  /federation/outbox         signed by a connection: comments addressed to it, after a cursor
 GET  /connections              admin: name, invitations, pending and active connections
 POST /connections/…            admin: settings · invites · redeem · confirm · decline · disconnect ·
                                 views · follow · purge · unfollow
 GET  /connections/:id/feed      admin: that household's shared views, what you follow, storage
-GET  /feed                      members: activity from followed views
+GET  /feed                      members: activity from followed views, with comment threads
+POST /items/:id/comments        members: reply in a connection's thread on one of our reviews
+POST /feed/comments             members: comment on a connection's review we follow
+POST /comments/:id/delete       members: delete our own comment, or any on our review
 ```
 
 Every authenticated page route returns a full document normally and a partial when htmx's

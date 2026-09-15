@@ -3,7 +3,7 @@
 > **Status: approved 2026-09-15; being built in phases (§15), one pull request per phase.**
 > Recorded as ARCH.md §16 #29, which points here for the design. When a phase's build has to
 > differ from this document, that phase's pull request updates it. **Phases 1 (keys and
-> connections) and 2 (feed) are built.**
+> connections), 2 (feed) and 3 (comments) are built.**
 
 Two households each self-host Nalanda. If they choose to connect, they can see a feed of
 each other's reading, comment on each other's reviews, ask to borrow a book, and lend to
@@ -292,13 +292,20 @@ handle that refuses the query that would overspend; a pull cut short resumes fro
 A subscription with more waiting is due again, queued behind those that have waited longer.
 Phase 3 adds the same on Loans, together with the outbox.
 
-**Messages addressed to you travel separately from the feed.** Comments, borrow requests,
-responses and return notices meant for a household are listed at
-`GET /federation/outbox?since=<cursor>`, which is pulled from **every** active connection
-when a member opens Feed or Loans — whether or not you subscribe to any of their views. It is
-the delivery fallback for pushes that failed (§9, §10), so a friend's comment or request
-can't be lost just because you don't follow their feed. It stays small: it holds only what
-that connection addressed to you, within the daily push limit.
+**Messages addressed to you travel separately from the feed.** Comments and their deletions
+(and, from phase 4, borrow requests, responses and return notices) meant for one household go
+into an outbox for that connection, pushed once as they're written and listed at
+`GET /federation/outbox?since=<cursor>`. That outbox is pulled from **every** active
+connection when a member opens Feed — whether or not you follow any of their views — at most
+every 5 minutes per connection and two connections per page load; phase 4 adds Loans. It is
+the delivery fallback for pushes that failed (§9, §10), so a friend's comment can't be lost
+just because you don't follow their feed.
+
+- **It serves only that connection's messages, in order.** Each household keeps a cursor
+  into each connection's outbox and applies messages oldest first, skipping any it already
+  applied through a push; a message whose actor isn't that connection is ignored.
+- **It stays small:** 50 messages within 64 KB per response, kept 30 days, and every message
+  applied counts toward the daily push limit, pulled or pushed.
 
 A page refreshes at most a fixed number of subscriptions and outboxes per request and
 staggers the rest, staying inside the free plan's per-request subrequest limit.
@@ -333,21 +340,34 @@ without saying what they were.
 
 The reviewer's household is authoritative for the thread.
 
-1. A member of B comments on A's review, seen in B's feed.
-2. B keeps its own copy (so B can show "you commented") and sends a signed `Create` with a
-   `Note` whose `inReplyTo` is A's item, to `POST https://a/federation/inbox`.
-3. A stores it in `remote_comments`; A's item page shows it beneath the review.
-4. A's members reply the same way, sent to B.
+1. A member of B comments on A's review, from its card on B's Feed.
+2. B keeps its own copy and sends a signed `CommentCreate` whose `inReplyTo` names A as the
+   owner and A's item, to `POST https://a/federation/inbox`, keeping it in B's outbox for A.
+3. A stores it in `comments`; A's item page shows it beneath the review, one thread per
+   household, and Feed lists recent comments on A's reviews.
+4. A's members reply in that thread the same way, sent to B, where it joins B's copy.
+
+- **A thread is always between two households, on a review that belongs to one of them.** A
+  comment naming any third household's review is refused.
+- **A takes comments only on reviews it shares.** An unknown item, an unreviewed one and one
+  outside every connection view are answered alike, so nothing is revealed. A replies only
+  in threads B started.
+- **B keeps a thread only while it follows that review.** B's copy — its own comments and A's
+  replies — goes with the feed entries it hangs from, and a reply for a review B no longer
+  follows isn't kept.
 
 - **Plain text only**, escaped on render (hono/jsx escapes by default). No remote HTML, no
   markdown, no auto-embedded images.
 - Visible only to the **reviewer's household and the commenter's household** — not to A's
   other connections, who never connected with B. *(Decision 5, §16.)*
-- A can delete any comment on its own reviews; B can withdraw its own (signed `Delete`).
-  Disconnecting removes all of them.
+- A can delete any comment on its own reviews; B can withdraw its own (signed
+  `CommentDelete`). Any member may. Disconnecting removes all of them.
+- **Deleting keeps an empty row**, so a copy of the comment still waiting in an outbox can't
+  bring it back — and a deletion that arrives before its comment is remembered the same way.
 - **Delivery without a retry queue:** the push is best-effort in `waitUntil`. If A is down,
   the comment is also listed in B's outbox for A (§8), so A collects it the next time
-  one of A's members opens Feed or Loans. Pull is the guarantee; push just makes it fast.
+  one of A's members opens Feed. Pull is the guarantee; push just makes it fast. Receiving is
+  idempotent by comment id, so a comment that arrives both ways is stored once.
 
 ## 10. Requests and lending
 
@@ -423,7 +443,10 @@ values, to be tuned during phases 1 and 2:
 | Background work per page load | 30 D1 queries — about two subscription refreshes | the free plan's 50 D1 queries per invocation |
 | Shelf items per page | 60, as on today's shelf pages | the receiver's CPU |
 | Response body read | 256 KB — past that, the pull is abandoned | the receiver's CPU and storage |
-| Comment length | 2,000 characters | the owner's database |
+| Comment length | 2,000 characters; author names 64 | the owner's database |
+| Comments sent per connection per day | 100 | the other household's push limit |
+| Outbox messages per response | 50, within 64 KB; kept 30 days | the receiver's CPU, the sender's storage |
+| Outboxes pulled per page load | 2, each at most every 5 minutes | the per-request CPU and subrequest limits |
 | Borrow-request note | 500 characters | the owner's database |
 | Pushes accepted per connection per day | 200, then refused | the owner's daily D1 write allowance |
 | Stored feed entries per connection | 1,000, whatever the lifecycle settings | the receiver's database |
@@ -440,8 +463,8 @@ values, to be tuned during phases 1 and 2:
 | `connection_views` | captured filters, same shape as `shares`, visible to connections |
 | `activity_log` | trigger-fed: item, kind, timestamp — one row per item and kind |
 | `remote_activities` | stored feed entries per subscription, under its lifecycle rules; unique on activity id |
-| `remote_comments` | comments on our reviews, unique on activity id |
-| `outgoing_activities` | comments, requests and return notices we sent, with delivery status |
+| `comments` | both directions of every thread, unique on activity id; a deleted comment keeps an empty row |
+| `outbox` | messages addressed to one connection, with delivery status; pulled as the fallback |
 | `borrow_requests` | both directions, with status |
 | `connection_loans` | links an existing `loans` row to a connection and request |
 | `borrowed_items` | books borrowed from connections |
@@ -453,7 +476,9 @@ Tables arrive with the phase that uses them. Phase 1 created `federation_setting
 and `connection_push_counts`; a per-IP throttle table, `federation_attempts`, was planned and
 dropped (§5, step 2). Phase 2 created `connection_views`, `activity_log`, `feed_subscriptions`
 and `remote_activities`. The enabled flag planned for `federation_settings` was dropped too: a
-connection view's existence is the triggers' switch (§8).
+connection view's existence is the triggers' switch (§8). Phase 3 created `comments` and
+`outbox` — the planned `remote_comments` and `outgoing_activities`, folded into one comments
+table holding both directions plus an outbox — and added the outbox cursor to `connections`.
 
 Durable tables are appended to `scripts/backup.mjs`. `federation_seen` and
 `connection_push_counts` are replay and rate bookkeeping, worthless within a day, and are left
@@ -480,7 +505,7 @@ With A as the household that owns the data and B as a connection:
 | Books on shared shelves (whitelisted fields) | existing tables; the JSON is built when requested, not stored | never stored — held up to five minutes in the Worker's memory while browsing (§7) |
 | Covers | R2 | not copied — B's pages load them from A's `/covers/<uuid>` |
 | Feed activity | `activity_log`: item, kind, timestamp only | stored entries in `remote_activities`, under B's lifecycle rules, removed once A stops sharing them (§8) |
-| B's comment on A's review | `remote_comments` — authoritative | B's own copy in `outgoing_activities` |
+| B's comment on A's review | `comments` — authoritative | `comments`, while B follows that review; queued in B's `outbox` for A |
 | A borrow request | `borrow_requests` | `borrow_requests` |
 | A's loan to B | an ordinary `loans` row plus a `connection_loans` link | `borrowed_items` |
 | A's private key | Cloudflare secret — not in D1, not in backups | never |
@@ -515,6 +540,9 @@ GET  /connections/:id/feed          admin: that household's shared views, what y
 GET  /feed                          members: connections' activity
 GET  /borrowed                      members: books borrowed from connections
 GET  /federation/export.json        members: federation data export
+POST /items/:id/comments            members: reply in a connection's thread on one of our reviews
+POST /feed/comments                 members: comment on a connection's review we follow
+POST /comments/:id/delete           members: delete our own comment, or any on our review
      plus a comments section on /items/:id and a requests section on /loans
 ```
 
