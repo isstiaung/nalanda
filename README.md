@@ -90,6 +90,7 @@ wrangler r2 bucket create nalanda-covers
 wrangler secret put SESSION_SECRET
 wrangler secret put DISCOGS_TOKEN     # free — enables vinyl barcode lookup
 wrangler secret put HOME_SHARE_TOKEN  # optional — logged-out "/" redirects to this share
+wrangler secret put FEDERATION_PRIVATE_KEY  # optional — turns on connections; see runbooks/connections.md
 
 D1_DATABASE_ID=<the id> npm run deploy   # remote migrations, then wrangler deploy
 ```
