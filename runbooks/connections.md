@@ -131,5 +131,9 @@ Delete `.wrangler/connections/` to start over.
   `http://` at an address other than localhost.
 - **Connect fails.** The page says why. Most often the invitation was already used,
   expired or revoked — ask for a new one — or their library couldn't be reached.
-- **"Couldn't reach … to confirm."** Their library was unreachable, and nothing changed.
-  Try **Confirm** again later.
+- **"No answer from …" after Connect.** The request may still have reached them, so it stays
+  under **Waiting for them**. If they don't confirm, **Cancel** it and connect again.
+- **"No answer from …" after Confirm.** Press **Confirm** again: if the first confirmation did
+  reach them, the second completes it.
+- **"Didn't accept the confirmation."** Their library refused it, often because they cancelled
+  their request meanwhile. **Decline** it here and send a new invitation.

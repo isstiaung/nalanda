@@ -137,9 +137,9 @@ A invites B:
       would let one misbehaving peer lock every household out
    3. only now, fetch `https://b/.well-known/nalanda` and confirm it serves the same key —
       B controls that domain
-   4. consume the invitation with a single conditional update (`… WHERE used_at IS NULL`), so
-      two simultaneous redemptions can't both succeed. A failure at step 3 leaves the
-      invitation usable
+   4. record the pending connection and use the invitation up in one transaction, only while
+      the invitation is still unused and the connection limit has room. Two simultaneous
+      redemptions can't both succeed, and a failure at any step leaves the invitation usable
 6. The connection is recorded as **pending**. A's admin sees B's household name and domain,
    and confirms or declines. *(Decision 3, §16.)*
 7. On confirmation A sends a signed acceptance to B, and both sides mark the connection
@@ -164,12 +164,17 @@ A well-behaved Nalanda complies. A modified one might not — see §11.
   disconnect — are recorded in `federation_seen` for an hour, well past the signature window,
   so a replay is a no-op; later phases add unique constraints on the ids their tables store. A
   replayed GET only re-reads data that connection is already allowed to read.
-- **Spam can't spend the D1 write allowance.** An unsigned or malformed request is turned away
-  before the database is touched. A signed request naming an unknown key costs one indexed
-  read and no write. Known peers' keys are cached per isolate for a minute (like the
-  share-page cache, §16 #19). One consequence: if a household disconnects and reconnects from
-  the same address with a new key, isolates that didn't handle the disconnect reject its
-  messages for up to that minute.
+- **Spam can't spend the D1 allowance.** An unsigned or malformed request is turned away
+  before the database is touched, and a signed request naming an unknown key costs one
+  indexed read and no write. A message the connection's state doesn't allow — anything but
+  withdrawing, from a household still waiting for confirmation — is refused before any write,
+  and every message a connection gets accepted counts toward its daily limit (§12).
+- **The key cache never decides a state change.** A peer's key is cached per isolate for a
+  minute once its signature verifies (like the share-page cache, §16 #19). Reads may use that
+  row; anything that changes state re-reads the connection and acts only if it still carries
+  the key that signed, and connection ids are never reused. One consequence: if a household
+  disconnects and reconnects from the same address with a new key, isolates that didn't handle
+  the disconnect reject its messages for up to that minute.
 - `http://` is accepted only for `localhost`, so two local instances can connect in
   development — each with its own `--persist-to` state and its own key through `--env-file`
   (runbooks/connections.md). Note that `--env-file` replaces `.dev.vars` rather than adding
@@ -398,11 +403,12 @@ values, to be tuned during phases 1 and 2:
 
 Tables arrive with the phase that uses them. Phase 1 created `federation_settings` (the
 enabled flag arrives with phase 2's triggers), `connection_invites`, `connections` (the outbox
-cursor arrives with phase 3) and `federation_seen`. A per-IP throttle table,
+cursor arrives with phase 3), `federation_seen` and `connection_push_counts`. A per-IP throttle table,
 `federation_attempts`, was planned and dropped — §5, step 2.
 
-Durable tables are appended to `scripts/backup.mjs`. `federation_seen` is replay
-bookkeeping, worthless after an hour, and is left out on purpose. Folding tables together
+Durable tables are appended to `scripts/backup.mjs`. `federation_seen` and
+`connection_push_counts` are replay and rate bookkeeping, worthless within a day, and are left
+out on purpose. Folding tables together
 (for example one activities table with a direction column) remains a reasonable call as
 later phases land.
 
