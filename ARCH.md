@@ -350,8 +350,14 @@ GET  /.well-known/nalanda       public: household name, public key, protocol ver
 GET  /connect                   public: explains an invitation link opened in a browser
 POST /federation/connect        public, signed: redeem an invitation
 POST /federation/inbox          public, signed by a connection: accept · decline · disconnect
+GET  /federation/views          signed by a connection: shared views, their size and recent volume
+GET  /federation/feed           signed by a connection: activity in a view since a cursor
+POST /federation/feed/check     signed by a connection: which stored entries are no longer shared
 GET  /connections              admin: name, invitations, pending and active connections
-POST /connections/…            admin: settings · invites · redeem · confirm · decline · disconnect
+POST /connections/…            admin: settings · invites · redeem · confirm · decline · disconnect ·
+                                views · follow · purge · unfollow
+GET  /connections/:id/feed      admin: that household's shared views, what you follow, storage
+GET  /feed                      members: activity from followed views
 ```
 
 Every authenticated page route returns a full document normally and a partial when htmx's

@@ -78,8 +78,11 @@ shape from this file.
   but rotation can lag up to 1 h on untouched isolates (ARCH.md §16 #19).
 - `/covers/:key` is intentionally public — keys are random UUIDs; never make them
   enumerable or derived from item data.
-- Strings from another instance — household names now, comments later — render only as
-  escaped text. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:
+- Connections see only `toConnectionItem()` fields (`src/federation/items.ts`, built on
+  `toPublicItem()`), and only for items inside a connection view. Triggers on `items` record
+  activity only while a connection view exists (migration 0007).
+- Strings from another instance — household names, view names, feed entries, comments later —
+  render only as escaped text. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:
   the browser decodes HTML escapes back into quotes before it runs the script.
 
 ## Commands
@@ -117,8 +120,9 @@ src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googleboo
 src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist), csv.ts
                    (export + libib mapping), covers.ts (only R2 code)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
-                   RFC 9421 signing profile, peer HTTP, messages, public routes. Its D1
-                   queries live in src/db/federation.ts; the admin page in routes/connections
+                   RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
+                   feed pulls (feed.ts), public routes. Its D1 queries live in
+                   src/db/federation.ts; admin pages in routes/connections, Feed in routes/feed
 public/            app.css, scanner.js, import.js, app.js + vendor/ (htmx, zxing, eczar fonts)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;
