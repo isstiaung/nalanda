@@ -1,5 +1,5 @@
 import { fetchWithTimeout, USER_AGENT } from '../env';
-import type { Candidate, MetadataProvider } from './provider';
+import { cleanDescription, type Candidate, type MetadataProvider } from './provider';
 
 type OlDoc = {
   key?: string;
@@ -87,13 +87,5 @@ export async function olWorkDescription(workKey: string): Promise<string | null>
   if (!res.ok) return null;
   const data = (await res.json()) as { description?: string | { value?: string } };
   const raw = typeof data.description === 'string' ? data.description : data.description?.value;
-  if (!raw) return null;
-  const text = raw
-    .replace(/\r/g, '')
-    .split('\n')
-    .filter((line) => !/^\s*\[\d+\]:\s*http/.test(line))
-    .join('\n')
-    .replace(/\(\[source\]\[\d+\]\)/gi, '')
-    .trim();
-  return text || null;
+  return cleanDescription(raw);
 }

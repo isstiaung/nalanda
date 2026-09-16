@@ -69,3 +69,37 @@ export function creatorsMatch(subject: string | null | undefined, candidate: str
   if (!surname || surname.length < 2) return true;
   return normTitle(candidate).includes(surname);
 }
+
+/** Shortest blurb worth keeping: below this it's a stub like "First published 1944." */
+const MIN_DESCRIPTION = 40;
+
+/**
+ * Provider blurbs arrive as markdown (Open Library) or HTML (Google Books), and item pages render
+ * plain text — raw asterisks and <p> tags would show literally. Returns null for a stub.
+ */
+export function cleanDescription(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const text = raw
+    .replace(/\r/g, '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .split('\n')
+    .filter((line) => !/^\s*\[\d+\]:\s*http/i.test(line))
+    .join('\n')
+    .replace(/\(\[source\]\[\d+\]\)/gi, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(^|\s)[*_]([^*_\n]+)[*_](?=\s|$|[.,;:!?])/g, '$1$2')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return text.length >= MIN_DESCRIPTION ? text : null;
+}

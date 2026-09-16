@@ -1,7 +1,7 @@
 // Google Books works keyless (lower quota); GOOGLE_BOOKS_KEY raises it.
 // It usually contributes the description Open Library's search API lacks.
 import { fetchWithTimeout, USER_AGENT } from '../env';
-import type { Candidate, MetadataProvider } from './provider';
+import { cleanDescription, type Candidate, type MetadataProvider } from './provider';
 
 type Volume = {
   volumeInfo?: {
@@ -35,7 +35,7 @@ export function googleBooks(apiKey?: string): MetadataProvider {
           creators: info.authors?.join(', '),
           publisher: info.publisher,
           published: info.publishedDate,
-          description: info.description,
+          description: cleanDescription(info.description) ?? undefined,
           length: info.pageCount,
           isbn13,
           isbn10Upc: isbn10,
