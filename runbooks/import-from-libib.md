@@ -40,9 +40,10 @@ Rows without a title are skipped and counted; nothing is silently dropped.
 
 ## Covers
 
-libib CSVs contain no cover images or URLs, so imported items start coverless. Fix it in
-one click: **/import → Cover backfill**. It walks every coverless item in small batches
-with live progress, trying two passes per item:
+libib CSVs contain no cover images or URLs, so imported items start coverless — and
+without descriptions. Fix both in one click: **/import → Cover backfill**. It walks every
+item short of a cover or a description, in small batches with live progress, trying two
+passes per item:
 
 1. **Exact, by ISBN/UPC** — Open Library (search + raw edition record), Google Books,
    iTunes; Discogs and the MusicBrainz Cover Art Archive for music barcodes. All keyless

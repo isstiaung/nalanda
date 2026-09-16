@@ -14,7 +14,8 @@
     let tried = 0;
     let found = 0;
     let byTitle = 0;
-    backfillStatus.textContent = 'Fetching covers…';
+    let enriched = 0;
+    backfillStatus.textContent = 'Fetching covers and details…';
     for (;;) {
       let res;
       try {
@@ -35,15 +36,17 @@
       tried += d.tried;
       found += d.found;
       byTitle += d.byTitle ?? 0;
+      enriched += d.enriched ?? 0;
       after = d.lastId;
-      backfillStatus.textContent = `Scanned ${tried} items — ${found} covers added…`;
+      backfillStatus.textContent = `Scanned ${tried} items — ${found} covers added, ${enriched} details filled…`;
       if (d.done) break;
       await new Promise((r) => setTimeout(r, 300)); // politeness gap between batches
     }
     backfillStatus.textContent =
       `Done: ${found} covers added` +
       (byTitle ? ` (${byTitle} matched by title/author — worth a quick skim)` : '') +
-      `, ${tried - found} still without a match. Safe to re-run any time.`;
+      `, ${enriched} descriptions or details filled, ${tried - found} still without a cover. ` +
+      'Safe to re-run any time.';
     backfillBtn.disabled = false;
   });
 })();
