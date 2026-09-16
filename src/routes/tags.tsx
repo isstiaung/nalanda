@@ -1,9 +1,9 @@
 import { Hono } from 'hono';
 import type { FC } from 'hono/jsx';
-import { activeLoanItemIds, itemsByTag, listTagShares, listTagsWithCounts } from '../db/queries';
+import { activeLoanItemIds, listItems, listTagShares, listTagsWithCounts } from '../db/queries';
 import type { Share } from '../db/schema';
 import type { AppEnv } from '../env';
-import { ItemGrid, shareScopeLabel } from '../views/components';
+import { ItemGrid, Pagination, shareScopeLabel } from '../views/components';
 import { page } from '../views/layout';
 
 const tags = new Hono<AppEnv>();
@@ -79,12 +79,15 @@ const TagLinks: FC<{ tag: string; links: Share[]; origin: string }> = ({ tag, li
   </section>
 );
 
+// Paged like a shelf: a tag can carry hundreds of items, and both the loan lookup (D1 caps bound
+// parameters at 100) and the render budget are sized for one page, not a whole tag.
 tags.get('/tags/:name', async (c) => {
   const name = decodeURIComponent(c.req.param('name'));
   const tag = name.toLowerCase();
   const admin = c.get('user').role === 'admin';
-  const [items, links] = await Promise.all([
-    itemsByTag(c.env.DB, name),
+  const pageNum = Number.parseInt(c.req.query('page') ?? '1', 10) || 1;
+  const [{ items, total, page: current, pages }, links] = await Promise.all([
+    listItems(c.env.DB, null, { tag, sort: 'title', page: pageNum }),
     admin ? listTagShares(c.env.DB, tag) : Promise.resolve([]),
   ]);
   const onLoanIds = await activeLoanItemIds(c.env.DB, items.map((i) => i.id));
@@ -96,12 +99,13 @@ tags.get('/tags/:name', async (c) => {
         <div>
           <h1>{name}</h1>
           <span class="sub">
-            TAG · {items.length} {items.length === 1 ? 'ITEM' : 'ITEMS'}
+            TAG · {total} {total === 1 ? 'ITEM' : 'ITEMS'}
           </span>
         </div>
       </div>
       {items.length ? <ItemGrid items={items} onLoanIds={onLoanIds} /> : <p class="muted">No items carry this tag.</p>}
-      {admin && (items.length || links.length) ? (
+      <Pagination page={current} pages={pages} makeHref={(p) => `/tags/${encodeURIComponent(name)}?page=${p}`} />
+      {admin && (total || links.length) ? (
         <TagLinks tag={tag} links={links} origin={new URL(c.req.url).origin} />
       ) : null}
     </>,

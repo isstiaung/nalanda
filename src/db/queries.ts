@@ -328,17 +328,6 @@ export async function listTagsWithCounts(d1: D1Database): Promise<Array<{ name: 
     .orderBy(asc(s.tags.name));
 }
 
-export async function itemsByTag(d1: D1Database, name: string): Promise<Item[]> {
-  return db(d1)
-    .select({ item: s.items })
-    .from(s.itemTags)
-    .innerJoin(s.tags, eq(s.itemTags.tagId, s.tags.id))
-    .innerJoin(s.items, eq(s.itemTags.itemId, s.items.id))
-    .where(eq(s.tags.name, name.toLowerCase()))
-    .orderBy(asc(s.items.title))
-    .then((rows) => rows.map((r) => r.item));
-}
-
 // ---------- loans ----------
 
 export async function createLoan(
