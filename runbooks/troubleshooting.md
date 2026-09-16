@@ -26,6 +26,12 @@ Local dev prints to the `npm run dev` terminal.
   `npx wrangler secret put DISCOGS_TOKEN`.
 - **Weird edition data** (wrong publisher/year): providers return their "best" edition.
   Edit the item after saving — lookup fills the form, it doesn't own the data.
+- **Backfill stops with "request failed (500)"**: a large backfill can trip the free plan's
+  per-request limits. Click again to resume. For hundreds of items, run it from your machine
+  instead: [metadata-backfill.md](metadata-backfill.md).
+- **Backfill finds descriptions but almost no covers**: Google Books is probably out of quota
+  (1,000 requests a day, reset at midnight US Pacific time). It supplies most covers, so wait for
+  the reset and run it again.
 
 ## Deploys & database
 

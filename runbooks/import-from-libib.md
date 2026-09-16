@@ -61,6 +61,8 @@ Google's fuzzy ISBN matching can't attach a stranger's artwork.
   rescan the barcode.
 - Provider quotas are respected by design (sequential lookups, small batches); a 300-book
   backfill takes a few minutes.
+- For a much larger catalog, or if the run keeps stopping with "request failed (500)", run the
+  backfill from your machine instead: [metadata-backfill.md](metadata-backfill.md).
 
 ## Verify afterwards
 
