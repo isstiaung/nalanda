@@ -1,7 +1,7 @@
 // BoardGameGeek XML API2 — free, keyless, XML (hence fast-xml-parser).
 // No barcode endpoint exists; board games are added via name search (ARCH.md §7).
 import { XMLParser } from 'fast-xml-parser';
-import { USER_AGENT } from '../env';
+import { fetchWithTimeout, USER_AGENT } from '../env';
 import type { Candidate, MetadataProvider } from './provider';
 
 const parser = new XMLParser({
@@ -11,7 +11,7 @@ const parser = new XMLParser({
 });
 
 async function fetchXml(url: string): Promise<unknown | null> {
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+  const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } });
   if (!res.ok) return null; // BGG throttles with 429/202; fail soft, user can retry
   return parser.parse(await res.text());
 }

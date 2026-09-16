@@ -1,6 +1,6 @@
 // Google Books works keyless (lower quota); GOOGLE_BOOKS_KEY raises it.
 // It usually contributes the description Open Library's search API lacks.
-import { USER_AGENT } from '../env';
+import { fetchWithTimeout, USER_AGENT } from '../env';
 import type { Candidate, MetadataProvider } from './provider';
 
 type Volume = {
@@ -20,7 +20,7 @@ export function googleBooks(apiKey?: string): MetadataProvider {
   async function query(q: string, limit: number): Promise<Candidate[]> {
     const key = apiKey ? `&key=${apiKey}` : '';
     const url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(q)}&maxResults=${limit}${key}`;
-    const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+    const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } });
     if (!res.ok) return [];
     const data = (await res.json()) as { items?: Volume[] };
     return (data.items ?? [])

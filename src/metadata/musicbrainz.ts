@@ -1,10 +1,10 @@
 // MusicBrainz (barcode → release) + Cover Art Archive (release → front cover).
 // Both keyless and free; the canonical fallback when Discogs misses a music barcode.
 // Cover backfill only. MusicBrainz asks for a real User-Agent — we always send one.
-import { USER_AGENT } from '../env';
+import { fetchWithTimeout, USER_AGENT } from '../env';
 
 export async function caaCoverByBarcode(barcode: string): Promise<string | null> {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `https://musicbrainz.org/ws/2/release/?query=barcode:${encodeURIComponent(barcode)}&fmt=json&limit=1`,
     { headers: { 'User-Agent': USER_AGENT } },
   );

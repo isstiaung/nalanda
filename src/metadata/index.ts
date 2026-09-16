@@ -103,6 +103,11 @@ export async function findCover(
   store: (url: string) => Promise<string | null>,
 ): Promise<CoverResult | null> {
   const tryStore = async (url: string | null | undefined) => (url ? store(url) : null);
+  const { title, creators, mediaType } = subject;
+  // Providers are complementary: Open Library's search carries no description, Google Books does,
+  // so a later record fills what an earlier one left blank rather than replacing it.
+  let details: Candidate | null = null;
+  let key: string | null = null;
 
   const classified = subject.barcode ? classifyBarcode(subject.barcode) : null;
   if (classified?.kind === 'isbn13') {
@@ -110,59 +115,60 @@ export async function findCover(
     // ISBN indexes contain junk (typos, recycled/polluted ranges) and Google Books
     // fuzzy-matches unknown ISBNs as keywords — a title check catches both.
     const isbn = classified.code;
-    const titleOk = (t: string | null | undefined) => !!t && titlesMatch(t, subject.title);
+    const titleOk = (t: string | null | undefined) => !!t && titlesMatch(t, title);
 
     const ol = await openLibrary.lookupByBarcode(isbn).catch(() => null);
-    let key = ol && titleOk(ol.title) ? await tryStore(ol.coverUrl) : null;
-    if (key) return { key, method: 'barcode', candidate: ol };
-
-    const edition = await olEditionCover(isbn).catch(() => null);
-    key = edition && titleOk(edition.title) ? await tryStore(edition.coverUrl) : null;
-    if (key) return { key, method: 'barcode', candidate: ol };
-
-    const gb = await googleBooks(env.GOOGLE_BOOKS_KEY).lookupByBarcode(isbn).catch(() => null);
-    if (gb && (gb.isbn13 === isbn || gb.isbn10Upc === isbn || titleOk(gb.title))) {
-      key = await tryStore(gb.coverUrl);
-      if (key) return { key, method: 'barcode', candidate: gb };
+    if (ol && titleOk(ol.title)) {
+      details = keep(details, ol);
+      key = await tryStore(ol.coverUrl);
     }
-
-    key = await tryStore(await itunesCoverByIsbn(isbn, subject.title).catch(() => null));
-    if (key) return { key, method: 'barcode', candidate: ol ?? gb };
+    if (!key) {
+      const edition = await olEditionCover(isbn).catch(() => null);
+      if (edition && titleOk(edition.title)) key = await tryStore(edition.coverUrl);
+    }
+    if (!key || !details?.description) {
+      const gb = await googleBooks(env.GOOGLE_BOOKS_KEY).lookupByBarcode(isbn).catch(() => null);
+      if (gb && (gb.isbn13 === isbn || gb.isbn10Upc === isbn || titleOk(gb.title))) {
+        details = keep(details, gb);
+        key ??= await tryStore(gb.coverUrl);
+      }
+    }
+    if (!key) key = await tryStore(await itunesCoverByIsbn(isbn, title).catch(() => null));
+    if (key && details?.description) return { key, method: 'barcode', candidate: details };
   } else if (classified) {
     if (env.DISCOGS_TOKEN) {
       const release = await discogs(env.DISCOGS_TOKEN).lookupByBarcode(classified.code).catch(() => null);
-      const key = await tryStore(release?.coverUrl);
-      if (key) return { key, method: 'barcode', candidate: release };
+      details = keep(details, release);
+      key = await tryStore(release?.coverUrl);
     }
-    const key = await tryStore(await caaCoverByBarcode(classified.code).catch(() => null));
-    if (key) return { key, method: 'barcode', candidate: null };
+    if (!key) key = await tryStore(await caaCoverByBarcode(classified.code).catch(() => null));
+    if (key && details?.description) return { key, method: 'barcode', candidate: details };
   }
+  const method: CoverResult['method'] = key ? 'barcode' : 'title';
 
   // pass 2: title match guarded by creator match — same-title-different-author
   // is the classic wrong-cover failure
-  const { title, creators, mediaType } = subject;
   const firstCreator = creators?.split(',')[0]?.trim();
   /** The best match: one carrying a cover if any does, else a match whose details are still usable. */
   const pick = (candidates: Candidate[] | null) => {
     const matched = (candidates ?? []).filter((c) => titlesMatch(c.title, title) && creatorsMatch(creators, c.creators));
     return matched.find((c) => c.coverUrl) ?? matched[0] ?? null;
   };
-  /** Searches in order, stopping at the first storable cover; a coverless match is still returned. */
+  /** Searches in order, stopping once both a cover and a description are in hand. */
   const fromSearches = async (searches: Array<() => Promise<Candidate[]>>): Promise<CoverResult | null> => {
-    let details: Candidate | null = null;
     for (const search of searches) {
       const candidate = pick(await search().catch(() => null));
       if (!candidate) continue;
-      details ??= candidate;
-      const key = await tryStore(candidate.coverUrl);
-      if (key) return { key, method: 'title', candidate };
+      details = keep(details, candidate);
+      key ??= await tryStore(candidate.coverUrl);
+      if (key && details?.description) break;
     }
-    return details ? { key: null, method: 'title', candidate: details } : null;
+    return key || details ? { key, method: key ? method : 'title', candidate: details } : null;
   };
 
   if (mediaType === 'boardgame') return fromSearches([() => bgg.search(title)]);
   if (mediaType === 'vinyl' || mediaType === 'music') {
-    if (!env.DISCOGS_TOKEN) return null;
+    if (!env.DISCOGS_TOKEN) return key || details ? { key, method, candidate: details } : null;
     const q = firstCreator ? `${firstCreator} ${title}` : title;
     return fromSearches([() => discogs(env.DISCOGS_TOKEN!).search(q)]);
   }
@@ -173,6 +179,27 @@ export async function findCover(
     () => openLibrary.search(olQuery),
     () => googleBooks(env.GOOGLE_BOOKS_KEY).search(gbQuery),
   ]);
+}
+
+/** Keeps the first record, filling its blanks from later ones: providers are complementary. */
+function keep(base: Candidate | null, extra: Candidate | null): Candidate | null {
+  if (!extra) return base;
+  if (!base) return extra;
+  return { ...base, ...blanksOf(base, extra) };
+}
+
+/** The fields `base` is missing, taken from `extra` — never overwriting what `base` already has. */
+function blanksOf(base: Candidate, extra: Candidate): Partial<Candidate> {
+  const filled: Partial<Candidate> = {};
+  if (!base.creators && extra.creators) filled.creators = extra.creators;
+  if (!base.publisher && extra.publisher) filled.publisher = extra.publisher;
+  if (!base.published && extra.published) filled.published = extra.published;
+  if (!base.description && extra.description) filled.description = extra.description;
+  if (!base.length && extra.length) filled.length = extra.length;
+  if (!base.isbn13 && extra.isbn13) filled.isbn13 = extra.isbn13;
+  if (!base.isbn10Upc && extra.isbn10Upc) filled.isbn10Upc = extra.isbn10Upc;
+  if (!base.coverUrl && extra.coverUrl) filled.coverUrl = extra.coverUrl;
+  return filled;
 }
 
 export type SearchType = 'book' | 'boardgame' | 'vinyl';
