@@ -54,12 +54,17 @@ export function titlesMatch(a: string, b: string): boolean {
  * appear in the candidate's creators. Different books share titles constantly —
  * a title match with the wrong author is a wrong cover.
  */
+const GENERATIONAL = new Set(['jr', 'jnr', 'sr', 'snr', 'ii', 'iii', 'iv']);
+
 export function creatorsMatch(subject: string | null | undefined, candidate: string | null | undefined): boolean {
   if (!subject) return true; // nothing to check against — accept the title match
   if (!candidate) return false; // subject names an author, candidate doesn't — too risky
-  const surname = normTitle(subject.split(',')[0] ?? '')
+  // "Kurt Vonnegut Jr." must still match a record crediting "Kurt Vonnegut": a generational
+  // suffix is not a surname, and taking it as one rejects every correct record.
+  const parts = normTitle(subject.split(',')[0] ?? '')
     .split(' ')
-    .pop();
+    .filter((part) => !GENERATIONAL.has(part));
+  const surname = parts.pop();
   if (!surname || surname.length < 2) return true;
   return normTitle(candidate).includes(surname);
 }
