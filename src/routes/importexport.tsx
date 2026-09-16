@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import type { MediaType } from '../db/schema';
+import type { MediaType, NewItem } from '../db/schema';
 import { MEDIA_TYPES } from '../db/schema';
 import {
   countBackfillable,
@@ -98,14 +98,16 @@ importexport.get('/import', async (c) => {
         {backfillable > 0 ? (
           <>
             <p class="muted">
-              {backfillable} {backfillable === 1 ? 'item is' : 'items are'} missing cover art. Backfill
-              matches by ISBN/UPC first (Open Library, Google Books, iTunes; Discogs and the Cover Art
-              Archive for music barcodes), then by title and author — a different edition's cover may be
-              used, but never a different book's: covers are stored only when the source's title or
-              identifiers agree with the item. Only coverless items are touched; re-run any time.
+              {backfillable} {backfillable === 1 ? 'item is' : 'items are'} missing cover art or a
+              description. Backfill matches by ISBN/UPC first (Open Library, Google Books, iTunes;
+              Discogs and the Cover Art Archive for music barcodes), then by title and author — a
+              different edition's cover may be used, but never a different book's: covers are stored
+              only when the source's title or identifiers agree with the item. The matching record also
+              fills an empty description, publisher, year or page count — never what you've written
+              yourself. Re-run any time.
             </p>
             <button type="button" id="backfill-run">
-              Backfill {backfillable} {backfillable === 1 ? 'cover' : 'covers'}
+              Backfill {backfillable} {backfillable === 1 ? 'item' : 'items'}
             </button>
             <div id="backfill-status" class="prewrap muted mono" aria-live="polite"></div>
           </>
@@ -195,36 +197,61 @@ importexport.post('/api/import', async (c) => {
  * The batch stays small to respect the free plan's 50-subrequest budget: a full-chain
  * miss costs up to ~9 outbound fetches per item (see findCover).
  */
-const BACKFILL_BATCH = 4;
+const BACKFILL_BATCH = 3;
 
 importexport.post('/api/backfill-covers', async (c) => {
   const body = await c.req.json<{ after?: number }>().catch(() => ({}) as { after?: number });
   const after = Number.isInteger(body.after) && body.after! >= 0 ? body.after! : 0;
 
   const batch = await nextBackfillable(c.env.DB, after, BACKFILL_BATCH);
+  let tried = 0;
   let found = 0;
   let byTitle = 0;
+  let enriched = 0;
+  let lastId = after;
+  let stopped = false;
   for (const item of batch) {
     // sequential on purpose: polite to providers, predictable subrequest count
-    const result = await findCover(
-      c.env,
-      {
-        barcode: item.isbn13 ?? item.isbn10Upc,
-        title: item.title,
-        creators: item.creators,
-        mediaType: item.mediaType,
-      },
-      (url) => storeCover(c.env.COVERS, url),
-    );
-    if (result) {
-      await updateItem(c.env.DB, item.id, { coverKey: result.key });
-      found++;
-      if (result.method === 'title') byTitle++;
+    try {
+      const result = await findCover(
+        c.env,
+        {
+          barcode: item.isbn13 ?? item.isbn10Upc,
+          title: item.title,
+          creators: item.creators,
+          mediaType: item.mediaType,
+        },
+        // an item that only wants a description keeps the cover it has — nothing is fetched for it
+        item.coverKey ? async () => null : (url) => storeCover(c.env.COVERS, url),
+      );
+      // Only ever fills blanks: what the household wrote always wins over a provider.
+      const patch: Partial<NewItem> = {};
+      if (!item.coverKey && result?.key) patch.coverKey = result.key;
+      const match = result?.candidate;
+      if (match) {
+        if (!item.description?.trim() && match.description) patch.description = match.description;
+        if (!item.publisher?.trim() && match.publisher) patch.publisher = match.publisher;
+        if (!item.published?.trim() && match.published) patch.published = match.published;
+        if (item.length === null && match.length) patch.length = match.length;
+      }
+      if (Object.keys(patch).length) await updateItem(c.env.DB, item.id, patch);
+      if (patch.coverKey) {
+        found++;
+        if (result?.method === 'title') byTitle++;
+      }
+      if (patch.description || patch.publisher || patch.published || patch.length) enriched++;
+      tried++;
+      lastId = item.id;
+    } catch {
+      // A hung provider or the subrequest budget must not end the whole run: report the progress
+      // made, and let the browser carry on from the item after this one.
+      stopped = true;
+      lastId = item.id;
+      break;
     }
   }
 
-  const lastId = batch.length ? batch[batch.length - 1]!.id : after;
-  return c.json({ tried: batch.length, found, byTitle, lastId, done: batch.length < BACKFILL_BATCH });
+  return c.json({ tried, found, byTitle, enriched, lastId, done: !stopped && batch.length < BACKFILL_BATCH });
 });
 
 importexport.get('/export.csv', async (c) => {

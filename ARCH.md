@@ -454,8 +454,8 @@ multi-user auth (admin + family members) · libraries · items CRUD (every media
 manual entry) · barcode scan with auto-routing (ISBN → books, other EAN/UPC → Discogs) ·
 name search (Open Library / Google Books / **BGG** / **Discogs**) · covers in R2 · tags ·
 ratings, reviews, status · loans · FTS5 search, filter, sort · **public share links per
-library** · libib CSV import (lossless, dry-run) + full CSV export · cover backfill for
-imported items (client-driven batches, OL → Google Books → Discogs) · responsive UI
+library** · libib CSV import (lossless, dry-run) + full CSV export · cover and detail
+backfill for imported items (client-driven batches, OL → Google Books → Discogs) · responsive UI
 (phone-first for scanning).
 
 **v1.x — candidates:**
@@ -754,6 +754,18 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     Scope is enforced in both places, as before: `shareFilters()` adds an `EXISTS` over
     `item_tags`, and `itemMatchesShare()` now takes the item's tags, so the public item
     route loads them before deciding. A tag link never counts as exposing a shelf entire.
+
+32. **The backfill fills details, not just covers.** A catalog imported from Goodreads or libib
+    arrives without descriptions too, and the record that yields a cover usually carries the
+    description, publisher, year and page count — Google Books especially, which is why
+    `GOOGLE_BOOKS_KEY` earns its keep for a bulk run: the keyless quota is shared and answers 429
+    under load. `findCover()` now returns the record it matched, and keeps a match even when no
+    image can be stored, so a coverless hit still yields details. The queue widened from "no
+    cover" to "no cover or no description". Only blank fields are filled — never what the
+    household wrote — and an item that already has a cover keeps it (nothing is even fetched for
+    it). One item's failure no longer ends the run: each is caught, the batch reports the progress
+    it made, and the browser resumes past it. Batch size dropped 4 → 3, because a full-chain miss
+    can spend ~9 subrequests per item against the free plan's 50.
 
 The honest comparison, since it was asked:
 

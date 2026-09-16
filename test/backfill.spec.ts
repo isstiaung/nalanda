@@ -1,6 +1,7 @@
 // Cover backfill: query filters/cursor + the whole route with provider APIs mocked.
-// Three seeded cases: exact ISBN hit (Open Library), full-chain miss, and an
-// identifier-less item rescued by the title/author pass (Google Books).
+// Four seeded cases: exact ISBN hit (Open Library), full-chain miss, an identifier-less
+// item rescued by the title/author pass (Google Books), and an item that already has a
+// cover but no description — it keeps its cover and gains details.
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { activateFetchMock, assertNoPendingInterceptors, intercept, jpeg, json } from './fetch-mock';
@@ -44,15 +45,25 @@ async function seed() {
     title: 'No identifier',
     details: '{}',
   });
+  // nothing left to fetch: a cover and a description already
   await createItem(env.DB, {
     libraryId: lib.id,
     mediaType: 'book',
-    title: 'Already has cover',
+    title: 'Already done',
     isbn13: '9780000000009',
     coverKey: 'existing-key',
+    description: 'Written by hand.',
     details: '{}',
   });
-  return { lib, byIsbn, unfindable, byTitle };
+  const needsDetails = await createItem(env.DB, {
+    libraryId: lib.id,
+    mediaType: 'book',
+    title: 'Cover but no words',
+    creators: 'Ada Author',
+    coverKey: 'keep-this-key',
+    details: '{}',
+  });
+  return { lib, byIsbn, unfindable, byTitle, needsDetails };
 }
 
 // Match on raw (still URL-encoded) paths with space/quote-free tokens — decoding
@@ -60,25 +71,52 @@ async function seed() {
 const olSearch = (needle: string) => (p: string) => p.startsWith('/search.json') && p.includes(needle);
 const gbSearch = (needle: string) => (p: string) => p.includes(needle);
 
+async function backfill(userId: number, after: number): Promise<Record<string, unknown>> {
+  const token = await createSessionToken(env.SESSION_SECRET, userId, Math.floor(Date.now() / 1000));
+  const ctx = createExecutionContext();
+  const res = await app.fetch(
+    new Request('http://nalanda.test/api/backfill-covers', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie: `${SESSION_COOKIE}=${token}` },
+      body: JSON.stringify({ after }),
+    }),
+    env,
+    ctx,
+  );
+  await waitOnExecutionContext(ctx);
+  expect(res.status).toBe(200);
+  return (await res.json()) as Record<string, unknown>;
+}
+
 describe('backfill queries', () => {
-  it('selects every coverless item, cursor-paged', async () => {
-    const { byIsbn, unfindable, byTitle } = await seed();
-    expect(await countBackfillable(env.DB)).toBe(3);
+  it('selects items short of a cover or a description, cursor-paged', async () => {
+    const { byIsbn, unfindable, byTitle, needsDetails } = await seed();
+    expect(await countBackfillable(env.DB)).toBe(4); // the one with both is left alone
 
     const first = await nextBackfillable(env.DB, 0, 1);
     expect(first.map((i) => i.id)).toEqual([byIsbn.id]);
 
     const rest = await nextBackfillable(env.DB, byIsbn.id, 10);
-    expect(rest.map((i) => i.id)).toEqual([unfindable.id, byTitle.id]);
+    expect(rest.map((i) => i.id)).toEqual([unfindable.id, byTitle.id, needsDetails.id]);
   });
 });
 
 describe('POST /api/backfill-covers', () => {
-  it('exact match stores, full miss skips, title match rescues', async () => {
-    const { byIsbn, unfindable, byTitle } = await seed();
+  it('exact match stores, full miss skips, title match rescues, and details fill blanks', async () => {
+    const { byIsbn, unfindable, byTitle, needsDetails } = await seed();
+    const admin = await createUser(env.DB, {
+      username: 'admin',
+      passwordHash: 'pbkdf2$1$x$y',
+      role: 'admin',
+      mustChangePassword: false,
+    });
 
-    // A — exact ISBN hit on Open Library search (cover id 42).
-    intercept('https://openlibrary.org', olSearch('9780000000001'), json({ docs: [{ title: 'Findable', cover_i: 42 }] }));
+    // A — exact ISBN hit on Open Library search (cover id 42), carrying details too.
+    intercept(
+      'https://openlibrary.org',
+      olSearch('9780000000001'),
+      json({ docs: [{ title: 'Findable', cover_i: 42, publisher: ['Real Press'], first_publish_year: 1997, number_of_pages_median: 210 }] }),
+    );
     intercept('https://covers.openlibrary.org', '/b/id/42-L.jpg', jpeg());
 
     // B — junk everywhere (the polluted-ISBN case seen live): OL search returns a
@@ -126,6 +164,7 @@ describe('POST /api/backfill-covers', () => {
           {
             volumeInfo: {
               title: 'No Identifier',
+              description: 'A book about nothing in particular.',
               imageLinks: { thumbnail: 'http://books.google.com/covers/c.jpg' },
             },
           },
@@ -134,39 +173,54 @@ describe('POST /api/backfill-covers', () => {
     );
     intercept('https://books.google.com', '/covers/c.jpg', jpeg());
 
-    const admin = await createUser(env.DB, {
-      username: 'admin',
-      passwordHash: 'pbkdf2$1$x$y',
-      role: 'admin',
-      mustChangePassword: false,
-    });
-    const token = await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000));
-
-    const ctx = createExecutionContext();
-    const res = await app.fetch(
-      new Request('http://nalanda.test/api/backfill-covers', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', cookie: `${SESSION_COOKIE}=${token}` },
-        body: JSON.stringify({ after: 0 }),
-      }),
-      env,
-      ctx,
-    );
-    await waitOnExecutionContext(ctx);
-
-    expect(res.status).toBe(200);
-    const result = (await res.json()) as Record<string, unknown>;
-    expect(result).toEqual({ tried: 3, found: 2, byTitle: 1, lastId: byTitle.id, done: true });
+    const first = await backfill(admin.id, 0);
+    // three per batch, so this stops short of the fourth — done stays false
+    expect(first).toEqual({ tried: 3, found: 2, byTitle: 1, enriched: 2, lastId: byTitle.id, done: false });
 
     // head(), not get(): an unconsumed R2 body breaks isolated-storage teardown
     const exact = await getItem(env.DB, byIsbn.id);
     expect(exact?.coverKey).toBeTruthy();
     expect(await env.COVERS.head(exact!.coverKey!)).not.toBeNull();
+    expect(exact?.publisher).toBe('Real Press'); // blanks filled from the same record
+    expect(exact?.published).toBe('1997');
+    expect(exact?.length).toBe(210);
 
     expect((await getItem(env.DB, unfindable.id))?.coverKey).toBeNull();
 
     const rescued = await getItem(env.DB, byTitle.id);
     expect(rescued?.coverKey).toBeTruthy();
+    expect(rescued?.description).toBe('A book about nothing in particular.');
     expect(await env.COVERS.head(rescued!.coverKey!)).not.toBeNull();
+
+    // D — already has a cover: no image is fetched (no interceptor for the thumbnail),
+    // the cover it has is kept, and only the empty fields are filled.
+    intercept('https://openlibrary.org', olSearch('Cover'), json({ docs: [] }));
+    intercept(
+      'https://www.googleapis.com',
+      gbSearch('Cover'),
+      json({
+        items: [
+          {
+            volumeInfo: {
+              title: 'Cover but no words',
+              authors: ['Ada Author'],
+              description: 'The words it was missing.',
+              publisher: 'Later Press',
+              publishedDate: '2011',
+              pageCount: 99,
+              imageLinks: { thumbnail: 'http://books.google.com/covers/unused.jpg' },
+            },
+          },
+        ],
+      }),
+    );
+
+    const second = await backfill(admin.id, byTitle.id);
+    expect(second).toEqual({ tried: 1, found: 0, byTitle: 0, enriched: 1, lastId: needsDetails.id, done: true });
+    const filled = await getItem(env.DB, needsDetails.id);
+    expect(filled?.coverKey).toBe('keep-this-key');
+    expect(filled?.description).toBe('The words it was missing.');
+    expect(filled?.publisher).toBe('Later Press');
+    expect(filled?.length).toBe(99);
   });
 });

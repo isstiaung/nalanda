@@ -81,9 +81,12 @@ export type CoverSubject = {
 };
 
 export type CoverResult = {
-  key: string;
+  /** null when a record matched but had no usable image — its details are still worth having. */
+  key: string | null;
   /** 'barcode' = exact edition; 'title' = matched by title/author (possibly another edition) */
   method: 'barcode' | 'title';
+  /** The record the cover (or the match) came from, for filling in empty fields. */
+  candidate: Candidate | null;
 };
 
 /**
@@ -111,55 +114,65 @@ export async function findCover(
 
     const ol = await openLibrary.lookupByBarcode(isbn).catch(() => null);
     let key = ol && titleOk(ol.title) ? await tryStore(ol.coverUrl) : null;
-    if (key) return { key, method: 'barcode' };
+    if (key) return { key, method: 'barcode', candidate: ol };
 
     const edition = await olEditionCover(isbn).catch(() => null);
     key = edition && titleOk(edition.title) ? await tryStore(edition.coverUrl) : null;
-    if (key) return { key, method: 'barcode' };
+    if (key) return { key, method: 'barcode', candidate: ol };
 
     const gb = await googleBooks(env.GOOGLE_BOOKS_KEY).lookupByBarcode(isbn).catch(() => null);
     if (gb && (gb.isbn13 === isbn || gb.isbn10Upc === isbn || titleOk(gb.title))) {
       key = await tryStore(gb.coverUrl);
-      if (key) return { key, method: 'barcode' };
+      if (key) return { key, method: 'barcode', candidate: gb };
     }
 
     key = await tryStore(await itunesCoverByIsbn(isbn, subject.title).catch(() => null));
-    if (key) return { key, method: 'barcode' };
+    if (key) return { key, method: 'barcode', candidate: ol ?? gb };
   } else if (classified) {
     if (env.DISCOGS_TOKEN) {
       const release = await discogs(env.DISCOGS_TOKEN).lookupByBarcode(classified.code).catch(() => null);
       const key = await tryStore(release?.coverUrl);
-      if (key) return { key, method: 'barcode' };
+      if (key) return { key, method: 'barcode', candidate: release };
     }
     const key = await tryStore(await caaCoverByBarcode(classified.code).catch(() => null));
-    if (key) return { key, method: 'barcode' };
+    if (key) return { key, method: 'barcode', candidate: null };
   }
 
   // pass 2: title match guarded by creator match — same-title-different-author
   // is the classic wrong-cover failure
   const { title, creators, mediaType } = subject;
   const firstCreator = creators?.split(',')[0]?.trim();
-  const pick = (candidates: Candidate[] | null) =>
-    candidates?.find((c) => c.coverUrl && titlesMatch(c.title, title) && creatorsMatch(creators, c.creators))
-      ?.coverUrl ?? null;
+  /** The best match: one carrying a cover if any does, else a match whose details are still usable. */
+  const pick = (candidates: Candidate[] | null) => {
+    const matched = (candidates ?? []).filter((c) => titlesMatch(c.title, title) && creatorsMatch(creators, c.creators));
+    return matched.find((c) => c.coverUrl) ?? matched[0] ?? null;
+  };
+  /** Searches in order, stopping at the first storable cover; a coverless match is still returned. */
+  const fromSearches = async (searches: Array<() => Promise<Candidate[]>>): Promise<CoverResult | null> => {
+    let details: Candidate | null = null;
+    for (const search of searches) {
+      const candidate = pick(await search().catch(() => null));
+      if (!candidate) continue;
+      details ??= candidate;
+      const key = await tryStore(candidate.coverUrl);
+      if (key) return { key, method: 'title', candidate };
+    }
+    return details ? { key: null, method: 'title', candidate: details } : null;
+  };
 
-  if (mediaType === 'boardgame') {
-    const key = await tryStore(pick(await bgg.search(title).catch(() => null)));
-    return key ? { key, method: 'title' } : null;
-  }
+  if (mediaType === 'boardgame') return fromSearches([() => bgg.search(title)]);
   if (mediaType === 'vinyl' || mediaType === 'music') {
     if (!env.DISCOGS_TOKEN) return null;
     const q = firstCreator ? `${firstCreator} ${title}` : title;
-    const key = await tryStore(pick(await discogs(env.DISCOGS_TOKEN).search(q).catch(() => null)));
-    return key ? { key, method: 'title' } : null;
+    return fromSearches([() => discogs(env.DISCOGS_TOKEN!).search(q)]);
   }
 
   const olQuery = firstCreator ? `title:"${title}" author:"${firstCreator}"` : `title:"${title}"`;
-  let key = await tryStore(pick(await openLibrary.search(olQuery).catch(() => null)));
-  if (key) return { key, method: 'title' };
   const gbQuery = firstCreator ? `intitle:"${title}" inauthor:"${firstCreator}"` : `intitle:"${title}"`;
-  key = await tryStore(pick(await googleBooks(env.GOOGLE_BOOKS_KEY).search(gbQuery).catch(() => null)));
-  return key ? { key, method: 'title' } : null;
+  return fromSearches([
+    () => openLibrary.search(olQuery),
+    () => googleBooks(env.GOOGLE_BOOKS_KEY).search(gbQuery),
+  ]);
 }
 
 export type SearchType = 'book' | 'boardgame' | 'vinyl';
