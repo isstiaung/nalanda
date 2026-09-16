@@ -12,6 +12,7 @@ export type Candidate = {
   isbn13?: string;
   isbn10Upc?: string;
   coverUrl?: string; // provider-hosted; fetched into R2 only on save
+  workKey?: string; // Open Library work record (/works/OL…W) — where its description lives
   details: Record<string, unknown>;
   provider: string;
 };

@@ -22,7 +22,7 @@ import {
   mapLibibRow,
   type ImportOptions,
 } from '../lib/csv';
-import { findCover } from '../metadata';
+import { findCover, findDescription } from '../metadata';
 import { MEDIA_LABEL } from '../views/components';
 import { page } from '../views/layout';
 
@@ -233,6 +233,11 @@ importexport.post('/api/backfill-covers', async (c) => {
         if (!item.publisher?.trim() && match.publisher) patch.publisher = match.publisher;
         if (!item.published?.trim() && match.published) patch.published = match.published;
         if (item.length === null && match.length) patch.length = match.length;
+      }
+      // Open Library keeps descriptions on the work record, so ask for it only when one is still missing
+      if (!patch.description && !item.description?.trim()) {
+        const fromWork = await findDescription(match ?? null);
+        if (fromWork) patch.description = fromWork;
       }
       if (Object.keys(patch).length) await updateItem(c.env.DB, item.id, patch);
       if (patch.coverKey) {
