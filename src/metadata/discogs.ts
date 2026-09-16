@@ -1,6 +1,6 @@
 // Discogs — the vinyl database. Free personal access token; DOES support barcode
 // search, which makes scanning a record sleeve work like scanning a book.
-import { USER_AGENT } from '../env';
+import { fetchWithTimeout, USER_AGENT } from '../env';
 import type { Candidate, MetadataProvider } from './provider';
 
 type DiscogsResult = {
@@ -18,7 +18,7 @@ export function discogs(token: string | undefined): MetadataProvider {
   async function query(params: string, limit: number): Promise<Candidate[]> {
     if (!token) return [];
     const url = `https://api.discogs.com/database/search?${params}&per_page=${limit}`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       headers: { 'User-Agent': USER_AGENT, Authorization: `Discogs token=${token}` },
     });
     if (!res.ok) return [];

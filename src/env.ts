@@ -24,4 +24,12 @@ export type AppEnv = {
 };
 
 // Sent on all outbound metadata/cover fetches; some providers (Discogs, BGG) require a UA.
+/**
+ * Every outbound provider/image call goes through this: an unbounded fetch can hang a whole
+ * backfill batch, and the browser driving it just waits.
+ */
+export function fetchWithTimeout(url: string, init: RequestInit = {}, ms = 6000): Promise<Response> {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(ms) });
+}
+
 export const USER_AGENT = 'nalanda/0.1 (self-hosted personal library)';

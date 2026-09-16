@@ -1,11 +1,11 @@
 // The only code that touches the R2 binding (ARCH.md §13 exit strategy).
 // Covers are stored as-fetched — no resizing, ever (10 ms CPU budget).
-import { USER_AGENT } from '../env';
+import { fetchWithTimeout, USER_AGENT } from '../env';
 
 export async function storeCover(covers: R2Bucket, url: string | null | undefined): Promise<string | null> {
   if (!url || !/^https?:\/\//.test(url)) return null;
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+    const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } });
     if (!res.ok) return null;
     const contentType = res.headers.get('content-type') ?? 'image/jpeg';
     if (!contentType.startsWith('image/')) return null;

@@ -1,4 +1,4 @@
-import { USER_AGENT } from '../env';
+import { fetchWithTimeout, USER_AGENT } from '../env';
 import type { Candidate, MetadataProvider } from './provider';
 
 type OlDoc = {
@@ -15,7 +15,7 @@ const FIELDS = 'title,author_name,publisher,first_publish_year,number_of_pages_m
 
 async function searchOl(q: string, limit: number): Promise<OlDoc[]> {
   const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&fields=${FIELDS}&limit=${limit}`;
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+  const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } });
   if (!res.ok) return [];
   const data = (await res.json()) as { docs?: OlDoc[] };
   return data.docs ?? [];
@@ -49,7 +49,7 @@ function toCandidate(doc: OlDoc, isbn13?: string): Candidate | null {
  * record's title too — callers must verify it (junk ISBN ranges have junk records).
  */
 export async function olEditionCover(isbn: string): Promise<{ coverUrl: string; title: string } | null> {
-  const res = await fetch(`https://openlibrary.org/isbn/${isbn}.json`, {
+  const res = await fetchWithTimeout(`https://openlibrary.org/isbn/${isbn}.json`, {
     headers: { 'User-Agent': USER_AGENT },
   });
   if (!res.ok) return null;
