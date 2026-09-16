@@ -95,6 +95,11 @@ export function cleanDescription(raw: string | null | undefined): string | null 
     .join('\n')
     .replace(/\(\[source\]\[\d+\]\)/gi, '')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    // Reference-style links: Open Library's work records quote reviews as "[Comment by X][1]"
+    // with the target defined on a line already dropped above, leaving bare brackets on the page.
+    .replace(/\[([^\]\n]+)\]\[[^\]\n]*\]/g, '$1')
+    // Blockquoted excerpts ("> One of my favourite novels…") render as literal > in our markup.
+    .replace(/^[ \t]*>[ \t]?/gm, '')
     .replace(/(\*\*|__)(.*?)\1/g, '$2')
     .replace(/(^|\s)[*_]([^*_\n]+)[*_](?=\s|$|[.,;:!?])/g, '$1$2')
     .replace(/^#{1,6}\s+/gm, '')
