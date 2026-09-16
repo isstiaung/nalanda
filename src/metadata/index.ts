@@ -97,6 +97,22 @@ export type CoverResult = {
  *   BGG for board games, Discogs for vinyl — a different edition's cover may be used.
  * Storage is injected so this module stays the only place that talks to provider APIs.
  */
+/**
+ * What to ask a provider for. Search indexes are literal: a series suffix ("(Sprawl, #1)"), an
+ * issue number, a bracketed note or an ampersand finds nothing, even when the book is right there.
+ * Matching still compares the item's real title — this only shapes the query.
+ */
+export function searchableTitle(title: string): string {
+  const cleaned = title
+    .replace(/\s*[([{][^)\]}]*[)\]}]\s*/g, ' ')
+    .split(':')[0]!
+    .replace(/&/g, ' and ')
+    .replace(/#\d+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned.length >= 3 ? cleaned : title;
+}
+
 export async function findCover(
   env: Bindings,
   subject: CoverSubject,
@@ -166,15 +182,16 @@ export async function findCover(
     return key || details ? { key, method: key ? method : 'title', candidate: details } : null;
   };
 
-  if (mediaType === 'boardgame') return fromSearches([() => bgg.search(title)]);
+  const query = searchableTitle(title);
+  if (mediaType === 'boardgame') return fromSearches([() => bgg.search(query)]);
   if (mediaType === 'vinyl' || mediaType === 'music') {
     if (!env.DISCOGS_TOKEN) return key || details ? { key, method, candidate: details } : null;
-    const q = firstCreator ? `${firstCreator} ${title}` : title;
+    const q = firstCreator ? `${firstCreator} ${query}` : query;
     return fromSearches([() => discogs(env.DISCOGS_TOKEN!).search(q)]);
   }
 
-  const olQuery = firstCreator ? `title:"${title}" author:"${firstCreator}"` : `title:"${title}"`;
-  const gbQuery = firstCreator ? `intitle:"${title}" inauthor:"${firstCreator}"` : `intitle:"${title}"`;
+  const olQuery = firstCreator ? `title:"${query}" author:"${firstCreator}"` : `title:"${query}"`;
+  const gbQuery = firstCreator ? `intitle:"${query}" inauthor:"${firstCreator}"` : `intitle:"${query}"`;
   return fromSearches([
     () => openLibrary.search(olQuery),
     () => googleBooks(env.GOOGLE_BOOKS_KEY).search(gbQuery),

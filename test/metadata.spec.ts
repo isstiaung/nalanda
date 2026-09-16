@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyBarcode, creatorsMatch, mergeBookCandidates, titlesMatch } from '../src/metadata';
+import { classifyBarcode, creatorsMatch, mergeBookCandidates, searchableTitle, titlesMatch } from '../src/metadata';
 import type { Candidate } from '../src/metadata';
 
 describe('barcode routing', () => {
@@ -76,5 +76,26 @@ describe('title matching (cover backfill pass 2 guard)', () => {
     expect(creatorsMatch('Italo Calvino', 'Алёна Четвертакова')).toBe(false); // the live bug this guards
     expect(creatorsMatch('Italo Calvino', undefined)).toBe(false);
     expect(creatorsMatch(null, 'Anyone At All')).toBe(true); // no author on file — title match stands alone
+  });
+});
+
+describe('provider query cleaning (cover backfill pass 2)', () => {
+  it('drops series, issue and bracket noise, and spells out an ampersand', () => {
+    expect(searchableTitle('Neuromancer (Sprawl, #1)')).toBe('Neuromancer');
+    expect(searchableTitle('The Silence of the Lambs  (Hannibal Lecter)')).toBe('The Silence of the Lambs');
+    expect(searchableTitle('Jonathan Strange & Mr Norrell')).toBe('Jonathan Strange and Mr Norrell');
+    expect(searchableTitle('Neonomicon #1')).toBe('Neonomicon');
+    expect(searchableTitle('Lectures from Colombo to Almora (Hard bound)')).toBe('Lectures from Colombo to Almora');
+  });
+
+  it('searches the main title, not the subtitle', () => {
+    expect(searchableTitle('Disciplined Entrepreneurship: 24 Steps to a Successful Startup')).toBe(
+      'Disciplined Entrepreneurship',
+    );
+  });
+
+  it('keeps the original when cleaning would leave too little to search for', () => {
+    expect(searchableTitle('We (Canons)')).toBe('We (Canons)');
+    expect(searchableTitle('It')).toBe('It');
   });
 });
