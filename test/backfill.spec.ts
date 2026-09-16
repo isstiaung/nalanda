@@ -215,8 +215,28 @@ describe('POST /api/backfill-covers', () => {
       }),
     );
 
+    // E — the author is recorded more fully than the provider credits it ("Mary Wollstonecraft
+    // Shelley" vs "Mary Shelley"): the author-pinned queries find nothing, the title-only retry does.
+    const wrongName = await createItem(env.DB, {
+      libraryId: (await createLibrary(env.DB, 'Fallback shelf')).id,
+      mediaType: 'book',
+      title: 'Frankenstein',
+      creators: 'Mary Wollstonecraft Shelley',
+      details: '{}',
+    });
+    // `author%3A` is the query operator — the URL's fields list mentions author_name regardless
+    intercept('https://openlibrary.org', (p) => p.includes('Frankenstein') && p.includes('author%3A'), json({ docs: [] }));
+    intercept('https://www.googleapis.com', (p) => p.includes('Frankenstein') && p.includes('inauthor%3A'), json({ items: [] }));
+    intercept(
+      'https://openlibrary.org',
+      (p) => p.includes('Frankenstein') && !p.includes('author%3A'),
+      json({ docs: [{ title: 'Frankenstein', author_name: ['Mary Shelley'], cover_i: 77 }] }),
+    );
+    intercept('https://covers.openlibrary.org', '/b/id/77-L.jpg', jpeg());
+
     const second = await backfill(admin.id, byTitle.id);
-    expect(second).toEqual({ tried: 1, found: 0, byTitle: 0, enriched: 1, lastId: needsDetails.id, done: true });
+    expect(second).toEqual({ tried: 2, found: 1, byTitle: 1, enriched: 1, lastId: wrongName.id, done: true });
+    expect((await getItem(env.DB, wrongName.id))?.coverKey).toBeTruthy(); // rescued by the title-only retry
     const filled = await getItem(env.DB, needsDetails.id);
     expect(filled?.coverKey).toBe('keep-this-key');
     expect(filled?.description).toBe('The words it was missing.');

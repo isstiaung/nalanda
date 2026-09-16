@@ -192,9 +192,14 @@ export async function findCover(
 
   const olQuery = firstCreator ? `title:"${query}" author:"${firstCreator}"` : `title:"${query}"`;
   const gbQuery = firstCreator ? `intitle:"${query}" inauthor:"${firstCreator}"` : `intitle:"${query}"`;
+  // The author-pinned queries come first, then the same searches without the author. A catalog saying
+  // "Mary Wollstonecraft Shelley" finds nothing where the provider credits "Mary Shelley" — but the
+  // author guard still runs on whatever comes back, so this widens the search, not what we accept.
   return fromSearches([
     () => openLibrary.search(olQuery),
     () => googleBooks(env.GOOGLE_BOOKS_KEY).search(gbQuery),
+    () => openLibrary.search(`title:"${query}"`),
+    () => googleBooks(env.GOOGLE_BOOKS_KEY).search(`intitle:"${query}"`),
   ]);
 }
 
