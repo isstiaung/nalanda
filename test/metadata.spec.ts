@@ -79,6 +79,19 @@ describe('title matching (cover backfill pass 2 guard)', () => {
   });
 });
 
+describe('author guard and generational suffixes', () => {
+  it('matches a record that omits Jr., Sr. or a numeral', () => {
+    expect(creatorsMatch('Kurt Vonnegut Jr.', 'Kurt Vonnegut')).toBe(true);
+    expect(creatorsMatch('Dean Koontz III', 'Dean Koontz')).toBe(true);
+    expect(creatorsMatch('Martin Luther King Jr.', 'Martin Luther King')).toBe(true);
+  });
+
+  it('still rejects a different author', () => {
+    expect(creatorsMatch('Kurt Vonnegut Jr.', 'Ursula K. Le Guin')).toBe(false);
+    expect(creatorsMatch('Kurt Vonnegut Jr.', 'Kurt Andersen')).toBe(false);
+  });
+});
+
 describe('provider query cleaning (cover backfill pass 2)', () => {
   it('drops series, issue and bracket noise, and spells out an ampersand', () => {
     expect(searchableTitle('Neuromancer (Sprawl, #1)')).toBe('Neuromancer');
