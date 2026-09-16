@@ -92,13 +92,39 @@ async function backfill(userId: number, after: number): Promise<Record<string, u
 describe('backfill queries', () => {
   it('selects items short of a cover or a description, cursor-paged', async () => {
     const { byIsbn, unfindable, byTitle, needsDetails } = await seed();
-    expect(await countBackfillable(env.DB)).toBe(4); // the one with both is left alone
+    // the one with both is left alone; the cover-only item counts toward descriptions but not covers
+    expect(await countBackfillable(env.DB)).toEqual({ total: 4, noCover: 3, noDescription: 4 });
 
     const first = await nextBackfillable(env.DB, 0, 1);
     expect(first.map((i) => i.id)).toEqual([byIsbn.id]);
 
     const rest = await nextBackfillable(env.DB, byIsbn.id, 10);
     expect(rest.map((i) => i.id)).toEqual([unfindable.id, byTitle.id, needsDetails.id]);
+  });
+});
+
+describe('GET /import', () => {
+  it('reports the cover and description gaps separately', async () => {
+    await seed();
+    const admin = await createUser(env.DB, {
+      username: 'admin',
+      passwordHash: 'pbkdf2$1$x$y',
+      role: 'admin',
+      mustChangePassword: false,
+    });
+    const token = await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000));
+    const ctx = createExecutionContext();
+    const res = await app.fetch(
+      new Request('http://nalanda.test/import', { headers: { cookie: `${SESSION_COOKIE}=${token}` } }),
+      env,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(res.status).toBe(200);
+    const text = (await res.text()).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ');
+    // overlapping gaps: three lack a cover, four lack a description, four items in all
+    expect(text).toContain('3 items missing cover art · 4 items missing a description');
+    expect(text).toContain('Run backfill');
   });
 });
 

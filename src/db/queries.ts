@@ -425,10 +425,22 @@ export async function pageItems(
 // title-and-author pass works for identifier-less items too, and every matched record carries details.
 const backfillable = () => or(isNull(s.items.coverKey), isNull(s.items.description), eq(s.items.description, ''));
 
-/** Items that could gain a cover or details. */
-export async function countBackfillable(d1: D1Database): Promise<number> {
-  const [row] = await db(d1).select({ n: count() }).from(s.items).where(backfillable());
-  return row?.n ?? 0;
+export type BackfillCounts = { total: number; noCover: number; noDescription: number };
+
+/**
+ * Items that could gain a cover or details: how many in all (what a run walks), and how many lack
+ * each. The two gaps overlap, so noCover + noDescription can exceed total. One query either way.
+ */
+export async function countBackfillable(d1: D1Database): Promise<BackfillCounts> {
+  const [row] = await db(d1)
+    .select({
+      total: count(),
+      noCover: sql<number>`coalesce(sum(case when ${s.items.coverKey} is null then 1 else 0 end), 0)`,
+      noDescription: sql<number>`coalesce(sum(case when ${s.items.description} is null or ${s.items.description} = '' then 1 else 0 end), 0)`,
+    })
+    .from(s.items)
+    .where(backfillable());
+  return { total: row?.total ?? 0, noCover: Number(row?.noCover ?? 0), noDescription: Number(row?.noDescription ?? 0) };
 }
 
 /** Cursor-paged (by id) so the client can walk the whole catalog in small batches. */

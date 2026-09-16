@@ -29,7 +29,8 @@ import { page } from '../views/layout';
 const importexport = new Hono<AppEnv>();
 
 importexport.get('/import', async (c) => {
-  const [libs, backfillable] = await Promise.all([listLibraries(c.env.DB), countBackfillable(c.env.DB)]);
+  const [libs, backfill] = await Promise.all([listLibraries(c.env.DB), countBackfillable(c.env.DB)]);
+  const items = (n: number) => (n === 1 ? 'item' : 'items');
   return page(
     c,
     'Import / export',
@@ -95,11 +96,14 @@ importexport.get('/import', async (c) => {
 
       <section style="margin-top:2rem">
         <p class="eyebrow">Cover backfill</p>
-        {backfillable > 0 ? (
+        {backfill.total > 0 ? (
           <>
+            <p>
+              <span class="mono">{backfill.noCover}</span> {items(backfill.noCover)} missing cover art ·{' '}
+              <span class="mono">{backfill.noDescription}</span> {items(backfill.noDescription)} missing a description
+            </p>
             <p class="muted">
-              {backfillable} {backfillable === 1 ? 'item is' : 'items are'} missing cover art or a
-              description. Backfill matches by ISBN/UPC first (Open Library, Google Books, iTunes;
+              Backfill matches by ISBN/UPC first (Open Library, Google Books, iTunes;
               Discogs and the Cover Art Archive for music barcodes), then by title and author — a
               different edition's cover may be used, but never a different book's: covers are stored
               only when the source's title or identifiers agree with the item. The matching record also
@@ -107,12 +111,12 @@ importexport.get('/import', async (c) => {
               yourself. Re-run any time.
             </p>
             <button type="button" id="backfill-run">
-              Backfill {backfillable} {backfillable === 1 ? 'item' : 'items'}
+              Run backfill
             </button>
             <div id="backfill-status" class="prewrap muted mono" aria-live="polite"></div>
           </>
         ) : (
-          <p class="muted">Every item already has cover art. Import more and come back.</p>
+          <p class="muted">Every item already has cover art and a description. Import more and come back.</p>
         )}
       </section>
       <script src="/import.js" defer></script>
