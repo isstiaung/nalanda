@@ -10,7 +10,7 @@ import { olEditionCover, olWorkDescription, openLibrary } from './openlibrary';
 import { creatorsMatch, titlesMatch, type Candidate, type LookupResult } from './provider';
 
 export type { Candidate, LookupResult } from './provider';
-export { creatorsMatch, normTitle, titlesMatch } from './provider';
+export { cleanDescription, creatorsMatch, normTitle, titlesMatch } from './provider';
 
 export type BarcodeKind = 'isbn13' | 'upc';
 

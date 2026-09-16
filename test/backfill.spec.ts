@@ -164,7 +164,7 @@ describe('POST /api/backfill-covers', () => {
           {
             volumeInfo: {
               title: 'No Identifier',
-              description: 'A book about nothing in particular.',
+              description: 'A book about nothing in particular, at considerable length.',
               imageLinks: { thumbnail: 'http://books.google.com/covers/c.jpg' },
             },
           },
@@ -189,7 +189,7 @@ describe('POST /api/backfill-covers', () => {
 
     const rescued = await getItem(env.DB, byTitle.id);
     expect(rescued?.coverKey).toBeTruthy();
-    expect(rescued?.description).toBe('A book about nothing in particular.');
+    expect(rescued?.description).toBe('A book about nothing in particular, at considerable length.');
     expect(await env.COVERS.head(rescued!.coverKey!)).not.toBeNull();
 
     // D — already has a cover: no image is fetched (no interceptor for the thumbnail),
@@ -204,7 +204,7 @@ describe('POST /api/backfill-covers', () => {
             volumeInfo: {
               title: 'Cover but no words',
               authors: ['Ada Author'],
-              description: 'The words it was missing.',
+              description: 'The words it was missing, spelled out at a reasonable length.',
               publisher: 'Later Press',
               publishedDate: '2011',
               pageCount: 99,
@@ -254,18 +254,18 @@ describe('POST /api/backfill-covers', () => {
     intercept(
       'https://openlibrary.org',
       '/works/OL7W.json',
-      json({ description: { value: 'A description from the work record.\n\n([source][1])\n\n  [1]: https://example.com/x' } }),
+      json({ description: { value: '**A description** from the work record, long enough to keep.\n\n([source][1])\n\n  [1]: https://example.com/x' } }),
     );
 
     const second = await backfill(admin.id, byTitle.id);
     expect(second).toEqual({ tried: 3, found: 1, byTitle: 1, enriched: 2, lastId: workbound.id, done: false });
     expect((await getItem(env.DB, wrongName.id))?.coverKey).toBeTruthy(); // rescued by the title-only retry
     const described = await getItem(env.DB, workbound.id);
-    expect(described?.description).toBe('A description from the work record.'); // source footnote stripped
+    expect(described?.description).toBe('A description from the work record, long enough to keep.'); // markdown and footnote stripped
     expect(described?.coverKey).toBe('already-has-one'); // its cover is left alone
     const filled = await getItem(env.DB, needsDetails.id);
     expect(filled?.coverKey).toBe('keep-this-key');
-    expect(filled?.description).toBe('The words it was missing.');
+    expect(filled?.description).toBe('The words it was missing, spelled out at a reasonable length.');
     expect(filled?.publisher).toBe('Later Press');
     expect(filled?.length).toBe(99);
   });

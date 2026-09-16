@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classifyBarcode, creatorsMatch, mergeBookCandidates, searchableTitle, titlesMatch } from '../src/metadata';
+import { classifyBarcode, cleanDescription, creatorsMatch, mergeBookCandidates, searchableTitle, titlesMatch } from '../src/metadata';
 import type { Candidate } from '../src/metadata';
 
 describe('barcode routing', () => {
@@ -110,5 +110,24 @@ describe('provider query cleaning (cover backfill pass 2)', () => {
   it('keeps the original when cleaning would leave too little to search for', () => {
     expect(searchableTitle('We (Canons)')).toBe('We (Canons)');
     expect(searchableTitle('It')).toBe('It');
+  });
+});
+
+describe('description cleaning', () => {
+  it('strips Open Library markdown and its source footnote', () => {
+    const raw = '**Small Is Beautiful** is a collection of essays by [E. F. Schumacher](https://example.com).\n\n([source][1])\n\n  [1]: https://openlibrary.org/x';
+    expect(cleanDescription(raw)).toBe('Small Is Beautiful is a collection of essays by E. F. Schumacher.');
+  });
+
+  it('strips the HTML Google Books returns', () => {
+    expect(cleanDescription('<p>A novel about <i>everything</i> &amp; nothing at all, at length.</p>')).toBe(
+      'A novel about everything & nothing at all, at length.',
+    );
+  });
+
+  it('rejects a stub too short to be worth storing', () => {
+    expect(cleanDescription('First published 1944.')).toBeNull();
+    expect(cleanDescription('   ')).toBeNull();
+    expect(cleanDescription(null)).toBeNull();
   });
 });
