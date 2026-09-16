@@ -6,7 +6,7 @@ import { discogs } from './discogs';
 import { googleBooks } from './googlebooks';
 import { itunesCoverByIsbn } from './itunes';
 import { caaCoverByBarcode } from './musicbrainz';
-import { olEditionCover, olWorkDescription, openLibrary } from './openlibrary';
+import { olEditionCover, olSearchLean, olWorkDescription, openLibrary } from './openlibrary';
 import { creatorsMatch, titlesMatch, type Candidate, type LookupResult } from './provider';
 
 export type { Candidate, LookupResult } from './provider';
@@ -196,9 +196,9 @@ export async function findCover(
   // "Mary Wollstonecraft Shelley" finds nothing where the provider credits "Mary Shelley" — but the
   // author guard still runs on whatever comes back, so this widens the search, not what we accept.
   return fromSearches([
-    () => openLibrary.search(olQuery),
+    () => olSearchLean(olQuery),
     () => googleBooks(env.GOOGLE_BOOKS_KEY).search(gbQuery),
-    () => openLibrary.search(`title:"${query}"`),
+    () => olSearchLean(`title:"${query}"`),
     () => googleBooks(env.GOOGLE_BOOKS_KEY).search(`intitle:"${query}"`),
   ]);
 }

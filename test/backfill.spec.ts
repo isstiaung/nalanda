@@ -13,6 +13,7 @@ import {
   getItem,
   nextBackfillable,
 } from '../src/db/queries';
+import { olSearchLean, openLibrary } from '../src/metadata/openlibrary';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import app from '../src/index';
 
@@ -174,8 +175,8 @@ describe('POST /api/backfill-covers', () => {
     intercept('https://books.google.com', '/covers/c.jpg', jpeg());
 
     const first = await backfill(admin.id, 0);
-    // three per batch, so this stops short of the fourth — done stays false
-    expect(first).toEqual({ tried: 3, found: 2, byTitle: 1, enriched: 2, lastId: byTitle.id, done: false });
+    // two per batch, so the first round covers A and B only — done stays false
+    expect(first).toEqual({ tried: 2, found: 1, byTitle: 0, enriched: 1, lastId: unfindable.id, done: false });
 
     // head(), not get(): an unconsumed R2 body breaks isolated-storage teardown
     const exact = await getItem(env.DB, byIsbn.id);
@@ -186,11 +187,6 @@ describe('POST /api/backfill-covers', () => {
     expect(exact?.length).toBe(210);
 
     expect((await getItem(env.DB, unfindable.id))?.coverKey).toBeNull();
-
-    const rescued = await getItem(env.DB, byTitle.id);
-    expect(rescued?.coverKey).toBeTruthy();
-    expect(rescued?.description).toBe('A book about nothing in particular, at considerable length.');
-    expect(await env.COVERS.head(rescued!.coverKey!)).not.toBeNull();
 
     // D — already has a cover: no image is fetched (no interceptor for the thumbnail),
     // the cover it has is kept, and only the empty fields are filled.
@@ -214,6 +210,20 @@ describe('POST /api/backfill-covers', () => {
         ],
       }),
     );
+
+    const second = await backfill(admin.id, unfindable.id);
+    expect(second).toEqual({ tried: 2, found: 1, byTitle: 1, enriched: 2, lastId: needsDetails.id, done: false });
+
+    const rescued = await getItem(env.DB, byTitle.id);
+    expect(rescued?.coverKey).toBeTruthy();
+    expect(rescued?.description).toBe('A book about nothing in particular, at considerable length.');
+    expect(await env.COVERS.head(rescued!.coverKey!)).not.toBeNull();
+
+    const filled = await getItem(env.DB, needsDetails.id);
+    expect(filled?.coverKey).toBe('keep-this-key'); // the cover it already had is left alone
+    expect(filled?.description).toBe('The words it was missing, spelled out at a reasonable length.');
+    expect(filled?.publisher).toBe('Later Press');
+    expect(filled?.length).toBe(99);
 
     // E — the author is recorded more fully than the provider credits it ("Mary Wollstonecraft
     // Shelley" vs "Mary Shelley"): the author-pinned queries find nothing, the title-only retry does.
@@ -257,16 +267,49 @@ describe('POST /api/backfill-covers', () => {
       json({ description: { value: '**A description** from the work record, long enough to keep.\n\n([source][1])\n\n  [1]: https://example.com/x' } }),
     );
 
-    const second = await backfill(admin.id, byTitle.id);
-    expect(second).toEqual({ tried: 3, found: 1, byTitle: 1, enriched: 2, lastId: workbound.id, done: false });
+    const third = await backfill(admin.id, needsDetails.id);
+    expect(third).toEqual({ tried: 2, found: 1, byTitle: 1, enriched: 1, lastId: workbound.id, done: false });
     expect((await getItem(env.DB, wrongName.id))?.coverKey).toBeTruthy(); // rescued by the title-only retry
     const described = await getItem(env.DB, workbound.id);
     expect(described?.description).toBe('A description from the work record, long enough to keep.'); // markdown and footnote stripped
     expect(described?.coverKey).toBe('already-has-one'); // its cover is left alone
-    const filled = await getItem(env.DB, needsDetails.id);
-    expect(filled?.coverKey).toBe('keep-this-key');
-    expect(filled?.description).toBe('The words it was missing, spelled out at a reasonable length.');
-    expect(filled?.publisher).toBe('Later Press');
-    expect(filled?.length).toBe(99);
+  });
+});
+
+describe('Open Library request size', () => {
+  // A search doc carries every edition's ISBN — 70 KB for a much-reprinted work, even at limit 1 —
+  // and parsing it costs CPU the Worker does not have. Only the flow that records an ISBN asks for it.
+  it('cover and description lookups use the lean field set', async () => {
+    let seen = '';
+    intercept(
+      'https://openlibrary.org',
+      (p) => {
+        seen = p;
+        return p.startsWith('/search.json');
+      },
+      json({ docs: [] }),
+    );
+
+    await olSearchLean('title:"Frankenstein"');
+
+    expect(seen).not.toContain('isbn');
+    expect(seen).toContain('cover_i');
+    expect(seen).toContain('limit=5');
+  });
+
+  it('adding a book by name still asks for the ISBNs it records', async () => {
+    let seen = '';
+    intercept(
+      'https://openlibrary.org',
+      (p) => {
+        seen = p;
+        return p.startsWith('/search.json');
+      },
+      json({ docs: [] }),
+    );
+
+    await openLibrary.search('Frankenstein');
+
+    expect(seen).toContain('isbn');
   });
 });

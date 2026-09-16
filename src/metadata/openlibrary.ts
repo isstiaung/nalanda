@@ -13,9 +13,13 @@ type OlDoc = {
 };
 
 const FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,isbn';
+// The backfill never reads the isbn list, and it dwarfs the rest: a search for a work with many
+// editions answers in 78 KB with it and 17 KB without. A Worker parses that inside a 10 ms CPU
+// budget, several times per item — so cover/detail lookups ask for the lean set.
+const LEAN_FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i';
 
-async function searchOl(q: string, limit: number): Promise<OlDoc[]> {
-  const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&fields=${FIELDS}&limit=${limit}`;
+async function searchOl(q: string, limit: number, fields: string = FIELDS): Promise<OlDoc[]> {
+  const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&fields=${fields}&limit=${limit}`;
   const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } });
   if (!res.ok) return [];
   const data = (await res.json()) as { docs?: OlDoc[] };
@@ -66,7 +70,9 @@ export const openLibrary: MetadataProvider = {
   mediaTypes: ['book'],
 
   async lookupByBarcode(code: string): Promise<Candidate | null> {
-    const docs = await searchOl(`isbn:${code}`, 1);
+    // Lean: the ISBN recorded is the one that was scanned, so the doc's edition list is never read —
+    // and Open Library sends the whole thing (70 KB for a much-reprinted work) even at limit 1.
+    const docs = await searchOl(`isbn:${code}`, 1, LEAN_FIELDS);
     return docs[0] ? toCandidate(docs[0], code) : null;
   },
 
@@ -88,4 +94,10 @@ export async function olWorkDescription(workKey: string): Promise<string | null>
   const data = (await res.json()) as { description?: string | { value?: string } };
   const raw = typeof data.description === 'string' ? data.description : data.description?.value;
   return cleanDescription(raw);
+}
+
+/** Cover and description lookups: fewer results, and none of the ISBN bulk the backfill never reads. */
+export async function olSearchLean(query: string, limit = 5): Promise<Candidate[]> {
+  const docs = await searchOl(query, limit, LEAN_FIELDS);
+  return docs.map((d) => toCandidate(d)).filter((c): c is Candidate => !!c);
 }

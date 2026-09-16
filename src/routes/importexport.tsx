@@ -197,7 +197,9 @@ importexport.post('/api/import', async (c) => {
  * The batch stays small to respect the free plan's 50-subrequest budget: a full-chain
  * miss costs up to ~9 outbound fetches per item (see findCover).
  */
-const BACKFILL_BATCH = 3;
+// Two, not three: each item can spend a dozen subrequests and parse several provider payloads,
+// against a 10 ms CPU budget and 50 subrequests per request. Three was tripping the limit in production.
+const BACKFILL_BATCH = 2;
 
 importexport.post('/api/backfill-covers', async (c) => {
   const body = await c.req.json<{ after?: number }>().catch(() => ({}) as { after?: number });
