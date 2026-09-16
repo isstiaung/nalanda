@@ -114,6 +114,20 @@ describe('provider query cleaning (cover backfill pass 2)', () => {
 });
 
 describe('description cleaning', () => {
+  it('strips reference-style links and blockquote markers', () => {
+    const raw =
+      "[Comment by Kim Stanley Robinson, on The Guardian's website][1]:\n" +
+      'The Left Hand of Darkness by Ursula K Le Guin (1969)\n\n' +
+      '> One of my favourite novels is The Left Hand of Darkness, and it still serves very well.\n\n' +
+      '  [1]: https://example.com/guardian';
+    const out = cleanDescription(raw);
+    expect(out).not.toContain('][1]');
+    expect(out).not.toContain('>');
+    expect(out).toContain("Comment by Kim Stanley Robinson, on The Guardian's website:");
+    expect(out).toContain('One of my favourite novels');
+    expect(out).not.toContain('https://example.com');
+  });
+
   it('strips Open Library markdown and its source footnote', () => {
     const raw = '**Small Is Beautiful** is a collection of essays by [E. F. Schumacher](https://example.com).\n\n([source][1])\n\n  [1]: https://openlibrary.org/x';
     expect(cleanDescription(raw)).toBe('Small Is Beautiful is a collection of essays by E. F. Schumacher.');
