@@ -2,6 +2,7 @@ import { fetchWithTimeout, USER_AGENT } from '../env';
 import type { Candidate, MetadataProvider } from './provider';
 
 type OlDoc = {
+  key?: string;
   title?: string;
   author_name?: string[];
   publisher?: string[];
@@ -11,7 +12,7 @@ type OlDoc = {
   isbn?: string[];
 };
 
-const FIELDS = 'title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,isbn';
+const FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,isbn';
 
 async function searchOl(q: string, limit: number): Promise<OlDoc[]> {
   const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&fields=${FIELDS}&limit=${limit}`;
@@ -38,6 +39,7 @@ function toCandidate(doc: OlDoc, isbn13?: string): Candidate | null {
     length: doc.number_of_pages_median ?? undefined,
     isbn13,
     coverUrl,
+    workKey: doc.key?.startsWith('/works/') ? doc.key : undefined,
     details: {},
     provider: 'openlibrary',
   };
@@ -75,3 +77,23 @@ export const openLibrary: MetadataProvider = {
       .filter((c): c is Candidate => !!c);
   },
 };
+
+/**
+ * The description Open Library's search index omits: it lives on the work record. Their text often ends
+ * with a markdown source footnote ("([source][1])" plus a link definition), which is dropped here.
+ */
+export async function olWorkDescription(workKey: string): Promise<string | null> {
+  const res = await fetchWithTimeout(`https://openlibrary.org${workKey}.json`, { headers: { 'User-Agent': USER_AGENT } });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { description?: string | { value?: string } };
+  const raw = typeof data.description === 'string' ? data.description : data.description?.value;
+  if (!raw) return null;
+  const text = raw
+    .replace(/\r/g, '')
+    .split('\n')
+    .filter((line) => !/^\s*\[\d+\]:\s*http/.test(line))
+    .join('\n')
+    .replace(/\(\[source\]\[\d+\]\)/gi, '')
+    .trim();
+  return text || null;
+}

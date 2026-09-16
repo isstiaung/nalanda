@@ -6,7 +6,7 @@ import { discogs } from './discogs';
 import { googleBooks } from './googlebooks';
 import { itunesCoverByIsbn } from './itunes';
 import { caaCoverByBarcode } from './musicbrainz';
-import { olEditionCover, openLibrary } from './openlibrary';
+import { olEditionCover, olWorkDescription, openLibrary } from './openlibrary';
 import { creatorsMatch, titlesMatch, type Candidate, type LookupResult } from './provider';
 
 export type { Candidate, LookupResult } from './provider';
@@ -222,6 +222,15 @@ function blanksOf(base: Candidate, extra: Candidate): Partial<Candidate> {
   if (!base.isbn10Upc && extra.isbn10Upc) filled.isbn10Upc = extra.isbn10Upc;
   if (!base.coverUrl && extra.coverUrl) filled.coverUrl = extra.coverUrl;
   return filled;
+}
+
+/**
+ * A description for a record that matched, when the provider keeps it outside its search index.
+ * Open Library does: one more request to the work record, and no daily quota to exhaust.
+ */
+export async function findDescription(candidate: Candidate | null): Promise<string | null> {
+  if (!candidate?.workKey) return null;
+  return olWorkDescription(candidate.workKey).catch(() => null);
 }
 
 export type SearchType = 'book' | 'boardgame' | 'vinyl';

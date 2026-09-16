@@ -234,9 +234,35 @@ describe('POST /api/backfill-covers', () => {
     );
     intercept('https://covers.openlibrary.org', '/b/id/77-L.jpg', jpeg());
 
+    // F — Open Library matches but its search index carries no description; the work record does.
+    const workbound = await createItem(env.DB, {
+      libraryId: (await createLibrary(env.DB, 'Work shelf')).id,
+      mediaType: 'book',
+      title: 'Workbound',
+      creators: 'Ada Author',
+      coverKey: 'already-has-one',
+      details: '{}',
+    });
+    intercept(
+      'https://openlibrary.org',
+      (p) => p.includes('Workbound') && p.includes('author%3A'),
+      json({ docs: [{ key: '/works/OL7W', title: 'Workbound', author_name: ['Ada Author'] }] }),
+    );
+    intercept('https://www.googleapis.com', (p) => p.includes('Workbound') && p.includes('inauthor%3A'), json({ items: [] }));
+    intercept('https://openlibrary.org', (p) => p.includes('Workbound') && !p.includes('author%3A'), json({ docs: [] }));
+    intercept('https://www.googleapis.com', (p) => p.includes('Workbound') && !p.includes('inauthor%3A'), json({ items: [] }));
+    intercept(
+      'https://openlibrary.org',
+      '/works/OL7W.json',
+      json({ description: { value: 'A description from the work record.\n\n([source][1])\n\n  [1]: https://example.com/x' } }),
+    );
+
     const second = await backfill(admin.id, byTitle.id);
-    expect(second).toEqual({ tried: 2, found: 1, byTitle: 1, enriched: 1, lastId: wrongName.id, done: true });
+    expect(second).toEqual({ tried: 3, found: 1, byTitle: 1, enriched: 2, lastId: workbound.id, done: false });
     expect((await getItem(env.DB, wrongName.id))?.coverKey).toBeTruthy(); // rescued by the title-only retry
+    const described = await getItem(env.DB, workbound.id);
+    expect(described?.description).toBe('A description from the work record.'); // source footnote stripped
+    expect(described?.coverKey).toBe('already-has-one'); // its cover is left alone
     const filled = await getItem(env.DB, needsDetails.id);
     expect(filled?.coverKey).toBe('keep-this-key');
     expect(filled?.description).toBe('The words it was missing.');
