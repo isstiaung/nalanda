@@ -117,6 +117,7 @@ by step in [runbooks/deploy.md](runbooks/deploy.md).
 | [connections.md](runbooks/connections.md) | Connecting with another household's Nalanda: keys, feed, comments, borrowing, disconnecting |
 | [import-from-goodreads.md](runbooks/import-from-goodreads.md) | Bringing your Goodreads history over (and leaving) |
 | [import-from-libib.md](runbooks/import-from-libib.md) | Migrating your libib collection |
+| [metadata-backfill.md](runbooks/metadata-backfill.md) | Filling in covers and descriptions for a large catalog, from your machine |
 | [troubleshooting.md](runbooks/troubleshooting.md) | Scanner, lookups, deploys, logs |
 
 Working conventions for future development live in [CLAUDE.md](CLAUDE.md).

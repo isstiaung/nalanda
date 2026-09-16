@@ -111,6 +111,10 @@ npm run backup             # per-table data-only export → backups/remote-<date
                            #  schema comes from migrations/ — see backup runbook);
                            # reaches production the same way as wrangler:remote
 npm run backup:local       # same, for the local dev database
+npm run backfill:remote -- <step>  # covers + descriptions for production, run from this machine
+                           # with the app's own src/metadata (Node's native TS): rehearse |
+                           # export | enrich | upload | apply | status — rehearse first;
+                           # apply wants a backup < 12 h old (runbooks/metadata-backfill.md)
 npm run vendor             # re-copy vendored assets after bumping htmx/zxing/font versions
 npm run federation:keygen  # Ed25519 identity for connections → FEDERATION_PRIVATE_KEY
                            # (printed once, never written to disk)
@@ -142,9 +146,10 @@ test/              auth, csv/libib mapping, barcode routing, share whitelist, FT
                    fetch-mock.ts stubs outbound fetch (see §16 #25)
 scripts/           vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp config),
                    backup.mjs, wrangler-remote.mjs + remote-config.mjs (real db id → temp
-                   config), seed-demo.mjs, hash-password.mjs, federation-keygen.mjs
+                   config), seed-demo.mjs, hash-password.mjs, federation-keygen.mjs,
+                   backfill-remote.mjs + ts-resolve.mjs (runs src/metadata under Node)
 runbooks/          operational guides: deploy, backup/restore, accounts, connections,
-                   libib import, goodreads import, troubleshooting — update when ops
+                   libib import, goodreads import, metadata backfill, troubleshooting — update when ops
                    procedures change
 .github/           CI (typecheck + test; no secrets, never pull_request_target),
                    dependabot (minor/patch grouped, majors alone), CODEOWNERS
@@ -173,7 +178,8 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
   through `/export.csv` (ARCH.md §16 #27).
 
 ## Ops guardrails
-- Develop against local D1. `--remote` is for deploy, remote migrate, and backup only.
+- Develop against local D1. `--remote` is for deploy, remote migrate, backup, and
+  `backfill:remote` only.
 - Any destructive remote operation (dropping data, hand-run `wrangler d1 execute --remote`)
   requires a fresh `npm run backup` first.
 - Secrets (`SESSION_SECRET`, `DISCOGS_TOKEN`, optional `GOOGLE_BOOKS_KEY`, optional

@@ -31,9 +31,10 @@ function productionDatabaseId() {
 /**
  * Writes the config copy and returns its path, for wrangler's `--config`. Exits with instructions when the id
  * can't be found; `usage` is how to run the calling command again with D1_DATABASE_ID set. Pair every call
- * with removeRemoteConfig() in a `finally`.
+ * with removeRemoteConfig() in a `finally`. A long-running script passes its own `path`, so a backup or
+ * migration started meanwhile can't delete the copy out from under it.
  */
-export function writeRemoteConfig(usage) {
+export function writeRemoteConfig(usage, path = RESOLVED) {
   const id = productionDatabaseId();
   if (!UUID.test(id)) {
     console.error(
@@ -49,10 +50,10 @@ export function writeRemoteConfig(usage) {
     console.error(`No database_id field found in ${SOURCE} — has the config changed shape?`);
     process.exit(1);
   }
-  writeFileSync(RESOLVED, resolved);
-  return RESOLVED;
+  writeFileSync(path, resolved);
+  return path;
 }
 
-export function removeRemoteConfig() {
-  rmSync(RESOLVED, { force: true });
+export function removeRemoteConfig(path = RESOLVED) {
+  rmSync(path, { force: true });
 }

@@ -71,7 +71,9 @@ the book, use **Add to shelf** as usual and add the review from its Edit page.
   libib runbook. Whatever record supplies the cover also fills an empty description,
   publisher, year or page count; your own writing is never overwritten. Most descriptions
   come from Google Books, so set `GOOGLE_BOOKS_KEY` before a big run — the keyless quota is
-  shared and starts refusing requests under load.
+  shared and starts refusing requests under load. For a catalog of hundreds, or if the run
+  keeps stopping with "request failed (500)", run it from your machine instead:
+  [metadata-backfill.md](metadata-backfill.md).
 - **Wishlist for free**: Goodreads *to-read* books arrive as "Not owned" + status
   "Not started" — filter any library view by holding **Not owned** + status
   **Not started** to see them.

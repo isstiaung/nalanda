@@ -1,9 +1,10 @@
 node_modules/
 .wrangler/
 .wrangler-deploy.jsonc
-.wrangler-remote.jsonc
+.wrangler-remote*.jsonc
 .dev.vars
 backups/
+.backfill/
 public/vendor/
 *.log
 .DS_Store
