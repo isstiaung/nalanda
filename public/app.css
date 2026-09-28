@@ -237,6 +237,9 @@ button[type='submit'], .btn-primary {
   color: var(--accent-ink);
 }
 button[type='submit']:hover, .btn-primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--accent-ink); }
+/* A submit marked .btn is a secondary action: without this, button[type='submit'] outranks .btn and fills it indigo. */
+button.btn { background: var(--surface); border-color: var(--line-strong); color: var(--ink); }
+button.btn:hover { background: var(--surface-2); border-color: var(--line-strong); color: var(--ink); }
 
 .btn-quiet, button.btn-quiet { background: transparent; border-color: transparent; color: var(--ink-2); }
 .btn-quiet:hover { background: var(--surface-2); color: var(--ink); }
@@ -352,7 +355,7 @@ p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px sol
 .data-table td { padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
 .data-table tbody tr:last-child td { border-bottom: none; }
 .data-table tbody tr:hover { background: var(--accent-tint); }
-.data-table .num, .data-table .date { font-family: var(--mono); font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.data-table td.num, .data-table td.date { font-family: var(--mono); font-size: 12px; color: var(--ink-2); white-space: nowrap; }
 .data-table .actions-cell { text-align: right; white-space: nowrap; width: 1%; }
 /* row actions stay on one line — the cell is narrow, and a wrapped pair reads as two rows */
 .data-table .actions-cell .inline-form { flex-wrap: nowrap; justify-content: flex-end; }
@@ -406,7 +409,7 @@ html[data-hide-cols~="holding"] .col-holding,
 html[data-hide-cols~="tags"] .col-tags,
 html[data-hide-cols~="acc"] .col-acc { display: none; }
 
-.pill-btn { cursor: pointer; }
+.pill-btn { cursor: pointer; height: auto; line-height: inherit; } /* a <button> pill sizes like any other pill, not like a 30px button */
 .pill-btn:hover { border-color: var(--accent); color: var(--accent); }
 .pill.done.pill-btn:hover { border-color: var(--accent-strong); color: var(--accent-strong); }
 
@@ -496,7 +499,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   border-radius: var(--radius);
   box-shadow: var(--shadow);
 }
-.filter-menu label { display: flex; align-items: center; gap: 0.45rem; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
+.filter-menu label { display: flex; align-items: center; gap: 0.45rem; margin: 0; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
 .filter-menu input[type='checkbox'] { width: auto; height: auto; margin: 0; accent-color: var(--accent); }
 .toolbar input[type='search'] { width: 190px; margin: 0; height: 30px; font-size: 12.5px; }
 .toolbar .spacer { flex: 1; }

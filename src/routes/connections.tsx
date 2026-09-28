@@ -794,7 +794,7 @@ const ConnectionFeedPage: FC<
                     <td class="date hide-sm">{sub.lastPulledAt ? sub.lastPulledAt.slice(0, 16) : 'Not yet'}</td>
                     <td class="actions-cell">
                       <form method="post" action={`${base}/subscriptions/${sub.id}/purge`} class="inline">
-                        <button class="btn" type="submit">
+                        <button class="btn-danger" type="submit">
                           Purge
                         </button>
                       </form>{' '}
