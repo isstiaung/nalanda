@@ -282,4 +282,8 @@ share.get('/:token/items/:id', async (c) => {
   );
 });
 
+// Anything else under /share — /share itself, a trailing slash, an extra path segment — is a dead link too. Without
+// this it fell past the public routes into the session middleware and answered with a login redirect.
+share.all('*', (c) => shareNotFound(c));
+
 export default share;

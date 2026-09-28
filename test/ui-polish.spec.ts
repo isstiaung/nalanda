@@ -254,6 +254,28 @@ describe('404 pages', () => {
     expect((await calls(`/share/${newShareToken()}/items/${inside.id}`)).calls).toBe(1);
   });
 
+  it('answers share paths no route matches with the share 404, not a login redirect', async () => {
+    const shelf = await createLibrary(env.DB, 'Shared');
+    const token = newShareToken();
+    await createShare(env.DB, { token, name: 'Secret view name', libraryId: shelf.id });
+    const book = await createItem(env.DB, { libraryId: shelf.id, title: 'Secret title', copies: 1 });
+    const reference = await (await plain.get(`/share/${newShareToken()}`)).text();
+    for (const path of ['/share', '/share/', `/share/${token}/items/${book.id}/extra`, `/share/${token}/nonsense`]) {
+      const res = await plain.get(path);
+      expect(res.status, path).toBe(404);
+      expect(res.headers.get('location'), path).toBeNull();
+      const html = await res.text();
+      expect(html, path).toContain('class="share-shell"');
+      expect(html, path).toBe(reference); // the same fixed page as any other dead link
+    }
+  });
+
+  it('leaves the admin’s /shares page, which only shares a prefix, behind the session (negative control)', async () => {
+    const res = await plain.get('/shares');
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toMatch(/\/(login|setup)$/);
+  });
+
   it('serves a live share link as before (negative control)', async () => {
     const shelf = await createLibrary(env.DB, 'Shelf');
     const token = newShareToken();

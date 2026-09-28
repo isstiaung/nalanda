@@ -10,6 +10,7 @@ import { shareNotFound } from './share';
 
 export async function notFound(c: Context<AppEnv>): Promise<Response> {
   const path = c.req.path;
+  // a share handler's own c.notFound() lands here; /share paths no route matches reach shareNotFound directly
   if (path === '/share' || path.startsWith('/share/')) return shareNotFound(c);
   const user = c.get('user') as SessionUser | undefined; // unset before the session middleware
   if (!user || c.req.header('HX-Request') || path.startsWith('/api/')) return c.text('Not found', 404);
