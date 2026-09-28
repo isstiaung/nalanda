@@ -107,7 +107,10 @@ development, local migrations, and the tests all run against the placeholder, so
 clone works offline with nothing to edit. (`wrangler d1 list` will remind you of the id
 later.)
 
-From there `npm run deploy` is every update. If you'd rather not deploy from your laptop,
+From there `npm run deploy` is every update. Nalanda is released as numbered versions, each with
+notes on [GitHub Releases](https://github.com/isstiaung/nalanda/releases) and in
+[CHANGELOG.md](CHANGELOG.md) that say what an update changes and whether to back up first;
+[runbooks/updating.md](runbooks/updating.md) walks through one. If you'd rather not deploy from your laptop,
 point Cloudflare's dashboard git integration at a branch with an empty build command and
 `npm run deploy` as the deploy command, and set `D1_DATABASE_ID` as a build variable on
 the Worker. Resource setup, custom domains, rollback, and data migration are covered step

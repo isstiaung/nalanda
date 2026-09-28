@@ -920,6 +920,23 @@ kind. (Pairwise connections between two self-hosted instances are in scope â€” Â
     highest id it sent. The first view and its opening entries are one batch. Deleting the last view clears the log in the
     same batch, so a stale log can't survive to the next first view.
 
+42. **Nalanda is released as SemVer versions, starting at 1.0.0, with notes written for whoever
+    hosts it.** Other households run their own copies, and a migration applies itself on deploy,
+    so the one thing a self-hoster can't learn from the code is what an update will do to their
+    data. So every release says so. A version lives in package.json and `src/version.ts` (kept in
+    step by a test). CHANGELOG.md gives each release an **Upgrading** section: the migrations it
+    runs and whether to back up, any new secret, and whether connected households on older
+    versions are affected. Pushing a `vX.Y.Z` tag publishes that section as a GitHub Release
+    (`.github/workflows/release.yml`, which holds no secret beyond its own token and never
+    deploys). A patch fixes; a minor adds, including migrations that apply on their own; a
+    major needs something from the host or breaks compatibility with connections. That last
+    one is judged against the connections protocol, whose own version (in `/.well-known/nalanda`)
+    is separate and changes only when instances stop understanding each other. The app's
+    version shows on the Account page to signed-in people and is deliberately left out of the
+    public descriptor: an instance shouldn't tell the world which release, and so which known
+    bugs, it runs. v1.0.0 is the deploy of 2026-09-28 (cf2d7f2), tagged after the fact;
+    runbooks/updating.md is the self-hoster's path.
+
 The honest comparison, since it was asked:
 
 - **What this app is**: ~a dozen CRUD pages (lists, forms, a detail view) plus exactly one

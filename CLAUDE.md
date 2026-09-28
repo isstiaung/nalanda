@@ -160,11 +160,13 @@ scripts/           vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp
                    backup.mjs, wrangler-remote.mjs + remote-config.mjs (real db id → temp
                    config), seed-demo.mjs, hash-password.mjs, federation-keygen.mjs,
                    backfill-remote.mjs + ts-resolve.mjs (runs src/metadata under Node)
-runbooks/          operational guides: deploy, backup/restore, accounts, connections,
-                   libib import, goodreads import, metadata backfill, troubleshooting — update when ops
-                   procedures change
-.github/           CI (typecheck + test; no secrets, never pull_request_target),
+runbooks/          operational guides: deploy, updating (for self-hosters), backup/restore, accounts,
+                   connections, libib import, goodreads import, metadata backfill, troubleshooting —
+                   update when ops procedures change
+.github/           CI (typecheck + test; no secrets, never pull_request_target), release (on a
+                   vX.Y.Z tag: publishes that version's CHANGELOG section; never deploys),
                    dependabot (minor/patch grouped, majors alone), CODEOWNERS
+CHANGELOG.md       every release, newest first, each with an Upgrading section (ARCH.md §16 #42)
 docs/screenshots/  README imagery, captured from seeded demo data — never real catalog data
 ```
 
@@ -172,6 +174,12 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
 - **Commit after every completed feature or architectural unit** — conventional messages
   (`feat:`, `fix:`, `docs:`, `chore:`, `test:`); never batch unrelated changes into one
   commit. Push only when asked.
+- **Releases** (ARCH.md §16 #42) are SemVer. A release commit bumps the version with
+  `npm version X.Y.Z --no-git-tag-version`, updates `src/version.ts` to match (a test checks),
+  and adds the CHANGELOG.md section with its **Upgrading** block: migrations and whether to back
+  up, new secrets, compatibility with connections on older versions. After it merges, tag main
+  `vX.Y.Z`; the release workflow publishes the notes. A migration that changes data, a new
+  secret, or anything needing a manual step must be in Upgrading.
 - Handlers render a full page normally, a partial when the `HX-Request` header is present —
   one handler, two renders.
 - Mutations are POSTs; CSRF = `SameSite=Lax` session cookie + Origin-check middleware.
