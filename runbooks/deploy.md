@@ -51,7 +51,8 @@
    > fails with `D1 binding 'DB' references database '00000000-…'`.
 
 4. **Create your account**: open `<your-url>/setup` immediately — it creates the admin
-   account and disables itself once a user exists.
+   account and disables itself once a user exists. If it says `SESSION_SECRET` isn't set,
+   step 2 didn't take: set it and reload. Nothing is saved until then.
 
 ## Every subsequent deploy
 

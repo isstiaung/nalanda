@@ -1,7 +1,8 @@
 export type Bindings = {
   DB: D1Database;
   COVERS: R2Bucket;
-  SESSION_SECRET: string;
+  // Signs session cookies. Unset, empty or blank means nobody can sign in: setup and login explain (hasSessionSecret).
+  SESSION_SECRET?: string;
   DISCOGS_TOKEN?: string;
   BGG_TOKEN?: string; // BoardGameGeek application token — board games need it since BGG went registration-only
   GOOGLE_BOOKS_KEY?: string;

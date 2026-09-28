@@ -291,7 +291,8 @@ interface MetadataProvider {
 Multi-user, built into the app (no email infrastructure, no paid services):
 
 - **First deploy** shows `/setup` (only while `users` is empty) to create the **admin**
-  account (you).
+  account (you). The admin and the three starter shelves are one batch (§16 #39), every
+  statement guarded inside it by "no user yet", so two setups racing make one admin.
 - **Admin creates family accounts** at `/settings/users`: username + a temp password shown
   once; the member logs in and is forced to set their own password
   (`must_change_password`). No invites, no email, no reset flows — admin can re-issue a
@@ -303,7 +304,9 @@ Multi-user, built into the app (no email infrastructure, no paid services):
   the free plan's CPU budget. Never bcrypt/argon2 npm packages (pure-JS, would blow it).
 - Session: HMAC-signed cookie, `HttpOnly`, `Secure`, `SameSite=Lax`, 30-day expiry; per
   request the middleware also confirms the user row still exists → deleting a user is
-  instant revocation.
+  instant revocation. Without a `SESSION_SECRET` (missing, empty or whitespace) nobody can
+  sign in: `/setup` and login answer 503 with how to set one, before reading or writing
+  anything, and no cookie verifies — a blank key would sign cookies anyone could forge.
 - CSRF: `SameSite=Lax` + an Origin-check middleware on all mutating routes.
 - Login throttling: small fixed delay + per-IP attempt counter in D1.
 
