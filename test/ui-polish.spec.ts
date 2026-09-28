@@ -1,10 +1,13 @@
 // Markup behind the visual polish pass: the few places where a CSS fix needed the page to say something
 // different — a class, a wrapper, a line of copy. The styling itself is checked by eye (screenshots); these
 // pin the markup it depends on, so a later edit can't quietly undo it.
-import { env } from 'cloudflare:test';
+import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSubscription, storeEntries } from '../src/db/federation';
+import { createItem, createLibrary, createShare } from '../src/db/queries';
 import type { MediaType } from '../src/db/schema';
+import app from '../src/index';
+import { newShareToken } from '../src/lib/share';
 import type { Bindings } from '../src/env';
 import { answerOutbound, connectPeer, instanceA, json, makeKeys, makePeer, sessionCookie, setUpA, sqlAgo } from './federation-helpers';
 
@@ -131,5 +134,83 @@ describe('mobile bar', () => {
     const bar = html.slice(html.indexOf('<header class="mobile-bar">'), html.indexOf('</header>'));
     expect(bar).toContain('<div class="mobile-brand"><div class="brand-rule"></div><div class="brand-name">Nalanda</div></div>');
     expect(html.match(/class="brand-rule"/g)).toHaveLength(2); // the sidebar's and the bar's, nowhere else
+  });
+});
+
+describe('404 pages', () => {
+  const plain = instanceA(env);
+
+  it('renders inside the app, with status 404, for a signed-in reader', async () => {
+    const cookie = await sessionCookie('member');
+    for (const path of ['/no-such-page', '/items/999999', '/libraries/999999']) {
+      const res = await plain.get(path, cookie);
+      expect(res.status, path).toBe(404);
+      expect(res.headers.get('content-type'), path).toContain('text/html');
+      const html = await res.text();
+      expect(html, path).toContain('<aside class="sidebar"');
+      expect(html, path).toContain('<h1>Not found</h1>');
+      expect(html, path).toContain('href="/app.css"');
+    }
+  });
+
+  it('still sends a signed-out visitor to log in, not to a page that says what exists (negative control)', async () => {
+    const res = await plain.get('/no-such-page');
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toMatch(/\/(login|setup)$/);
+  });
+
+  it('keeps the plain-text 404 for htmx partials, JSON endpoints and connections’ machine routes', async () => {
+    const cookie = await sessionCookie('member');
+    const direct = async (path: string, headers: Record<string, string> = {}) => {
+      const ctx = createExecutionContext();
+      const res = await app.fetch(new Request(`https://a.example${path}`, { headers: { cookie, ...headers } }), env, ctx);
+      await waitOnExecutionContext(ctx);
+      return res;
+    };
+    const plainText = async (res: Response) => {
+      expect(res.status).toBe(404);
+      expect(res.headers.get('content-type')).toContain('text/plain');
+      expect(await res.text()).toBe('Not found');
+    };
+    await plainText(await direct('/items/999999', { 'hx-request': 'true' }));
+    await plainText(await direct('/api/no-such-endpoint'));
+    // a machine route on an instance without connections: no session, plain text
+    await plainText(await plain.get('/federation/views'));
+  });
+
+  it('frames a dead share link like a share page, and says nothing about what it was', async () => {
+    const shelf = await createLibrary(env.DB, 'Secret shelf name');
+    const other = await createLibrary(env.DB, 'Other shelf');
+    const token = newShareToken();
+    await createShare(env.DB, { token, name: 'Secret view name', libraryId: shelf.id });
+    const outside = await createItem(env.DB, { libraryId: other.id, title: 'Secret outside title', copies: 1 });
+
+    const unknown = await plain.get(`/share/${newShareToken()}`);
+    const notInView = await plain.get(`/share/${token}/items/${outside.id}`);
+    const noItem = await plain.get(`/share/${token}/items/999999`);
+    for (const res of [unknown, notInView, noItem]) {
+      expect(res.status).toBe(404);
+      expect(res.headers.get('content-type')).toContain('text/html');
+    }
+    const [a, b, c] = await Promise.all([unknown.text(), notInView.text(), noItem.text()]);
+    expect(a).toContain('class="share-shell"');
+    expect(a).toContain('This link has been changed or removed.');
+    expect(a).toContain('<meta name="robots" content="noindex"/>');
+    // one fixed page: an unknown token, an item outside the view and a missing item can't be told apart
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+    for (const secret of ['Secret shelf name', 'Secret view name', 'Secret outside title', 'Other shelf', token]) {
+      expect(b).not.toContain(secret);
+    }
+    expect(b).not.toMatch(/href="\/(?!share\/|app\.css|logo\.svg|covers\.js)/); // no link into the app
+  });
+
+  it('serves a live share link as before (negative control)', async () => {
+    const shelf = await createLibrary(env.DB, 'Shelf');
+    const token = newShareToken();
+    await createShare(env.DB, { token, name: 'Public view', libraryId: shelf.id });
+    const res = await plain.get(`/share/${token}`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('<h1>Public view</h1>');
   });
 });

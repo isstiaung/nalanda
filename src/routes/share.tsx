@@ -107,6 +107,20 @@ function renderShare(c: Context<AppEnv>, title: string, shelf: string, body: Chi
   return c.html(`<!doctype html>${ShareLayout({ title, shelf, children: body })}`);
 }
 
+/**
+ * Any share URL that doesn't resolve — unknown or rotated token, an item outside the view, a mistyped path. One
+ * fixed page for all of them: no share name, no shelf, no title, so it can't confirm what a link was or held.
+ */
+export function shareNotFound(c: Context<AppEnv>) {
+  c.status(404);
+  return renderShare(
+    c,
+    'Link not found',
+    'Link not found',
+    <p class="muted">This link has been changed or removed. Ask whoever sent it for a new one.</p>,
+  );
+}
+
 share.get('/:token', async (c) => {
   const token = c.req.param('token');
   const view = await getShareByToken(c.env.DB, token);

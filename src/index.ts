@@ -18,6 +18,7 @@ import importExportRoutes from './routes/importexport';
 import itemRoutes from './routes/items';
 import libraryRoutes from './routes/libraries';
 import loanRoutes from './routes/loans';
+import { notFound } from './routes/notfound';
 import notificationsRoutes from './routes/notifications';
 import searchRoutes from './routes/search';
 import settingsRoutes from './routes/settings';
@@ -122,7 +123,7 @@ app.route('/', commentsRoutes);
 app.route('/', borrowingRoutes);
 app.route('/', notificationsRoutes);
 
-app.notFound((c) => c.text('Not found', 404));
+app.notFound(notFound);
 app.onError((err, c) => {
   console.error(err);
   return c.text('Something went wrong.', 500);
