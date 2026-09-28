@@ -6,6 +6,7 @@ import { createItem, createLibrary, createShare, createUser, listTagShares, setI
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import { newShareToken } from '../src/lib/share';
 import app from '../src/index';
+import { budgeted } from '../src/federation/budget';
 
 async function seedUser(role: 'admin' | 'member') {
   return createUser(env.DB, {
@@ -118,5 +119,26 @@ describe('tag links', () => {
 
     const sharesPage = await (await request('/shares', admin.id)).text();
     expect(sharesPage.slice(sharesPage.indexOf('>Reviewed<'))).toMatch(/<td class="num">2<\/td>/);
+  });
+});
+
+describe('the Shared links page with many links', () => {
+  it('counts every link in one batched call, and each count is right', async () => {
+    const admin = await seedUser('admin');
+    const shelf = await createLibrary(env.DB, 'Main');
+    for (let n = 0; n < 5; n++) await createItem(env.DB, { libraryId: shelf.id, title: `Book ${n}`, status: n < 2 ? 'completed' : 'not_started' });
+    for (let n = 0; n < 60; n++) await createShare(env.DB, { token: newShareToken(), name: `Link ${n}`, libraryId: shelf.id, status: n % 2 ? 'completed' : null });
+
+    // 60 links on a budget of 8: the page renders only if the counts are one call, not sixty
+    const budget = { left: 8 };
+    const token = await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000));
+    const ctx = createExecutionContext();
+    const res = await app.fetch(new Request('http://nalanda.test/shares', { headers: { cookie: `${SESSION_COOKIE}=${token}` } }), { ...env, DB: budgeted(env.DB, budget) }, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(res.status).toBe(200);
+    const text = (await res.text()).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    // 30 whole-shelf links × 5 items + 30 completed-only links × 2 items = 210
+    expect(text).toMatch(/60 LINKS · 210 ITEMS PUBLIC/i);
   });
 });

@@ -201,6 +201,22 @@ export async function countMatchingItems(
   return row?.n ?? 0;
 }
 
+/**
+ * countMatchingItems for many views at once, as one batch — a single D1 call however many views there are
+ * (measured: a batch counts once against the per-invocation cap, ARCH.md §16 #37). Each statement keeps its
+ * own parameters, so D1's 100-per-statement limit never adds up across views.
+ */
+export async function countMatchingItemsMany(
+  d1: D1Database,
+  views: Array<{ libraryId: number | null; filters: ItemFilters }>,
+): Promise<number[]> {
+  if (!views.length) return [];
+  const dbi = db(d1);
+  const [first, ...rest] = views.map((v) => dbi.select({ n: count() }).from(s.items).where(itemFilterWhere(v.libraryId, v.filters)));
+  const results = await dbi.batch([first!, ...rest]);
+  return results.map((rows) => rows[0]?.n ?? 0);
+}
+
 export async function listItems(
   d1: D1Database,
   libraryId: number | null, // null = across all shelves (share views)
