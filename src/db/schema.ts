@@ -131,6 +131,17 @@ export const federationSettings = sqliteTable('federation_settings', {
 });
 
 /**
+ * Household-wide switches, in a single row (id 1). A missing row means every default, so a fresh
+ * instance needs no setup step — and every default is the private choice.
+ */
+export const siteSettings = sqliteTable('site_settings', {
+  id: integer('id').primaryKey(),
+  // Share pages show a book's reading progress only when this is on (ARCH.md §9, §16 #34).
+  progressOnShares: integer('progress_on_shares', { mode: 'boolean' }).notNull().default(false),
+  updatedAt: text('updated_at').notNull().default(now),
+});
+
+/**
  * One-time invites. Only the SHA-256 of the token is stored — the token itself is shown to the
  * admin once and never again, so a leaked database or backup can't redeem anything.
  */

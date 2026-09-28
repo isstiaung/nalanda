@@ -14,7 +14,7 @@ import {
 } from '../src/db/queries';
 import { progressHistoryCell } from '../src/lib/csv';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
-import { progressPercent } from '../src/views/components';
+import { progressPercent } from '../src/lib/progress';
 import app from '../src/index';
 
 async function seedBook(overrides: Record<string, unknown> = {}) {

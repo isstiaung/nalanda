@@ -465,6 +465,24 @@ export async function tagsForIdRange(d1: D1Database, fromId: number, toId: numbe
   return result;
 }
 
+// ---------- site settings ----------
+
+export type SiteSettings = { progressOnShares: boolean };
+const SITE_DEFAULTS: SiteSettings = { progressOnShares: false };
+
+/** One row, id 1. Absent means defaults, so a fresh instance needs no setup step. */
+export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
+  const [row] = await db(d1).select().from(s.siteSettings).where(eq(s.siteSettings.id, 1));
+  return row ? { progressOnShares: row.progressOnShares } : { ...SITE_DEFAULTS };
+}
+
+export async function updateSiteSettings(d1: D1Database, patch: Partial<SiteSettings>): Promise<void> {
+  await db(d1)
+    .insert(s.siteSettings)
+    .values({ id: 1, ...SITE_DEFAULTS, ...patch })
+    .onConflictDoUpdate({ target: s.siteSettings.id, set: { ...patch, updatedAt: sql`(datetime('now'))` } });
+}
+
 // ---------- reading progress ----------
 
 export type ProgressEntry = { id: number; page: number; at: string; addedBy: number | null };

@@ -71,7 +71,9 @@ shape from this file.
 - **Never** render on share pages: private `notes`, loans/borrowers, the `copies` count,
   `added_by`, usernames, or links into the authenticated app. (The derived boolean
   `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge.)
-  Share pages get `noindex`.
+  Reading progress appears only when an admin turns on `site_settings.progress_on_shares`
+  (off by default), and then only for a book marked in progress — `toPublicItem(item,
+  { progress })` omits the key otherwise. Share pages get `noindex`.
 - Share tokens are random 128-bit, **one per published view** (`shares` table — filters, or a
   tag, captured at publish time; `itemMatchesShare()` guards the public item route, and its
   query-side twin `shareFilters()` must stay in step with it).

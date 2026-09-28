@@ -305,6 +305,10 @@ portable, and makes share routes trivially public. CF Access remains available l
   carry a "Not owned" badge (§16 #13).
   **Never**: private notes, loans/borrowers, the copies count, added_by, or any nav into
   the authenticated app. The whitelist lives in one view module so it can't drift.
+- **Reading progress is opt-in, household-wide** (`site_settings.progress_on_shares`, off by
+  default, admin-only on **Shared links**). Even when on, only a book marked *in progress* shows
+  its page and bar — a finished book's last page is noise, an unstarted one has none — and the
+  key is omitted entirely otherwise, so nothing downstream can render a stale value (§16 #34).
 - Pages carry `<meta name="robots" content="noindex">` — links are for people you send them
   to, not search engines.
 - Unpublish or regenerate the token any time; old URLs die within a minute (the
@@ -790,9 +794,11 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     Pages aren't capped at `length`: provider page counts are routinely wrong, so percentages clamp
     at 100 instead of refusing a real page number. Books only. Both the latest page and the whole log
     leave through `/export.csv` (`progress_page`, and `progress_history` as `page@timestamp` pairs);
-    neither libib nor Goodreads exports progress, so there is nothing to map on import. Progress
-    stays off share pages — how far through a book someone is reads like a private note, not a
-    published review — but it does reach connections, as its own feed entries (§16 #35).
+    neither libib nor Goodreads exports progress, so there is nothing to map on import. On share
+    pages it is an admin's choice, off by default — how far through a book someone is reads more
+    like a private note than a published review, but some households want a public "reading now"
+    — stored in a single-row `site_settings` table whose missing row means every default, so a
+    fresh instance needs no setup (§9). It reaches connections separately, as feed entries (§16 #35).
 
 The honest comparison, since it was asked:
 

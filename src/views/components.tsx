@@ -1,6 +1,7 @@
 import type { FC } from 'hono/jsx';
 import type { Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
+import { progressPercent } from '../lib/progress';
 import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
 
@@ -87,15 +88,6 @@ export const NotOwnedPill: FC = () => <span class="pill ghost">Not owned</span>;
 /** Same as NotOwnedPill but clickable — one tap sets copies to 1 in place (htmx),
  *  swapping itself for a MarkNotOwnedButton. No edit form. Authenticated views
  *  only; share pages keep the plain NotOwnedPill. */
-/**
- * Percent read, or null when it can't be known: no page recorded, or no page count for the book.
- * Clamped at 100 because provider page counts are often lower than the edition in someone's hands.
- */
-export function progressPercent(page: number | null, length: number | null): number | null {
-  if (!page || !length || length <= 0) return null;
-  return Math.min(100, Math.round((page / length) * 100));
-}
-
 /**
  * Reading progress for a book: where you are, the log of how you got there, and one field to add to
  * it. Swaps itself on every change (hx-target on the section), so the bar, the figures and the log

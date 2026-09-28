@@ -2,7 +2,7 @@
 // toPublicItem() (src/lib/share.ts). See ARCH.md §9 and CLAUDE.md privacy invariants.
 import { Hono, type Context } from 'hono';
 import type { Child, FC, PropsWithChildren } from 'hono/jsx';
-import { getItem, getShareByToken, listItems, tagsForItems } from '../db/queries';
+import { getItem, getShareByToken, getSiteSettings, listItems, tagsForItems } from '../db/queries';
 import type { AppEnv } from '../env';
 import { itemMatchesShare, shareFilters, toPublicItem, type PublicItem } from '../lib/share';
 import { DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, stars } from '../views/components';
@@ -116,7 +116,7 @@ share.get('/:token', async (c) => {
     ...shareFilters(view),
     page: pageNum,
   });
-  const publicItems = items.map(toPublicItem);
+  const publicItems = items.map((i) => toPublicItem(i));
 
   return renderShare(
     c,
@@ -142,9 +142,10 @@ share.get('/:token/items/:id', async (c) => {
   if (!view) return c.notFound();
   const item = await getItem(c.env.DB, Number(c.req.param('id')));
   if (!item) return c.notFound();
-  const tags = (await tagsForItems(c.env.DB, [item.id])).get(item.id) ?? [];
+  const [tagMap, settings] = await Promise.all([tagsForItems(c.env.DB, [item.id]), getSiteSettings(c.env.DB)]);
+  const tags = tagMap.get(item.id) ?? [];
   if (!itemMatchesShare(view, item, tags)) return c.notFound(); // token only unlocks its own view
-  const pub = toPublicItem(item);
+  const pub = toPublicItem(item, { progress: settings.progressOnShares });
 
   return renderShare(
     c,
@@ -173,6 +174,29 @@ share.get('/:token/items/:id', async (c) => {
         <dl class="props">
           <dt>Type</dt>
           <dd>{MEDIA_LABEL[pub.mediaType]}</dd>
+          {pub.progress ? (
+            <>
+              <dt>Reading</dt>
+              <dd>
+                <span class="mono">p. {pub.progress.page}</span>
+                {pub.progress.length ? (
+                  <>
+                    {' of '}
+                    <span class="mono">{pub.progress.length}</span>
+                  </>
+                ) : null}
+                {pub.progress.percent !== null ? (
+                  <>
+                    {' · '}
+                    <span class="mono">{pub.progress.percent}%</span>
+                    <div class="progress-track" role="img" aria-label={`${pub.progress.percent}% read`}>
+                      <div class="progress-fill" style={`width:${pub.progress.percent}%`} />
+                    </div>
+                  </>
+                ) : null}
+              </dd>
+            </>
+          ) : null}
           {!pub.inCollection ? (
             <>
               <dt>Holding</dt>

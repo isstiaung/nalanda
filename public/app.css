@@ -245,6 +245,8 @@ button.linklike:hover { background: var(--surface-2); color: var(--ink); }
 .inline { display: inline; }
 .inline-form { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 .inline-form input, .inline-form select { width: auto; margin: 0; }
+/* A label in a single row keeps its text on the row's centre line — the stacked-form margin below would lift it. */
+.inline-form label { display: inline-flex; align-items: center; margin: 0; }
 
 /* ── forms ────────────────────────────────────────────────────────────────── */
 
@@ -537,6 +539,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .progress-log { list-style: none; padding: 0; margin: 0.7rem 0 0; display: grid; gap: 0.25rem; font-size: 13px; }
 .progress-log li { display: flex; align-items: baseline; gap: 0.6rem; }
 .progress-log li .mono:first-child { min-width: 4.5rem; }
+/* In a props row (share pages) the bar takes its own line under the figures instead of shrinking to nothing. */
+.props dd .progress-track { flex-basis: 100%; margin: 0.2rem 0 0; }
 
 .circulation { border: 1px solid var(--line); border-left: 3px solid var(--stamp); border-radius: var(--radius); padding: 0.8rem 1rem; margin-top: 1.4rem; background: var(--surface); }
 .circulation.free { border-left-color: var(--line-strong); }
