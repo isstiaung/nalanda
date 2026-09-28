@@ -91,6 +91,7 @@ wrangler d1 create nalanda            # note the id it prints
 wrangler r2 bucket create nalanda-covers
 wrangler secret put SESSION_SECRET
 wrangler secret put DISCOGS_TOKEN     # free — enables vinyl barcode lookup
+wrangler secret put BGG_TOKEN         # free — enables board game search (runbooks/deploy.md → API tokens)
 wrangler secret put HOME_SHARE_TOKEN  # optional — logged-out "/" redirects to this share
 wrangler secret put FEDERATION_PRIVATE_KEY  # optional — turns on connections; see runbooks/connections.md
 

@@ -445,11 +445,15 @@ describe('following another household', () => {
     const member = await sessionCookie('member');
     const counter = { left: 100_000 };
     const counted = instanceA({ ...env, DB: budgeted(env.DB, counter), FEDERATION_PRIVATE_KEY: keysA.secret } as Bindings);
+    // Running out of budget is the normal way a busy load ends its background work: it must stop quietly.
+    // Drizzle wraps the BudgetSpent in its own error, which the guard used to miss and log as a failure.
+    const logged = vi.spyOn(console, 'error');
     for (let load = 0; load < 3; load++) {
       const before = counter.left;
       await counted.get('/feed', member);
       expect(before - counter.left).toBeLessThanOrEqual(50);
     }
+    expect(logged.mock.calls.map((call) => String(call[0]))).toEqual([]);
     // One refresh at a time, most overdue first: every subscription gets its turn within a few loads.
     expect(await rows('SELECT count(*) AS n FROM feed_subscriptions WHERE cursor > 0')).toEqual([{ n: 4 }]);
   });
