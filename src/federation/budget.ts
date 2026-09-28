@@ -8,7 +8,18 @@ export class BudgetSpent extends Error {
   }
 }
 
-export const isBudgetSpent = (err: unknown): boolean => err instanceof BudgetSpent;
+/**
+ * Whether an error is, or was caused by, a spent budget. Drizzle wraps a failed query in a DrizzleQueryError
+ * with the original as its `cause`, so a bare instanceof never matched a budget spent inside a Drizzle query:
+ * background work that should have stopped quietly logged "outbox pull failed" and "background refresh
+ * failed", and the rethrow skipped the feed refresh that should have run next.
+ */
+export function isBudgetSpent(err: unknown): boolean {
+  for (let e = err, depth = 0; e && depth < 8; e = (e as { cause?: unknown }).cause, depth++) {
+    if (e instanceof BudgetSpent) return true;
+  }
+  return false;
+}
 
 export type Budget = { left: number };
 
