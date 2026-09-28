@@ -285,6 +285,18 @@ input[type='checkbox'] { width: auto; height: auto; margin: 0 0.4rem 0 0; accent
 input[type='date'] { font-family: var(--mono); font-size: 12px; }
 input[inputmode='numeric'] { font-family: var(--mono); }
 input[type='search'] { font-size: 13px; }
+input[type='file'] { height: auto; padding: 0.25rem; }
+input[type='file']::file-selector-button {
+  font: 600 12.5px var(--sans);
+  height: 24px;
+  padding: 0 0.7rem;
+  margin-right: 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--ink);
+  cursor: pointer;
+}
 
 .form-card { max-width: 640px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0 1rem; }
@@ -428,7 +440,7 @@ html[data-hide-cols~="acc"] .col-acc { display: none; }
 a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
 .tag-cloud { line-height: 2.1; }
 
-.acc-no { font-family: var(--mono); font-size: 11px; color: var(--ink-3); letter-spacing: 0.04em; }
+.acc-no { font-family: var(--mono); font-size: 11px; color: var(--ink-3); letter-spacing: 0.04em; white-space: nowrap; }
 .rating { color: var(--brass); font-size: 12.5px; letter-spacing: 0.08em; white-space: nowrap; }
 
 /* ── covers & grid view ───────────────────────────────────────────────────── */
@@ -443,7 +455,9 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .item-meta { display: flex; flex-direction: column; line-height: 1.3; }
 .item-meta strong { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .item-meta small { font-size: 11px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item-meta .mline { display: flex; gap: 0.4rem; align-items: center; margin-top: 0.1rem; }
+.item-meta .mline { display: flex; flex-wrap: wrap; gap: 0.15rem 0.4rem; align-items: center; margin-top: 0.1rem; }
+/* the accession number (or a share card's type) never shrinks to "№ 00…" — a pill wraps below it instead */
+.item-meta .mline > small { flex: none; }
 
 /* ── toolbar / filters / view toggle ──────────────────────────────────────── */
 
@@ -516,7 +530,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 
 .item-detail { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 1.75rem; align-items: start; }
 .item-detail-cover { position: sticky; top: 1.5rem; }
-.item-detail-cover .cover-img, .item-detail-cover .cover-fallback { border-radius: var(--radius); box-shadow: var(--shadow), 0 0 0 1px var(--line); width: 100%; aspect-ratio: 2 / 3; font-size: 3.5rem; }
+.item-detail-cover .cover-img, .item-detail-cover .cover-fallback { border-radius: var(--radius); box-shadow: var(--shadow), 0 0 0 1px var(--line); width: 100%; aspect-ratio: 2 / 3; font-size: 3.5rem; background: var(--surface-2); }
 .item-detail-body hgroup { margin-bottom: 0.4rem; }
 .item-detail-body hgroup h1 { font-size: 24px; }
 .item-detail-body hgroup p { color: var(--ink-2); font-size: 14px; margin: 0.15rem 0 0; }
@@ -607,7 +621,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 
 .details-list { display: grid; grid-template-columns: max-content 1fr; gap: 0.1rem 1rem; font-size: 12.5px; }
 .details-list dt { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); padding-top: 0.15rem; }
-.details-list dd { margin: 0; }
+.details-list dd { margin: 0; font-family: var(--mono); font-size: 12px; } /* catalogue data: ISBNs, ids, formats */
 
 /* ── responsive ───────────────────────────────────────────────────────────── */
 
@@ -687,6 +701,7 @@ details.thread::after { content: none; }
 .comment { border-left: 2px solid var(--line-strong); padding: 0.05rem 0 0.05rem 0.7rem; margin: 0.45rem 0; }
 .comment-meta { margin: 0; font-size: 11.5px; color: var(--ink-2); }
 .comment-meta .inline { display: inline; margin-left: 0.45rem; }
+.comment-meta .mono { white-space: nowrap; }
 button.comment-delete, button.progress-delete { height: auto; padding: 0; border: none; background: none; font-size: 11.5px; font-weight: 400; color: var(--ink-3); text-decoration: underline; text-underline-offset: 2px; }
 button.comment-delete:hover, button.progress-delete:hover { background: none; color: var(--stamp); }
 .comment .prewrap { margin: 0.15rem 0 0; font-size: 13px; overflow-wrap: anywhere; }
