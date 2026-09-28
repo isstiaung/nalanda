@@ -335,7 +335,7 @@ async function enrich(target, flags) {
   const requireGoogleBooks = Boolean(flags['require-google-books']);
 
   const M = await loadMetadata();
-  const env = { GOOGLE_BOOKS_KEY: secret('GOOGLE_BOOKS_KEY'), DISCOGS_TOKEN: secret('DISCOGS_TOKEN') };
+  const env = { GOOGLE_BOOKS_KEY: secret('GOOGLE_BOOKS_KEY'), DISCOGS_TOKEN: secret('DISCOGS_TOKEN'), BGG_TOKEN: secret('BGG_TOKEN') };
   const { health, realFetch } = instrumentFetch({ rps });
 
   const googleBooks = await preflight(realFetch, env.GOOGLE_BOOKS_KEY);
