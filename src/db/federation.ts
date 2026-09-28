@@ -630,9 +630,15 @@ export async function claimSubscription(d1: D1Database, id: number, lastPulledAt
 export async function recordPull(
   d1: D1Database,
   sub: Pick<FeedSubscription, 'id' | 'intervalMinutes'>,
-  result: { cursor?: number; error: string | null; again?: boolean },
+  result: PullResult,
 ): Promise<void> {
-  await db(d1)
+  await recordPullQuery(d1, sub, result);
+}
+
+type PullResult = { cursor?: number; error: string | null; again?: boolean };
+
+const recordPullQuery = (d1: D1Database, sub: Pick<FeedSubscription, 'id' | 'intervalMinutes'>, result: PullResult) =>
+  db(d1)
     .update(s.feedSubscriptions)
     .set({
       lastError: result.error,
@@ -640,6 +646,26 @@ export async function recordPull(
       ...(result.again ? { lastPulledAt: sql`(datetime('now', ${`-${sub.intervalMinutes} minutes`}))` } : {}),
     })
     .where(eq(s.feedSubscriptions.id, sub.id));
+
+/**
+ * A pulled page of their feed: the day's allowance charged for the entries kept, the entries stored and the
+ * pull recorded, in one batch. The charge went first as a call of its own, so a failed store spent up to a
+ * page of the connection's daily allowance on nothing; and a record that failed after the store pulled — and
+ * charged — the same page again.
+ */
+export async function storePulledPage(d1: D1Database, sub: DueSubscription, entries: NewRemoteActivity[], result: PullResult): Promise<void> {
+  const charge = entries.length
+    ? [
+        d1
+          .prepare(
+            `INSERT INTO connection_push_counts (connection_id, day, pushes, feed_entries) VALUES (?1, date('now'), 0, ?2)
+             ON CONFLICT (connection_id, day) DO UPDATE SET feed_entries = feed_entries + ?2`,
+          )
+          .bind(sub.connectionId, entries.length),
+        storeEntriesStatement(d1, sub.id, entries),
+      ]
+    : [];
+  await d1.batch([...charge, statement(d1, recordPullQuery(d1, sub, result))]);
 }
 
 /**
@@ -678,7 +704,11 @@ export type NewRemoteActivity = {
  */
 export async function storeEntries(d1: D1Database, subscriptionId: number, entries: NewRemoteActivity[]): Promise<void> {
   if (!entries.length) return;
-  await d1
+  await storeEntriesStatement(d1, subscriptionId, entries).run();
+}
+
+function storeEntriesStatement(d1: D1Database, subscriptionId: number, entries: NewRemoteActivity[]): D1PreparedStatement {
+  return d1
     .prepare(
       `INSERT OR IGNORE INTO remote_activities
          (subscription_id, remote_id, item_remote_id, item_stamp, kind, published_at, item, bytes)
@@ -688,31 +718,21 @@ export async function storeEntries(d1: D1Database, subscriptionId: number, entri
               json_extract(value, '$.bytes')
        FROM json_each(?2)`,
     )
-    .bind(subscriptionId, JSON.stringify(entries))
-    .run();
+    .bind(subscriptionId, JSON.stringify(entries));
 }
 
 /**
- * How many of `wanted` new feed entries a connection may still store today — counted as taken. Honest
- * households stay far below the limit; it caps the D1 writes a flood from a modified one could cause.
+ * How many of `wanted` new feed entries a connection may still store today; `storePulledPage` charges them as
+ * it stores them. Honest households stay far below the limit; it caps the D1 writes a flood from a modified
+ * one could cause.
  */
-export async function takeFeedAllowance(d1: D1Database, connectionId: number, wanted: number, limit: number): Promise<number> {
+export async function feedAllowance(d1: D1Database, connectionId: number, wanted: number, limit: number): Promise<number> {
   if (wanted <= 0) return 0;
   const today = await d1
     .prepare(`SELECT feed_entries FROM connection_push_counts WHERE connection_id = ?1 AND day = date('now')`)
     .bind(connectionId)
     .first<{ feed_entries: number }>();
-  const allowed = Math.max(0, Math.min(wanted, limit - (today?.feed_entries ?? 0)));
-  if (allowed > 0) {
-    await d1
-      .prepare(
-        `INSERT INTO connection_push_counts (connection_id, day, pushes, feed_entries) VALUES (?1, date('now'), 0, ?2)
-         ON CONFLICT (connection_id, day) DO UPDATE SET feed_entries = feed_entries + ?2`,
-      )
-      .bind(connectionId, allowed)
-      .run();
-  }
-  return allowed;
+  return Math.max(0, Math.min(wanted, limit - (today?.feed_entries ?? 0)));
 }
 
 export async function storedRemoteIds(d1: D1Database, subscriptionId: number): Promise<number[]> {

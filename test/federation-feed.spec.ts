@@ -588,6 +588,39 @@ describe('following another household', () => {
     expect(await (await a.get(`/connections/${connectionId}/feed`, admin)).text()).toContain('No longer shared');
   });
 
+  it('charges the daily allowance only for entries it stores, wherever the pull runs out', async () => {
+    // Charged as a call of its own before the store, a failure between the two spent a page of the
+    // connection's allowance on nothing; and a failed record after the store pulled and charged it again.
+    const sub = await follow();
+    const identity = (await loadIdentity(keysA.secret))!;
+    const settings = (await getFederationSettings(env.DB))!;
+    const entry = (id: number) => ({
+      id, kind: 'rated', published: sqlAgo(1),
+      item: { id, mediaType: 'book', title: `Book ${id}`, creators: null, published: null, coverKey: null, rating: 8, review: null, reviewTruncated: false, inCollection: true, completedOn: null, stamp: '0123456789abcdef', progress: null },
+    });
+    answerOutbound((req) =>
+      new URL(req.url).pathname === '/federation/feed'
+        ? json({ view: sub.viewId, latest: 3, more: false, entries: [entry(1), entry(2), entry(3)] })
+        : json({ invalid: [], viewGone: false }),
+    );
+    for (let left = 0; ; left++) {
+      expect(left, 'never finished').toBeLessThan(20);
+      await env.DB.batch(['remote_activities', 'connection_push_counts'].map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
+      await env.DB.prepare('UPDATE feed_subscriptions SET cursor = 0, last_pulled_at = NULL').run();
+      const [due] = await dueSubscriptions(env.DB, 1);
+
+      await refreshSubscription(budgeted(env.DB, { left }), identity, settings, due!).catch((err) => {
+        if (!isBudgetSpent(err)) throw err;
+      });
+
+      const stored = (await rows('SELECT id FROM remote_activities')).length;
+      const charged = (await rows<{ n: number }>('SELECT coalesce(sum(feed_entries), 0) AS n FROM connection_push_counts'))[0]!.n;
+      const cursor = (await rows<{ cursor: number }>('SELECT cursor FROM feed_subscriptions'))[0]!.cursor;
+      expect({ charged, cursor }, `with room for ${left} queries`).toEqual({ charged: stored, cursor: stored ? 3 : 0 });
+      if (stored) return;
+    }
+  });
+
   it('counts what a withdrawn view took with it, wherever the pull runs out', async () => {
     // Deleted before the count was recorded, a failure between the two lost the count: the next pull, with
     // nothing left to delete, marked the view gone and the Feed page never said what had gone with it.
