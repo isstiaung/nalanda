@@ -20,8 +20,11 @@ Local dev prints to the `npm run dev` terminal.
 
 ## Lookups
 
-- **BGG empty results / slow**: BoardGameGeek throttles anonymously — wait a few seconds
-  and retry; the search tolerates it. Persistent failures usually mean BGG itself is down.
+- **Board game search asks for `BGG_TOKEN`, or says BoardGameGeek rejected it**: BGG needs a
+  registered application's token for every request since 2025 — see [deploy.md](deploy.md) →
+  API tokens. A token that worked and now doesn't was likely revoked; issue a new one.
+- **BGG empty results / slow**: BoardGameGeek throttles — wait a few seconds and retry; the
+  search tolerates it. Persistent failures usually mean BGG itself is down.
 - **Discogs 401 in logs**: token revoked or mistyped — re-run
   `npx wrangler secret put DISCOGS_TOKEN`.
 - **Weird edition data** (wrong publisher/year): providers return their "best" edition.

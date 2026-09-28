@@ -1,7 +1,7 @@
 // Provider chain + barcode routing. Nothing outside src/metadata/ calls external APIs.
 import type { Bindings } from '../env';
 import type { MediaType } from '../db/schema';
-import { bgg } from './bgg';
+import { bgg, BggAuthError } from './bgg';
 import { discogs } from './discogs';
 import { googleBooks } from './googlebooks';
 import { itunesCoverByIsbn } from './itunes';
@@ -183,7 +183,10 @@ export async function findCover(
   };
 
   const query = searchableTitle(title);
-  if (mediaType === 'boardgame') return fromSearches([() => bgg.search(query)]);
+  if (mediaType === 'boardgame') {
+    if (!env.BGG_TOKEN) return null; // no token, no BGG — nothing to find a board game's cover with
+    return fromSearches([() => bgg(env.BGG_TOKEN).search(query)]);
+  }
   if (mediaType === 'vinyl' || mediaType === 'music') {
     if (!env.DISCOGS_TOKEN) return key || details ? { key, method, candidate: details } : null;
     const q = firstCreator ? `${firstCreator} ${query}` : query;
@@ -241,11 +244,25 @@ export async function searchByName(env: Bindings, q: string, type: SearchType): 
     return { candidates, notices: candidates.length ? [] : ['No books found on Open Library.'] };
   }
   if (type === 'boardgame') {
-    const candidates = await bgg.search(q).catch(() => [] as Candidate[]);
-    return {
-      candidates,
-      notices: candidates.length ? [] : ['No board games found on BoardGameGeek (it occasionally throttles — retry).'],
-    };
+    if (!env.BGG_TOKEN) {
+      return {
+        candidates: [],
+        notices: ['BoardGameGeek needs a registered app token now. Set the BGG_TOKEN secret to search board games.'],
+      };
+    }
+    try {
+      const candidates = await bgg(env.BGG_TOKEN).search(q);
+      return {
+        candidates,
+        notices: candidates.length ? [] : ['No board games found on BoardGameGeek (it occasionally throttles — retry).'],
+      };
+    } catch (err) {
+      const notice =
+        err instanceof BggAuthError
+          ? 'BoardGameGeek rejected the BGG_TOKEN — it may have been revoked or mistyped. Issue a new one and set it again.'
+          : 'BoardGameGeek did not answer — retry in a moment.';
+      return { candidates: [], notices: [notice] };
+    }
   }
   if (!env.DISCOGS_TOKEN) {
     return { candidates: [], notices: ['Set the DISCOGS_TOKEN secret to enable Discogs vinyl search.'] };
