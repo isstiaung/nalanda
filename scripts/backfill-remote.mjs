@@ -34,7 +34,8 @@ import { DATABASE, removeRemoteConfig, writeRemoteConfig } from './remote-config
 const execFileAsync = promisify(execFile);
 const BUCKET = 'nalanda-covers';
 const ROOT = '.backfill';
-const REMOTE_CONFIG = '.wrangler-remote-backfill.jsonc';
+// one per process: a `status` run during an `apply` must not delete the copy the apply is using
+const REMOTE_CONFIG = `.wrangler-remote-backfill-${process.pid}.jsonc`;
 const BACKUP_MAX_AGE_HOURS = 12;
 const SQL_BATCH = 200;
 
@@ -54,6 +55,8 @@ function fail(message) {
   process.exit(1);
 }
 
+const NUMBER_FLAGS = new Set(['sample', 'limit', 'concurrency', 'rps']);
+
 function parseFlags(args, allowed) {
   const flags = {};
   for (let i = 0; i < args.length; i++) {
@@ -62,7 +65,10 @@ function parseFlags(args, allowed) {
     const key = arg.slice(2);
     if (!allowed.includes(key)) fail(`Unknown option --${key}. This command takes: ${allowed.map((a) => `--${a}`).join(' ') || 'no options'}`);
     const next = args[i + 1];
-    if (next === undefined || next.startsWith('--')) flags[key] = true;
+    if (next === undefined || next.startsWith('--')) {
+      if (NUMBER_FLAGS.has(key)) fail(`--${key} needs a number after it`);
+      flags[key] = true;
+    }
     else {
       flags[key] = next;
       i++;
@@ -73,6 +79,7 @@ function parseFlags(args, allowed) {
 
 function positiveInt(value, name, fallback) {
   if (value === undefined) return fallback;
+  if (value === true) fail(`--${name} needs a number after it`);
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) fail(`--${name} needs a positive number`);
   return n;
@@ -179,7 +186,7 @@ async function counts(target) {
 // ---------- export ----------
 
 // Same selection as the in-app backfill (backfillable() in src/db/queries.ts).
-const QUEUE_SQL = `SELECT id, media_type, title, creators, isbn13, isbn10_upc, publisher, published, length, cover_key,
+const QUEUE_SQL = `SELECT id, added_at, media_type, title, creators, isbn13, isbn10_upc, publisher, published, length, cover_key,
   CASE WHEN description IS NULL OR trim(description) = '' THEN 0 ELSE 1 END AS has_description
 FROM items WHERE cover_key IS NULL OR description IS NULL OR description = '' ORDER BY id`;
 
@@ -260,12 +267,17 @@ function instrumentFetch({ rps }) {
     health.stats.set(host, s);
   };
   const noteFailure = (host, why) => {
+    health.failureEvents = (health.failureEvents ?? 0) + 1;
     const n = (failures.get(host) ?? 0) + 1;
     failures.set(host, n);
     if (n >= FAILURES_BEFORE_STOPPING) health.stopReason ??= `${n} consecutive failures from ${host} (${why})`;
   };
+  // Requests a second per host. Open Library takes --rps; the others follow their own published limits —
+  // Discogs allows 60 a minute, MusicBrainz and its Cover Art Archive one a second, and Google Books
+  // enforces a per-minute limit as well as its daily one.
+  const PACE = { 'www.googleapis.com': 1, 'api.discogs.com': 1, 'musicbrainz.org': 1, 'coverartarchive.org': 1 };
   const waitForSlot = async (host) => {
-    const gap = 1000 / (host === OPEN_LIBRARY ? rps : 4);
+    const gap = 1000 / (host === OPEN_LIBRARY ? rps : (PACE[host] ?? 4));
     const now = Date.now();
     const at = Math.max(now, slots.get(host) ?? 0);
     slots.set(host, at + gap);
@@ -283,7 +295,16 @@ function instrumentFetch({ rps }) {
         await waitForSlot(host);
         const res = await realFetch(input, { ...init, signal: AbortSignal.timeout(25_000) });
         if (res.status === 429 && host === GOOGLE_BOOKS) {
-          if (!health.googleBooksExhausted) console.log('  ! Google Books quota exhausted — skipping it from here on');
+          // Google answers 429 for its per-minute limit too. Only the daily one — its message names
+          // "Queries per day" — means the rest of the day is lost; a per-minute one is waited out once.
+          const message = await res.clone().text().catch(() => '');
+          if (!/per day/i.test(message) && attempt === 0) {
+            bump(host, 'limited');
+            console.log('  … Google Books per-minute limit — waiting a minute');
+            await sleep(60_000);
+            continue;
+          }
+          if (!health.googleBooksExhausted) console.log('  ! Google Books daily quota exhausted — skipping it from here on');
           health.googleBooksExhausted = true;
           bump(host, 'limited');
           return res;
@@ -322,7 +343,11 @@ async function preflight(realFetch, googleBooksKey) {
   const gb = await realFetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:9780141439471&maxResults=1&key=${googleBooksKey}`, {
     signal: AbortSignal.timeout(25_000),
   }).catch(() => null);
-  if (gb?.status === 429) return 'exhausted';
+  if (gb?.status === 429) {
+    // only the daily limit is final; a per-minute one just means the run paces itself
+    const message = await gb.text().catch(() => '');
+    return /per day/i.test(message) ? 'exhausted' : 'available (briefly rate-limited)';
+  }
   return gb?.ok ? 'available' : `unavailable (${gb ? `HTTP ${gb.status}` : 'no answer'})`;
 }
 
@@ -335,7 +360,7 @@ async function enrich(target, flags) {
   const requireGoogleBooks = Boolean(flags['require-google-books']);
 
   const M = await loadMetadata();
-  const env = { GOOGLE_BOOKS_KEY: secret('GOOGLE_BOOKS_KEY'), DISCOGS_TOKEN: secret('DISCOGS_TOKEN') };
+  const env = { GOOGLE_BOOKS_KEY: secret('GOOGLE_BOOKS_KEY'), DISCOGS_TOKEN: secret('DISCOGS_TOKEN'), BGG_TOKEN: secret('BGG_TOKEN') };
   const { health, realFetch } = instrumentFetch({ rps });
 
   const googleBooks = await preflight(realFetch, env.GOOGLE_BOOKS_KEY);
@@ -388,7 +413,7 @@ async function enrich(target, flags) {
     const needsCover = !item.cover_key;
     const result = await M.findCover(
       env,
-      { barcode: item.isbn13 ?? item.isbn10_upc, title: item.title, creators: item.creators, mediaType: item.media_type },
+      { barcode: item.isbn13 ?? item.isbn10_upc, title: item.title, creators: item.creators, mediaType: item.media_type, wantCover: needsCover },
       needsCover ? storeCoverLocally : async () => null,
     );
     const patch = {};
@@ -424,6 +449,7 @@ async function enrich(target, flags) {
   async function worker() {
     while (cursor < todo.length && !stopReason()) {
       const item = todo[cursor++];
+      const failuresBefore = health.failureEvents ?? 0;
       let out;
       try {
         out = await lookUp(item);
@@ -431,9 +457,9 @@ async function enrich(target, flags) {
         out = { id: item.id, title: item.title, patch: {}, error: String(err?.message ?? err).slice(0, 200) };
         tally.errors++;
       }
-      // An empty answer given while the run was failing is not evidence the book can't be found.
-      // Leave it unrecorded so the next run looks again.
-      if (!hasPatch(out) && stopReason()) {
+      // An empty answer given while a provider was failing is not evidence the book can't be found —
+      // providers report a failure as "nothing found". Leave it unrecorded so the next run looks again.
+      if (!hasPatch(out) && (stopReason() || (health.failureEvents ?? 0) > failuresBefore)) {
         tally.unrecorded++;
         continue;
       }
@@ -510,32 +536,45 @@ const stamp = "updated_at = datetime('now')";
 
 function buildStatements(target) {
   const uploaded = new Set(readLines(paths(target).uploaded));
+  // items.id is a plain rowid, which SQLite reuses after the newest row is deleted. A book deleted during a
+  // long enrich could hand its id to the next one added, and the answers found for the first would land on
+  // the second. Each UPDATE therefore also matches the row's added_at, captured at export.
+  const addedAt = new Map(readJson(paths(target).queue, []).map((q) => [Number(q.id), q.added_at]));
   const statements = [];
   const tally = { cover: 0, description: 0, publisher: 0, published: 0, length: 0, coverNotUploaded: 0 };
   for (const r of latestResults(target)) {
     const p = r.patch ?? {};
     const id = Number(r.id);
+    if (!addedAt.get(id)) throw new Error(`#${id} has no added_at in the export — run export again rather than apply this.`);
+    const where = `WHERE id = ${id} AND added_at = ${text(addedAt.get(id))}`;
     if (p.cover_key && !uploaded.has(p.cover_key)) tally.coverNotUploaded++;
     // only ever point at a cover that is actually in the bucket
     if (p.cover_key && uploaded.has(p.cover_key)) {
       if (!/^[0-9a-f-]{36}$/.test(p.cover_key)) throw new Error(`Unexpected cover key for #${id}: ${p.cover_key}`);
-      statements.push(`UPDATE items SET cover_key = '${p.cover_key}', ${stamp} WHERE id = ${id} AND cover_key IS NULL;`);
+      statements.push(`UPDATE items SET cover_key = '${p.cover_key}', ${stamp} ${where} AND cover_key IS NULL;`);
       tally.cover++;
     }
     if (p.description) {
-      statements.push(`UPDATE items SET description = ${text(p.description)}, ${stamp} WHERE id = ${id} AND (description IS NULL OR trim(description) = '');`);
-      tally.description++;
+      const statement = `UPDATE items SET description = ${text(p.description)}, ${stamp} ${where} AND (description IS NULL OR trim(description) = '');`;
+      // D1 takes statements up to 100 KB, and hex doubles the text: a description that long would fail
+      // its whole file, so it's left out and named instead.
+      if (statement.length > 95_000) {
+        console.log(`  #${id}: description too long for one statement (${p.description.length} chars), left out`);
+      } else {
+        statements.push(statement);
+        tally.description++;
+      }
     }
     if (p.publisher) {
-      statements.push(`UPDATE items SET publisher = ${text(p.publisher)}, ${stamp} WHERE id = ${id} AND (publisher IS NULL OR trim(publisher) = '');`);
+      statements.push(`UPDATE items SET publisher = ${text(p.publisher)}, ${stamp} ${where} AND (publisher IS NULL OR trim(publisher) = '');`);
       tally.publisher++;
     }
     if (p.published) {
-      statements.push(`UPDATE items SET published = ${text(p.published)}, ${stamp} WHERE id = ${id} AND (published IS NULL OR trim(published) = '');`);
+      statements.push(`UPDATE items SET published = ${text(p.published)}, ${stamp} ${where} AND (published IS NULL OR trim(published) = '');`);
       tally.published++;
     }
     if (p.length && Number.isInteger(Number(p.length))) {
-      statements.push(`UPDATE items SET length = ${Number(p.length)}, ${stamp} WHERE id = ${id} AND length IS NULL;`);
+      statements.push(`UPDATE items SET length = ${Number(p.length)}, ${stamp} ${where} AND length IS NULL;`);
       tally.length++;
     }
   }
@@ -553,6 +592,19 @@ function recentBackup() {
   return candidates[0] ?? null;
 }
 
+/**
+ * Whether a backup's items file is whole: it ends on a complete statement, and holds nearly every item
+ * production has now. A download that broke mid-stream fails the first; a stale or half-finished backup
+ * with a fresh timestamp fails the second. A few items added since the backup are allowed for.
+ */
+function backupLooksComplete(file, liveTotal) {
+  const text = readFileSync(file, 'utf8');
+  const lines = text.split('\n').filter((l) => l.trim());
+  const rows = lines.filter((l) => l.startsWith('INSERT INTO')).length;
+  const endsWhole = !lines.length || lines.at(-1).trimEnd().endsWith(';');
+  return { ok: endsWhole && rows >= Math.floor(liveTotal * 0.98), rows, endsWhole };
+}
+
 const describeCounts = (c) => `${c.noCover} missing a cover, ${c.noDescription} missing a description (of ${c.total})`;
 
 async function apply(target) {
@@ -563,7 +615,14 @@ async function apply(target) {
     if (!backup || backup.ageHours > BACKUP_MAX_AGE_HOURS) {
       fail(`Take a backup first — npm run backup. (${backup ? `The newest is ${backup.ageHours.toFixed(1)} hours old.` : 'None found.'})`);
     }
-    console.log(`Backup: ${backup.file}, ${backup.ageHours.toFixed(1)} hours old`);
+    const whole = backupLooksComplete(backup.file, (await counts(target)).total);
+    if (!whole.ok) {
+      fail(
+        `The newest backup looks incomplete (${whole.rows} items${whole.endsWhole ? '' : ', cut off mid-statement'}). ` +
+          'Take a fresh one — npm run backup — and apply again.',
+      );
+    }
+    console.log(`Backup: ${backup.file}, ${backup.ageHours.toFixed(1)} hours old, ${whole.rows} items`);
   }
 
   const resultLines = readLines(p.results).length;
@@ -598,7 +657,7 @@ async function apply(target) {
     }
     const results = await d1Json(target, ['--file', file]);
     // a wrangler run can exit cleanly having done nothing, so judge it by what D1 reports
-    const reported = results.every((r) => r?.success !== false && r?.meta);
+    const reported = results.length > 0 && results.every((r) => r?.success !== false && r?.meta);
     if (!reported) throw new Error(`D1 gave no result for ${file}; stopping. Nothing after it was applied.`);
     appendFileSync(p.applied, `${hash}\n`);
     const written = results.map((r) => r.meta.rows_written).filter((n) => typeof n === 'number');
@@ -608,9 +667,13 @@ async function apply(target) {
   const after = await counts(target);
   console.log(`After:  ${describeCounts(after)}`);
   console.log(`Filled: ${before.noCover - after.noCover} covers, ${before.noDescription - after.noDescription} descriptions`);
-  if (!interrupted) {
+  // A cover still waiting to upload keeps the run open: otherwise the next export would archive it
+  // unapplied and look the book up again.
+  if (!interrupted && !tally.coverNotUploaded) {
     const state = readJson(p.state, {});
     writeFileSync(p.state, JSON.stringify({ ...state, appliedThrough: resultLines, appliedAt: new Date().toISOString() }));
+  } else if (tally.coverNotUploaded) {
+    console.log('Not marked applied: run upload, then apply again, to finish the covers still waiting.');
   }
 }
 
@@ -657,8 +720,12 @@ const REHEARSAL_BOOKS = [
   { id: 4, title: 'A Room with a View', creators: 'E. M. Forster', cover: 'rehearsal-cover-already-set' },
   { id: 5, title: 'Avani Sundari Katha Sara', creators: 'Dandin' },
   { id: 6, title: 'The Time Machine', creators: 'H.G. Wells' },
+  { id: 7, title: 'Kindred', creators: 'Octavia E. Butler' },
 ];
 const EDITED_ID = 6;
+// Deleted after the export, its id then taken by a different book: what was found for it must not land there.
+const REUSED_ID = 7;
+const NEWCOMER = 'A different book that took the same id';
 const HAND_WRITTEN = 'Written by hand after the export, so the backfill must leave it alone.';
 const sqlString = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
@@ -690,6 +757,14 @@ async function rehearse() {
 
   console.log('\n— someone edits a book after the export');
   await query(target, `UPDATE items SET description = ${sqlString(HAND_WRITTEN)} WHERE id = ${EDITED_ID}`);
+
+  console.log('— and deletes another, whose id a different book then takes');
+  await query(target, `DELETE FROM items WHERE id = ${REUSED_ID}`);
+  await query(
+    target,
+    `INSERT INTO items (id, library_id, media_type, title, status, copies, details, added_at) ` +
+      `VALUES (${REUSED_ID}, 1, 'book', ${sqlString(NEWCOMER)}, 'not_started', 1, '{}', '2099-01-01 00:00:00')`,
+  );
 
   console.log('\n— upload');
   await upload(target, {});
@@ -746,10 +821,21 @@ async function rehearse() {
   const exact = found.every((res) => {
     const row = rows.find((r) => r.id === res.id);
     const coverOk = !uploaded.has(res.patch.cover_key) || row.cover_key === res.patch.cover_key;
+    if (res.id === REUSED_ID) return true; // checked on its own below
     const descOk = !res.patch.description || res.id === EDITED_ID || row.description === res.patch.description;
     return coverOk && descOk;
   });
   check(exact, `Every uploaded cover and every description found is in the database exactly as found (${found.length} items)`);
+
+  const reused = rows.find((r) => r.id === REUSED_ID);
+  if (hasPatch(results.get(REUSED_ID) ?? {})) {
+    check(
+      reused?.title === NEWCOMER && reused.cover_key === null && reused.description === null,
+      'A book that took a deleted book\'s id got nothing meant for the deleted one',
+    );
+  } else {
+    console.log('  – Reused-id check not exercised: nothing was found for that book this time');
+  }
 
   // Every statement re-checks its blank, so running the same SQL again must change nothing — not even
   // updated_at, which any matching UPDATE would bump. The pause makes a bump visible at second resolution.

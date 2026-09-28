@@ -289,7 +289,7 @@ borrowing.get('/households/:id/views/:viewId/items/:itemId', async (c) => {
         {Object.keys(item.details).length ? (
           <div class="detail-section">
             <p class="eyebrow">Details</p>
-            <DetailsList details={item.details} />
+            <DetailsList details={item.details} fromConnection />
           </div>
         ) : null}
         {item.review ? (

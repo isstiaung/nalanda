@@ -3,6 +3,9 @@
 SESSION_SECRET=change-me-to-anything-long-and-random
 # Discogs personal access token (free account) — enables vinyl barcode/name lookup.
 # DISCOGS_TOKEN=
+# BoardGameGeek application token — board game search needs one since BGG went registration-only.
+# Register an app at https://boardgamegeek.com/applications, then paste its token here.
+# BGG_TOKEN=
 # Optional: raises Google Books quota; books work keyless without it.
 # GOOGLE_BOOKS_KEY=
 # Optional front door: logged-out "/" redirects to /share/<token> instead of /login.

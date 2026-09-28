@@ -209,6 +209,74 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
   };
 }
 
+// ---------- Nalanda's own export ----------
+
+/** Our /export.csv, recognized by column names neither libib nor Goodreads uses. */
+export function looksLikeNalandaExport(headers: string[]): boolean {
+  const have = new Set(headers.map((h) => h.trim().toLowerCase()));
+  return ['media_type', 'isbn10_upc', 'began_on', 'completed_on', 'added_at', 'details'].every((c) => have.has(c));
+}
+
+const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+
+/**
+ * A row of our own export, mapped back exactly — the round trip every column promises (CLAUDE.md). Unlike a
+ * libib row: the rating is already on our half-star 1–10 scale (libib's 0–5 mapping would double it), details
+ * is our JSON merged back rather than nested as a string, and the type, identifiers and dates keep their own
+ * columns. The shelf is the one chosen on the import form — `library` only names where a row came from — and
+ * columns this format doesn't define are dropped, not kept in details (reading progress among them).
+ */
+export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
+  const r: Record<string, string> = {};
+  for (const [k, v] of Object.entries(row)) r[k.trim().toLowerCase()] = (v ?? '').trim();
+
+  const title = r['title'];
+  if (!title) return null;
+  // Whole numbers only, and within reason: /^\d+$/ alone let "99999999999999999999" through as 1e20.
+  const int = (raw: string | undefined, max: number) => {
+    if (!/^\d+$/.test(raw ?? '')) return null;
+    const n = Number(raw);
+    return Number.isSafeInteger(n) && n <= max ? n : null;
+  };
+  const date = (raw: string | undefined) => (/^\d{4}-\d{2}-\d{2}$/.test(raw ?? '') ? raw! : null);
+  const rating = int(r['rating'], 10);
+  const length = int(r['length'], 100_000);
+  const copies = int(r['copies'], 9_999);
+  let details = '{}';
+  try {
+    const parsed: unknown = JSON.parse(r['details'] || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) details = JSON.stringify(parsed);
+  } catch {
+    // not our JSON — keep none rather than guess
+  }
+  return {
+    item: {
+      mediaType: (MEDIA_TYPES as readonly string[]).includes(r['media_type'] ?? '') ? (r['media_type'] as MediaType) : 'book',
+      title,
+      creators: r['creators'] || null,
+      isbn13: /^\d{13}$/.test(r['isbn13'] ?? '') ? r['isbn13']! : null,
+      isbn10Upc: r['isbn10_upc'] || null,
+      publisher: r['publisher'] || null,
+      published: r['published'] || null,
+      description: r['description'] || null,
+      length: length && length > 0 ? length : null,
+      status: (ITEM_STATUSES as readonly string[]).includes(r['status'] ?? '') ? (r['status'] as ItemStatus) : 'not_started',
+      rating: rating && rating >= 1 && rating <= 10 ? rating : null,
+      review: r['review'] || null,
+      notes: r['notes'] || null,
+      copies: copies ?? 1,
+      beganOn: date(r['began_on']),
+      completedOn: date(r['completed_on']),
+      ...(SQL_DATETIME.test(r['added_at'] ?? '') ? { addedAt: r['added_at'] } : {}),
+      details,
+    },
+    tags: (r['tags'] ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean),
+  };
+}
+
 // ---------- Goodreads import mapping ----------
 
 /**

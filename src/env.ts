@@ -3,6 +3,7 @@ export type Bindings = {
   COVERS: R2Bucket;
   SESSION_SECRET: string;
   DISCOGS_TOKEN?: string;
+  BGG_TOKEN?: string; // BoardGameGeek application token — board games need it since BGG went registration-only
   GOOGLE_BOOKS_KEY?: string;
   HOME_SHARE_TOKEN?: string; // front door: anonymous "/" redirects to /share/<this token>
   // Ed25519 private JWK (JSON). Unset — or invalid — means connections are disabled entirely.

@@ -84,6 +84,10 @@ export function cleanDescription(raw: string | null | undefined): string | null 
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p>/gi, '\n\n')
     .replace(/<[^>]+>/g, '')
+    // Blockquoted excerpts ("> One of my favourite novels…") would render as a literal >. Stripped before
+    // entities are decoded: a markdown quote marker is a literal >, while an escaped &gt; is text — Google
+    // Books' "&gt;50 recipes" must stay ">50 recipes", not lose its symbol.
+    .replace(/^[ \t]*>[ \t]?/gm, '')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&quot;/gi, '"')
@@ -98,8 +102,6 @@ export function cleanDescription(raw: string | null | undefined): string | null 
     // Reference-style links: Open Library's work records quote reviews as "[Comment by X][1]"
     // with the target defined on a line already dropped above, leaving bare brackets on the page.
     .replace(/\[([^\]\n]+)\]\[[^\]\n]*\]/g, '$1')
-    // Blockquoted excerpts ("> One of my favourite novels…") render as literal > in our markup.
-    .replace(/^[ \t]*>[ \t]?/gm, '')
     .replace(/(\*\*|__)(.*?)\1/g, '$2')
     .replace(/(^|\s)[*_]([^*_\n]+)[*_](?=\s|$|[.,;:!?])/g, '$1$2')
     .replace(/^#{1,6}\s+/gm, '')
