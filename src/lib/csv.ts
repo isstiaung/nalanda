@@ -3,7 +3,18 @@
 // ever sees pre-parsed JSON rows (10 ms CPU budget, ARCH.md §12).
 import type { Item, ItemStatus, MediaType, NewItem } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
-import { reconcileGoodreads, summarizeReads, type GoodreadsReading, type ReadDraft } from './reads';
+import {
+  formatReadsCell,
+  inDisplayOrder,
+  parseReadsCell,
+  readsFromColumns,
+  reconcileGoodreads,
+  summarizeReads,
+  topUpReads,
+  type GoodreadsReading,
+  type ReadDraft,
+  type ReadRow,
+} from './reads';
 
 export const EXPORT_COLUMNS = [
   'library',
@@ -25,6 +36,8 @@ export const EXPORT_COLUMNS = [
   'copies',
   'began_on',
   'completed_on',
+  'read_count',
+  'reads',
   'added_at',
   'progress_history',
   'details',
@@ -40,19 +53,31 @@ export function csvLine(values: unknown[]): string {
 }
 
 /**
- * The reading log in one cell: `page@timestamp`, oldest first, semicolon-separated. Nothing here
- * needs CSV quoting, and the whole history leaves with the export rather than only the latest page.
+ * The reading log in one cell: `page@timestamp`, oldest first, semicolon-separated, each followed by `#n` naming
+ * its read by position in the `reads` cell (§16 #41) — none for a page from before reads, on a book with none.
+ * Nothing here needs CSV quoting, and the whole history leaves with the export rather than only the latest page.
  */
-export function progressHistoryCell(entries: { page: number; at: string }[]): string {
-  return entries.map((e) => `${e.page}@${e.at}`).join(';');
+export function progressHistoryCell(
+  entries: { page: number; at: string; readId?: number | null }[],
+  readPosition: Map<number, number> = new Map(),
+): string {
+  return entries
+    .map((e) => {
+      const n = e.readId !== null && e.readId !== undefined ? readPosition.get(e.readId) : undefined;
+      return `${e.page}@${e.at}${n ? `#${n}` : ''}`;
+    })
+    .join(';');
 }
 
 export function itemToCsvLine(
   item: Item,
   libraryName: string,
   tags: string[],
-  progress: { page: number; at: string }[] = [],
+  progress: { page: number; at: string; readId?: number | null }[] = [],
+  reads: ReadRow[] = [],
 ): string {
+  const ordered = inDisplayOrder(reads);
+  const position = new Map(ordered.map((r, i) => [r.id, i + 1]));
   return csvLine([
     libraryName,
     item.mediaType,
@@ -73,8 +98,10 @@ export function itemToCsvLine(
     item.copies,
     item.beganOn,
     item.completedOn,
+    item.readCount,
+    formatReadsCell(ordered),
     item.addedAt,
-    progressHistoryCell(progress),
+    progressHistoryCell(progress, position),
     item.details === '{}' ? '' : item.details,
   ]);
 }
@@ -102,6 +129,9 @@ const KNOWN_COLUMNS = new Set([
   // which share pages and connections render. Re-importing a Nalanda export doesn't restore it.
   'progress_page',
   'progress_history',
+  // and each read, with its dates, is as private as the dates columns (§16 #41)
+  'read_count',
+  'reads',
   'item_type',
   'type',
   'ean_isbn13',
@@ -245,6 +275,15 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
     return Number.isSafeInteger(n) && n <= max ? n : null;
   };
   const date = (raw: string | undefined) => (/^\d{4}-\d{2}-\d{2}$/.test(raw ?? '') ? raw! : null);
+  const status = (ITEM_STATUSES as readonly string[]).includes(r['status'] ?? '') ? (r['status'] as ItemStatus) : 'not_started';
+  // The reads column is the whole history (§16 #41); status and the two dates are only its summary, so they speak
+  // only for an export from before reads, or a row whose reads cell was emptied. A read count higher than the
+  // finished reads — someone edited the spreadsheet — tops them up with undated ones.
+  const reads = topUpReads(
+    (r['reads'] ?? '').trim() ? parseReadsCell(r['reads']) : readsFromColumns(status, date(r['began_on']), date(r['completed_on'])),
+    int(r['read_count'], Number.MAX_SAFE_INTEGER), // capped at MAX_READS_PER_ITEM by topUpReads
+  );
+  const state = summarizeReads(reads);
   const rating = int(r['rating'], 10);
   const length = int(r['length'], 100_000);
   const copies = int(r['copies'], 9_999);
@@ -266,16 +305,17 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
       published: r['published'] || null,
       description: r['description'] || null,
       length: length && length > 0 ? length : null,
-      status: (ITEM_STATUSES as readonly string[]).includes(r['status'] ?? '') ? (r['status'] as ItemStatus) : 'not_started',
+      status: state.status,
       rating: rating && rating >= 1 && rating <= 10 ? rating : null,
       review: r['review'] || null,
       notes: r['notes'] || null,
       copies: copies ?? 1,
-      beganOn: date(r['began_on']),
-      completedOn: date(r['completed_on']),
+      beganOn: state.beganOn,
+      completedOn: state.completedOn,
       ...(SQL_DATETIME.test(r['added_at'] ?? '') ? { addedAt: r['added_at'] } : {}),
       details,
     },
+    reads,
     tags: (r['tags'] ?? '')
       .split(',')
       .map((t) => t.trim())
