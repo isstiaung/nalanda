@@ -37,8 +37,9 @@ links, and import/export everything as CSV.
 | Tests | Vitest + `@cloudflare/vitest-pool-workers` | Tests run inside the real Workers runtime |
 
 Runtime npm dependencies: **`hono`, `drizzle-orm`, `fast-xml-parser`** (BGG's API is XML and
-Workers has no DOMParser). htmx, Pico.css, and the ZXing-WASM fallback are vendored static
-files in `public/`. Dev-only: `wrangler`, `drizzle-kit`, `vitest`.
+Workers has no DOMParser). htmx, the ZXing-WASM fallback and the Eczar fonts are vendored
+static files in `public/vendor/`, copied in on install. Styling is the hand-written
+`public/app.css` (§16 #16), no CSS framework. Dev-only: `wrangler`, `drizzle-kit`, `vitest`.
 
 ## 3. Why Cloudflare (and why not AWS or a home server)
 
@@ -308,7 +309,8 @@ Multi-user, built into the app (no email infrastructure, no paid services):
   sign in: `/setup` and login answer 503 with how to set one, before reading or writing
   anything, and no cookie verifies — a blank key would sign cookies anyone could forge.
 - CSRF: `SameSite=Lax` + an Origin-check middleware on all mutating routes.
-- Login throttling: small fixed delay + per-IP attempt counter in D1.
+- Login throttling: a per-IP counter of failed attempts in D1; ten in 10 minutes and login
+  refuses that IP until they age out.
 
 *Why not Cloudflare Access?* It was considered (free ≤ 50 users, zero auth code) but it
 gates the whole hostname — which fights the public `/share/*` requirement — and it moves
