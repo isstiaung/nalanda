@@ -654,6 +654,9 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
     z-index: 30;
   }
   .mobile-bar .brand-name { font-size: 14px; }
+  #nav-toggle { font-size: 18px; width: 36px; height: 36px; padding: 0; color: var(--ink); }
+  /* the open drawer dims the page behind it; a tap there closes it (app.js) */
+  body.nav-open::after { content: ''; position: fixed; inset: 0; background: rgba(23, 19, 16, 0.35); z-index: 35; }
   .mobile-bar .mobile-unread { margin-left: auto; text-decoration: none; }
   .content { padding: 1.1rem 1rem 3rem; }
   .item-detail { grid-template-columns: 1fr; }

@@ -58,5 +58,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('sidebar')?.addEventListener('click', (e) => {
       if (e.target.closest('a, button')) document.body.classList.remove('nav-open');
     });
+    // A tap on the dimmed page beside the open drawer closes it.
+    document.addEventListener('click', (e) => {
+      if (!document.body.classList.contains('nav-open')) return;
+      if (e.target.closest('#sidebar, #nav-toggle')) return;
+      document.body.classList.remove('nav-open');
+    });
   }
 });

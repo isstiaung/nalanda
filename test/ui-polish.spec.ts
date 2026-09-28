@@ -124,3 +124,12 @@ describe('connections rhythm', () => {
     expect(html.match(/<article class="feed-card">/g)).toHaveLength(3);
   });
 });
+
+describe('mobile bar', () => {
+  it('hangs the wordmark from its headstroke, as the sidebar brand does', async () => {
+    const html = await (await instanceA(env).get('/', await sessionCookie('member'))).text();
+    const bar = html.slice(html.indexOf('<header class="mobile-bar">'), html.indexOf('</header>'));
+    expect(bar).toContain('<div class="mobile-brand"><div class="brand-rule"></div><div class="brand-name">Nalanda</div></div>');
+    expect(html.match(/class="brand-rule"/g)).toHaveLength(2); // the sidebar's and the bar's, nowhere else
+  });
+});

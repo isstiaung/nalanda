@@ -158,7 +158,11 @@ export const Layout: FC<
               <button type="button" id="nav-toggle" class="btn-quiet" aria-label="Menu" aria-controls="sidebar">
                 ☰
               </button>
-              <span class="brand-name">Nalanda</span>
+              {/* the wordmark hangs from its headstroke here too — the rule lives in .brand-rule, as in the sidebar */}
+              <div class="mobile-brand">
+                <div class="brand-rule"></div>
+                <div class="brand-name">Nalanda</div>
+              </div>
               {/* the sidebar folds away on a phone, taking its badges with it — so the bar carries the one that matters */}
               {unread.notifications ? (
                 <a href="/notifications" class="nav-unread mobile-unread" aria-label={`${unread.notifications} unread notifications`}>
