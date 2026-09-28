@@ -37,11 +37,13 @@ export async function listUsers(d1: D1Database): Promise<User[]> {
 }
 
 export async function deleteUser(d1: D1Database, id: number): Promise<void> {
-  // items.added_by references users with no ON DELETE action (migration 0000, already applied), so a
-  // member who ever added something couldn't be removed. Their items stay, just unattributed — the item
-  // page already shows nothing for a missing added_by.
+  // Two references to users have no ON DELETE action (migrations 0000 and 0012, both applied): items.added_by
+  // and reading_progress.added_by. Either would stop a member being removed — and a member who both added an
+  // item and recorded a page hits both — so both are cleared in the same batch. Their items and reading log
+  // stay, just unattributed.
   await d1.batch([
     d1.prepare('UPDATE items SET added_by = NULL WHERE added_by = ?1').bind(id),
+    d1.prepare('UPDATE reading_progress SET added_by = NULL WHERE added_by = ?1').bind(id),
     d1.prepare('DELETE FROM users WHERE id = ?1').bind(id),
   ]);
 }
@@ -503,6 +505,117 @@ export async function tagsForIdRange(
   for (const r of rows) {
     const list = result.get(r.itemId) ?? [];
     list.push(r.name);
+    result.set(r.itemId, list);
+  }
+  return result;
+}
+
+// ---------- site settings ----------
+
+export type SiteSettings = { progressOnShares: boolean };
+const SITE_DEFAULTS: SiteSettings = { progressOnShares: false };
+
+/** One row, id 1. Absent means defaults, so a fresh instance needs no setup step. */
+export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
+  const [row] = await db(d1).select().from(s.siteSettings).where(eq(s.siteSettings.id, 1));
+  return row ? { progressOnShares: row.progressOnShares } : { ...SITE_DEFAULTS };
+}
+
+export async function updateSiteSettings(d1: D1Database, patch: Partial<SiteSettings>): Promise<void> {
+  await db(d1)
+    .insert(s.siteSettings)
+    .values({ id: 1, ...SITE_DEFAULTS, ...patch })
+    .onConflictDoUpdate({ target: s.siteSettings.id, set: { ...patch, updatedAt: sql`(datetime('now'))` } });
+}
+
+// ---------- reading progress ----------
+
+export type ProgressEntry = { id: number; page: number; at: string; addedBy: number | null };
+
+/** Oldest first: a reading log reads forwards. */
+export async function listProgress(d1: D1Database, itemId: number): Promise<ProgressEntry[]> {
+  return db(d1)
+    .select({ id: s.readingProgress.id, page: s.readingProgress.page, at: s.readingProgress.at, addedBy: s.readingProgress.addedBy })
+    .from(s.readingProgress)
+    .where(eq(s.readingProgress.itemId, itemId))
+    .orderBy(asc(s.readingProgress.at), asc(s.readingProgress.id));
+}
+
+/**
+ * Records a page reached. One batch, so the history row and the copy on `items` can't disagree:
+ * a page kept only in one of the two would show a progress bar with no entry behind it, or the
+ * reverse. Starting a book that was "not started" also moves it to "in progress" and dates it,
+ * because that is what recording a page means — but an explicit status or began_on is left alone.
+ */
+export async function addProgress(d1: D1Database, itemId: number, page: number, userId: number | null): Promise<void> {
+  await d1.batch([
+    d1.prepare('INSERT INTO reading_progress (item_id, page, added_by) VALUES (?1, ?2, ?3)').bind(itemId, page, userId),
+    d1
+      .prepare(
+        // updated_at is deliberately untouched: connections see it, and the first-view backfill dates
+        // reviews and finishes by it, so a page recorded on a re-read would re-date an old review.
+        // began_on is filled only for a book being started — never after a finish (SET sees the old status).
+        `UPDATE items SET progress_page = ?2,
+           status = CASE WHEN status = 'not_started' THEN 'in_progress' ELSE status END,
+           began_on = CASE
+             WHEN (began_on IS NULL OR trim(began_on) = '') AND status IN ('not_started', 'in_progress') THEN date('now')
+             ELSE began_on END
+         WHERE id = ?1`,
+      )
+      .bind(itemId, page),
+  ]);
+}
+
+/**
+ * Removes one entry — a typo, usually — and puts `items.progress_page` back to whatever the newest
+ * remaining entry says, or to NULL when that was the only one. Status and began_on stay as they are:
+ * deleting a mistyped page is not the same as saying you never started the book.
+ */
+export async function deleteProgress(d1: D1Database, itemId: number, entryId: number): Promise<void> {
+  await d1.batch([
+    d1.prepare('DELETE FROM reading_progress WHERE id = ?1 AND item_id = ?2').bind(entryId, itemId),
+    d1
+      .prepare(
+        `UPDATE items SET progress_page = (
+           SELECT page FROM reading_progress WHERE item_id = ?1 ORDER BY at DESC, id DESC LIMIT 1
+         ) WHERE id = ?1`,
+      )
+      .bind(itemId),
+  ]);
+}
+
+/**
+ * Progress history for every item whose id lies in [fromId, toId] — the export's pages are contiguous
+ * in id order, so one query covers a page (see tagsForIdRange for why not an IN list).
+ */
+export async function progressForIdRange(
+  d1: D1Database,
+  fromId: number,
+  toId: number,
+  libraryId?: number,
+): Promise<Map<number, ProgressEntry[]>> {
+  const result = new Map<number, ProgressEntry[]>();
+  const rows = await db(d1)
+    .select({
+      itemId: s.readingProgress.itemId,
+      id: s.readingProgress.id,
+      page: s.readingProgress.page,
+      at: s.readingProgress.at,
+      addedBy: s.readingProgress.addedBy,
+    })
+    .from(s.readingProgress)
+    .where(
+      and(
+        gte(s.readingProgress.itemId, fromId),
+        lte(s.readingProgress.itemId, toId),
+        // as tagsForIdRange: a scoped page's range can span other shelves' rows
+        libraryId ? sql`${s.readingProgress.itemId} IN (SELECT id FROM items WHERE library_id = ${libraryId})` : undefined,
+      ),
+    )
+    .orderBy(asc(s.readingProgress.at), asc(s.readingProgress.id));
+  for (const r of rows) {
+    const list = result.get(r.itemId) ?? [];
+    list.push({ id: r.id, page: r.page, at: r.at, addedBy: r.addedBy });
     result.set(r.itemId, list);
   }
   return result;

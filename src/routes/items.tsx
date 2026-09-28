@@ -3,18 +3,22 @@ import type { ItemStatus, MediaType, NewItem } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import {
   activeLoansForItem,
+  addProgress,
   createItem,
   deleteItem,
+  deleteProgress,
   getItem,
   getLibrary,
   getUserById,
   listLibraries,
+  listProgress,
   setItemTags,
   tagsForItem,
   updateItem,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { deleteCover, storeCover } from '../lib/covers';
+import { MAX_PROGRESS_PAGE } from '../lib/progress';
 import { parseDetails } from '../lib/share';
 import {
   accNo,
@@ -26,6 +30,7 @@ import {
   MarkNotOwnedButton,
   MarkOwnedButton,
   MEDIA_LABEL,
+  ReadingProgressSection,
   StatusPill,
   stars,
 } from '../views/components';
@@ -135,11 +140,12 @@ items.get('/items/:id', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
-  const [lib, tags, loans, addedBy] = await Promise.all([
+  const [lib, tags, loans, addedBy, progress] = await Promise.all([
     getLibrary(c.env.DB, item.libraryId),
     tagsForItem(c.env.DB, id),
     activeLoansForItem(c.env.DB, id),
     item.addedBy ? getUserById(c.env.DB, item.addedBy) : Promise.resolve(null),
+    item.mediaType === 'book' ? listProgress(c.env.DB, id) : Promise.resolve([]),
   ]);
   const today = new Date().toISOString().slice(0, 10);
   const isOverdue = (l: { dueOn: string | null }) => !!(l.dueOn && l.dueOn < today);
@@ -268,6 +274,8 @@ items.get('/items/:id', async (c) => {
           </div>
         ) : null}
 
+        {item.mediaType === 'book' ? <ReadingProgressSection item={item} entries={progress} /> : null}
+
         {discussion}
 
         {item.notes ? (
@@ -353,6 +361,44 @@ items.get('/items/:id/edit', async (c) => {
 // Quick actions from the shelf table / item page: flip copies 0 ↔ 1 in place,
 // no edit form. htmx-only — each swaps the clicked button (hx-swap="outerHTML")
 // for the other direction's button, so the toggle round-trips.
+/**
+ * Records a page. A bad number re-renders the section with the reason, and htmx swaps the section
+ * either way; without htmx the form posts and lands back on the item page (the browser's pattern check
+ * stops most junk before it's sent).
+ */
+items.post('/items/:id/progress', async (c) => {
+  const id = Number(c.req.param('id'));
+  const item = await getItem(c.env.DB, id);
+  if (!item) return c.notFound();
+  if (item.mediaType !== 'book') return c.text('Reading progress is for books', 400);
+
+  const raw = ((await c.req.parseBody())['page'] ?? '').toString().trim();
+  const page = Number(raw);
+  const invalid = !/^\d+$/.test(raw) || !Number.isSafeInteger(page) || page < 1 || page > MAX_PROGRESS_PAGE;
+  if (!invalid) await addProgress(c.env.DB, id, page, c.get('user').id);
+
+  if (!c.req.header('HX-Request')) return c.redirect(`/items/${id}`);
+  const [fresh, entries] = await Promise.all([getItem(c.env.DB, id), listProgress(c.env.DB, id)]);
+  return c.html(
+    <ReadingProgressSection
+      item={fresh ?? item}
+      entries={entries}
+      error={invalid ? 'Give a whole page number, from 1 to 100,000.' : undefined}
+    />,
+  );
+});
+
+items.post('/items/:id/progress/:entryId/delete', async (c) => {
+  const id = Number(c.req.param('id'));
+  const item = await getItem(c.env.DB, id);
+  if (!item) return c.notFound();
+  await deleteProgress(c.env.DB, id, Number(c.req.param('entryId')));
+
+  if (!c.req.header('HX-Request')) return c.redirect(`/items/${id}`);
+  const [fresh, entries] = await Promise.all([getItem(c.env.DB, id), listProgress(c.env.DB, id)]);
+  return c.html(<ReadingProgressSection item={fresh ?? item} entries={entries} />);
+});
+
 items.post('/items/:id/mark-owned', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);

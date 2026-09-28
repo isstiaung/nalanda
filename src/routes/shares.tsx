@@ -7,9 +7,11 @@ import {
   createShare,
   deleteShare,
   getLibrary,
+  getSiteSettings,
   listLibraries,
   listShares,
   rotateShare,
+  updateSiteSettings,
 } from '../db/queries';
 import { ITEM_STATUSES, MEDIA_TYPES, type ItemStatus, type MediaType } from '../db/schema';
 import type { AppEnv } from '../env';
@@ -23,7 +25,7 @@ shares.get('/shares', async (c) => {
   const user = c.get('user');
   if (user.role !== 'admin') return c.text('Admins only', 403);
 
-  const [views, libraries] = await Promise.all([listShares(c.env.DB), listLibraries(c.env.DB)]);
+  const [views, libraries, settings] = await Promise.all([listShares(c.env.DB), listLibraries(c.env.DB), getSiteSettings(c.env.DB)]);
   const shelfName = new Map(libraries.map((l) => [l.id, l.name]));
   const origin = new URL(c.req.url).origin;
 
@@ -117,13 +119,40 @@ shares.get('/shares', async (c) => {
           </div>
           <p class="muted">
             Public pages show only whitelisted fields — never private notes, loans and borrowers, or
-            copy counts, and never a link back into this app. Rotating a link issues a new token and
-            kills the old URL; an already-cached page can survive up to an hour.
+            copy counts, and never a link back into this app. Reading progress stays off them unless you
+            turn it on below. Rotating a link issues a new token and kills the old URL; an already-cached
+            page can survive up to an hour.
           </p>
         </>
       )}
+
+      <section style="margin-top:2rem">
+        <p class="eyebrow">Reading progress on share pages</p>
+        <form method="post" action="/shares/settings" class="inline-form">
+          <label>
+            <input type="checkbox" name="progressOnShares" value="on" checked={settings.progressOnShares} /> Show how far
+            through a book you are
+          </label>
+          <button type="submit" class="btn">
+            Save
+          </button>
+        </form>
+        <p class="muted">
+          Off by default. When on, a book marked <em>In progress</em> shows its current page and a progress bar on its
+          share page; finished and unstarted books never do. This applies to public share links only. A page someone
+          already loaded can take up to an hour to catch up.
+        </p>
+      </section>
     </>,
   );
+});
+
+shares.post('/shares/settings', async (c) => {
+  if (c.get('user').role !== 'admin') return c.text('Admins only', 403);
+  const body = await c.req.parseBody();
+  // an unchecked checkbox sends nothing at all, so absence means off
+  await updateSiteSettings(c.env.DB, { progressOnShares: body['progressOnShares'] === 'on' });
+  return c.redirect('/shares'); // a successful POST also clears this isolate's share-page cache (index.ts)
 });
 
 shares.post('/shares', async (c) => {

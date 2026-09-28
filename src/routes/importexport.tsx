@@ -9,6 +9,7 @@ import {
   mergeImportItems,
   nextBackfillable,
   pageItems,
+  progressForIdRange,
   tagsForIdRange,
   updateItem,
 } from '../db/queries';
@@ -283,8 +284,8 @@ importexport.get('/export.csv', async (c) => {
 
   const encoder = new TextEncoder();
   const d1 = c.env.DB;
-  // Two queries a page against the free plan's 50 per invocation: at 2,000 items a page an export can run to
-  // about 40,000 items. One page per pull, so a slow download holds one page in memory rather than all of
+  // Three queries a page (items, tags, reading progress) against the free plan's 50 per invocation: at 2,000
+  // items a page an export can run to about 30,000 items. One page per pull, so a slow download holds one page in memory rather than all of
   // them. The response is already a 200 by the time a page is read, so a failure must error the stream —
   // ending it normally hands over a file that just stops, with nothing to say it is incomplete.
   const PAGE = 2000;
@@ -300,10 +301,14 @@ importexport.get('/export.csv', async (c) => {
         }
         const items = await pageItems(d1, { libraryId: scope, afterId, limit: PAGE });
         if (!items.length) return controller.close();
-        const tagMap = await tagsForIdRange(d1, items[0]!.id, items.at(-1)!.id, scope);
+        const [from, to] = [items[0]!.id, items.at(-1)!.id];
+        const [tagMap, progressMap] = await Promise.all([
+          tagsForIdRange(d1, from, to, scope),
+          progressForIdRange(d1, from, to, scope),
+        ]);
         let chunk = '';
         for (const item of items) {
-          chunk += itemToCsvLine(item, libNames.get(item.libraryId) ?? '', tagMap.get(item.id) ?? []);
+          chunk += itemToCsvLine(item, libNames.get(item.libraryId) ?? '', tagMap.get(item.id) ?? [], progressMap.get(item.id) ?? []);
         }
         controller.enqueue(encoder.encode(chunk));
         afterId = items.at(-1)!.id;

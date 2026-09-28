@@ -1,6 +1,7 @@
 import type { FC } from 'hono/jsx';
 import type { Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
+import { progressPercent } from '../lib/progress';
 import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
 
@@ -87,6 +88,97 @@ export const NotOwnedPill: FC = () => <span class="pill ghost">Not owned</span>;
 /** Same as NotOwnedPill but clickable — one tap sets copies to 1 in place (htmx),
  *  swapping itself for a MarkNotOwnedButton. No edit form. Authenticated views
  *  only; share pages keep the plain NotOwnedPill. */
+/**
+ * Reading progress for a book: where you are, the log of how you got there, and one field to add to
+ * it. Swaps itself on every change (hx-target on the section), so the bar, the figures and the log
+ * stay in step without a page load. Books only — pages mean nothing for a record or a board game.
+ */
+export const ReadingProgressSection: FC<{ item: Item; entries: { id: number; page: number; at: string }[]; error?: string }> = ({
+  item,
+  entries,
+  error,
+}) => {
+  const percent = progressPercent(item.progressPage, item.length);
+  return (
+    <div class="detail-section" id="reading-progress">
+      <p class="eyebrow">Reading progress</p>
+      {item.progressPage ? (
+        <>
+          <p>
+            <span class="mono">p. {item.progressPage}</span>
+            {item.length ? (
+              <>
+                {' of '}
+                <span class="mono">{item.length}</span>
+              </>
+            ) : null}
+            {percent !== null ? (
+              <>
+                {' · '}
+                <span class="mono">{percent}%</span>
+              </>
+            ) : null}
+          </p>
+          {percent !== null ? (
+            <div class="progress-track" role="img" aria-label={`${percent}% read`}>
+              <div class="progress-fill" style={`width:${percent}%`} />
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <p class="muted">Nothing recorded yet.</p>
+      )}
+
+      <form
+        method="post"
+        action={`/items/${item.id}/progress`}
+        class="inline-form"
+        hx-post={`/items/${item.id}/progress`}
+        hx-target="#reading-progress"
+        hx-swap="outerHTML"
+      >
+        <input
+          name="page"
+          inputmode="numeric"
+          pattern="[0-9]+"
+          class="mono"
+          size={6}
+          placeholder="Page"
+          aria-label="Page reached"
+          required
+        />
+        {item.length ? <span class="muted">of {item.length}</span> : null}
+        <button type="submit" class="btn">
+          Record
+        </button>
+      </form>
+      {error ? <p class="error">{error}</p> : null}
+
+      {entries.length ? (
+        <ol class="progress-log">
+          {entries.map((e) => (
+            <li>
+              <span class="mono">p. {e.page}</span>
+              <span class="mono muted">{e.at.slice(0, 10)}</span>
+              <form
+                method="post"
+                action={`/items/${item.id}/progress/${e.id}/delete`}
+                hx-post={`/items/${item.id}/progress/${e.id}/delete`}
+                hx-target="#reading-progress"
+                hx-swap="outerHTML"
+              >
+                <button type="submit" class="progress-delete" aria-label={`Remove page ${e.page}, ${e.at.slice(0, 10)}`}>
+                  Remove
+                </button>
+              </form>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </div>
+  );
+};
+
 export const MarkOwnedButton: FC<{ id: number }> = ({ id }) => (
   <button
     type="button"

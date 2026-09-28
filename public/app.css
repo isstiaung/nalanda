@@ -245,6 +245,8 @@ button.linklike:hover { background: var(--surface-2); color: var(--ink); }
 .inline { display: inline; }
 .inline-form { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 .inline-form input, .inline-form select { width: auto; margin: 0; }
+/* A label in a single row keeps its text on the row's centre line — the stacked-form margin below would lift it. */
+.inline-form label { display: inline-flex; align-items: center; margin: 0; }
 
 /* ── forms ────────────────────────────────────────────────────────────────── */
 
@@ -530,6 +532,16 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .detail-section { margin-top: 1.4rem; }
 .detail-section .eyebrow { margin-bottom: 0.35rem; }
 
+/* Reading progress: indigo, because it is a working state — vermilion stays reserved
+   for circulation and danger. The bar is a plain ruled trough, like a ledger column. */
+.progress-track { height: 6px; margin: 0.4rem 0 0.6rem; background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 1px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--accent); }
+.progress-log { list-style: none; padding: 0; margin: 0.7rem 0 0; display: grid; gap: 0.25rem; font-size: 13px; }
+.progress-log li { display: flex; align-items: baseline; gap: 0.6rem; }
+.progress-log li .mono:first-child { min-width: 4.5rem; }
+/* In a props row (share pages) the bar takes its own line under the figures instead of shrinking to nothing. */
+.props dd .progress-track { flex-basis: 100%; margin: 0.2rem 0 0; }
+
 .circulation { border: 1px solid var(--line); border-left: 3px solid var(--stamp); border-radius: var(--radius); padding: 0.8rem 1rem; margin-top: 1.4rem; background: var(--surface); }
 .circulation.free { border-left-color: var(--line-strong); }
 
@@ -664,8 +676,8 @@ details.thread::after { content: none; }
 .comment { border-left: 2px solid var(--line-strong); padding: 0.05rem 0 0.05rem 0.7rem; margin: 0.45rem 0; }
 .comment-meta { margin: 0; font-size: 11.5px; color: var(--ink-2); }
 .comment-meta .inline { display: inline; margin-left: 0.45rem; }
-button.comment-delete { height: auto; padding: 0; border: none; background: none; font-size: 11.5px; font-weight: 400; color: var(--ink-3); text-decoration: underline; text-underline-offset: 2px; }
-button.comment-delete:hover { background: none; color: var(--stamp); }
+button.comment-delete, button.progress-delete { height: auto; padding: 0; border: none; background: none; font-size: 11.5px; font-weight: 400; color: var(--ink-3); text-decoration: underline; text-underline-offset: 2px; }
+button.comment-delete:hover, button.progress-delete:hover { background: none; color: var(--stamp); }
 .comment .prewrap { margin: 0.15rem 0 0; font-size: 13px; overflow-wrap: anywhere; }
 .comment-form { display: grid; gap: 0.4rem; margin: 0.5rem 0 0.3rem; }
 .comment-form textarea { margin: 0; min-height: 3.2rem; }

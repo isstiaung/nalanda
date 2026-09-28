@@ -21,6 +21,7 @@ const item: Item = {
   published: '1968',
   description: 'Ged goes to wizard school before it was cool.',
   length: 183,
+  progressPage: 96,
   coverKey: 'abc-123',
   status: 'completed',
   rating: 10,
@@ -36,6 +37,13 @@ const item: Item = {
 };
 
 describe('share whitelist', () => {
+  it('keeps reading progress off share pages', () => {
+    const pub = toPublicItem(item) as Record<string, unknown>;
+    // how far through a book someone is reads like a private note, not a published review
+    expect('progressPage' in pub).toBe(false);
+    expect(Object.keys(pub).filter((k) => /progress/i.test(k))).toEqual([]);
+  });
+
   it('exposes exactly the public fields', () => {
     const pub = toPublicItem(item);
     expect(pub).toEqual({

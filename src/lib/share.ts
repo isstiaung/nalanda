@@ -1,5 +1,6 @@
 // The public-field whitelist for share pages. This is a whitelist on purpose:
 // new item columns stay private until explicitly added here (ARCH.md §9).
+import { progressPercent } from './progress';
 import type { ItemFilters } from '../db/queries';
 import type { Item, MediaType, Share } from '../db/schema';
 
@@ -78,6 +79,8 @@ export type PublicItem = {
   review: string | null;
   inCollection: boolean; // derived from copies > 0 — the count itself stays private
   details: Record<string, unknown>;
+  // Only when the household has turned progress on for share pages, and only for a book in progress.
+  progress?: { page: number; length: number | null; percent: number | null };
 };
 
 export function parseDetails(json: string | null | undefined): Record<string, unknown> {
@@ -93,7 +96,13 @@ export function parseDetails(json: string | null | undefined): Record<string, un
   return {};
 }
 
-export function toPublicItem(item: Item): PublicItem {
+/**
+ * `progress` is opt-in (site_settings.progress_on_shares, off by default) and even then limited to a
+ * book marked in progress: a finished book's last page is noise, and an unstarted one has none. The key
+ * is left out entirely otherwise, so nothing downstream can render an empty or stale value.
+ */
+export function toPublicItem(item: Item, opts: { progress?: boolean } = {}): PublicItem {
+  const showProgress = opts.progress === true && item.mediaType === 'book' && item.status === 'in_progress' && !!item.progressPage;
   return {
     id: item.id,
     mediaType: item.mediaType,
@@ -108,6 +117,9 @@ export function toPublicItem(item: Item): PublicItem {
     review: item.review,
     inCollection: item.copies > 0,
     details: parseDetails(item.details),
+    ...(showProgress
+      ? { progress: { page: item.progressPage!, length: item.length, percent: progressPercent(item.progressPage, item.length) } }
+      : {}),
   };
 }
 
