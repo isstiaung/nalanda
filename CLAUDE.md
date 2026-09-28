@@ -173,6 +173,10 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
 - Handlers render a full page normally, a partial when the `HX-Request` header is present —
   one handler, two renders.
 - Mutations are POSTs; CSRF = `SameSite=Lax` session cookie + Origin-check middleware.
+- A write and whatever depends on it are **one batch**: a change and the message it queues for a
+  connection, the notification it records, its replay marker, an item and its tags (ARCH.md §16 #39).
+  As separate calls, a failure between them leaves half a change that the path's own idempotency
+  check then treats as done. Nothing after the batch may be able to fail the request.
   Cookies set `Secure` only on https so local dev login works.
 - Auth model (ARCH.md §8): admin creates member accounts with one-time temp passwords
   (`must_change_password`); roles are just `admin`/`member` — no permission matrix.

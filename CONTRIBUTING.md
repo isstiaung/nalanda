@@ -40,7 +40,8 @@ client-side bundler, no CSS framework (ARCH.md §17). Runtime dependencies are `
 Durable Objects), no AWS, nothing with a bill attached.
 
 **10 ms CPU per request.** No server-side image processing and no server-side bulk parsing —
-CSV imports are parsed in the browser and posted as JSON batches, and export streams. Password
+CSV imports are parsed in the browser and posted as JSON batches, and the export is fetched a
+page at a time and joined in the browser. Password
 hashing is WebCrypto PBKDF2 only; a pure-JS bcrypt or argon2 blows the budget outright.
 
 **Workers is not Node.** No `fs`, no `net`, no native modules, no `nodejs_compat`. Only

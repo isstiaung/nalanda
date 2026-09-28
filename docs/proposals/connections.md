@@ -443,8 +443,9 @@ The reviewer's household is authoritative for the thread.
   §9 draws for share pages. The one inference this allows is intended: a connection can
   see a book become unavailable.
 - A connection may have 20 requests waiting at once. A request is lent at most once, and the
-  loan is inserted only while a copy is free — decided inside that one statement — so two
-  members lending the last copy to different households at once make one loan.
+  loan is inserted only while a copy is free — decided inside the one batch that lends it and
+  queues the acceptance (ARCH.md §16 #39) — so two members lending the last copy to different
+  households at once make one loan, and a lend is never made without the message saying so.
 - Lending activities are Nalanda-specific types (`BorrowRequest`, `BorrowAccept`,
   `BorrowDecline`, `BorrowWithdraw`, `Returned`) in an ActivityStreams envelope. No interop is needed, so they
   are named for what they mean.
