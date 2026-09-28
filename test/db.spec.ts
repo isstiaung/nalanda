@@ -3,7 +3,7 @@
 import { env } from 'cloudflare:test';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
-  activeLoanForItem,
+  activeLoansForItem,
   createItem,
   createLibrary,
   createLoan,
@@ -169,10 +169,10 @@ describe('loans', () => {
     const lib = await seedLibrary();
     const item = await createItem(env.DB, { libraryId: lib.id, mediaType: 'boardgame', title: 'Cascadia', details: '{}' });
     await createLoan(env.DB, { itemId: item.id, borrower: 'Priya' });
-    const active = await activeLoanForItem(env.DB, item.id);
+    const [active] = await activeLoansForItem(env.DB, item.id);
     expect(active?.borrower).toBe('Priya');
     await returnLoan(env.DB, active!.id);
-    expect(await activeLoanForItem(env.DB, item.id)).toBeNull();
+    expect(await activeLoansForItem(env.DB, item.id)).toEqual([]);
   });
 });
 

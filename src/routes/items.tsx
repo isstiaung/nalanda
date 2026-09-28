@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { ItemStatus, MediaType, NewItem } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import {
-  activeLoanForItem,
+  activeLoansForItem,
   createItem,
   deleteItem,
   getItem,
@@ -135,14 +135,17 @@ items.get('/items/:id', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
-  const [lib, tags, loan, addedBy] = await Promise.all([
+  const [lib, tags, loans, addedBy] = await Promise.all([
     getLibrary(c.env.DB, item.libraryId),
     tagsForItem(c.env.DB, id),
-    activeLoanForItem(c.env.DB, id),
+    activeLoansForItem(c.env.DB, id),
     item.addedBy ? getUserById(c.env.DB, item.addedBy) : Promise.resolve(null),
   ]);
   const today = new Date().toISOString().slice(0, 10);
-  const overdue = !!(loan?.dueOn && loan.dueOn < today);
+  const isOverdue = (l: { dueOn: string | null }) => !!(l.dueOn && l.dueOn < today);
+  const overdue = loans.some(isOverdue);
+  const loan = loans[0] ?? null; // for the status pill: lent at all, and overdue if any is
+  const copyFree = item.copies > loans.length;
   const details = parseDetails(item.details);
   const discussion = await itemComments(c, item); // null unless connections are enabled and someone commented
 
@@ -276,15 +279,17 @@ items.get('/items/:id', async (c) => {
 
         <div class={loan ? 'circulation' : 'circulation free'}>
           <p class="eyebrow">Circulation</p>
-          {item.copies === 0 && !loan ? (
+          {item.copies === 0 && !loans.length ? (
             <p class="muted">Not in the physical collection — nothing to lend.</p>
-          ) : loan ? (
-            <form method="post" action={`/loans/${loan.id}/return`} class="inline-form">
-              <span class={overdue ? 'error' : undefined}>
-                Lent to <strong>{loan.borrower}</strong> on <span class="mono">{loan.loanedOn}</span>
-                {loan.dueOn ? (
+          ) : null}
+          {/* every open loan: with two copies out, both borrowers show, each with its own return */}
+          {loans.map((l) => (
+            <form method="post" action={`/loans/${l.id}/return`} class="inline-form">
+              <span class={isOverdue(l) ? 'error' : undefined}>
+                Lent to <strong>{l.borrower}</strong> on <span class="mono">{l.loanedOn}</span>
+                {l.dueOn ? (
                   <>
-                    , due <span class="mono">{loan.dueOn}</span>
+                    , due <span class="mono">{l.dueOn}</span>
                   </>
                 ) : null}
               </span>
@@ -292,7 +297,8 @@ items.get('/items/:id', async (c) => {
                 Mark returned
               </button>
             </form>
-          ) : (
+          ))}
+          {copyFree ? (
             <form method="post" action={`/items/${item.id}/loan`} class="inline-form">
               <input name="borrower" placeholder="Borrower" required />
               <input name="contact" placeholder="Contact (optional)" />
@@ -301,7 +307,7 @@ items.get('/items/:id', async (c) => {
                 Lend
               </button>
             </form>
-          )}
+          ) : null}
         </div>
 
         <div class="actions">
