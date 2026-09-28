@@ -1,11 +1,12 @@
 // Deploys with the D1 database id supplied by the environment instead of the repo.
 //
-// wrangler.jsonc ships with `"database_id": ""` so the repo names no specific
-// Cloudflare resource. Wrangler does not interpolate environment variables inside its
-// config file — a literal "${D1_DATABASE_ID}" is sent to the API verbatim — so this
-// writes a resolved copy of the config and points wrangler at that. The copy lives in
-// the project root because wrangler resolves `main`, `assets`, and `migrations_dir`
-// relative to the config file's own directory; it is gitignored.
+// wrangler.jsonc ships with an all-zero placeholder,
+// `"database_id": "00000000-0000-0000-0000-000000000000"`, so the repo names no specific
+// Cloudflare resource (ARCH.md §16 #24). Wrangler does not interpolate environment
+// variables inside its config file — a literal "${D1_DATABASE_ID}" is sent to the API
+// verbatim — so this writes a resolved copy of the config and points wrangler at that.
+// The copy lives in the project root because wrangler resolves `main`, `assets`, and
+// `migrations_dir` relative to the config file's own directory; it is gitignored.
 //
 // Set D1_DATABASE_ID wherever you deploy from:
 //   - locally:   D1_DATABASE_ID=<id> npm run deploy
