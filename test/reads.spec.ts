@@ -400,6 +400,22 @@ describe('a Goodreads row meeting the reads already here', () => {
   });
 });
 
+describe('two rows for the same book in one Goodreads file', () => {
+  it('lets the second date a read the first one added, rather than lose the date', async () => {
+    const shelf = await createLibrary(env.DB, 'Shelf');
+    const item = await createItem(env.DB, { libraryId: shelf.id, title: 'The Hobbit', creators: 'J. R. R. Tolkien' });
+    // two editions shelved on Goodreads, both matching this one item by title and author
+    const row = (goodreads: GoodreadsReading) => ({ item: { libraryId: shelf.id, title: 'The Hobbit', creators: 'J.R.R. Tolkien' }, tags: [], goodreads });
+    const result = await mergeImportItems(env.DB, [
+      row({ shelf: 'completed', dateRead: null, dateStarted: null, readCount: 1 }),
+      row({ shelf: 'completed', dateRead: '2021-07-01', dateStarted: null, readCount: 1 }),
+    ]);
+    expect(await readsOf(item.id)).toMatchObject([d('completed', null, '2021-07-01')]);
+    expect(result).toMatchObject({ merged: 2, reads: 1 });
+    await expectCacheMatchesReads(item.id);
+  });
+});
+
 // ---------- backups ----------
 
 describe('backups', () => {

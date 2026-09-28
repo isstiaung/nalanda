@@ -374,8 +374,12 @@ export async function createItemWithTags(d1: D1Database, values: NewItem, names:
   return row.id;
 }
 
-/** What the edit form says about reading: it describes the read that decides the item's status. */
-export type FormRead = { status: ItemStatus; beganOn: string | null; completedOn: string | null };
+/**
+ * What the edit form says about reading: it describes the read that decides the item's status. `clearReads` is
+ * "Not started" for an item with no Reading section to delete reads from — a record, a board game — whose reads
+ * then go (the route allows it only there).
+ */
+export type FormRead = { status: ItemStatus; beganOn: string | null; completedOn: string | null; clearReads?: boolean };
 
 /**
  * An edit, the item's new tags, and what the form says about its reading, in one batch, so a failure can't save
@@ -696,7 +700,16 @@ function readInsertStatements(d1: D1Database, item: number | 'newest', reads: Re
  * item columns say. Reopening a read is skipped while another one is open (the unique index would refuse it).
  */
 function formReadStatements(d1: D1Database, itemId: number, form: FormRead): D1PreparedStatement[] {
-  if (form.status === 'not_started') return [];
+  if (form.status === 'not_started') {
+    // pages first: reading_progress.read_id references its read without a cascade
+    return form.clearReads
+      ? [
+          d1.prepare('DELETE FROM activity_log WHERE progress_id IN (SELECT id FROM reading_progress WHERE item_id = ?1)').bind(itemId),
+          d1.prepare('DELETE FROM reading_progress WHERE item_id = ?1').bind(itemId),
+          d1.prepare('DELETE FROM reads WHERE item_id = ?1').bind(itemId),
+        ]
+      : [];
+  }
   const ended = form.status === 'in_progress' ? null : form.completedOn;
   return [
     d1
@@ -1160,27 +1173,31 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
       .all<ReadRow & { itemId: number }>();
     for (const { itemId, ...read } of found.results) readsHere.set(itemId, [...(readsHere.get(itemId) ?? []), read]);
   }
+  // Reconciled row by row against a working copy, so a second row for the same book (two editions matching one
+  // item) sees what the first added — and may date a read the first made, which is still only a planned insert.
+  // Statements are built once every row is in: new reads as inserts, changed ones as updates.
+  type Working = ReadRow & { fresh: boolean; changed: boolean };
+  const work = new Map<number, Working[]>();
+  let standIn = 0; // ids for reads this run will insert; negative, so they never meet a real one
+  for (const m of merges) {
+    const list = work.get(m.id) ?? (readsHere.get(m.id) ?? []).map((r) => ({ ...r, fresh: false, changed: false }));
+    for (const op of reconcileGoodreads(list, m.reading)) {
+      if (op.op === 'insert') list.push({ ...op.read, id: --standIn, fresh: true, changed: true });
+      else Object.assign(list.find((r) => r.id === op.id)!, op.read, { changed: true });
+    }
+    work.set(m.id, list);
+  }
   const writes: D1PreparedStatement[] = [];
   let readChanges = 0;
-  for (const m of merges) {
-    // applied as they're decided, so a second row for the same book sees what the first added
-    const ops = reconcileGoodreads(readsHere.get(m.id) ?? [], m.reading);
-    readChanges += ops.length;
-    const here = readsHere.get(m.id) ?? [];
-    for (const op of ops) {
-      if (op.op === 'insert') {
-        writes.push(...readInsertStatements(d1, m.id, [op.read]));
-        here.push({ ...op.read, id: -here.length - 1 }); // a stand-in id: this run never updates it
-      } else {
-        writes.push(
-          d1
-            .prepare('UPDATE reads SET status = ?2, began_on = ?3, ended_on = ?4 WHERE id = ?1')
-            .bind(op.id, op.read.status, op.read.beganOn, op.read.endedOn),
-        );
-        Object.assign(here.find((r) => r.id === op.id)!, op.read);
-      }
+  for (const [itemId, list] of work) {
+    const fresh = list.filter((r) => r.fresh).map(({ status, beganOn, endedOn }) => ({ status, beganOn, endedOn }));
+    writes.push(...readInsertStatements(d1, itemId, fresh));
+    for (const r of list.filter((x) => !x.fresh && x.changed)) {
+      writes.push(
+        d1.prepare('UPDATE reads SET status = ?2, began_on = ?3, ended_on = ?4 WHERE id = ?1').bind(r.id, r.status, r.beganOn, r.endedOn),
+      );
     }
-    readsHere.set(m.id, here);
+    readChanges += list.filter((r) => r.changed).length;
   }
   for (const r of inserts) readChanges += (r.reads ?? readsFromColumns(r.item.status ?? 'not_started', r.item.beganOn, r.item.completedOn)).length;
 

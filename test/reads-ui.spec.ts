@@ -251,6 +251,18 @@ describe('the edit form', () => {
     expect(await (await request(`/items/${read.id}/edit`)).text()).not.toContain('value="not_started"');
   });
 
+  it('lets a record or board game be made not started again, clearing its read — a book has its page for that', async () => {
+    const shelf = await createLibrary(env.DB, 'Records');
+    const record = await createItem(env.DB, { libraryId: shelf.id, mediaType: 'vinyl', title: 'Kind of Blue', status: 'completed', completedOn: '2020-01-01', details: '{}' });
+    expect(await (await request(`/items/${record.id}/edit`)).text()).toContain('value="not_started"');
+    const res = await request(`/items/${record.id}`, {
+      body: { libraryId: String(shelf.id), title: 'Kind of Blue', mediaType: 'vinyl', status: 'not_started', beganOn: '', completedOn: '' },
+    });
+    expect(res.status).toBe(302);
+    expect(await rows('SELECT * FROM reads WHERE item_id = ?1', record.id)).toEqual([]);
+    expect(await getItem(env.DB, record.id)).toMatchObject({ status: 'not_started', completedOn: null, readCount: 0 });
+  });
+
   it('refuses reading dates on a new item marked not started', async () => {
     const shelf = await createLibrary(env.DB, 'Shelf');
     const res = await request('/items', { body: { libraryId: String(shelf.id), title: 'New', mediaType: 'book', status: 'not_started', completedOn: '2020-01-01' } });

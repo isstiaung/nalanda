@@ -52,7 +52,10 @@ const items = new Hono<AppEnv>();
  */
 function formReadProblem(existing: Item | null, v: { status: ItemStatus; beganOn: string | null; completedOn: string | null }): string | null {
   if (v.status === 'not_started') {
-    if (existing && existing.status !== 'not_started') return 'This book has reads. To make it not started, delete them on its page.';
+    // a book's reads are deleted on its page, one by one; anything else has no such page, so the form clears them
+    if (existing && existing.status !== 'not_started' && existing.mediaType === 'book') {
+      return 'This book has reads. To make it not started, delete them on its page.';
+    }
     return v.beganOn || v.completedOn ? 'A book not started has no reading dates: choose a status, or clear the dates.' : null;
   }
   if (v.status === 'in_progress' && v.completedOn) return 'A book in progress has no completion date: clear it, or choose Completed.';
@@ -582,7 +585,10 @@ items.post('/items/:id', async (c) => {
   if (parsed.coverUrl) coverKey = (await storeCover(c.env.COVERS, parsed.coverUrl)) ?? coverKey;
 
   try {
-    await updateItemWithTags(c.env.DB, id, { ...parsed.values, coverKey }, parsed.tags, readFields(parsed.values));
+    await updateItemWithTags(c.env.DB, id, { ...parsed.values, coverKey }, parsed.tags, {
+      ...readFields(parsed.values),
+      clearReads: existing.mediaType !== 'book',
+    });
   } catch (err) {
     if (coverKey !== existing.coverKey) c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // the new one: unused
     throw err;

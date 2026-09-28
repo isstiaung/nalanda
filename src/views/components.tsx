@@ -642,7 +642,7 @@ export const ItemForm: FC<{
         Status
         <select name="status">
           {/* a book with reads can't be "not started" from here: its reads are deleted on its page (§16 #41) */}
-          {ITEM_STATUSES.filter((st) => st !== 'not_started' || (item?.status ?? 'not_started') === 'not_started').map((st) => (
+          {ITEM_STATUSES.filter((st) => st !== 'not_started' || (item?.status ?? 'not_started') === 'not_started' || item?.mediaType !== 'book').map((st) => (
             <option value={st} selected={(item?.status ?? 'not_started') === st}>
               {STATUS_LABEL[st]}
             </option>
