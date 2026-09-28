@@ -44,6 +44,31 @@ export async function createUser(
   return u;
 }
 
+/**
+ * First-run setup: the admin and the household's starter shelves, in one batch (ARCH.md §16 #39) — or nothing, once
+ * anyone exists. Every statement carries the same guard, no user yet, decided inside it; the shelves come first, so
+ * nothing in the batch touches users before the admin's insert. The batch is one transaction, so every statement sees
+ * the same answer: two setups racing make one admin and one set of shelves. The admin's id, or null when setup was
+ * already done.
+ */
+export async function createFirstAdmin(
+  d1: D1Database,
+  values: { username: string; passwordHash: string },
+  shelves: readonly string[],
+): Promise<number | null> {
+  const noUserYet = 'WHERE NOT EXISTS (SELECT 1 FROM users)';
+  const results = await d1.batch([
+    ...shelves.map((name) => d1.prepare(`INSERT INTO libraries (name) SELECT ?1 ${noUserYet}`).bind(name)),
+    d1
+      .prepare(
+        `INSERT INTO users (username, password_hash, role, must_change_password)
+         SELECT ?1, ?2, 'admin', 0 ${noUserYet} RETURNING id`,
+      )
+      .bind(values.username, values.passwordHash),
+  ]);
+  return (results.at(-1)?.results[0] as { id: number } | undefined)?.id ?? null;
+}
+
 export async function listUsers(d1: D1Database): Promise<User[]> {
   return db(d1).select().from(s.users).orderBy(asc(s.users.id));
 }

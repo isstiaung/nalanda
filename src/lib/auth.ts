@@ -46,6 +46,15 @@ export async function verifyPassword(password: string, stored: string): Promise<
   return diff === 0;
 }
 
+/**
+ * A session secret that can sign anything: set, and not blank. Missing, empty and whitespace-only all count as
+ * none — an empty key makes WebCrypto throw, and a blank one would sign cookies anyone could forge. Without one
+ * nobody can be signed in, and setup and login say so before writing anything.
+ */
+export function hasSessionSecret(secret: string | undefined): secret is string {
+  return typeof secret === 'string' && secret.trim() !== '';
+}
+
 async function hmacKey(secret: string): Promise<CryptoKey> {
   return crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, [
     'sign',
@@ -54,18 +63,19 @@ async function hmacKey(secret: string): Promise<CryptoKey> {
 }
 
 export async function createSessionToken(secret: string, userId: number, nowSeconds: number): Promise<string> {
+  if (!hasSessionSecret(secret)) throw new Error('SESSION_SECRET is not set');
   const payload = b64url.encode(enc.encode(JSON.stringify({ u: userId, e: nowSeconds + SESSION_TTL_SECONDS })));
   const sig = b64url.encode(await crypto.subtle.sign('HMAC', await hmacKey(secret), enc.encode(payload)));
   return `${payload}.${sig}`;
 }
 
-/** Returns the user id for a valid, unexpired token; null otherwise. */
+/** Returns the user id for a valid, unexpired token; null otherwise — always null without a session secret. */
 export async function verifySessionToken(
-  secret: string,
+  secret: string | undefined,
   token: string | undefined,
   nowSeconds: number,
 ): Promise<number | null> {
-  if (!token) return null;
+  if (!token || !hasSessionSecret(secret)) return null;
   const dot = token.lastIndexOf('.');
   if (dot < 0) return null;
   const payload = token.slice(0, dot);

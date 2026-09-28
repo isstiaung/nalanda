@@ -1,9 +1,8 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { deleteCookie, setCookie } from 'hono/cookie';
 import {
   countUsers,
-  createLibrary,
-  createUser,
+  createFirstAdmin,
   getUserByUsername,
   recentLoginAttempts,
   recordLoginAttempt,
@@ -11,6 +10,7 @@ import {
 import type { AppEnv } from '../env';
 import {
   createSessionToken,
+  hasSessionSecret,
   hashPassword,
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
@@ -49,12 +49,45 @@ const LoginForm = ({ error }: { error?: string }) => (
   </article>
 );
 
+// Without a session secret nobody can be signed in: the cookie is signed with it. Setup and login say so before
+// they read or write anything. (An empty one once let setup create the admin and then fail on signing — which
+// closed setup, and login failed the same way.)
+const NoSessionSecret = ({ note }: { note?: string }) => (
+  <article class="auth-card">
+    <Brand />
+    <h1>Not ready yet</h1>
+    <p class="error">
+      This Nalanda has no <code>SESSION_SECRET</code>, so nobody can sign in.{note ? ` ${note}` : ''}
+    </p>
+    <p class="eyebrow">Whoever runs it sets one</p>
+    <p>
+      From the project folder, run <code>npx wrangler secret put SESSION_SECRET</code> and paste a long random value
+      (<code>openssl rand -base64 32</code> makes one).
+    </p>
+    <p>
+      Or in the Cloudflare dashboard: the Worker → <strong>Settings</strong> → <strong>Variables and Secrets</strong>{' '}
+      → add a secret named <code>SESSION_SECRET</code>.
+    </p>
+    <p class="muted">
+      Then reload this page. Running it locally? Put it in <code>.dev.vars</code> and restart <code>npm run dev</code>.
+    </p>
+  </article>
+);
+
+function noSessionSecret(c: Context<AppEnv>, note?: string) {
+  c.status(503);
+  return page(c, 'Not ready yet', <NoSessionSecret note={note} />);
+}
+
 auth.get('/login', async (c) => {
+  if (!hasSessionSecret(c.env.SESSION_SECRET)) return noSessionSecret(c);
   if ((await countUsers(c.env.DB)) === 0) return c.redirect('/setup');
   return page(c, 'Log in', <LoginForm />);
 });
 
 auth.post('/auth/login', async (c) => {
+  const secret = c.env.SESSION_SECRET;
+  if (!hasSessionSecret(secret)) return noSessionSecret(c);
   const ip = c.req.header('cf-connecting-ip') ?? 'local';
   if ((await recentLoginAttempts(c.env.DB, ip)) >= 10) {
     return page(c, 'Log in', <LoginForm error="Too many attempts — try again in 10 minutes." />);
@@ -68,7 +101,7 @@ auth.post('/auth/login', async (c) => {
     await recordLoginAttempt(c.env.DB, ip);
     return page(c, 'Log in', <LoginForm error="Wrong username or password." />);
   }
-  const token = await createSessionToken(c.env.SESSION_SECRET, user.id, Math.floor(Date.now() / 1000));
+  const token = await createSessionToken(secret, user.id, Math.floor(Date.now() / 1000));
   setSessionCookie(c, token, new URL(c.req.url).protocol === 'https:');
   return c.redirect('/');
 });
@@ -103,11 +136,17 @@ const SetupForm = ({ error }: { error?: string }) => (
 );
 
 auth.get('/setup', async (c) => {
+  if (!hasSessionSecret(c.env.SESSION_SECRET)) return noSessionSecret(c);
   if ((await countUsers(c.env.DB)) > 0) return c.notFound();
   return page(c, 'Setup', <SetupForm />);
 });
 
+// starter shelves for the three media types this household collects
+const STARTER_SHELVES = ['Books', 'Board games', 'Vinyl'];
+
 auth.post('/setup', async (c) => {
+  const secret = c.env.SESSION_SECRET;
+  if (!hasSessionSecret(secret)) return noSessionSecret(c, 'Nothing was saved: set it, then create the account again.');
   if ((await countUsers(c.env.DB)) > 0) return c.notFound();
   const body = await c.req.parseBody();
   const username = String(body['username'] ?? '').trim();
@@ -119,17 +158,10 @@ auth.post('/setup', async (c) => {
   if (password !== confirm) {
     return page(c, 'Setup', <SetupForm error="Passwords do not match." />);
   }
-  const user = await createUser(c.env.DB, {
-    username,
-    passwordHash: await hashPassword(password),
-    role: 'admin',
-    mustChangePassword: false,
-  });
-  // starter shelves for the three media types this household collects
-  for (const name of ['Books', 'Board games', 'Vinyl']) {
-    await createLibrary(c.env.DB, name);
-  }
-  const token = await createSessionToken(c.env.SESSION_SECRET, user.id, Math.floor(Date.now() / 1000));
+  // The count above only saves hashing on a closed setup. The batch decides: of two setups racing, one wins.
+  const adminId = await createFirstAdmin(c.env.DB, { username, passwordHash: await hashPassword(password) }, STARTER_SHELVES);
+  if (adminId === null) return c.notFound();
+  const token = await createSessionToken(secret, adminId, Math.floor(Date.now() / 1000));
   setSessionCookie(c, token, new URL(c.req.url).protocol === 'https:');
   return c.redirect('/');
 });
