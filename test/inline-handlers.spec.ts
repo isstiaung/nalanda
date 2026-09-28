@@ -9,6 +9,13 @@ import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import { newShareToken } from '../src/lib/share';
 import app from '../src/index';
 
+// Vite's import.meta.glob, typed here: vite/client's declarations aren't resolvable from this project's root.
+declare global {
+  interface ImportMeta {
+    glob(pattern: string, options: { query: string; import: string; eager: true }): Record<string, unknown>;
+  }
+}
+
 // Every source file, as text, at build time — so this guard also catches handlers on pages the rendered
 // checks below don't visit.
 const sources = import.meta.glob('../src/**/*.{ts,tsx}', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
