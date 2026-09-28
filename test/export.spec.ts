@@ -10,15 +10,28 @@ import app from '../src/index';
 
 const COUNT = 230; // more than two chunks' worth, well past the 100-parameter cap
 
+/**
+ * Book n (1…COUNT), tagged tag-(n % 7). Seeded in three statements rather than one call per item: ~1,150
+ * separate queries took long enough to trip vitest's 5 s timeout on a loaded CI runner.
+ */
 async function seed() {
   const lib = await createLibrary(env.DB, 'Big shelf');
-  const ids: number[] = [];
-  for (let n = 1; n <= COUNT; n++) {
-    const item = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: `Book ${n}`, details: '{}' });
-    await setItemTags(env.DB, item.id, [`tag-${n % 7}`]);
-    ids.push(item.id);
-  }
-  return ids;
+  await env.DB.prepare(
+    `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${COUNT})
+     INSERT INTO items (library_id, media_type, title, status, copies, details)
+     SELECT ?1, 'book', 'Book ' || i, 'not_started', 1, '{}' FROM n`,
+  ).bind(lib.id).run();
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO tags (name) VALUES ('tag-0'), ('tag-1'), ('tag-2'), ('tag-3'), ('tag-4'), ('tag-5'), ('tag-6')`,
+  ).run();
+  await env.DB.prepare(
+    `INSERT INTO item_tags (item_id, tag_id)
+     SELECT items.id, tags.id FROM items
+     JOIN tags ON tags.name = 'tag-' || (CAST(substr(items.title, 6) AS INTEGER) % 7)
+     WHERE items.library_id = ?1`,
+  ).bind(lib.id).run();
+  const rows = await env.DB.prepare('SELECT id FROM items WHERE library_id = ?1 ORDER BY id').bind(lib.id).all<{ id: number }>();
+  return rows.results.map((r) => r.id);
 }
 
 describe('id lists longer than D1 allows in one statement', () => {
