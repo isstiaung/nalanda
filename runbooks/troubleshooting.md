@@ -77,8 +77,10 @@ Local dev prints to the `npm run dev` terminal.
   session secret, or it's empty or only whitespace. Set one with
   `npx wrangler secret put SESSION_SECRET` (value: `openssl rand -base64 32`), or in the
   dashboard under the Worker → Settings → Variables and Secrets. It applies without a
-  deploy; reload the page. If you were setting up, nothing was saved, so create the admin
-  account at `/setup` again. Locally, put it in `.dev.vars` and restart `npm run dev`.
+  deploy; reload the page. If setup said nothing was saved, create the admin account at
+  `/setup` again. If it says an account already exists, log in with it: versions before
+  1.3.0 created the account before failing. Locally, put it in `.dev.vars` and restart
+  `npm run dev`.
 - `/setup` 404s → an account already exists. Log in instead, or for a true factory reset
   see the admin-lockout section in [accounts-and-access.md](accounts-and-access.md).
 - Forgot the URL → `npx wrangler deployments list` shows it, or the dashboard.

@@ -1,7 +1,7 @@
 // First-run setup and the session secret. Setup used to create the admin and the starter shelves one call at a
 // time and only then sign the cookie — with an empty SESSION_SECRET the signing threw, the request 500ed after the
 // admin existed, setup closed, and login failed the same way. Now a missing or blank secret is explained before
-// anything is read or written, and the admin and shelves are one batch that only the first setup wins.
+// anything is written, and the admin and shelves are one batch that only the first setup wins.
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { createFirstAdmin, createUser } from '../src/db/queries';
@@ -71,12 +71,20 @@ async function expectExplained(res: Response) {
   return html;
 }
 
-/** A session cookie signed with any key, blank ones included — what someone would forge. */
+/** A session token signed with any key, blank ones included — what someone would forge. */
 async function signedWith(key: string, userId: number): Promise<string> {
   const enc = new TextEncoder();
   const payload = b64url.encode(enc.encode(JSON.stringify({ u: userId, e: Math.floor(Date.now() / 1000) + 3600 })));
   const hmac = await crypto.subtle.importKey('raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  return `${SESSION_COOKIE}=${payload}.${b64url.encode(await crypto.subtle.sign('HMAC', hmac, enc.encode(payload)))}`;
+  return `${payload}.${b64url.encode(await crypto.subtle.sign('HMAC', hmac, enc.encode(payload)))}`;
+}
+
+/**
+ * The token that would pass if the blank secret were used: one signed with it. An empty or missing secret can't
+ * key an HMAC at all, so there a token signed with the real test secret stands in.
+ */
+async function tokenUnder(secret: string | undefined, userId: number): Promise<string> {
+  return secret ? signedWith(secret, userId) : createSessionToken(env.SESSION_SECRET, userId, Math.floor(Date.now() / 1000));
 }
 
 function without(secret: string | undefined): Bindings {
@@ -111,6 +119,23 @@ describe.each([
     expect(await later.text()).toContain('Create the admin account');
   });
 
+  it('with an account already there, setup says to log in once it is set — not to create one again', async () => {
+    // what the old failure left behind: the admin, made before signing failed
+    await createUser(env.DB, { username: 'ann', passwordHash: await hashPassword('correct horse'), role: 'admin', mustChangePassword: false });
+    const before = await snapshot();
+
+    for (const res of [await send('/setup', bindings), await send('/setup', bindings, { form: setupForm('ann') })]) {
+      const html = await expectExplained(res);
+      expect(html).toContain('An account already exists');
+      expect(html).not.toContain('create the account again');
+    }
+    expect(await snapshot()).toEqual(before);
+
+    const login = await send('/auth/login', env, { form: { username: 'ann', password: 'correct horse' } });
+    expect(login.status).toBe(302);
+    expect(login.headers.get('location')).toBe('/');
+  });
+
   describe('login', () => {
     const ann = async () =>
       createUser(env.DB, { username: 'ann', passwordHash: await hashPassword('correct horse'), role: 'admin', mustChangePassword: false });
@@ -138,7 +163,7 @@ describe.each([
 
   it('protected pages treat everyone as signed out — no 500 — and lead to the explanation', async () => {
     const ann = await createUser(env.DB, { username: 'ann', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-    const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, ann.id, Math.floor(Date.now() / 1000))}`;
+    const cookie = `${SESSION_COOKIE}=${await tokenUnder(secret, ann.id)}`;
 
     for (const path of ['/', '/loans', '/settings/users']) {
       for (const c of [undefined, cookie]) {
@@ -150,6 +175,14 @@ describe.each([
     await expectExplained(await send('/login', bindings));
   });
 
+  it('on a database never migrated, setup still explains the secret', async () => {
+    await env.DB.prepare('DROP TABLE users').run();
+
+    await expectExplained(await send('/setup', bindings));
+    const posted = await expectExplained(await send('/setup', bindings, { form: setupForm('admin') }));
+    expect(posted).toContain('Nothing was saved');
+  });
+
   it('with nobody set up yet, a protected page leads to setup, which explains', async () => {
     const res = await send('/loans', bindings);
     expect(res.status).toBe(302);
@@ -158,8 +191,8 @@ describe.each([
   });
 
   it('never verifies a session cookie, nor signs one', async () => {
-    const token = await createSessionToken(env.SESSION_SECRET, 1, 1_800_000_000);
-    expect(await verifySessionToken(secret, token, 1_800_000_000)).toBeNull();
+    const token = await tokenUnder(secret, 1);
+    expect(await verifySessionToken(secret, token, Math.floor(Date.now() / 1000))).toBeNull();
     await expect(createSessionToken(secret as string, 1, 1_800_000_000)).rejects.toThrow();
   });
 });
@@ -169,7 +202,7 @@ describe('a whitespace-only SESSION_SECRET', () => {
     const blank = ' \t\n ';
     const ann = await createUser(env.DB, { username: 'ann', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
 
-    const res = await send('/settings/users', without(blank), { cookie: await signedWith(blank, ann.id) });
+    const res = await send('/settings/users', without(blank), { cookie: `${SESSION_COOKIE}=${await signedWith(blank, ann.id)}` });
 
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('/login');
@@ -219,7 +252,18 @@ describe('setup with a SESSION_SECRET', () => {
 
     expect(await users()).toHaveLength(1);
     expect(await shelves()).toEqual(SHELVES);
-    expect(results.map((r) => r.status).sort()).toEqual([302, 404]);
+    // the winner is signed in; the loser — on a double-click, the page the browser shows — goes to login, which says why
+    expect(results.map((r) => r.status)).toEqual([302, 302]);
+    const [won, lost] = results[0]!.headers.get('location') === '/' ? results : [results[1]!, results[0]!];
+    expect(won!.headers.get('location')).toBe('/');
+    expect(won!.headers.get('set-cookie')).toMatch(new RegExp(`^${SESSION_COOKIE}=`));
+    expect(lost!.headers.get('location')).toBe('/login?raced=1');
+    expect(lost!.headers.get('set-cookie')).toBeNull();
+
+    const login = await send(lost!.headers.get('location')!, env);
+    expect(login.status).toBe(200);
+    expect(await login.text()).toContain('another setup finished first');
+    expect(await (await send('/login', env)).text()).not.toContain('another setup finished first');
   });
 });
 

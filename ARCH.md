@@ -293,7 +293,8 @@ Multi-user, built into the app (no email infrastructure, no paid services):
 
 - **First deploy** shows `/setup` (only while `users` is empty) to create the **admin**
   account (you). The admin and the three starter shelves are one batch (§16 #39), every
-  statement guarded inside it by "no user yet", so two setups racing make one admin.
+  statement guarded inside it by "no user yet", so two setups racing make one admin; the
+  loser is sent to login.
 - **Admin creates family accounts** at `/settings/users`: username + a temp password shown
   once; the member logs in and is forced to set their own password
   (`must_change_password`). No invites, no email, no reset flows — admin can re-issue a
@@ -306,8 +307,8 @@ Multi-user, built into the app (no email infrastructure, no paid services):
 - Session: HMAC-signed cookie, `HttpOnly`, `Secure`, `SameSite=Lax`, 30-day expiry; per
   request the middleware also confirms the user row still exists → deleting a user is
   instant revocation. Without a `SESSION_SECRET` (missing, empty or whitespace) nobody can
-  sign in: `/setup` and login answer 503 with how to set one, before reading or writing
-  anything, and no cookie verifies — a blank key would sign cookies anyone could forge.
+  sign in: `/setup` and login answer 503 with how to set one, before writing anything, and
+  no cookie verifies — a blank key would sign cookies anyone could forge.
 - CSRF: `SameSite=Lax` + an Origin-check middleware on all mutating routes.
 - Login throttling: a per-IP counter of failed attempts in D1; ten in 10 minutes and login
   refuses that IP until they age out.
@@ -658,9 +659,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     store, so no production backfill was needed). Deploys run through the Cloudflare
     dashboard git integration: push to `deploy-site` → `npm run deploy`. Two live
     lessons: an empty `SESSION_SECRET` throws `DataError` on HMAC import at login (the
-    Worker boots fine — set the secret before first login), and dashboard-pasted secret
-    values can pick up whitespace (piping the value into `wrangler secret put` is the
-    reliable path). Local reminder: miniflare keys local D1 state by `database_id`, so
+    Worker boots fine — set the secret before first login; since 1.3.0 setup and login
+    refuse a missing or blank secret up front and say how to set it, §8), and
+    dashboard-pasted secret values can pick up whitespace (piping the value into
+    `wrangler secret put` is the reliable path). Local reminder: miniflare keys local D1 state by `database_id`, so
     changing the id in `wrangler.jsonc` orphans local data until the state file is
     copied to the new key.
 21. **Front door via `HOME_SHARE_TOKEN` (optional secret).** The app lives on a
