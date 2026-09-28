@@ -8,3 +8,9 @@ export function progressPercent(page: number | null, length: number | null): num
   if (!page || !length || length <= 0) return null;
   return Math.min(100, Math.round((page / length) * 100));
 }
+
+/**
+ * The highest page anyone can record. Beyond any printed book, and the same bound connections apply to what
+ * they receive — a page above it would be kept here and silently dropped by every one of them.
+ */
+export const MAX_PROGRESS_PAGE = 100_000;

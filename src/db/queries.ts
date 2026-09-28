@@ -433,19 +433,21 @@ export async function searchItems(d1: D1Database, query: string, limit = 50): Pr
   return rows.sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0));
 }
 
-/** Stable id-ordered paging over items — used by the streaming CSV export. */
+/**
+ * Id-ordered paging over items for the streaming CSV export, by keyset: the next page starts after the last
+ * id seen. OFFSET would read every skipped row again on each page, and D1 bills rows read.
+ */
 export async function pageItems(
   d1: D1Database,
-  opts: { libraryId?: number; offset: number; limit: number },
+  opts: { libraryId?: number; afterId: number; limit: number },
 ): Promise<Item[]> {
   const dbi = db(d1);
   return dbi
     .select()
     .from(s.items)
-    .where(opts.libraryId ? eq(s.items.libraryId, opts.libraryId) : undefined)
+    .where(and(gt(s.items.id, opts.afterId), opts.libraryId ? eq(s.items.libraryId, opts.libraryId) : undefined))
     .orderBy(asc(s.items.id))
-    .limit(opts.limit)
-    .offset(opts.offset);
+    .limit(opts.limit);
 }
 
 /**

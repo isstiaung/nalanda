@@ -18,6 +18,7 @@ import {
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { deleteCover, storeCover } from '../lib/covers';
+import { MAX_PROGRESS_PAGE } from '../lib/progress';
 import { parseDetails } from '../lib/share';
 import {
   accNo,
@@ -367,7 +368,7 @@ items.post('/items/:id/progress', async (c) => {
 
   const raw = ((await c.req.parseBody())['page'] ?? '').toString().trim();
   const page = Number(raw);
-  const invalid = !/^\d+$/.test(raw) || !Number.isSafeInteger(page) || page < 1;
+  const invalid = !/^\d+$/.test(raw) || !Number.isSafeInteger(page) || page < 1 || page > MAX_PROGRESS_PAGE;
   if (!invalid) await addProgress(c.env.DB, id, page, c.get('user').id);
 
   if (!c.req.header('HX-Request')) return c.redirect(`/items/${id}`);
@@ -376,7 +377,7 @@ items.post('/items/:id/progress', async (c) => {
     <ReadingProgressSection
       item={fresh ?? item}
       entries={entries}
-      error={invalid ? 'Give a whole page number, 1 or more.' : undefined}
+      error={invalid ? 'Give a whole page number, from 1 to 100,000.' : undefined}
     />,
   );
 });
