@@ -11,6 +11,7 @@ import { CommentForm } from '../src/routes/comments';
 import { CandidateCard } from '../src/views/components';
 import { newShareToken } from '../src/lib/share';
 import type { Bindings } from '../src/env';
+import { budgeted } from '../src/federation/budget';
 import { answerOutbound, connectPeer, instanceA, json, makeKeys, makePeer, sessionCookie, setUpA, sqlAgo } from './federation-helpers';
 
 afterEach(() => {
@@ -225,6 +226,32 @@ describe('404 pages', () => {
       expect(b).not.toContain(secret);
     }
     expect(b).not.toMatch(/href="\/(?!share\/|app\.css|logo\.svg|covers\.js)/); // no link into the app
+  });
+
+  it('does the same D1 work for a missing item as for one outside the view, so timing can’t tell them apart', async () => {
+    const shelf = await createLibrary(env.DB, 'Shared');
+    const other = await createLibrary(env.DB, 'Private');
+    const token = newShareToken();
+    await createShare(env.DB, { token, name: 'View', libraryId: shelf.id });
+    const inside = await createItem(env.DB, { libraryId: shelf.id, title: 'Inside', copies: 1 });
+    const outside = await createItem(env.DB, { libraryId: other.id, title: 'Outside', copies: 1 });
+    const calls = async (path: string) => {
+      const budget = { left: 1000 };
+      const ctx = createExecutionContext();
+      const res = await app.fetch(new Request(`https://a.example${path}`), { ...env, DB: budgeted(env.DB, budget) } as Bindings, ctx);
+      await waitOnExecutionContext(ctx);
+      return { status: res.status, calls: 1000 - budget.left };
+    };
+    const missing = await calls(`/share/${token}/items/999999`);
+    const notInView = await calls(`/share/${token}/items/${outside.id}`);
+    const junkId = await calls(`/share/${token}/items/not-a-number`);
+    const found = await calls(`/share/${token}/items/${inside.id}`);
+    expect([missing.status, notInView.status, junkId.status, found.status]).toEqual([404, 404, 404, 200]);
+    expect(missing.calls).toBe(notInView.calls);
+    expect(junkId.calls).toBe(notInView.calls);
+    expect(found.calls).toBe(notInView.calls); // a hit does no more than a miss, either
+    // an unknown token has no view to protect: it stops after the one lookup
+    expect((await calls(`/share/${newShareToken()}/items/${inside.id}`)).calls).toBe(1);
   });
 
   it('serves a live share link as before (negative control)', async () => {

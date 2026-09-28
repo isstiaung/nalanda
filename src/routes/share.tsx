@@ -162,11 +162,18 @@ share.get('/:token/items/:id', async (c) => {
   const token = c.req.param('token');
   const view = await getShareByToken(c.env.DB, token);
   if (!view) return c.notFound();
-  const item = await getItem(c.env.DB, Number(c.req.param('id')));
-  if (!item) return c.notFound();
-  const [tagMap, settings] = await Promise.all([tagsForItems(c.env.DB, [item.id]), getSiteSettings(c.env.DB)]);
-  const tags = tagMap.get(item.id) ?? [];
-  if (!itemMatchesShare(view, item, tags)) return c.notFound(); // token only unlocks its own view
+  // Past a live token, every answer does the same work — the item, its tags and the settings, all at once —
+  // and only then decides. Stopping early on a missing item made "no such item" measurably faster than "an item
+  // outside this view", so a link's holder could time which ids exist. A non-numeric id looks up 0, which never does.
+  const raw = Number(c.req.param('id'));
+  const id = Number.isSafeInteger(raw) && raw > 0 ? raw : 0;
+  const [item, tagMap, settings] = await Promise.all([
+    getItem(c.env.DB, id),
+    tagsForItems(c.env.DB, [id]),
+    getSiteSettings(c.env.DB),
+  ]);
+  const tags = tagMap.get(id) ?? [];
+  if (!item || !itemMatchesShare(view, item, tags)) return c.notFound(); // token only unlocks its own view
   const pub = toPublicItem(item, { progress: settings.progressOnShares });
 
   return renderShare(
