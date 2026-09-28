@@ -7,6 +7,7 @@ import { createSubscription, storeEntries } from '../src/db/federation';
 import { createItem, createLibrary, createShare } from '../src/db/queries';
 import type { MediaType } from '../src/db/schema';
 import app from '../src/index';
+import { CandidateCard } from '../src/views/components';
 import { newShareToken } from '../src/lib/share';
 import type { Bindings } from '../src/env';
 import { answerOutbound, connectPeer, instanceA, json, makeKeys, makePeer, sessionCookie, setUpA, sqlAgo } from './federation-helpers';
@@ -282,5 +283,83 @@ describe('a household that can’t be reached', () => {
     const html = await (await a.get(`/connections/${connectionId}/feed`, await sessionCookie('admin'))).text();
     expect(html).toContain('<strong>Finished this year</strong><small class="muted pull-error">Couldn’t reach them.</small>');
     expect(html).toContain('<article class="notice">Couldn’t reach Riverbank library just now.');
+  });
+});
+
+// Cover images that fail to load swap to the same media-icon box as a missing cover. public/covers.js does the
+// swapping in the browser (checked there by eye); these pin what it needs: every cover <img> carries its icon, and
+// every page that shows covers loads the script.
+describe('broken-cover fallback', () => {
+  const plain = instanceA(env);
+  const KEY = '0f0e0d0c-0b0a-4908-8706-050403020100'; // a cover key with no object behind it
+  const coverImgs = (html: string) => [...html.matchAll(/<img\b[^>]*>/g)].map((m) => m[0]);
+
+  it('marks every cover the app renders — cards, table thumbs, the item page — with its media icon', async () => {
+    const shelf = await createLibrary(env.DB, 'Games');
+    const game = await createItem(env.DB, { libraryId: shelf.id, title: 'Azul', mediaType: 'boardgame', coverKey: KEY, copies: 1 });
+    const cookie = await sessionCookie('member');
+    for (const path of [`/libraries/${shelf.id}?view=grid`, `/libraries/${shelf.id}`, `/items/${game.id}`, '/']) {
+      const html = await (await plain.get(path, cookie)).text();
+      const imgs = coverImgs(html);
+      expect(imgs.length, path).toBeGreaterThan(0);
+      for (const img of imgs) expect(img, path).toContain('data-fallback="🎲"');
+      expect(html, path).toContain('<script src="/covers.js" defer=""></script>');
+    }
+  });
+
+  it('keeps the plain fallback, and no image, for an item that never had a cover (negative control)', async () => {
+    const shelf = await createLibrary(env.DB, 'Books');
+    const book = await createItem(env.DB, { libraryId: shelf.id, title: 'Coverless', copies: 1 });
+    const html = await (await plain.get(`/items/${book.id}`, await sessionCookie('member'))).text();
+    expect(coverImgs(html)).toEqual([]);
+    expect(html).toContain('<div class="cover-fallback" aria-hidden="true">📖</div>');
+  });
+
+  it('marks add-flow results', async () => {
+    const html = String(
+      await CandidateCard({
+        candidate: { mediaType: 'vinyl', title: 'Blue', coverUrl: 'https://covers.example/blue.jpg', details: {}, provider: 'discogs' },
+        libraries: [],
+      }),
+    );
+    expect(coverImgs(html)).toEqual([expect.stringContaining('data-fallback="💿"')]);
+  });
+
+  it('marks public share pages, and loads the script there too', async () => {
+    const shelf = await createLibrary(env.DB, 'Books');
+    const book = await createItem(env.DB, { libraryId: shelf.id, title: 'Piranesi', coverKey: KEY, copies: 1 });
+    const token = newShareToken();
+    await createShare(env.DB, { token, name: 'Shelf', libraryId: shelf.id });
+    for (const path of [`/share/${token}`, `/share/${token}/items/${book.id}`]) {
+      const html = await (await plain.get(path)).text();
+      expect(coverImgs(html), path).toEqual([expect.stringContaining('data-fallback="📖"')]);
+      expect(html, path).toContain('<script src="/covers.js" defer=""></script>');
+    }
+  });
+
+  it('marks covers from a connection — on the feed and on their shelves', async () => {
+    const { a, connectionId, peer } = await connected();
+    await followWithEntries(connectionId, 1, { coverKey: KEY, mediaType: 'vinyl' });
+    const member = await sessionCookie('member');
+    const feed = await (await a.get('/feed', member)).text();
+    expect(coverImgs(feed)).toEqual([
+      expect.stringMatching(new RegExp(`src="${peer.url}/covers/${KEY}"[^>]*data-fallback="💿"`)),
+    ]);
+
+    vi.unstubAllGlobals();
+    const stamp = 'aaaaaaaaaaaaa070';
+    answerOutbound((req) =>
+      new URL(req.url).pathname === '/federation/shelf'
+        ? json({
+            view: { id: 7, name: 'Their shelf' },
+            total: 1,
+            page: 1,
+            pages: 1,
+            items: [{ id: 70, mediaType: 'book', title: 'Theirs', creators: null, published: null, coverKey: KEY, rating: null, inCollection: true, available: true, stamp }],
+          })
+        : json({}, 404),
+    );
+    const shelf = await (await a.get(`/households/${connectionId}/views/7`, member)).text();
+    expect(coverImgs(shelf)).toEqual([expect.stringMatching(new RegExp(`src="${peer.url}/covers/${KEY}"[^>]*data-fallback="📖"`))]);
   });
 });

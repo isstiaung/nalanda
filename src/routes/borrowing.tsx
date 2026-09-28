@@ -108,7 +108,14 @@ function parseShelf(value: unknown): Shelf | null {
 const TheirCover: FC<{ baseUrl: string; coverKey: string | null; title: string; mediaType: ShelfItem['mediaType'] }> = (p) => {
   const url = coverUrl(p.baseUrl, p.coverKey);
   return url ? (
-    <img class="cover-img" src={url} alt={`Cover of ${p.title}`} loading="lazy" referrerpolicy="no-referrer" />
+    <img
+      class="cover-img"
+      src={url}
+      alt={`Cover of ${p.title}`}
+      loading="lazy"
+      referrerpolicy="no-referrer"
+      data-fallback={MEDIA_ICON[p.mediaType]}
+    />
   ) : (
     <div class="cover-fallback" aria-hidden="true">
       {MEDIA_ICON[p.mediaType]}

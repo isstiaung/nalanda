@@ -136,7 +136,14 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] }> = 
     <article class="feed-card">
       <div class="feed-cover">
         {cover ? (
-          <img class="cover-img" src={cover} alt={`Cover of ${item.title}`} loading="lazy" referrerpolicy="no-referrer" />
+          <img
+            class="cover-img"
+            src={cover}
+            alt={`Cover of ${item.title}`}
+            loading="lazy"
+            referrerpolicy="no-referrer"
+            data-fallback={MEDIA_ICON[item.mediaType]}
+          />
         ) : (
           <div class="cover-fallback" aria-hidden="true">
             {MEDIA_ICON[item.mediaType]}

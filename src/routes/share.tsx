@@ -62,6 +62,8 @@ const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string }>> = ({ 
       <title>{title}</title>
       <link rel="icon" href="/logo.svg" type="image/svg+xml" />
       <link rel="stylesheet" href="/app.css" />
+      {/* a cover that fails to load falls back to its media icon */}
+      <script src="/covers.js" defer></script>
     </head>
     <body>
       <main class="share-shell">
@@ -86,7 +88,13 @@ const PublicCard: FC<{ item: PublicItem; token: string }> = ({ item, token }) =>
   <a href={`/share/${token}/items/${item.id}`} class="item-card">
     <div class="item-cover">
       {item.coverKey ? (
-        <img class="cover-img" src={`/covers/${item.coverKey}`} alt={`Cover of ${item.title}`} loading="lazy" />
+        <img
+          class="cover-img"
+          src={`/covers/${item.coverKey}`}
+          alt={`Cover of ${item.title}`}
+          loading="lazy"
+          data-fallback={MEDIA_ICON[item.mediaType]}
+        />
       ) : (
         <div class="cover-fallback">{MEDIA_ICON[item.mediaType]}</div>
       )}
@@ -168,7 +176,7 @@ share.get('/:token/items/:id', async (c) => {
     <article class="item-detail">
       <div class="item-detail-cover">
         {pub.coverKey ? (
-          <img class="cover-img" src={`/covers/${pub.coverKey}`} alt={`Cover of ${pub.title}`} />
+          <img class="cover-img" src={`/covers/${pub.coverKey}`} alt={`Cover of ${pub.title}`} data-fallback={MEDIA_ICON[pub.mediaType]} />
         ) : (
           <div class="cover-fallback">{MEDIA_ICON[pub.mediaType]}</div>
         )}

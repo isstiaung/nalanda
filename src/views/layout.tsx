@@ -46,6 +46,8 @@ const Head: FC<{ title: string }> = ({ title }) => (
     />
     <script src="/vendor/htmx.min.js" defer></script>
     <script src="/app.js" defer></script>
+    {/* a cover that fails to load falls back to its media icon — shared with the public share pages */}
+    <script src="/covers.js" defer></script>
   </head>
 );
 
