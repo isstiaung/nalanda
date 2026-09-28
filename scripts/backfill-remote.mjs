@@ -34,7 +34,8 @@ import { DATABASE, removeRemoteConfig, writeRemoteConfig } from './remote-config
 const execFileAsync = promisify(execFile);
 const BUCKET = 'nalanda-covers';
 const ROOT = '.backfill';
-const REMOTE_CONFIG = '.wrangler-remote-backfill.jsonc';
+// one per process: a `status` run during an `apply` must not delete the copy the apply is using
+const REMOTE_CONFIG = `.wrangler-remote-backfill-${process.pid}.jsonc`;
 const BACKUP_MAX_AGE_HOURS = 12;
 const SQL_BATCH = 200;
 
@@ -54,6 +55,8 @@ function fail(message) {
   process.exit(1);
 }
 
+const NUMBER_FLAGS = new Set(['sample', 'limit', 'concurrency', 'rps']);
+
 function parseFlags(args, allowed) {
   const flags = {};
   for (let i = 0; i < args.length; i++) {
@@ -62,7 +65,10 @@ function parseFlags(args, allowed) {
     const key = arg.slice(2);
     if (!allowed.includes(key)) fail(`Unknown option --${key}. This command takes: ${allowed.map((a) => `--${a}`).join(' ') || 'no options'}`);
     const next = args[i + 1];
-    if (next === undefined || next.startsWith('--')) flags[key] = true;
+    if (next === undefined || next.startsWith('--')) {
+      if (NUMBER_FLAGS.has(key)) fail(`--${key} needs a number after it`);
+      flags[key] = true;
+    }
     else {
       flags[key] = next;
       i++;
@@ -73,6 +79,7 @@ function parseFlags(args, allowed) {
 
 function positiveInt(value, name, fallback) {
   if (value === undefined) return fallback;
+  if (value === true) fail(`--${name} needs a number after it`);
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) fail(`--${name} needs a positive number`);
   return n;
@@ -260,6 +267,7 @@ function instrumentFetch({ rps }) {
     health.stats.set(host, s);
   };
   const noteFailure = (host, why) => {
+    health.failureEvents = (health.failureEvents ?? 0) + 1;
     const n = (failures.get(host) ?? 0) + 1;
     failures.set(host, n);
     if (n >= FAILURES_BEFORE_STOPPING) health.stopReason ??= `${n} consecutive failures from ${host} (${why})`;
@@ -441,6 +449,7 @@ async function enrich(target, flags) {
   async function worker() {
     while (cursor < todo.length && !stopReason()) {
       const item = todo[cursor++];
+      const failuresBefore = health.failureEvents ?? 0;
       let out;
       try {
         out = await lookUp(item);
@@ -448,9 +457,9 @@ async function enrich(target, flags) {
         out = { id: item.id, title: item.title, patch: {}, error: String(err?.message ?? err).slice(0, 200) };
         tally.errors++;
       }
-      // An empty answer given while the run was failing is not evidence the book can't be found.
-      // Leave it unrecorded so the next run looks again.
-      if (!hasPatch(out) && stopReason()) {
+      // An empty answer given while a provider was failing is not evidence the book can't be found —
+      // providers report a failure as "nothing found". Leave it unrecorded so the next run looks again.
+      if (!hasPatch(out) && (stopReason() || (health.failureEvents ?? 0) > failuresBefore)) {
         tally.unrecorded++;
         continue;
       }
@@ -546,7 +555,11 @@ function buildStatements(target) {
       tally.cover++;
     }
     if (p.description) {
-      statements.push(`UPDATE items SET description = ${text(p.description)}, ${stamp} ${where} AND (description IS NULL OR trim(description) = '');`);
+      const statement = `UPDATE items SET description = ${text(p.description)}, ${stamp} ${where} AND (description IS NULL OR trim(description) = '');`;
+      // D1 takes statements up to 100 KB, and hex doubles the text: a description that long would fail
+      // its whole file, so it's left out and named instead.
+      if (statement.length > 95_000) console.log(`  #${id}: description too long for one statement (${p.description.length} chars), left out`);
+      else statements.push(statement);
       tally.description++;
     }
     if (p.publisher) {
@@ -576,6 +589,19 @@ function recentBackup() {
   return candidates[0] ?? null;
 }
 
+/**
+ * Whether a backup's items file is whole: it ends on a complete statement, and holds nearly every item
+ * production has now. A download that broke mid-stream fails the first; a stale or half-finished backup
+ * with a fresh timestamp fails the second. A few items added since the backup are allowed for.
+ */
+function backupLooksComplete(file, liveTotal) {
+  const text = readFileSync(file, 'utf8');
+  const lines = text.split('\n').filter((l) => l.trim());
+  const rows = lines.filter((l) => l.startsWith('INSERT INTO')).length;
+  const endsWhole = !lines.length || lines.at(-1).trimEnd().endsWith(';');
+  return { ok: endsWhole && rows >= Math.floor(liveTotal * 0.98), rows, endsWhole };
+}
+
 const describeCounts = (c) => `${c.noCover} missing a cover, ${c.noDescription} missing a description (of ${c.total})`;
 
 async function apply(target) {
@@ -586,7 +612,14 @@ async function apply(target) {
     if (!backup || backup.ageHours > BACKUP_MAX_AGE_HOURS) {
       fail(`Take a backup first — npm run backup. (${backup ? `The newest is ${backup.ageHours.toFixed(1)} hours old.` : 'None found.'})`);
     }
-    console.log(`Backup: ${backup.file}, ${backup.ageHours.toFixed(1)} hours old`);
+    const whole = backupLooksComplete(backup.file, (await counts(target)).total);
+    if (!whole.ok) {
+      fail(
+        `The newest backup looks incomplete (${whole.rows} items${whole.endsWhole ? '' : ', cut off mid-statement'}). ` +
+          'Take a fresh one — npm run backup — and apply again.',
+      );
+    }
+    console.log(`Backup: ${backup.file}, ${backup.ageHours.toFixed(1)} hours old, ${whole.rows} items`);
   }
 
   const resultLines = readLines(p.results).length;
