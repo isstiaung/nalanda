@@ -118,3 +118,24 @@ describe('an export that fails partway', () => {
     await waitOnExecutionContext(ctx);
   });
 });
+
+describe('an export scoped to one shelf', () => {
+  it('carries only that shelf, with its own tags, when shelves interleave', async () => {
+    const a = await createLibrary(env.DB, 'A');
+    const b = await createLibrary(env.DB, 'B');
+    for (let n = 0; n < 6; n++) {
+      const item = await createItem(env.DB, { libraryId: n % 2 ? b.id : a.id, title: `Item ${n}`, details: '{}' });
+      await setItemTags(env.DB, item.id, [n % 2 ? 'from-b' : 'from-a']);
+    }
+    const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
+    const token = await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000));
+    const ctx = createExecutionContext();
+    const res = await app.fetch(new Request(`http://nalanda.test/export.csv?library=${a.id}`, { headers: { cookie: `${SESSION_COOKIE}=${token}` } }), env, ctx);
+    const body = await res.text();
+    await waitOnExecutionContext(ctx);
+
+    const rows = body.trim().split('\r\n').slice(1);
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => r.includes('from-a') && !r.includes('from-b'))).toBe(true);
+  });
+});

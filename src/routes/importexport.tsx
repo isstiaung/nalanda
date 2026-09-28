@@ -290,7 +290,7 @@ importexport.get('/export.csv', async (c) => {
         }
         const items = await pageItems(d1, { libraryId: scope, afterId, limit: PAGE });
         if (!items.length) return controller.close();
-        const tagMap = await tagsForIdRange(d1, items[0]!.id, items.at(-1)!.id);
+        const tagMap = await tagsForIdRange(d1, items[0]!.id, items.at(-1)!.id, scope);
         let chunk = '';
         for (const item of items) {
           chunk += itemToCsvLine(item, libNames.get(item.libraryId) ?? '', tagMap.get(item.id) ?? []);
