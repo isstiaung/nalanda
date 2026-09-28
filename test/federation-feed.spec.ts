@@ -7,13 +7,17 @@ import {
   createConnectionView,
   createSubscription,
   deleteConnectionView,
+  dueSubscriptions,
+  getFederationSettings,
   storeEntries,
   type NewRemoteActivity,
 } from '../src/db/federation';
 import { createItem, createLibrary, createLoan, deleteItem, updateItem } from '../src/db/queries';
 import type { Bindings } from '../src/env';
-import { budgeted } from '../src/federation/budget';
+import { budgeted, isBudgetSpent } from '../src/federation/budget';
 import { FEED_READS_PER_WINDOW } from '../src/federation/config';
+import { refreshSubscription } from '../src/federation/feed';
+import { loadIdentity } from '../src/federation/keys';
 import { inboxMessage } from '../src/federation/messages';
 import { clearSharedViewsCache } from '../src/federation/routes';
 import {
@@ -544,6 +548,34 @@ describe('following another household', () => {
     expect(await rows('SELECT * FROM remote_activities')).toHaveLength(0);
     expect((await rows<{ gone_at: string | null }>('SELECT gone_at FROM feed_subscriptions'))[0]!.gone_at).not.toBeNull();
     expect(await (await a.get(`/connections/${connectionId}/feed`, admin)).text()).toContain('No longer shared');
+  });
+
+  it('counts what a withdrawn view took with it, wherever the pull runs out', async () => {
+    // Deleted before the count was recorded, a failure between the two lost the count: the next pull, with
+    // nothing left to delete, marked the view gone and the Feed page never said what had gone with it.
+    const sub = await follow();
+    const identity = (await loadIdentity(keysA.secret))!;
+    const settings = (await getFederationSettings(env.DB))!;
+    answerOutbound(() => json({ error: 'no such view' }, 404));
+    for (let left = 0; ; left++) {
+      expect(left, 'never finished').toBeLessThan(20);
+      await env.DB.prepare('DELETE FROM remote_activities').run();
+      await env.DB.prepare('UPDATE feed_subscriptions SET gone_at = NULL, removed_unseen = 0, last_pulled_at = NULL').run();
+      await storeEntries(env.DB, sub.id, [stored(1, 5), stored(2, 4), stored(3, 3)]);
+      const [due] = await dueSubscriptions(env.DB, 1);
+
+      await refreshSubscription(budgeted(env.DB, { left }), identity, settings, due!).catch((err) => {
+        if (!isBudgetSpent(err)) throw err;
+      });
+
+      const [row] = await rows<{ gone_at: string | null; removed_unseen: number }>('SELECT gone_at, removed_unseen FROM feed_subscriptions');
+      const kept = (await rows('SELECT id FROM remote_activities')).length;
+      expect(row!.removed_unseen + kept, `with room for ${left} queries`).toBe(3);
+      if (row!.gone_at) {
+        expect(row!.removed_unseen).toBe(3);
+        return;
+      }
+    }
   });
 
   it('deletes everything stored from a connection when either side disconnects', async () => {

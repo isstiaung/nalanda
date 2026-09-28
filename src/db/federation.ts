@@ -615,19 +615,22 @@ export async function recordPull(
     .where(eq(s.feedSubscriptions.id, sub.id));
 }
 
-/** They stopped sharing the view: everything stored from it goes, and the Feed page says how much. */
+/**
+ * They stopped sharing the view: everything stored from it goes, and the Feed page says how much. Counted,
+ * then deleted, in one batch: as two calls, a failure after the delete lost the count, and the next pull —
+ * with nothing left to delete — marked the view gone with none of its entries ever mentioned.
+ */
 export async function markSubscriptionGone(d1: D1Database, id: number): Promise<void> {
-  const removed = await db(d1)
-    .delete(s.remoteActivities)
-    .where(eq(s.remoteActivities.subscriptionId, id))
-    .returning({ id: s.remoteActivities.id });
-  await d1
-    .prepare(
-      `UPDATE feed_subscriptions SET gone_at = datetime('now'), last_error = NULL,
-         removed_unseen = removed_unseen + ?1 WHERE id = ?2`,
-    )
-    .bind(removed.length, id)
-    .run();
+  await d1.batch([
+    d1
+      .prepare(
+        `UPDATE feed_subscriptions SET gone_at = datetime('now'), last_error = NULL,
+           removed_unseen = removed_unseen + (SELECT count(*) FROM remote_activities WHERE subscription_id = ?1)
+         WHERE id = ?1`,
+      )
+      .bind(id),
+    d1.prepare('DELETE FROM remote_activities WHERE subscription_id = ?1').bind(id),
+  ]);
 }
 
 // ---------- stored feed entries (phase 2) ----------
@@ -693,25 +696,23 @@ export async function storedRemoteIds(d1: D1Database, subscriptionId: number): P
   return rows.map((r) => r.remoteId);
 }
 
-/** Deletes entries their owner no longer shares, and counts them for the Feed page's notice. */
+/**
+ * Deletes entries their owner no longer shares, and counts them for the Feed page's notice — counted first,
+ * in the same batch, so the count can't be lost to a failure after the delete.
+ */
 export async function removeEntries(d1: D1Database, subscriptionId: number, remoteIds: number[]): Promise<number> {
   if (!remoteIds.length) return 0;
-  const removed = await db(d1)
-    .delete(s.remoteActivities)
-    .where(
-      and(
-        eq(s.remoteActivities.subscriptionId, subscriptionId),
-        sql`${s.remoteActivities.remoteId} IN (SELECT value FROM json_each(${JSON.stringify(remoteIds)}))`,
-      ),
-    )
-    .returning({ id: s.remoteActivities.id });
-  if (removed.length) {
-    await d1
-      .prepare('UPDATE feed_subscriptions SET removed_unseen = removed_unseen + ?1 WHERE id = ?2')
-      .bind(removed.length, subscriptionId)
-      .run();
-  }
-  return removed.length;
+  const withdrawn = `subscription_id = ?1 AND remote_id IN (SELECT value FROM json_each(?2))`;
+  const [, removed] = await d1.batch([
+    d1
+      .prepare(
+        `UPDATE feed_subscriptions SET removed_unseen = removed_unseen + (SELECT count(*) FROM remote_activities WHERE ${withdrawn})
+         WHERE id = ?1`,
+      )
+      .bind(subscriptionId, JSON.stringify(remoteIds)),
+    d1.prepare(`DELETE FROM remote_activities WHERE ${withdrawn} RETURNING id`).bind(subscriptionId, JSON.stringify(remoteIds)),
+  ]);
+  return removed?.results.length ?? 0;
 }
 
 /**
