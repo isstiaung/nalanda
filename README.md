@@ -31,6 +31,8 @@ manuscripts.
 - **Tags, half-star ratings, full-text search** across the collection, plus a quick
   title/author filter inside every shelf and sorting by newest, title, rating, or date
   finished.
+- **Reading progress**: record the page you're on, keep the log of how you got there, and
+  see how far through a book you are. Private to the household — never on share links.
 - **Own your data**: every field round-trips through CSV export; plain-SQLite backups.
 - **The manuscript ledger**: a hand-written design system grounded in Nalanda's Pala-era
   scriptorium — palm-leaf paper, indigo and vermilion, Devanagari-first display type,

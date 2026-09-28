@@ -85,6 +85,13 @@
       "when": 1789491538957,
       "tag": "0011_share-tags",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1790565720190,
+      "tag": "0012_reading-progress",
+      "breakpoints": true
     }
   ]
 }

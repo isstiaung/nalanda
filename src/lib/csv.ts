@@ -15,6 +15,7 @@ export const EXPORT_COLUMNS = [
   'published',
   'description',
   'length',
+  'progress_page',
   'status',
   'rating',
   'review',
@@ -24,6 +25,7 @@ export const EXPORT_COLUMNS = [
   'began_on',
   'completed_on',
   'added_at',
+  'progress_history',
   'details',
 ] as const;
 
@@ -36,7 +38,20 @@ export function csvLine(values: unknown[]): string {
   return values.map(csvEscape).join(',') + '\r\n';
 }
 
-export function itemToCsvLine(item: Item, libraryName: string, tags: string[]): string {
+/**
+ * The reading log in one cell: `page@timestamp`, oldest first, semicolon-separated. Nothing here
+ * needs CSV quoting, and the whole history leaves with the export rather than only the latest page.
+ */
+export function progressHistoryCell(entries: { page: number; at: string }[]): string {
+  return entries.map((e) => `${e.page}@${e.at}`).join(';');
+}
+
+export function itemToCsvLine(
+  item: Item,
+  libraryName: string,
+  tags: string[],
+  progress: { page: number; at: string }[] = [],
+): string {
   return csvLine([
     libraryName,
     item.mediaType,
@@ -48,6 +63,7 @@ export function itemToCsvLine(item: Item, libraryName: string, tags: string[]): 
     item.published,
     item.description,
     item.length,
+    item.progressPage,
     item.status,
     item.rating,
     item.review,
@@ -57,6 +73,7 @@ export function itemToCsvLine(item: Item, libraryName: string, tags: string[]): 
     item.beganOn,
     item.completedOn,
     item.addedAt,
+    progressHistoryCell(progress),
     item.details === '{}' ? '' : item.details,
   ]);
 }

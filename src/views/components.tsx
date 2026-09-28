@@ -87,6 +87,105 @@ export const NotOwnedPill: FC = () => <span class="pill ghost">Not owned</span>;
 /** Same as NotOwnedPill but clickable — one tap sets copies to 1 in place (htmx),
  *  swapping itself for a MarkNotOwnedButton. No edit form. Authenticated views
  *  only; share pages keep the plain NotOwnedPill. */
+/**
+ * Percent read, or null when it can't be known: no page recorded, or no page count for the book.
+ * Clamped at 100 because provider page counts are often lower than the edition in someone's hands.
+ */
+export function progressPercent(page: number | null, length: number | null): number | null {
+  if (!page || !length || length <= 0) return null;
+  return Math.min(100, Math.round((page / length) * 100));
+}
+
+/**
+ * Reading progress for a book: where you are, the log of how you got there, and one field to add to
+ * it. Swaps itself on every change (hx-target on the section), so the bar, the figures and the log
+ * stay in step without a page load. Books only — pages mean nothing for a record or a board game.
+ */
+export const ReadingProgressSection: FC<{ item: Item; entries: { id: number; page: number; at: string }[]; error?: string }> = ({
+  item,
+  entries,
+  error,
+}) => {
+  const percent = progressPercent(item.progressPage, item.length);
+  return (
+    <div class="detail-section" id="reading-progress">
+      <p class="eyebrow">Reading progress</p>
+      {item.progressPage ? (
+        <>
+          <p>
+            <span class="mono">p. {item.progressPage}</span>
+            {item.length ? (
+              <>
+                {' of '}
+                <span class="mono">{item.length}</span>
+              </>
+            ) : null}
+            {percent !== null ? (
+              <>
+                {' · '}
+                <span class="mono">{percent}%</span>
+              </>
+            ) : null}
+          </p>
+          {percent !== null ? (
+            <div class="progress-track" role="img" aria-label={`${percent}% read`}>
+              <div class="progress-fill" style={`width:${percent}%`} />
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <p class="muted">Nothing recorded yet.</p>
+      )}
+
+      <form
+        method="post"
+        action={`/items/${item.id}/progress`}
+        class="inline-form"
+        hx-post={`/items/${item.id}/progress`}
+        hx-target="#reading-progress"
+        hx-swap="outerHTML"
+      >
+        <input
+          name="page"
+          inputmode="numeric"
+          class="mono"
+          size={6}
+          placeholder="Page"
+          aria-label="Page reached"
+          required
+        />
+        {item.length ? <span class="muted">of {item.length}</span> : null}
+        <button type="submit" class="btn">
+          Record
+        </button>
+      </form>
+      {error ? <p class="error">{error}</p> : null}
+
+      {entries.length ? (
+        <ol class="progress-log">
+          {entries.map((e) => (
+            <li>
+              <span class="mono">p. {e.page}</span>
+              <span class="mono muted">{e.at.slice(0, 10)}</span>
+              <form
+                method="post"
+                action={`/items/${item.id}/progress/${e.id}/delete`}
+                hx-post={`/items/${item.id}/progress/${e.id}/delete`}
+                hx-target="#reading-progress"
+                hx-swap="outerHTML"
+              >
+                <button type="submit" class="progress-delete" title="Remove this entry">
+                  Remove
+                </button>
+              </form>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+    </div>
+  );
+};
+
 export const MarkOwnedButton: FC<{ id: number }> = ({ id }) => (
   <button
     type="button"

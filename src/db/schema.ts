@@ -42,6 +42,9 @@ export const items = sqliteTable(
     published: text('published'),
     description: text('description'),
     length: integer('length'),
+    // The latest page reached, kept alongside the reading_progress history so a shelf or item page
+    // never needs a subquery for it (50 D1 queries per invocation). NULL = nothing recorded yet.
+    progressPage: integer('progress_page'),
     coverKey: text('cover_key'),
     status: text('status', { enum: ITEM_STATUSES }).notNull().default('not_started'),
     rating: integer('rating'),
@@ -208,6 +211,27 @@ export const connectionViews = sqliteTable('connection_views', {
   sort: text('sort', { enum: ['added', 'title', 'rating', 'completed'] }).notNull().default('title'),
   createdAt: text('created_at').notNull().default(now),
 });
+
+/**
+ * One row per "I'm on page N" update, oldest to newest — the reading log Goodreads calls progress
+ * updates. items.progress_page holds the latest for cheap reads; this table is the history, and
+ * deleting a row recomputes it.
+ */
+export const readingProgress = sqliteTable(
+  'reading_progress',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    // Not capped at items.length: provider page counts are often wrong, and a real reader's page
+    // number shouldn't be refused because Open Library disagrees. Percentages clamp at 100 instead.
+    page: integer('page').notNull(),
+    at: text('at').notNull().default(now),
+    addedBy: integer('added_by').references(() => users.id),
+  },
+  (t) => [index('idx_reading_progress_item').on(t.itemId, t.at)],
+);
 
 export const ACTIVITY_KINDS = ['reviewed', 'rated', 'finished'] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
@@ -402,6 +426,7 @@ export type ConnectionInvite = typeof connectionInvites.$inferSelect;
 export type Connection = typeof connections.$inferSelect;
 export type ConnectionView = typeof connectionViews.$inferSelect;
 export type FeedSubscription = typeof feedSubscriptions.$inferSelect;
+export type ReadingProgress = typeof readingProgress.$inferSelect;
 export type RemoteActivity = typeof remoteActivities.$inferSelect;
 export type Comment = typeof comments.$inferSelect;
 export type OutboxRow = typeof outbox.$inferSelect;

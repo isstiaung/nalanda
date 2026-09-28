@@ -779,6 +779,20 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     `CAST(X'…' AS TEXT)`, so quotes and semicolons can't break the SQL file. `rehearse` runs all of
     it against a throwaway local database and checks the outcome. The in-app backfill stays, for
     small top-ups.
+34. **Reading progress is a log, not a number.** "Page 187" on its own answers where you are;
+    the reading log answers how the book has been going, which is what a Goodreads-style progress
+    update is really for — so `reading_progress` keeps one row per update and `items.progress_page`
+    carries the latest, denormalised, because a shelf row can't afford a subquery per item under
+    the 50-query budget. Recording a page starts the book (`not_started` → `in_progress`, and
+    `began_on` if it was empty), because recording a page is what starting a book looks like; an
+    explicitly set status or date is never touched. Deleting an entry recomputes the latest page but
+    leaves status and `began_on` alone — a mistyped page is not a claim the book was never opened.
+    Pages aren't capped at `length`: provider page counts are routinely wrong, so percentages clamp
+    at 100 instead of refusing a real page number. Books only. Both the latest page and the whole log
+    leave through `/export.csv` (`progress_page`, and `progress_history` as `page@timestamp` pairs);
+    neither libib nor Goodreads exports progress, so there is nothing to map on import. Progress
+    stays off share pages — how far through a book someone is reads like a private note, not a
+    published review — but it does reach connections, as its own feed entries (§16 #35).
 
 The honest comparison, since it was asked:
 

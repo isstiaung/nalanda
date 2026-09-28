@@ -419,6 +419,87 @@ export async function pageItems(
     .offset(opts.offset);
 }
 
+// ---------- reading progress ----------
+
+export type ProgressEntry = { id: number; page: number; at: string; addedBy: number | null };
+
+/** Oldest first: a reading log reads forwards. */
+export async function listProgress(d1: D1Database, itemId: number): Promise<ProgressEntry[]> {
+  return db(d1)
+    .select({ id: s.readingProgress.id, page: s.readingProgress.page, at: s.readingProgress.at, addedBy: s.readingProgress.addedBy })
+    .from(s.readingProgress)
+    .where(eq(s.readingProgress.itemId, itemId))
+    .orderBy(asc(s.readingProgress.at), asc(s.readingProgress.id));
+}
+
+/**
+ * Records a page reached. One batch, so the history row and the copy on `items` can't disagree:
+ * a page kept only in one of the two would show a progress bar with no entry behind it, or the
+ * reverse. Starting a book that was "not started" also moves it to "in progress" and dates it,
+ * because that is what recording a page means — but an explicit status or began_on is left alone.
+ */
+export async function addProgress(d1: D1Database, itemId: number, page: number, userId: number | null): Promise<void> {
+  await d1.batch([
+    d1.prepare('INSERT INTO reading_progress (item_id, page, added_by) VALUES (?1, ?2, ?3)').bind(itemId, page, userId),
+    d1
+      .prepare(
+        `UPDATE items SET progress_page = ?2,
+           status = CASE WHEN status = 'not_started' THEN 'in_progress' ELSE status END,
+           began_on = CASE WHEN began_on IS NULL OR trim(began_on) = '' THEN date('now') ELSE began_on END,
+           updated_at = datetime('now')
+         WHERE id = ?1`,
+      )
+      .bind(itemId, page),
+  ]);
+}
+
+/**
+ * Removes one entry — a typo, usually — and puts `items.progress_page` back to whatever the newest
+ * remaining entry says, or to NULL when that was the only one. Status and began_on stay as they are:
+ * deleting a mistyped page is not the same as saying you never started the book.
+ */
+export async function deleteProgress(d1: D1Database, itemId: number, entryId: number): Promise<void> {
+  await d1.batch([
+    d1.prepare('DELETE FROM reading_progress WHERE id = ?1 AND item_id = ?2').bind(entryId, itemId),
+    d1
+      .prepare(
+        `UPDATE items SET progress_page = (
+           SELECT page FROM reading_progress WHERE item_id = ?1 ORDER BY at DESC, id DESC LIMIT 1
+         ), updated_at = datetime('now') WHERE id = ?1`,
+      )
+      .bind(itemId),
+  ]);
+}
+
+/**
+ * Progress history for a page of items, for the CSV export. Ids are chunked because D1 allows 100
+ * bound parameters per statement — the cap that broke the tag page when it passed a few hundred.
+ */
+export async function progressForItems(d1: D1Database, itemIds: number[]): Promise<Map<number, ProgressEntry[]>> {
+  const result = new Map<number, ProgressEntry[]>();
+  if (!itemIds.length) return result;
+  const CHUNK = 90;
+  for (let i = 0; i < itemIds.length; i += CHUNK) {
+    const rows = await db(d1)
+      .select({
+        itemId: s.readingProgress.itemId,
+        id: s.readingProgress.id,
+        page: s.readingProgress.page,
+        at: s.readingProgress.at,
+        addedBy: s.readingProgress.addedBy,
+      })
+      .from(s.readingProgress)
+      .where(inArray(s.readingProgress.itemId, itemIds.slice(i, i + CHUNK)))
+      .orderBy(asc(s.readingProgress.at), asc(s.readingProgress.id));
+    for (const r of rows) {
+      const list = result.get(r.itemId) ?? [];
+      list.push({ id: r.id, page: r.page, at: r.at, addedBy: r.addedBy });
+      result.set(r.itemId, list);
+    }
+  }
+  return result;
+}
+
 // ---------- cover backfill ----------
 
 // Anything short of a cover or a description qualifies: the barcode pass needs an ISBN/UPC, but the

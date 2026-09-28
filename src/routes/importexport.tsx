@@ -8,6 +8,7 @@ import {
   mergeImportItems,
   nextBackfillable,
   pageItems,
+  progressForItems,
   tagsForItems,
   updateItem,
 } from '../db/queries';
@@ -284,10 +285,11 @@ importexport.get('/export.csv', async (c) => {
         for (let offset = 0; ; offset += PAGE) {
           const items = await pageItems(d1, { libraryId: scope, offset, limit: PAGE });
           if (!items.length) break;
-          const tagMap = await tagsForItems(d1, items.map((i) => i.id));
+          const ids = items.map((i) => i.id);
+          const [tagMap, progressMap] = await Promise.all([tagsForItems(d1, ids), progressForItems(d1, ids)]);
           let chunk = '';
           for (const item of items) {
-            chunk += itemToCsvLine(item, libNames.get(item.libraryId) ?? '', tagMap.get(item.id) ?? []);
+            chunk += itemToCsvLine(item, libNames.get(item.libraryId) ?? '', tagMap.get(item.id) ?? [], progressMap.get(item.id) ?? []);
           }
           await writer.write(encoder.encode(chunk));
           if (items.length < PAGE) break;
