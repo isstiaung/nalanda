@@ -1,7 +1,7 @@
 // First-run setup and the session secret. Setup used to create the admin and the starter shelves one call at a
 // time and only then sign the cookie — with an empty SESSION_SECRET the signing threw, the request 500ed after the
 // admin existed, setup closed, and login failed the same way. Now a missing or blank secret is explained before
-// anything is read or written, and the admin and shelves are one batch that only the first setup wins.
+// anything is written, and the admin and shelves are one batch that only the first setup wins.
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { createFirstAdmin, createUser } from '../src/db/queries';
@@ -175,6 +175,14 @@ describe.each([
     await expectExplained(await send('/login', bindings));
   });
 
+  it('on a database never migrated, setup still explains the secret', async () => {
+    await env.DB.prepare('DROP TABLE users').run();
+
+    await expectExplained(await send('/setup', bindings));
+    const posted = await expectExplained(await send('/setup', bindings, { form: setupForm('admin') }));
+    expect(posted).toContain('Nothing was saved');
+  });
+
   it('with nobody set up yet, a protected page leads to setup, which explains', async () => {
     const res = await send('/loans', bindings);
     expect(res.status).toBe(302);
@@ -244,13 +252,18 @@ describe('setup with a SESSION_SECRET', () => {
 
     expect(await users()).toHaveLength(1);
     expect(await shelves()).toEqual(SHELVES);
-    // the winner is signed in; the loser — on a double-click, the page the browser shows — goes to login
+    // the winner is signed in; the loser — on a double-click, the page the browser shows — goes to login, which says why
     expect(results.map((r) => r.status)).toEqual([302, 302]);
     const [won, lost] = results[0]!.headers.get('location') === '/' ? results : [results[1]!, results[0]!];
     expect(won!.headers.get('location')).toBe('/');
     expect(won!.headers.get('set-cookie')).toMatch(new RegExp(`^${SESSION_COOKIE}=`));
-    expect(lost!.headers.get('location')).toBe('/login');
+    expect(lost!.headers.get('location')).toBe('/login?raced=1');
     expect(lost!.headers.get('set-cookie')).toBeNull();
+
+    const login = await send(lost!.headers.get('location')!, env);
+    expect(login.status).toBe(200);
+    expect(await login.text()).toContain('another setup finished first');
+    expect(await (await send('/login', env)).text()).not.toContain('another setup finished first');
   });
 });
 

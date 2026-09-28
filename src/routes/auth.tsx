@@ -30,10 +30,11 @@ function setSessionCookie(c: Parameters<typeof setCookie>[0], token: string, sec
   });
 }
 
-const LoginForm = ({ error }: { error?: string }) => (
+const LoginForm = ({ error, note }: { error?: string; note?: string }) => (
   <article class="auth-card">
     <Brand />
     <h1>Log in</h1>
+    {note ? <p class="notice">{note}</p> : null}
     {error ? <p class="error">{error}</p> : null}
     <form method="post" action="/auth/login">
       <label>
@@ -80,16 +81,23 @@ function noSessionSecret(c: Context<AppEnv>, note?: string) {
 }
 
 // Setup's note says what to do once the secret is set. An account may already exist — the old failure above made
-// it — and then setup will be gone: log in with the password chosen for it.
+// it — and then setup will be gone: log in with the password chosen for it. A database that can't be read (never
+// migrated) still gets the explanation, with the plain note.
 async function setupWithoutSecret(c: Context<AppEnv>, posted: boolean) {
-  if ((await countUsers(c.env.DB)) > 0) return noSessionSecret(c, 'An account already exists: once it is set, log in with it.');
+  const accountExists = await countUsers(c.env.DB).then((n) => n > 0, () => false);
+  if (accountExists) return noSessionSecret(c, 'An account already exists: once it is set, log in with it.');
   return noSessionSecret(c, posted ? 'Nothing was saved: set it, then create the account again.' : undefined);
 }
 
 auth.get('/login', async (c) => {
   if (!hasSessionSecret(c.env.SESSION_SECRET)) return noSessionSecret(c);
   if ((await countUsers(c.env.DB)) === 0) return c.redirect('/setup');
-  return page(c, 'Log in', <LoginForm />);
+  // a setup that lost the race to another (below) lands here
+  const note =
+    c.req.query('raced') === undefined
+      ? undefined
+      : 'Setup was already done: another setup finished first. Log in with that account — if it isn’t yours, ask whoever made it to add you.';
+  return page(c, 'Log in', <LoginForm note={note} />);
 });
 
 auth.post('/auth/login', async (c) => {
@@ -166,10 +174,10 @@ auth.post('/setup', async (c) => {
     return page(c, 'Setup', <SetupForm error="Passwords do not match." />);
   }
   // The count above only saves hashing on a closed setup. The batch decides: of two setups racing, one wins. The
-  // loser goes to login: usually it's the second click of a double-click, whose response is the page the browser
-  // shows, and the password just chosen works there.
+  // loser goes to login, which says why: usually it's the second click of a double-click, whose response is the
+  // page the browser shows, and the password just chosen works there.
   const adminId = await createFirstAdmin(c.env.DB, { username, passwordHash: await hashPassword(password) }, STARTER_SHELVES);
-  if (adminId === null) return c.redirect('/login');
+  if (adminId === null) return c.redirect('/login?raced=1');
   const token = await createSessionToken(secret, adminId, Math.floor(Date.now() / 1000));
   setSessionCookie(c, token, new URL(c.req.url).protocol === 'https:');
   return c.redirect('/');
