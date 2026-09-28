@@ -558,9 +558,12 @@ function buildStatements(target) {
       const statement = `UPDATE items SET description = ${text(p.description)}, ${stamp} ${where} AND (description IS NULL OR trim(description) = '');`;
       // D1 takes statements up to 100 KB, and hex doubles the text: a description that long would fail
       // its whole file, so it's left out and named instead.
-      if (statement.length > 95_000) console.log(`  #${id}: description too long for one statement (${p.description.length} chars), left out`);
-      else statements.push(statement);
-      tally.description++;
+      if (statement.length > 95_000) {
+        console.log(`  #${id}: description too long for one statement (${p.description.length} chars), left out`);
+      } else {
+        statements.push(statement);
+        tally.description++;
+      }
     }
     if (p.publisher) {
       statements.push(`UPDATE items SET publisher = ${text(p.publisher)}, ${stamp} ${where} AND (publisher IS NULL OR trim(publisher) = '');`);
