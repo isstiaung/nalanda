@@ -307,9 +307,9 @@ portable, and makes share routes trivially public. CF Access remains available l
   the authenticated app. The whitelist lives in one view module so it can't drift.
 - Pages carry `<meta name="robots" content="noindex">` — links are for people you send them
   to, not search engines.
-- Unpublish or regenerate the token any time; old URLs die within a minute (the
-  per-isolate page cache, §16 #19 — D1 stops being asked immediately, cached HTML
-  can outlive the token by up to its 60 s TTL).
+- Unpublish or regenerate the token any time; D1 stops being asked immediately, but an
+  isolate that cached the page can keep serving it for up to an hour (the per-isolate
+  page cache, §16 #19 — its TTL was raised from 60 s to one hour).
 - **Covers**: share pages need cover images without auth, so `GET /covers/:key` is public
   with random-UUID keys (unguessable, no listing). Acceptable exposure: covers are public
   cover art by definition.
