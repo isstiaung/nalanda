@@ -214,3 +214,73 @@ describe('404 pages', () => {
     expect(await res.text()).toContain('<h1>Public view</h1>');
   });
 });
+
+describe('an empty shelf', () => {
+  const plain = instanceA(env);
+
+  it('says it is empty and offers the ways to fill it, without a toolbar of filters to try', async () => {
+    const shelf = await createLibrary(env.DB, 'Films');
+    const html = await (await plain.get(`/libraries/${shelf.id}`, await sessionCookie('member'))).text();
+    expect(html).toContain(
+      'Nothing on this shelf yet — <a href="/add">add items</a> or <a href="/import">import a CSV</a>.',
+    );
+    expect(html).not.toContain('No items match these filters.');
+    expect(html).not.toContain('class="toolbar"');
+  });
+
+  it('still blames the filters when a filter is what emptied the list (negative control)', async () => {
+    const shelf = await createLibrary(env.DB, 'Books');
+    await createItem(env.DB, { libraryId: shelf.id, title: 'Piranesi', copies: 1 });
+    const cookie = await sessionCookie('member');
+    for (const query of ['q=zzzz', 'type=vinyl', 'status=abandoned', 'owned=0']) {
+      const html = await (await plain.get(`/libraries/${shelf.id}?${query}`, cookie)).text();
+      expect(html, query).toContain('No items match these filters.');
+      expect(html, query).toContain('class="toolbar"');
+      expect(html, query).not.toContain('Nothing on this shelf yet');
+    }
+  });
+
+  it('treats an empty shelf searched by name as filtered, keeping the toolbar to clear it', async () => {
+    const shelf = await createLibrary(env.DB, 'Films');
+    const html = await (await plain.get(`/libraries/${shelf.id}?q=anything`, await sessionCookie('member'))).text();
+    expect(html).toContain('No items match these filters.');
+    expect(html).toContain('class="toolbar"');
+  });
+});
+
+describe('a household that can’t be reached', () => {
+  it('says so in a notice, with a sub-line that doesn’t just repeat the name', async () => {
+    const { a, connectionId } = await connected();
+    vi.unstubAllGlobals();
+    answerOutbound(() => json({}, 503)); // their library is down
+    const member = await sessionCookie('member');
+    const shelf = await (await a.get(`/households/${connectionId}/views/7`, member)).text();
+    expect(shelf).toContain('<article class="notice">Couldn’t reach Riverbank library just now.');
+    expect(shelf).toContain('RIVERBANK LIBRARY · UNREACHABLE');
+
+    const item = await (await a.get(`/households/${connectionId}/views/7/items/70`, member)).text();
+    expect(item).toMatch(/<div class="page-head"><div><h1>Riverbank library<\/h1><span class="sub">UNREACHABLE<\/span>/);
+    expect(item).toContain('<article class="notice">Couldn’t reach Riverbank library just now.');
+    expect(item).toContain('← back to the shelf');
+  });
+
+  it('tells a shelf they stopped sharing apart from one it couldn’t reach (negative control)', async () => {
+    const { a, connectionId } = await connected(); // every outbound request answered 404
+    vi.unstubAllGlobals();
+    answerOutbound((req) => (new URL(req.url).pathname === '/federation/shelf' ? json({ error: 'not shared' }, 404) : json({}, 404)));
+    const html = await (await a.get(`/households/${connectionId}/views/7`, await sessionCookie('member'))).text();
+    expect(html).toContain('RIVERBANK LIBRARY · NO LONGER SHARED');
+    expect(html).not.toContain('UNREACHABLE');
+  });
+
+  it('shows a failed pull as its own line under the view name', async () => {
+    const { a, connectionId } = await connected();
+    const sub = await followWithEntries(connectionId, 0);
+    await env.DB.prepare('UPDATE feed_subscriptions SET last_error = ?1, last_pulled_at = datetime(\'now\') WHERE id = ?2')
+      .bind('Couldn’t reach them.', sub.id)
+      .run();
+    const html = await (await a.get(`/connections/${connectionId}/feed`, await sessionCookie('admin'))).text();
+    expect(html).toContain('<strong>Finished this year</strong><small class="muted pull-error">Couldn’t reach them.</small>');
+    expect(html).toContain('<article class="notice">Couldn’t reach Riverbank library just now.');
+  });
+});

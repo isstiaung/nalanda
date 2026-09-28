@@ -116,8 +116,9 @@ const TheirCover: FC<{ baseUrl: string; coverKey: string | null; title: string; 
   );
 };
 
+/** A notice, not an error: a household being offline is ordinary, and vermilion stays for circulation and danger. */
 const Unreachable: FC<{ connection: Connection }> = ({ connection }) => (
-  <p class="muted">Couldn’t reach {connection.householdName} just now. Their library may be offline — try again later.</p>
+  <article class="notice">Couldn’t reach {connection.householdName} just now. Their library may be offline — try again later.</article>
 );
 
 /** The shelves a household shares. */
@@ -175,7 +176,7 @@ borrowing.get('/households/:id/views/:viewId', async (c) => {
           <h1>{shelf?.name ?? connection.householdName}</h1>
           <span class="sub">
             {connection.householdName.toUpperCase()}
-            {shelf ? ` · ${shelf.total} ${shelf.total === 1 ? 'ITEM' : 'ITEMS'}` : ''}
+            {shelf ? ` · ${shelf.total} ${shelf.total === 1 ? 'ITEM' : 'ITEMS'}` : status === 404 ? ' · NO LONGER SHARED' : ' · UNREACHABLE'}
           </span>
         </div>
       </div>
@@ -232,9 +233,15 @@ borrowing.get('/households/:id/views/:viewId/items/:itemId', async (c) => {
       c,
       connection.householdName,
       <>
+        <div class="page-head">
+          <div>
+            <h1>{connection.householdName}</h1>
+            <span class="sub">{status === 404 ? 'NO LONGER SHARED' : 'UNREACHABLE'}</span>
+          </div>
+        </div>
         {status === 404 ? <p class="muted">That book isn’t on a shelf they share any more.</p> : <Unreachable connection={connection} />}
         <p class="back-link">
-          <a href={back}>← back</a>
+          <a href={back}>← back to the shelf</a>
         </p>
       </>,
     );

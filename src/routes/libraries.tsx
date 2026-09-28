@@ -81,6 +81,8 @@ libraries.get('/libraries/:id', async (c) => {
   const view = c.req.query('view') === 'grid' ? 'grid' : 'table';
   const pageNum = Number.parseInt(c.req.query('page') ?? '1', 10) || 1;
 
+  // No filter at all, and nothing found: the shelf itself is empty, and the filters have nothing to work on.
+  const filtered = mediaTypes.length > 0 || statuses.length > 0 || owned !== undefined || name !== undefined;
   const { items, total, page: current, pages } = await listItems(c.env.DB, id, {
     mediaTypes,
     statuses,
@@ -131,66 +133,68 @@ libraries.get('/libraries/:id', async (c) => {
         </div>
       </div>
 
-      <form method="get" action={`/libraries/${id}`} class="toolbar">
-        {view !== 'table' ? <input type="hidden" name="view" value={view} /> : null}
-        <input
-          type="search"
-          name="q"
-          value={name ?? ''}
-          placeholder="Title or author…"
-          aria-label="Filter by name"
-        />
-        <FilterMenu label="Type" name="type" options={MEDIA_TYPES.map((t) => [t, MEDIA_LABEL[t]] as const)} selected={mediaTypes} />
-        <FilterMenu
-          label="Status"
-          name="status"
-          options={ITEM_STATUSES.map((st) => [st, STATUS_LABEL[st]] as const)}
-          selected={statuses}
-        />
-        <FilterMenu
-          label="Holding"
-          name="owned"
-          options={[
-            ['1', 'Owned'],
-            ['0', 'Logged — not owned'],
-          ]}
-          selected={ownedSel}
-        />
-        <select name="sort" aria-label="Sort">
-          <option value="added" selected={sort === 'added'}>
-            Newest first
-          </option>
-          <option value="title" selected={sort === 'title'}>
-            Title A–Z
-          </option>
-          <option value="rating" selected={sort === 'rating'}>
-            Highest rated
-          </option>
-          <option value="completed" selected={sort === 'completed'}>
-            Date completed
-          </option>
-        </select>
-        <button type="submit" class="btn">
-          Apply
-        </button>
-        <span class="spacer"></span>
-        {/* Display-only, and only meaningful in the table: its checkboxes carry no
-            `name`, so they never join this GET form. "shelf" is omitted — a single
-            shelf's table has no Shelf column to hide. */}
-        {view === 'table' ? (
-          <ColumnsMenu
-            available={['type', 'year', 'completed', 'rating', 'status', 'holding', 'tags', 'acc']}
+      {total === 0 && !filtered ? null : (
+        <form method="get" action={`/libraries/${id}`} class="toolbar">
+          {view !== 'table' ? <input type="hidden" name="view" value={view} /> : null}
+          <input
+            type="search"
+            name="q"
+            value={name ?? ''}
+            placeholder="Title or author…"
+            aria-label="Filter by name"
           />
-        ) : null}
-        <span class="view-toggle">
-          <a href={makeHref(1, 'table')} class={view === 'table' ? 'active' : undefined}>
-            Table
-          </a>
-          <a href={makeHref(1, 'grid')} class={view === 'grid' ? 'active' : undefined}>
-            Covers
-          </a>
-        </span>
-      </form>
+          <FilterMenu label="Type" name="type" options={MEDIA_TYPES.map((t) => [t, MEDIA_LABEL[t]] as const)} selected={mediaTypes} />
+          <FilterMenu
+            label="Status"
+            name="status"
+            options={ITEM_STATUSES.map((st) => [st, STATUS_LABEL[st]] as const)}
+            selected={statuses}
+          />
+          <FilterMenu
+            label="Holding"
+            name="owned"
+            options={[
+              ['1', 'Owned'],
+              ['0', 'Logged — not owned'],
+            ]}
+            selected={ownedSel}
+          />
+          <select name="sort" aria-label="Sort">
+            <option value="added" selected={sort === 'added'}>
+              Newest first
+            </option>
+            <option value="title" selected={sort === 'title'}>
+              Title A–Z
+            </option>
+            <option value="rating" selected={sort === 'rating'}>
+              Highest rated
+            </option>
+            <option value="completed" selected={sort === 'completed'}>
+              Date completed
+            </option>
+          </select>
+          <button type="submit" class="btn">
+            Apply
+          </button>
+          <span class="spacer"></span>
+          {/* Display-only, and only meaningful in the table: its checkboxes carry no
+              `name`, so they never join this GET form. "shelf" is omitted — a single
+              shelf's table has no Shelf column to hide. */}
+          {view === 'table' ? (
+            <ColumnsMenu
+              available={['type', 'year', 'completed', 'rating', 'status', 'holding', 'tags', 'acc']}
+            />
+          ) : null}
+          <span class="view-toggle">
+            <a href={makeHref(1, 'table')} class={view === 'table' ? 'active' : undefined}>
+              Table
+            </a>
+            <a href={makeHref(1, 'grid')} class={view === 'grid' ? 'active' : undefined}>
+              Covers
+            </a>
+          </span>
+        </form>
+      )}
 
       {items.length ? (
         view === 'table' ? (
@@ -198,6 +202,10 @@ libraries.get('/libraries/:id', async (c) => {
         ) : (
           <ItemGrid items={items} onLoanIds={onLoanIds} />
         )
+      ) : total === 0 && !filtered ? (
+        <p class="muted">
+          Nothing on this shelf yet — <a href="/add">add items</a> or <a href="/import">import a CSV</a>.
+        </p>
       ) : (
         <p class="muted">No items match these filters.</p>
       )}

@@ -277,6 +277,8 @@ describe('shelf table columns', () => {
 
   it('offers a Columns menu whose checkboxes never join the filter form', async () => {
     const { lib, cookie } = await seedSession();
+    // a shelf with something on it: an empty shelf shows no toolbar at all
+    await post('/items', { title: 'On the shelf', libraryId: String(lib.id), mediaType: 'book' }, cookie);
     const html = await shelfHtml(lib.id, cookie);
 
     expect(html).toContain('id="columns-menu"');

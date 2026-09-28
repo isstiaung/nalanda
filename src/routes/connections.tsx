@@ -774,12 +774,7 @@ const ConnectionFeedPage: FC<
                           <span class="pill ghost">No longer shared</span>
                         </>
                       ) : null}
-                      {sub.lastError ? (
-                        <>
-                          <br />
-                          <small class="muted">{sub.lastError}</small>
-                        </>
-                      ) : null}
+                      {sub.lastError ? <small class="muted pull-error">{sub.lastError}</small> : null}
                     </td>
                     <td>
                       <form method="post" action={`${base}/subscriptions/${sub.id}`} class="sub-settings">
@@ -825,7 +820,7 @@ const ConnectionFeedPage: FC<
       <section class="fed-section">
         <p class="eyebrow">Views they share</p>
         {p.theirViews === null ? (
-          <p class="muted">Couldn’t reach {p.connection.householdName} just now. Try again later.</p>
+          <article class="notice">Couldn’t reach {p.connection.householdName} just now. Try again later.</article>
         ) : p.theirViews.length === 0 ? (
           <p class="muted">{p.connection.householdName} isn’t sharing any views yet.</p>
         ) : (
