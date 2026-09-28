@@ -10,6 +10,9 @@ npm run backup          # production → backups/remote-<date>/<table>.sql
 npm run backup:local    # local dev  → backups/local-<date>/<table>.sql
 ```
 
+A second backup on the same day goes to `remote-<date>-2`, then `-3`, and so on. It never writes over
+the first, which is usually the one taken before a deploy: the one you'd restore.
+
 A production backup needs the database's real id, which this repo doesn't carry —
 `wrangler.jsonc` holds a placeholder. The script uses `D1_DATABASE_ID` when it's set and
 otherwise looks the id up by name with `wrangler d1 list`, so being logged in to wrangler
@@ -19,7 +22,9 @@ way: migrations with `npm run db:migrate:remote`, anything else with
 `npm run wrangler:remote -- <wrangler arguments>`, as in the restore steps below.
 
 Each table's export makes the production database briefly unavailable, so the script asks
-once before it starts. D1's export API fails transiently now and then
+once before it starts. A page someone opens in those few seconds fails with an error. On
+2026-09-28 a visitor's request to `/` got a 500 during a backup. So take backups when nobody is
+using Nalanda: it's harmless otherwise, and the next request works. D1's export API fails transiently now and then
 (`createMultipartUpload: internal error`); a table that fails is tried twice more, and if it
 still fails the script stops and says which table — run it again a little later.
 

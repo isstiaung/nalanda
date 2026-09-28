@@ -13,6 +13,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { backupDir } from './backup-dir.mjs';
 import { DATABASE, removeRemoteConfig, writeRemoteConfig } from './remote-config.mjs';
 
 // FK-safe restore order. login_attempts (transient) and d1_migrations
@@ -76,8 +77,7 @@ process.on('SIGINT', () => {
   interrupted = true;
 });
 
-const stamp = new Date().toISOString().slice(0, 10);
-const dir = `backups/${local ? 'local' : 'remote'}-${stamp}`;
+const dir = backupDir(local ? 'local' : 'remote', new Date().toISOString().slice(0, 10));
 mkdirSync(dir, { recursive: true });
 
 /** One table's export, retried after each pause in RETRY_PAUSES_MS: 'done', 'failed' or 'interrupted'. */

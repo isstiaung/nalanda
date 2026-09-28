@@ -18,7 +18,7 @@ import importExportRoutes from './routes/importexport';
 import itemRoutes from './routes/items';
 import libraryRoutes from './routes/libraries';
 import loanRoutes from './routes/loans';
-import { notFound } from './routes/notfound';
+import { MISSING_ASSET, notFound } from './routes/notfound';
 import notificationsRoutes from './routes/notifications';
 import searchRoutes from './routes/search';
 import settingsRoutes from './routes/settings';
@@ -89,6 +89,8 @@ app.get('/', async (c, next) => {
 
 // ---- everything registered below this middleware requires a session ----
 app.use(async (c, next) => {
+  // a file that isn't there, asked for by a tag, not a person: a plain 404 whoever asks, and no session lookup
+  if (MISSING_ASSET.test(c.req.path)) return c.text('Not found', 404);
   const token = getCookie(c, SESSION_COOKIE);
   const userId = await verifySessionToken(c.env.SESSION_SECRET, token, Math.floor(Date.now() / 1000));
   const user = userId ? await getUserById(c.env.DB, userId) : null; // row check = instant revocation

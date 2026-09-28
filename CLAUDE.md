@@ -161,8 +161,9 @@ test/              auth, csv/libib mapping, barcode routing, share whitelist, FT
                    any test that logs an error it didn't capture and check (console.ts),
                    and fetch-mock.ts stubs outbound fetch (see §16 #25)
 scripts/           vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp config),
-                   backup.mjs, wrangler-remote.mjs + remote-config.mjs (real db id → temp
-                   config), seed-demo.mjs, hash-password.mjs, federation-keygen.mjs,
+                   backup.mjs + backup-dir.mjs (a same-day backup never overwrites),
+                   wrangler-remote.mjs + remote-config.mjs (real db id → temp config),
+                   seed-demo.mjs, hash-password.mjs, federation-keygen.mjs,
                    backfill-remote.mjs + ts-resolve.mjs (runs src/metadata under Node)
 runbooks/          operational guides: deploy, updating (for self-hosters), backup/restore, accounts,
                    connections, libib import, goodreads import, metadata backfill, troubleshooting —
