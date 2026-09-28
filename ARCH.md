@@ -468,7 +468,7 @@ Every authenticated page route returns a full document normally and a partial wh
 │   │                                 # musicbrainz.ts
 │   ├── federation/                   # connections between instances (§16 #29)
 │   └── lib/                          # auth.ts (pbkdf2, cookie), share.ts (public-field
-│                                     # whitelist), csv.ts, covers.ts, reads.ts
+│                                     # whitelist), csv.ts, covers.ts, reads.ts, reviews.ts
 ├── public/                           # app.css, app.js, scanner.js, import.js, covers.js;
 │                                     # vendor/ (htmx, zxing wasm, eczar fonts) is copied
 │                                     # in on install and gitignored
