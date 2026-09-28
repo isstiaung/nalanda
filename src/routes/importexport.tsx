@@ -8,7 +8,7 @@ import {
   mergeImportItems,
   nextBackfillable,
   pageItems,
-  tagsForItems,
+  tagsForIdRange,
   updateItem,
 } from '../db/queries';
 import type { AppEnv } from '../env';
@@ -284,7 +284,7 @@ importexport.get('/export.csv', async (c) => {
         for (let offset = 0; ; offset += PAGE) {
           const items = await pageItems(d1, { libraryId: scope, offset, limit: PAGE });
           if (!items.length) break;
-          const tagMap = await tagsForItems(d1, items.map((i) => i.id));
+          const tagMap = await tagsForIdRange(d1, items[0]!.id, items.at(-1)!.id);
           let chunk = '';
           for (const item of items) {
             chunk += itemToCsvLine(item, libNames.get(item.libraryId) ?? '', tagMap.get(item.id) ?? []);
