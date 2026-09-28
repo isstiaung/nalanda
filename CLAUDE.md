@@ -149,7 +149,8 @@ src/federation/    connections between instances (docs/proposals/connections.md)
                    routes/connections, Feed in routes/feed, comments in routes/comments,
                    shelves/requests/Borrowed and the Loans-page section in routes/borrowing,
                    in-app notifications in routes/notifications (recorded in src/db/federation.ts)
-public/            app.css, scanner.js, import.js, app.js + vendor/ (htmx, zxing, eczar fonts)
+public/            app.css, scanner.js, import.js, app.js, covers.js (swaps a cover that fails to
+                   load for its media-icon box; app and share pages) + vendor/ (htmx, zxing, eczar fonts)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;
                    apply-migrations.ts resets + re-migrates D1 before EVERY test and fails
