@@ -10,7 +10,7 @@ Each release has an **Upgrading** section. Read it for every version between you
 
 ## [1.1.0] - 2026-09-28
 
-A polish pass over every page, in light and dark mode, on desktop and phone. Nothing changes how Nalanda works; things just look right where they used to slip.
+A polish pass over every page, in light and dark mode, on desktop and phone, and the first release with version numbers and notes. Nothing changes how Nalanda works; things just look right where they used to slip.
 
 ### Fixed
 - **Dark mode:** checkboxes, date pickers and the file picker follow the dark theme instead of showing in light.
@@ -31,6 +31,7 @@ A polish pass over every page, in light and dark mode, on desktop and phone. Not
 - **A styled "Not found" page.** For a share link that has changed or been removed, it uses the share page's own look and reveals nothing about what is or was shared. Every such case costs the same work, so timing gives nothing away either.
 - **Broken covers** show the media-type placeholder, the same as a book with no cover, when a cover image fails to load.
 - **The phone menu** tells screen readers whether it's open, closes on Escape, and can't be tabbed into while closed.
+- **Version numbers and release notes.** The **Account** page shows the version you're running, linked to its notes. This changelog gives every release an Upgrading section, each tag is published as a [GitHub Release](https://github.com/isstiaung/nalanda/releases), and [runbooks/updating.md](runbooks/updating.md) walks through an update.
 
 ### Upgrading
 - **No database migrations and no new secrets.** Deploy as usual.

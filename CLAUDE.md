@@ -178,7 +178,8 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
   `npm version X.Y.Z --no-git-tag-version`, updates `src/version.ts` to match (a test checks),
   and adds the CHANGELOG.md section with its **Upgrading** block: migrations and whether to back
   up, new secrets, compatibility with connections on older versions. After it merges, tag main
-  `vX.Y.Z`; the release workflow publishes the notes. A migration that changes data, a new
+  `vX.Y.Z`; the release workflow publishes the notes (only for tags on main; v1.0.0, which
+  predates the workflow, was published by hand). A migration that changes data, a new
   secret, or anything needing a manual step must be in Upgrading.
 - Handlers render a full page normally, a partial when the `HX-Request` header is present —
   one handler, two renders.

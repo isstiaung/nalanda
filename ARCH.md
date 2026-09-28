@@ -934,8 +934,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope â€” Â
     is separate and changes only when instances stop understanding each other. The app's
     version shows on the Account page to signed-in people and is deliberately left out of the
     public descriptor: an instance shouldn't tell the world which release, and so which known
-    bugs, it runs. v1.0.0 is the deploy of 2026-09-28 (cf2d7f2), tagged after the fact;
-    runbooks/updating.md is the self-hoster's path.
+    bugs, it runs. v1.0.0 is the deploy of 2026-09-28 (cf2d7f2), tagged after the fact. GitHub
+    runs a tag's workflow as it is in the tagged commit, and that one predates the workflow, so
+    v1.0.0's release was published by hand; every later tag is on a commit that carries it, and
+    the workflow refuses a tag that isn't on main. runbooks/updating.md is the self-hoster's path.
 
 The honest comparison, since it was asked:
 
