@@ -416,6 +416,28 @@ describe('permissions: members change their own, admins anyone’s', () => {
     expect(await deleteProgress(env.DB, s.item.id, s.page.id, actor(s.asha))).toBe(true);
   });
 
+  it('gives a record’s or game’s reads the same: listed by person, fixed by an admin, refused to other members', async () => {
+    const { asha, ravi, mira } = await household();
+    const game = await book(ravi, { mediaType: 'boardgame', title: 'Wingspan', status: 'completed', completedOn: '2026-05-01' });
+    const [read] = await readsOf(game.id);
+
+    const page = await html(asha, `/items/${game.id}`);
+    expect(page).toContain('<p class="reader-name">ravi</p>');
+    expect(page).toContain(`/reads/${read!.id}/delete`);
+    expect(page).toContain(`/reads/${read!.id}/move`);
+    expect(await html(mira, `/items/${game.id}`)).not.toContain(`/reads/${read!.id}/delete`);
+
+    expect((await as(mira, `/items/${game.id}/reads/${read!.id}/delete`, { body: {}, htmx: true })).status).toBe(403);
+    const moved = await as(asha, `/items/${game.id}/reads/${read!.id}/move`, { body: { to: String(mira.id) }, htmx: true });
+    expect(moved.status).toBe(200);
+    expect(await moved.text()).toContain('<p class="reader-name">mira</p>');
+    expect((await readsOf(game.id))[0]!.readerId).toBe(mira.id);
+    expect((await as(asha, `/items/${game.id}/reads/${read!.id}/delete`, { body: {}, htmx: true })).status).toBe(200);
+    expect(await summaryOf(game.id)).toMatchObject({ status: 'not_started', readCount: 0 });
+    // starting a read, a past read and pages stay a book's
+    expect((await as(asha, `/items/${game.id}/reads/start`, { body: {} })).status).toBe(404);
+  });
+
   it('keeps the move routes to real members of the household', async () => {
     const s = await scene();
     const res = await (await as(s.asha, `/items/${s.item.id}/reads/${s.finished}/move`, { body: { to: '999999' }, htmx: true })).text();

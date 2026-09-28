@@ -49,6 +49,7 @@ import {
   ItemStatusPills,
   MEDIA_LABEL,
   ReadingSection,
+  ReadsByPerson,
   ReviewsSection,
   stars,
   type Person,
@@ -419,6 +420,9 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
             people={people}
             grouped={grouped}
           />
+        ) : grouped && log.reads.length ? (
+          // a record's or game's reads are kept from the edit form; with more than one person, here is whose they are
+          <ReadsByPerson item={item} reads={log.reads} viewer={viewer} people={people} />
         ) : null}
 
         {discussion}
@@ -539,16 +543,20 @@ async function readingResponse(c: Context<AppEnv>, id: number, error?: string) {
   const viewer = viewerOf(c);
   return c.html(
     <>
-      <ReadingSection
-        item={item}
-        reads={log.reads}
-        entries={log.entries}
-        today={todayUtc()}
-        viewer={viewer}
-        people={people}
-        grouped={showsPeople(people, viewer, log)}
-        error={error}
-      />
+      {item.mediaType === 'book' ? (
+        <ReadingSection
+          item={item}
+          reads={log.reads}
+          entries={log.entries}
+          today={todayUtc()}
+          viewer={viewer}
+          people={people}
+          grouped={showsPeople(people, viewer, log)}
+          error={error}
+        />
+      ) : (
+        <ReadsByPerson item={item} reads={log.reads} viewer={viewer} people={people} error={error} />
+      )}
       <ItemStatusPills item={item} oob={true} />
     </>,
   );
@@ -557,10 +565,14 @@ async function readingResponse(c: Context<AppEnv>, id: number, error?: string) {
 /** A change to someone else's reading or review, refused (§16 #43). The page never offers one; a hand-made request gets this. */
 const notYours = (c: Context<AppEnv>, what: string) => c.text(`That ${what} is someone else’s: only they or an admin can change it.`, 403);
 
-/** The book a reading route is for, or null: reads and pages are kept for books (the edit form covers the rest). */
-async function bookFor(c: Context<AppEnv>): Promise<Item | null> {
+/**
+ * The book a reading route is for, or null: starting a read, adding a past one and pages are for books (the edit
+ * form covers the rest). Correcting, closing, deleting and moving a read work for any item (`anyType`): a record's or
+ * game's reads are someone's too, and an admin fixes them from its page (§16 #43).
+ */
+async function bookFor(c: Context<AppEnv>, anyType = false): Promise<Item | null> {
   const item = await getItem(c.env.DB, Number(c.req.param('id')));
-  return item && item.mediaType === 'book' ? item : null;
+  return item && (anyType || item.mediaType === 'book') ? item : null;
 }
 
 const formDate = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
@@ -641,7 +653,7 @@ for (const [action, status] of [
   ['stop', 'abandoned'],
 ] as const) {
   items.post(`/items/:id/reads/:readId/${action}`, async (c) => {
-    const item = await bookFor(c);
+    const item = await bookFor(c, true);
     if (!item) return c.notFound();
     const read = await readFor(c, item);
     if (read === 'refused') return notYours(c, 'read');
@@ -668,7 +680,7 @@ items.post('/items/:id/reads', async (c) => {
 
 /** Corrects one read's outcome and dates — the reader's own, or anyone's for an admin. */
 items.post('/items/:id/reads/:readId', async (c) => {
-  const item = await bookFor(c);
+  const item = await bookFor(c, true);
   if (!item) return c.notFound();
   const found = await readFor(c, item);
   if (found === 'refused') return notYours(c, 'read');
@@ -687,7 +699,7 @@ items.post('/items/:id/reads/:readId', async (c) => {
 
 /** Deletes a read and the pages logged in it — the reader's own, or anyone's for an admin. */
 items.post('/items/:id/reads/:readId/delete', async (c) => {
-  const item = await bookFor(c);
+  const item = await bookFor(c, true);
   if (!item) return c.notFound();
   const read = await readFor(c, item);
   if (read === 'refused') return notYours(c, 'read');
@@ -707,7 +719,7 @@ async function moveTarget(c: Context<AppEnv>): Promise<Person | null> {
  * as everything the upgrade to 1.3.0 gave the first admin (§16 #43).
  */
 items.post('/items/:id/reads/:readId/move', async (c) => {
-  const item = await bookFor(c);
+  const item = await bookFor(c, true);
   if (!item) return c.notFound();
   const viewer = viewerOf(c);
   if (!viewer.admin) return c.text('Only an admin can move a read to someone else.', 403);

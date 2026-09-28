@@ -434,6 +434,60 @@ export const ReadingSection: FC<{
   );
 };
 
+/**
+ * Everyone's reads of a record, a board game or anything else that isn't a book (§16 #43), under their names — once the
+ * household has more than one member. Each person's own are kept from the edit form, as ever; here a read's reader or
+ * an admin corrects or deletes it, and an admin moves it to another member, as on a book's page. No pages, no Read
+ * again: those are for books. Swaps itself on every change, like the Reading section it stands in for.
+ */
+export const ReadsByPerson: FC<{ item: Item; reads: ReadingRead[]; viewer: Viewer; people: Person[]; error?: string }> = ({
+  item,
+  reads,
+  viewer,
+  people,
+  error,
+}) => {
+  const readers = [...new Set(reads.map((r) => r.readerId))].sort((a, b) =>
+    a === viewer.id ? -1 : b === viewer.id ? 1 : a === null ? 1 : b === null ? -1 : personName(people, a).localeCompare(personName(people, b)),
+  );
+  return (
+    <div class="detail-section" id="reading">
+      <p class="eyebrow">Reading</p>
+      {error ? <p class="error">{error}</p> : null}
+      {readers.map((id) => {
+        const them = personalReading(item, reads, [], id);
+        return (
+          <div class="reader">
+            <p class="reader-name">
+              {id === viewer.id ? (
+                <>
+                  You <span class="muted">· {personName(people, id)}</span>
+                </>
+              ) : (
+                personName(people, id)
+              )}
+            </p>
+            <p class="reading-summary">{them.summary}</p>
+            <ol class="read-history">
+              {them.mine.map((r, i) => (
+                <ReadLine
+                  item={item}
+                  read={r}
+                  n={i + 1}
+                  pages={[]}
+                  rereading={them.state.rereading}
+                  editable={viewer.admin || id === viewer.id}
+                  moveTo={viewer.admin ? people.filter((p) => p.id !== r.readerId) : []}
+                />
+              ))}
+            </ol>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 type ReviewLine = { id: number; userId: number | null; rating: number | null; review: string | null; reviewedAt: string | null };
 
 /**
