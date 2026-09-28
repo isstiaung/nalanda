@@ -39,4 +39,20 @@ describe('row actions', () => {
     // the per-view Save stays a plain secondary button
     expect(html).toMatch(/<button class="btn" type="submit">\s*Save/);
   });
+
+  it('leaves the per-view storage column to wider screens — the page head carries the total', async () => {
+    const { a, connectionId } = await connected();
+    await createSubscription(env.DB, {
+      connectionId,
+      viewId: 7,
+      viewName: 'Finished this year',
+      intervalMinutes: 60,
+      retentionDays: 90,
+      maxEntries: 500,
+    });
+    const html = await (await a.get(`/connections/${connectionId}/feed`, await sessionCookie('admin'))).text();
+    expect(html).toContain('<th class="hide-sm">Stored</th>');
+    expect(html).toContain('<td class="num hide-sm">');
+    expect(html).toMatch(/FEED · 0 ENTRIES · [^<]+ STORED/); // the total stays in the head, on every screen
+  });
 });

@@ -755,7 +755,7 @@ const ConnectionFeedPage: FC<
                 <tr>
                   <th>View</th>
                   <th>Settings</th>
-                  <th>Stored</th>
+                  <th class="hide-sm">Stored</th>
                   <th class="hide-sm">Last pulled</th>
                   <th class="actions-cell"></th>
                 </tr>
@@ -786,7 +786,7 @@ const ConnectionFeedPage: FC<
                         </button>
                       </form>
                     </td>
-                    <td class="num">
+                    <td class="num hide-sm">
                       {sub.entries}
                       <br />
                       <small class="muted">{formatBytes(sub.bytes)}</small>

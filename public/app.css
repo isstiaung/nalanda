@@ -299,6 +299,8 @@ input[type='file']::file-selector-button {
 }
 
 .form-card { max-width: 640px; }
+/* a standalone search box (overview, /search) keeps clear of the frame or table below it */
+form[role='search'] { margin-bottom: 1rem; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0 1rem; }
 
 details { border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 0.6rem 0.9rem; margin: 0.75rem 0; background: var(--surface); }
@@ -373,6 +375,7 @@ p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px sol
 .data-table .actions-cell .inline-form { flex-wrap: nowrap; justify-content: flex-end; }
 /* a share URL is one long unbreakable token; let it fold instead of widening the table */
 .break-anywhere { overflow-wrap: anywhere; }
+.data-table + p { margin-top: 0.75rem; }
 
 /* max-width caps the title column under auto table layout so a long title
    truncates with an ellipsis instead of crowding every other column out */
@@ -585,9 +588,10 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 
 .candidate { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 1rem; padding: 0.9rem; margin: 0.75rem 0; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); }
 .candidate-cover img, .candidate-cover .cover-fallback { width: 84px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: var(--radius-sm); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; justify-content: center; font-size: 1.8rem; background: var(--surface-2); }
-.candidate-body strong { font-size: 14px; }
+.candidate-body strong { font-size: 14px; display: block; } /* its own line, even when no creator line follows */
 .candidate-body small { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.03em; }
-.candidate-save { display: flex; gap: 0.5rem; margin-top: 0.65rem; }
+.candidate-save { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.65rem; }
+#tab-search .inline-form input[type='search'] { flex: 1 1 16rem; }
 .candidate-save select { width: auto; margin: 0; height: 30px; font-size: 12.5px; }
 
 /* ── auth (login / setup / account) ───────────────────────────────────────── */
@@ -658,6 +662,24 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   /* two-column reflow for any stat count (the not-owned stat is conditional) */
   .stat:nth-child(odd) { border-left: none; }
   .stat:nth-child(n + 3) { border-top: 1px solid var(--line); }
+  /* an odd count leaves the last stat alone on its row: let it take the whole row */
+  .stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+  /* Row actions stay on screen: the buttons stack and wrap their words instead of pushing the table
+     wider than the phone, and a long share URL keeps a readable column instead of one word per line. */
+  .data-table th, .data-table td { padding-left: 0.45rem; padding-right: 0.45rem; }
+  .data-table .actions-cell { white-space: normal; }
+  .data-table .actions-cell .inline-form { flex-direction: column; align-items: flex-end; }
+  .data-table .actions-cell button,
+  .data-table .actions-cell .btn { white-space: normal; height: auto; min-height: 30px; padding: 0.3rem 0.55rem; line-height: 1.2; text-align: center; }
+  .data-table td:has(> .break-anywhere) { min-width: 7rem; }
+  .data-table .col-type { display: none; }
+  /* the item table still scrolls on a phone (Columns trims it), but a long title no longer hides Status */
+  .cell-title { max-width: 11rem; }
+  .data-table .sub-settings select { max-width: 7.5rem; }
+  .data-table .sub-settings input[type='number'] { width: 4.25rem; }
+  /* columns already hidden on a phone have nothing to toggle */
+  #columns-menu label:has(> [data-col='type'], > [data-col='shelf'], > [data-col='year'], > [data-col='completed'], > [data-col='tags'], > [data-col='acc']) { display: none; }
 }
 
 @media (min-width: 881px) {
