@@ -338,9 +338,10 @@ describe('the edit form', () => {
     expect(await getItem(env.DB, item.id)).toMatchObject({ title: 'The Dispossessed', status: 'completed', completedOn: '2019-03-20', readCount: 1 });
   });
 
-  it('won’t open a second read on a record being played again — the one check the book-only guard leaves to it', async () => {
-    // Records and games have no Reading section, but a Nalanda re-import can give one a finish and an open read.
-    // The finished-book guard above covers books only, so for these this check is what stops a second open read.
+  it('says why it won’t open a second read on a record being played again, instead of saving nothing', async () => {
+    // Records and games have no Reading section, but a Nalanda re-import can give one a finish and an open read. The
+    // finished-book guard covers books only, and the database refuses a second open read on its own, so without this
+    // check the form would redirect as if saved and silently drop the status change.
     const shelf = await createLibrary(env.DB, 'Records');
     await importItems(env.DB, [
       {

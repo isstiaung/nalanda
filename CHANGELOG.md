@@ -8,6 +8,11 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [Unreleased]
+
+### Changed
+- **A backup that stops partway** now says its folder is incomplete, and to delete it before running the backup again. Otherwise the retry lands beside it as `-2`, and the incomplete folder keeps today's name. The backup runbook says the same.
+
 ## [1.2.1] - 2026-09-28
 
 Small fixes found while releasing 1.2.0.
