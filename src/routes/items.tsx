@@ -68,6 +68,8 @@ function formReadProblem(existing: Item | null, v: { status: ItemStatus; beganOn
       return 'This book has been finished. To record a read you stopped, use its page: Read again, then Stop — or correct a read there.';
     }
   }
+  // Not dead code: the guard above is for books. A record or game has no Reading section, but a Nalanda re-import
+  // can leave one with a finish and an open read, and for it this is what stops the form opening a second read.
   if (v.status === 'in_progress' && existing?.rereading) return 'It already has a read in progress: choose Not started to clear its reads.';
   return readDateProblem({ status: v.status, beganOn: v.beganOn, endedOn: v.status === 'in_progress' ? null : v.completedOn });
 }

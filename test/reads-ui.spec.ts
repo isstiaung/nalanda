@@ -10,6 +10,7 @@ import {
   createShare,
   createUser,
   getItem,
+  importItems,
   listProgress,
   startRead,
   updateSiteSettings,
@@ -335,6 +336,33 @@ describe('the edit form', () => {
       { status: 'completed', began_on: '2019-03-01', ended_on: '2019-03-20' },
     ]);
     expect(await getItem(env.DB, item.id)).toMatchObject({ title: 'The Dispossessed', status: 'completed', completedOn: '2019-03-20', readCount: 1 });
+  });
+
+  it('won’t open a second read on a record being played again — the one check the book-only guard leaves to it', async () => {
+    // Records and games have no Reading section, but a Nalanda re-import can give one a finish and an open read.
+    // The finished-book guard above covers books only, so for these this check is what stops a second open read.
+    const shelf = await createLibrary(env.DB, 'Records');
+    await importItems(env.DB, [
+      {
+        item: { libraryId: shelf.id, mediaType: 'vinyl', title: 'Kind of Blue', details: '{}' },
+        tags: [],
+        reads: [
+          { status: 'completed', beganOn: '2020-01-01', endedOn: '2020-01-10' },
+          { status: 'in_progress', beganOn: '2026-09-01', endedOn: null },
+        ],
+      },
+    ]);
+    const record = (await getItem(env.DB, (await rows<{ id: number }>('SELECT id FROM items'))[0]!.id))!;
+    expect(record).toMatchObject({ mediaType: 'vinyl', rereading: true, readCount: 1 });
+    const before = await rows('SELECT status, began_on, ended_on FROM reads WHERE item_id = ?1 ORDER BY id', record.id);
+
+    const res = await request(`/items/${record.id}`, {
+      body: { ...form(record, { status: 'in_progress', completedOn: '' }), mediaType: 'vinyl' },
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain('It already has a read in progress');
+    expect(await rows('SELECT status, began_on, ended_on FROM reads WHERE item_id = ?1 ORDER BY id', record.id)).toEqual(before);
   });
 
   it('won’t relabel the latest finish a stop, and says where stopping is done', async () => {
