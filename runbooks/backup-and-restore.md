@@ -26,7 +26,9 @@ once before it starts. A page someone opens in those few seconds fails with an e
 2026-09-28 a visitor's request to `/` got a 500 during a backup. So take backups when nobody is
 using Nalanda: it's harmless otherwise, and the next request works. D1's export API fails transiently now and then
 (`createMultipartUpload: internal error`); a table that fails is tried twice more, and if it
-still fails the script stops and says which table — run it again a little later.
+still fails the script stops and says which table — run it again a little later. A backup that
+stopped partway leaves an incomplete folder under today's name: delete it before you run the backup
+again, so the new one takes its place instead of landing beside it as `-2`.
 
 **Why per-table files instead of one dump:** D1 refuses to export any database that
 contains virtual tables — and our FTS5 search index is one. So backups are data-only

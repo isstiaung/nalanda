@@ -120,13 +120,16 @@ try {
 }
 
 if (stopped?.outcome === 'interrupted') {
-  console.error(`\nBackup interrupted at ${stopped.table}. The tables before it are in ${dir}/.`);
+  console.error(
+    `\nBackup interrupted at ${stopped.table}. The tables before it are in ${dir}/, which is incomplete:\n` +
+      `delete it before running the backup again, or the new one lands beside it as ${dir}-2/.`,
+  );
   process.exit(130);
 }
 if (stopped) {
   console.error(
     `\nBackup incomplete: ${stopped.table} failed on every attempt, so the tables after it weren't exported.\n` +
-      `The ones before it are in ${dir}/. Try again in a few minutes.`,
+      `The ones before it are in ${dir}/, which is incomplete: delete it, then try again in a few minutes.`,
   );
   process.exit(1);
 }
