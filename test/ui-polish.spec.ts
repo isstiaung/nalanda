@@ -228,6 +228,33 @@ describe('404 pages', () => {
     }
   });
 
+  it('answers a missing file in plain text for a signed-out visitor too, instead of sending it to log in', async () => {
+    // a <script> or <img> on a page a signed-out visitor sees (login, share pages) asks without a session
+    for (const path of ['/vendor/htmx-missing.min.js', '/no-such.css', '/icons/nope.png', '/vendor/fonts/gone.woff2', '/gone.webmanifest']) {
+      const res = await plain.get(path);
+      expect(res.status, path).toBe(404);
+      expect(res.headers.get('location'), path).toBeNull();
+      expect(await res.text(), path).toBe('Not found');
+    }
+  });
+
+  it('keeps a page whose path ends like a file — a tag named “node.js” — a page, and /export.csv behind login (negative control)', async () => {
+    const shelf = await createLibrary(env.DB, 'Books');
+    const book = await createItem(env.DB, { libraryId: shelf.id, title: 'Learning Node', copies: 1 });
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO tags (name) VALUES ('node.js')"),
+      env.DB.prepare("INSERT INTO item_tags (item_id, tag_id) SELECT ?1, id FROM tags WHERE name = 'node.js'").bind(book.id),
+    ]);
+    const signedIn = await plain.get('/tags/node.js', await sessionCookie('member'));
+    expect(signedIn.status).toBe(200);
+    expect(await signedIn.text()).toContain('Learning Node');
+    for (const path of ['/tags/node.js', '/export.csv', '/federation/export.json']) {
+      const res = await plain.get(path);
+      expect(res.status, path).toBe(302);
+      expect(res.headers.get('location'), path).toMatch(/\/(login|setup)$/);
+    }
+  });
+
   it('keeps real pages whose path holds a dot — a tag like “vol.2” — as pages (negative control)', async () => {
     const shelf = await createLibrary(env.DB, 'Books');
     const book = await createItem(env.DB, { libraryId: shelf.id, title: 'Tagged', copies: 1 });
