@@ -27,6 +27,7 @@ import {
   mapNalandaRow,
   type ImportOptions,
 } from '../lib/csv';
+import { readsFromColumns } from '../lib/reads';
 import { findCover, findDescription } from '../metadata';
 import { MEDIA_LABEL } from '../views/components';
 import { page } from '../views/layout';
@@ -191,7 +192,13 @@ importexport.post('/api/import', async (c) => {
       byType,
       merged: match?.merged ?? 0,
       fresh: match?.inserted ?? 0,
-      reads: match?.reads ?? mapped.reduce((n, m) => n + (m.reads?.length ?? 0), 0),
+      // a libib row carries no reads of its own: count what importItems will derive from its status and dates
+      reads:
+        match?.reads ??
+        mapped.reduce(
+          (n, m) => n + (m.reads ?? readsFromColumns(m.item.status ?? 'not_started', m.item.beganOn, m.item.completedOn)).length,
+          0,
+        ),
       sample: mapped.slice(0, 5).map((m) => ({
         title: m.item.title,
         mediaType: m.item.mediaType,

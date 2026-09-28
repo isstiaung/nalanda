@@ -134,11 +134,16 @@ describe('a Nalanda export, imported again', () => {
     const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
     const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000))}`;
     const shelf = await createLibrary(env.DB, 'Main');
-    const libib = [{ item_type: 'book', title: 'Dune', creators: 'Frank Herbert', rating: '4.5', ean_isbn13: '9780441013593' }];
+    const libib = [
+      { item_type: 'book', title: 'Dune', creators: 'Frank Herbert', rating: '4.5', ean_isbn13: '9780441013593' },
+      { item_type: 'book', title: 'Kindred', creators: 'Octavia Butler', status: 'completed', completed: '2024-05-01' },
+    ];
 
     const preview = JSON.parse((await call('/api/import', cookie, { libraryId: shelf.id, rows: libib, dryRun: true })).text);
 
     expect(preview.format).toBe('libib');
+    // a libib row carries no reads; the preview counts the one its status and date will make (it said 0)
+    expect(preview.reads).toBe(1);
     await call('/api/import', cookie, { libraryId: shelf.id, rows: libib });
     const row = await env.DB.prepare('SELECT rating FROM items WHERE title = ?1').bind('Dune').first<{ rating: number }>();
     expect(row?.rating).toBe(9); // libib's 4.5 of 5 is 9 of 10 here
