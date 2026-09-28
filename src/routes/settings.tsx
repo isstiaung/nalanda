@@ -73,7 +73,7 @@ const UsersPage = ({
                     method="post"
                     action={`/settings/users/${u.id}/delete`}
                     class="inline"
-                    onsubmit={`return confirm('Remove ${u.username}? They will be logged out immediately.')`}
+                    data-confirm={`Remove ${u.username}? They will be logged out immediately.`}
                   >
                     <button class="btn-danger" type="submit">
                       Remove
