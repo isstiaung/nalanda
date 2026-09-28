@@ -37,7 +37,13 @@ export async function listUsers(d1: D1Database): Promise<User[]> {
 }
 
 export async function deleteUser(d1: D1Database, id: number): Promise<void> {
-  await db(d1).delete(s.users).where(eq(s.users.id, id));
+  // items.added_by references users with no ON DELETE action (migration 0000, already applied), so a
+  // member who ever added something couldn't be removed. Their items stay, just unattributed — the item
+  // page already shows nothing for a missing added_by.
+  await d1.batch([
+    d1.prepare('UPDATE items SET added_by = NULL WHERE added_by = ?1').bind(id),
+    d1.prepare('DELETE FROM users WHERE id = ?1').bind(id),
+  ]);
 }
 
 export async function setPassword(
