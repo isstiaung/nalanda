@@ -178,6 +178,29 @@ describe('the export and a re-import', () => {
     expect(other).toHaveProperty('importer', 'solo');
   });
 
+  it('round-trip every former member’s open read, and more than 100 reads of a book across readers', async () => {
+    const asha = await member('asha', 'admin');
+    const ravi = await member('ravi');
+    const one = await member('gone-one');
+    const two = await member('gone-two');
+    const item = await book(null, { title: 'Well loved' });
+    await startRead(env.DB, item.id, '2026-01-01', one.id);
+    await startRead(env.DB, item.id, '2026-02-01', two.id);
+    for (const who of [asha, ravi]) {
+      for (let i = 0; i < 60; i++) await addPastRead(env.DB, item.id, { status: 'completed', beganOn: null, endedOn: null }, who.id);
+    }
+    await deleteUser(env.DB, one.id);
+    await deleteUser(env.DB, two.id);
+    const before = await people(item.id);
+    expect(before.summary).toMatchObject({ readCount: 120 });
+
+    const [row] = parseCsv(await (await as(asha, '/export.csv')).text());
+    const target = await createLibrary(env.DB, 'Restored');
+    await as(asha, '/api/import', { json: { libraryId: target.id, rows: [row] } });
+    const copy = (await rows<{ id: number }>('SELECT id FROM items WHERE library_id = ?1', target.id))[0]!.id;
+    expect(await people(copy)).toEqual(before);
+  });
+
   it('still import an export from before readers and reviews, as the importer’s', async () => {
     await member('asha', 'admin');
     const ravi = await member('ravi');

@@ -4,6 +4,7 @@ import { drizzle } from 'drizzle-orm/d1';
 import {
   currentOrderSql,
   displayOrderSql,
+  MAX_READS_PER_CELL,
   MAX_READS_PER_ITEM,
   oneOpenReadEach,
   readsFromColumns,
@@ -15,7 +16,7 @@ import {
   type ReadDraft,
   type ReadRow,
 } from '../lib/reads';
-import { reviewOrderSql, summarizeReviews, type PersonReview, type ReviewDraft } from '../lib/reviews';
+import { reviewOrderSql, stampReviews, summarizeReviews, type PersonReview, type ReviewDraft } from '../lib/reviews';
 import * as s from './schema';
 import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Share, User } from './schema';
 
@@ -333,7 +334,7 @@ export async function getItem(d1: D1Database, id: number): Promise<Item | null> 
  */
 export async function createItem(d1: D1Database, values: NewItem): Promise<Item> {
   const reads = readsFromColumns(values.status ?? 'not_started', values.beganOn, values.completedOn);
-  const reviews = reviewsFromColumns(values);
+  const reviews = stampReviews(reviewsFromColumns(values));
   const q = db(d1).insert(s.items).values(withReviewState(withReadState(values, reads), reviews)).returning({ id: s.items.id }).toSQL();
   const [created] = await d1.batch([
     d1.prepare(q.sql).bind(...q.params),
@@ -422,7 +423,7 @@ export async function setItemTags(d1: D1Database, itemId: number, names: string[
  */
 export async function createItemWithTags(d1: D1Database, values: NewItem, names: string[]): Promise<number> {
   const reads = readsFromColumns(values.status ?? 'not_started', values.beganOn, values.completedOn);
-  const reviews = reviewsFromColumns(values);
+  const reviews = stampReviews(reviewsFromColumns(values));
   const q = db(d1).insert(s.items).values(withReviewState(withReadState(values, reads), reviews)).returning({ id: s.items.id }).toSQL();
   const [created] = await d1.batch([
     d1.prepare(q.sql).bind(...q.params),
@@ -784,7 +785,7 @@ function readInsertStatements(d1: D1Database, item: number | 'newest', reads: Pe
   if (!reads.length) return [];
   const itemRef = item === 'newest' ? '(SELECT max(id) FROM items)' : '?2';
   const json = JSON.stringify(
-    reads.slice(0, MAX_READS_PER_ITEM).map((r) => ({ status: r.status, beganOn: r.beganOn, endedOn: r.endedOn, readerId: r.readerId === undefined ? person : r.readerId })),
+    reads.slice(0, MAX_READS_PER_CELL).map((r) => ({ status: r.status, beganOn: r.beganOn, endedOn: r.endedOn, readerId: r.readerId === undefined ? person : r.readerId })),
   );
   const stmt = d1.prepare(
     `INSERT INTO reads (item_id, reader_id, status, began_on, ended_on)
@@ -1512,7 +1513,7 @@ export async function importItems(d1: D1Database, rows: ImportRow[]): Promise<nu
   for (const r of rows) {
     const person = r.item.addedBy ?? null;
     const reads = oneOpenReadEach(r.reads ?? readsFromColumns(r.item.status ?? 'not_started', r.item.beganOn, r.item.completedOn), person).reads;
-    const reviews = r.reviews ?? reviewsFromColumns(r.item);
+    const reviews = stampReviews(r.reviews ?? reviewsFromColumns(r.item));
     const q = db(d1).insert(s.items).values(withReviewState(withReadState(r.item, reads), reviews)).returning({ id: s.items.id }).toSQL();
     itemAt.push(writes.length + 1); // +1: the marker leads the batch
     writes.push(

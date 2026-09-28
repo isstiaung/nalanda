@@ -39,6 +39,19 @@ export function summarizeReviews(reviews: ReviewDraft[]): { rating: number | nul
   return { rating, review: (latest as { review: string } | null)?.review ?? null };
 }
 
+/** datetime('now') as SQLite writes it, for a time decided before the statement runs. */
+export const sqlNow = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
+
+/**
+ * Reviews on their way in, each text given a written time — now, when it has none, as a fresh review is written now.
+ * Decided here rather than left to the insert, so the summary worked out before the insert (summarizeReviews) and the
+ * one the refresh works out after it choose the same review.
+ */
+export function stampReviews<T extends ReviewDraft>(reviews: T[]): T[] {
+  const now = sqlNow();
+  return reviews.map((r) => (r.review !== null && r.reviewedAt === null ? { ...r, reviewedAt: now } : r));
+}
+
 /** Whitespace-only text is no review; the rest is kept as written. */
 export const reviewText = (v: string | null | undefined): string | null => (v && v.trim() ? v : null);
 
