@@ -418,9 +418,9 @@ export async function countItemsInView(d1: D1Database, view: ConnectionView): Pr
 }
 
 /**
- * progressPage: the page that update recorded, on a progress entry; null on every other kind. progressReadFinished:
- * whether the read that page belongs to has since been finished — so the entry can say how many finished reads
- * came before its own (§16 #41).
+ * progressPage: the page that update recorded, on a progress entry; null on every other kind. readsBefore, on a
+ * progress entry: how many finished reads came before the one its page belongs to (§16 #41) — the book's other
+ * finished reads that ended by the day of the page, an undated one counting as earlier, as reads are listed.
  */
 export type SharedActivity = {
   id: number;
@@ -428,7 +428,7 @@ export type SharedActivity = {
   at: string;
   item: Item;
   progressPage: number | null;
-  progressReadFinished: boolean;
+  readsBefore: number;
 };
 
 /**
@@ -457,12 +457,15 @@ export async function activityInView(
       at: s.activityLog.at,
       item: s.items,
       progressPage: s.readingProgress.page,
-      progressReadFinished: sql`coalesce(${s.reads.status} = 'completed', 0)`.mapWith(Boolean),
+      readsBefore: sql`CASE WHEN ${s.readingProgress.id} IS NULL THEN 0 ELSE (
+        SELECT count(*) FROM reads r2 WHERE r2.item_id = ${s.readingProgress.itemId} AND r2.status = 'completed'
+          AND r2.id IS NOT ${s.readingProgress.readId}
+          AND (r2.ended_on IS NULL OR r2.ended_on <= date(${s.readingProgress.at}))
+      ) END`.mapWith(Number),
     })
     .from(s.activityLog)
     .innerJoin(s.items, eq(s.activityLog.itemId, s.items.id))
     .leftJoin(s.readingProgress, eq(s.activityLog.progressId, s.readingProgress.id))
-    .leftJoin(s.reads, eq(s.readingProgress.readId, s.reads.id))
     .where(and(gt(s.activityLog.id, from), inView(view), stillShows))
     .orderBy(...(from === 0 ? [desc(s.activityLog.at), desc(s.activityLog.id)] : [asc(s.activityLog.id)]))
     .limit(limit);

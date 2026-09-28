@@ -73,6 +73,13 @@ npm test && npm run deploy
 
 Migrations are append-only and applied automatically before the Worker code goes live.
 
+**A data migration and the old Worker.** Migrations apply seconds before the new code takes
+over, and in that window the old Worker still serves. Migration 0023 (reads, ARCH.md §16 #41)
+is the case to watch. An edit of a book's status or dates saved by the old code in that window
+doesn't make a read, and the book's next change of reading then goes by its reads. So deploy it
+when nobody is editing, and don't roll the Worker back past it: older code writes status
+directly.
+
 ## Taking your local data to production
 
 Been cataloging against local dev? Your catalog is a real SQLite database under
@@ -119,7 +126,8 @@ index restore cleanly; covers are re-fetched.)
 
 ## Rollback
 
-- **Code**: `npx wrangler rollback` reverts the Worker to the previous deployment.
+- **Code**: `npx wrangler rollback` reverts the Worker to the previous deployment. Not past
+  migration 0023, though: code from before it writes reading state without reads (§16 #41).
 - **Schema/data**: code rollback does NOT undo migrations. If a migration caused the
   problem, restore the database instead — see
   [backup-and-restore.md](backup-and-restore.md).

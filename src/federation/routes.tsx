@@ -258,7 +258,7 @@ federation.get('/federation/feed', async (c) => {
       id: row.id,
       kind: row.kind,
       published: row.at,
-      item: toFeedItem(row.item, row.kind, stamps.get(row.item.id)!, row.progressPage, row.progressReadFinished),
+      item: toFeedItem(row.item, row.kind, stamps.get(row.item.id)!, row.progressPage, row.readsBefore),
     };
     const size = jsonBytes(entry).bytes;
     if (entries.length > 0 && bytes + size > FEED_RESPONSE_BUDGET_BYTES) break;

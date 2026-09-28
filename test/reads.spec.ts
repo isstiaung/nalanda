@@ -362,6 +362,49 @@ describe('a Goodreads row meeting the reads already here', () => {
       g({ shelf: 'not_started', readCount: 0 }),
       [d('completed', null, '2020-01-01'), d('in_progress', '2026-09-01')],
     ],
+    // reading done here since an earlier import is that import's result: a second run leaves it be
+    [
+      'DNF, then started again here: the new read stays open',
+      [row(1, d('abandoned', null, '2021-01-01')), row(2, d('in_progress', '2026-09-01'))],
+      g({ shelf: 'abandoned', dateRead: '2021-01-01' }),
+      [d('abandoned', null, '2021-01-01'), d('in_progress', '2026-09-01')],
+    ],
+    [
+      'DNF over there, a read begun here since: it stays open, and the stopped attempt is added before it',
+      [row(1, d('in_progress', '2026-09-01'))],
+      g({ shelf: 'abandoned', dateRead: '2021-01-01' }),
+      [d('in_progress', '2026-09-01'), d('abandoned', null, '2021-01-01')],
+    ],
+    [
+      'currently reading, then finished here: nothing reopens',
+      [row(1, d('completed', null, '2026-09-20'))],
+      g({ shelf: 'in_progress' }),
+      [d('completed', null, '2026-09-20')],
+    ],
+    [
+      'currently reading after an earlier finish, then finished here: nothing reopens',
+      [row(1, d('completed', null, '2020-01-01')), row(2, d('completed', null, '2026-09-20'))],
+      g({ shelf: 'in_progress', dateRead: '2020-01-01', readCount: 1 }),
+      [d('completed', null, '2020-01-01'), d('completed', null, '2026-09-20')],
+    ],
+    [
+      'currently reading, then stopped here: nothing reopens',
+      [row(1, d('abandoned', null, '2026-09-10'))],
+      g({ shelf: 'in_progress' }),
+      [d('abandoned', null, '2026-09-10')],
+    ],
+    [
+      'currently reading from a start date, and a read here began since: that read was this one',
+      [row(1, d('completed', '2026-09-02', '2026-09-20'))],
+      g({ shelf: 'in_progress', dateStarted: '2026-09-01' }),
+      [d('completed', '2026-09-02', '2026-09-20')],
+    ],
+    [
+      'an undated finish that began after Date Read isn’t the finish that ended then',
+      [row(1, d('completed', '2025-01-01'))],
+      g({ dateRead: '2024-03-10' }),
+      [d('completed', '2025-01-01'), d('completed', null, '2024-03-10')],
+    ],
     [
       'currently reading: the previous finish doesn’t close the open read',
       [row(1, d('in_progress', '2026-09-01'))],
@@ -413,6 +456,20 @@ describe('two rows for the same book in one Goodreads file', () => {
     expect(await readsOf(item.id)).toMatchObject([d('completed', null, '2021-07-01')]);
     expect(result).toMatchObject({ merged: 2, reads: 1 });
     await expectCacheMatchesReads(item.id);
+  });
+});
+
+describe('pages recorded before reads', () => {
+  it('join the first read the book gets, instead of dropping off its page', async () => {
+    const item = await book(); // not started, as a book with pages but no status once was
+    await env.DB.prepare("INSERT INTO reading_progress (item_id, page, at) VALUES (?1, 30, '2026-09-01 10:00:00')").bind(item.id).run();
+    expect(await addProgress(env.DB, item.id, 45, null)).toBe(true);
+    const log = await readingLog(env.DB, item.id);
+    expect(log.entries.map((e) => [e.page, e.readId])).toEqual([
+      [30, log.reads[0]!.id],
+      [45, log.reads[0]!.id],
+    ]);
+    expect(await getItem(env.DB, item.id)).toMatchObject({ progressPage: 45 });
   });
 });
 

@@ -18,6 +18,7 @@ import type { Item } from '../src/db/schema';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import { newShareToken, toPublicItem } from '../src/lib/share';
 import { clearSharePageCache } from '../src/routes/share';
+import { budgeted } from '../src/federation/budget';
 import app from '../src/index';
 
 const rows = async <T = Record<string, unknown>>(query: string, ...binds: unknown[]) =>
@@ -168,6 +169,30 @@ describe('the Reading section', () => {
   });
 });
 
+describe('after a saved change', () => {
+  it('reloads the page when reading it back fails, rather than failing a change already made', async () => {
+    const item = await finished();
+    const token = await createSessionToken(env.SESSION_SECRET, (await createUser(env.DB, { username: 'budget', passwordHash: 'pbkdf2$1$x$y', role: 'member', mustChangePassword: false })).id, Math.floor(Date.now() / 1000));
+    // the session check, the book, and the write — then nothing left to read the section back with
+    const budget = { left: 3 };
+    const ctx = createExecutionContext();
+    const res = await app.fetch(
+      new Request(`http://nalanda.test/items/${item.id}/reads/start`, {
+        method: 'POST',
+        headers: { origin: 'http://nalanda.test', cookie: `${SESSION_COOKIE}=${token}`, 'HX-Request': 'true', 'content-type': 'application/x-www-form-urlencoded' },
+        body: '',
+      }),
+      { ...env, DB: budgeted(env.DB, budget) },
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+    expect(budget.left).toBe(0);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('HX-Redirect')).toBe(`/items/${item.id}`);
+    expect(await getItem(env.DB, item.id)).toMatchObject({ rereading: true }); // the change stands
+  });
+});
+
 describe('the re-reading marker', () => {
   it('shows beside the status on the item page, the shelf table and covers, and search results', async () => {
     const item = await finished();
@@ -242,6 +267,43 @@ describe('the edit form', () => {
     const res = await request(`/items/${item.id}`, { body: form(item, { status: 'in_progress', completedOn: '' }) });
     expect(res.status).toBe(400);
     expect(await res.text()).toContain('being read again');
+  });
+
+  it('locks the reading fields of a book being read again, so its last finish can’t be rewritten from here', async () => {
+    const item = await finished();
+    await startRead(env.DB, item.id, '2026-09-01');
+    const html = await (await request(`/items/${item.id}/edit`)).text();
+    expect(html).toMatch(/<select name="status" disabled/);
+    expect(html).toMatch(/name="completedOn" value="2019-03-20" disabled/);
+
+    // what the browser sends with the fields disabled: none of them — the rest of the edit saves
+    const { status: _s, beganOn: _b, completedOn: _c, ...rest } = form(item, { title: 'Renamed' });
+    expect((await request(`/items/${item.id}`, { body: rest })).status).toBe(302);
+    // a form opened before the re-read began may send them, unchanged
+    expect((await request(`/items/${item.id}`, { body: form(item, { title: 'Renamed again' }) })).status).toBe(302);
+    expect(await getItem(env.DB, item.id)).toMatchObject({ title: 'Renamed again', status: 'completed', completedOn: '2019-03-20', rereading: true });
+
+    // but not changed: "Abandoned" would turn the only finish into a stop, a new date would overwrite it
+    for (const over of [{ status: 'abandoned' }, { completedOn: '2026-09-25' }] as Record<string, string>[]) {
+      const res = await request(`/items/${item.id}`, { body: form(item, { ...over, title: 'Nope' }) });
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain('being read again');
+    }
+    expect(await rows('SELECT status, began_on, ended_on FROM reads WHERE item_id = ?1 ORDER BY id', item.id)).toEqual([
+      { status: 'completed', began_on: '2019-03-01', ended_on: '2019-03-20' },
+      { status: 'in_progress', began_on: '2026-09-01', ended_on: null },
+    ]);
+  });
+
+  it('gives a refused form back as it was sent: tags and cover included', async () => {
+    const item = await finished();
+    const res = await request(`/items/${item.id}`, {
+      body: form(item, { completedOn: '2999-01-01', tags: 'favourites, re-read', coverUrl: 'https://covers.example/x.jpg' }),
+    });
+    expect(res.status).toBe(400);
+    const html = await res.text();
+    expect(html).toContain('value="favourites, re-read"');
+    expect(html).toContain('value="https://covers.example/x.jpg"');
   });
 
   it('offers "Not started" only to a book with no reads', async () => {

@@ -569,7 +569,12 @@ export const ItemForm: FC<{
   tags?: string[];
   selectedLibraryId?: number;
   error?: string;
-}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error }) => {
+  // what a refused form sends back, so nothing typed is lost
+  coverUrl?: string;
+  removeCover?: boolean;
+}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverUrl, removeCover }) => {
+  // a book being read again: status and dates describe its last finish, and the re-read is managed on its page
+  const readingLocked = item?.mediaType === 'book' && !!item?.rereading;
   // reviewed_in gets its own field; the advanced JSON box shows everything else
   const details = parseDetails(item?.details);
   const reviewedIn = Array.isArray(details['reviewed_in']) ? (details['reviewed_in'] as string[]) : [];
@@ -640,7 +645,7 @@ export const ItemForm: FC<{
     <div class="grid">
       <label>
         Status
-        <select name="status">
+        <select name="status" disabled={readingLocked}>
           {/* a book with reads can't be "not started" from here: its reads are deleted on its page (§16 #41) */}
           {ITEM_STATUSES.filter((st) => st !== 'not_started' || (item?.status ?? 'not_started') === 'not_started' || item?.mediaType !== 'book').map((st) => (
             <option value={st} selected={(item?.status ?? 'not_started') === st}>
@@ -661,18 +666,18 @@ export const ItemForm: FC<{
     <div class="grid">
       <label>
         Began
-        <input type="date" name="beganOn" value={item?.beganOn ?? ''} />
+        <input type="date" name="beganOn" value={item?.beganOn ?? ''} disabled={readingLocked} />
       </label>
       <label>
         Completed
         {/* an open read has no end: the date shown for a book in progress is always blank */}
-        <input type="date" name="completedOn" value={item?.status === 'in_progress' ? '' : (item?.completedOn ?? '')} />
+        <input type="date" name="completedOn" value={item?.status === 'in_progress' ? '' : (item?.completedOn ?? '')} disabled={readingLocked} />
       </label>
     </div>
-    {item?.rereading ? (
+    {readingLocked ? (
       <p class="muted form-note">
-        Being read again now: these are its last finished read's. The re-read is started, finished or stopped on the
-        book's page.
+        Being read again now: these are its last finished read's, kept as they are. Every read — this one too — is
+        started, finished, stopped and corrected on the book's page.
       </p>
     ) : null}
     <label>
@@ -699,11 +704,11 @@ export const ItemForm: FC<{
     </label>
     <label>
       Cover image URL <small>(fetched once into storage on save)</small>
-      <input name="coverUrl" placeholder="https://…" />
+      <input name="coverUrl" placeholder="https://…" value={coverUrl ?? ''} />
     </label>
     {item?.coverKey ? (
       <label>
-        <input type="checkbox" name="removeCover" value="1" /> Remove current cover
+        <input type="checkbox" name="removeCover" value="1" checked={!!removeCover} /> Remove current cover
       </label>
     ) : null}
     <details>

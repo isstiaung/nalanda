@@ -276,24 +276,35 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
   };
   const date = (raw: string | undefined) => (/^\d{4}-\d{2}-\d{2}$/.test(raw ?? '') ? raw! : null);
   const status = (ITEM_STATUSES as readonly string[]).includes(r['status'] ?? '') ? (r['status'] as ItemStatus) : 'not_started';
+  const rating = int(r['rating'], 10);
+  const length = int(r['length'], 100_000);
+  const copies = int(r['copies'], 9_999);
+  let detailsObj: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(r['details'] || '{}');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) detailsObj = parsed as Record<string, unknown>;
+  } catch {
+    // not our JSON — keep none rather than guess
+  }
+  // An export from before reads carries Goodreads' Read Count in details, as the import once kept it: it becomes
+  // reads and leaves details, as migration 0023 did to the catalog — details are public on share pages.
+  let count = int(r['read_count'], Number.MAX_SAFE_INTEGER); // capped at MAX_READS_PER_ITEM by topUpReads
+  if (!('reads' in r)) {
+    const legacy = int(String(detailsObj['read_count'] ?? '').trim(), Number.MAX_SAFE_INTEGER);
+    if (legacy !== null) {
+      count = Math.max(count ?? 0, legacy);
+      delete detailsObj['read_count'];
+    }
+  }
+  const details = JSON.stringify(detailsObj);
   // The reads column is the whole history (§16 #41); status and the two dates are only its summary, so they speak
   // only for an export from before reads, or a row whose reads cell was emptied. A read count higher than the
   // finished reads — someone edited the spreadsheet — tops them up with undated ones.
   const reads = topUpReads(
     (r['reads'] ?? '').trim() ? parseReadsCell(r['reads']) : readsFromColumns(status, date(r['began_on']), date(r['completed_on'])),
-    int(r['read_count'], Number.MAX_SAFE_INTEGER), // capped at MAX_READS_PER_ITEM by topUpReads
+    count,
   );
   const state = summarizeReads(reads);
-  const rating = int(r['rating'], 10);
-  const length = int(r['length'], 100_000);
-  const copies = int(r['copies'], 9_999);
-  let details = '{}';
-  try {
-    const parsed: unknown = JSON.parse(r['details'] || '{}');
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) details = JSON.stringify(parsed);
-  } catch {
-    // not our JSON — keep none rather than guess
-  }
   return {
     item: {
       mediaType: (MEDIA_TYPES as readonly string[]).includes(r['media_type'] ?? '') ? (r['media_type'] as MediaType) : 'book',

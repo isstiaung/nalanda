@@ -217,16 +217,19 @@ export type ReadOp = { op: 'insert'; read: ReadDraft } | { op: 'update'; id: num
 
 /**
  * How a Goodreads row meets the reads already here: it adds what's missing and never removes a read — a to-read
- * shelf over there doesn't undo a read recorded here. Every rule checks for its own result first, so importing
- * the same file twice adds nothing the second time. `existing` may be empty: a new book's reads come from the
+ * shelf over there doesn't undo a read recorded here. Every rule checks for its own result first, and reading done
+ * here since an earlier import counts as that result, so importing the same file again adds nothing, even after
+ * a read here was finished, stopped or started again. `existing` may be empty: a new book's reads come from the
  * same rules.
  *
  * 1. Date Read (not on a DNF shelf) is a finish: nothing if a finished read already ends then; on the read shelf,
- *    it closes an open read that began by then; otherwise it dates an undated finished read, or adds one. On
- *    currently-reading it is the previous finish, so the open read stays open.
+ *    it closes an open read that began by then; otherwise it dates an undated finished read that began by then,
+ *    or adds one. On currently-reading it is the previous finish, so the open read stays open.
  * 2. The read shelf with no finished read: the open read closes, undated, or an undated finish is added.
- * 3. Currently-reading: an open read, starting on Date Started.
- * 4. DNF: a book with no reads gets a stopped one; an open read is stopped.
+ * 3. Currently-reading: an open read, starting on Date Started — unless one is open, or a read here began on or
+ *    after Date Started, or (without it) ended after the last finish Goodreads knows: that read was this one.
+ * 4. DNF: nothing if a stopped read is here already. Otherwise an open read that began by the DNF's date is
+ *    stopped then (never before it began); failing that, a stopped read is added.
  * 5. Read Count: undated finished reads until that many are finished.
  */
 export function reconcileGoodreads(existing: ReadRow[], g: GoodreadsReading): ReadOp[] {
@@ -241,7 +244,8 @@ export function reconcileGoodreads(existing: ReadRow[], g: GoodreadsReading): Re
   if (d && g.shelf !== 'abandoned') {
     if (!work.some((r) => r.status === 'completed' && r.endedOn === d)) {
       const current = open();
-      const undated = work.find((r) => r.status === 'completed' && r.endedOn === null);
+      // an undated finish that began after Date Read can't be the one that ended then
+      const undated = work.find((r) => r.status === 'completed' && r.endedOn === null && (r.beganOn === null || r.beganOn <= d));
       const startedByThen = s !== null && s <= d ? s : null;
       if (g.shelf === 'completed' && current && (current.beganOn === null || current.beganOn <= d)) {
         set(current, { status: 'completed', endedOn: d, beganOn: current.beganOn ?? startedByThen });
@@ -258,12 +262,22 @@ export function reconcileGoodreads(existing: ReadRow[], g: GoodreadsReading): Re
     else add({ status: 'completed', beganOn: s, endedOn: null });
   }
   if (g.shelf === 'in_progress' && !open()) {
-    add({ status: 'in_progress', beganOn: s !== null && (d === null || s >= d) ? s : null, endedOn: null });
+    // Goodreads' current read already here and since finished or stopped: a read that began on or after its start,
+    // or — with no start date — one that ended after the last finish Goodreads knows about
+    const sinceHere = work.some((r) =>
+      s !== null ? r.beganOn !== null && r.beganOn >= s : r.status !== 'in_progress' && r.endedOn !== null && (d === null || r.endedOn > d),
+    );
+    if (!sinceHere) add({ status: 'in_progress', beganOn: s !== null && (d === null || s >= d) ? s : null, endedOn: null });
   }
-  if (g.shelf === 'abandoned') {
+  if (g.shelf === 'abandoned' && !work.some((r) => r.status === 'abandoned')) {
     const current = open();
-    if (current) set(current, { status: 'abandoned', endedOn: d });
-    else if (!work.length) add({ status: 'abandoned', beganOn: s, endedOn: d });
+    const evidence = d ?? s;
+    if (current && (current.beganOn === null || evidence === null || current.beganOn <= evidence)) {
+      set(current, { status: 'abandoned', endedOn: d !== null && (current.beganOn === null || d >= current.beganOn) ? d : null });
+    } else {
+      // an earlier attempt, stopped over there — a read started here since stays open
+      add({ status: 'abandoned', beganOn: s, endedOn: d !== null && (s === null || d >= s) ? d : null });
+    }
   }
   const topped = topUpReads(work, g.readCount);
   for (const extra of topped.slice(work.length)) add(extra);

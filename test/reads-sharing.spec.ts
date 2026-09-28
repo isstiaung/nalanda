@@ -102,10 +102,9 @@ describe('what connections are sent', () => {
   it('the count on a finish, and on a page the finished reads before its own read', async () => {
     const item = await finishedBook();
     await startRead(env.DB, item.id, daysAgo(10));
-    const rereadPage = toFeedItem({ ...item, readCount: 1, rereading: true }, 'progress', '0123456789abcdef', 40, false);
-    expect(rereadPage.readCount).toBe(1); // a re-read
-    const firstReadPage = toFeedItem({ ...item, readCount: 1 }, 'progress', '0123456789abcdef', 40, true);
-    expect(firstReadPage.readCount).toBe(0); // the first read's own page, served after it finished
+    // on a page, the finished reads before its own read — whatever the book's total is by now
+    expect(toFeedItem({ ...item, readCount: 1, rereading: true }, 'progress', '0123456789abcdef', 40, 1).readCount).toBe(1);
+    expect(toFeedItem({ ...item, readCount: 2 }, 'progress', '0123456789abcdef', 40, 0).readCount).toBe(0);
     expect(toFeedItem({ ...item, readCount: 2 }, 'finished', '0123456789abcdef').readCount).toBe(2);
     expect(toFeedItem({ ...item, readCount: 2 }, 'rated', '0123456789abcdef').readCount).toBeNull(); // not what a rating shows
   });
@@ -188,10 +187,25 @@ describe('serving a re-read to a connection', () => {
     await startRead(env.DB, again.id, daysAgo(5));
     await addProgress(env.DB, again.id, 60, null);
 
-    const body = (await (await a.signedGet(`/federation/feed?view=${view.id}&since=0`, peer)).json()) as { entries: Array<{ kind: string; item: { title: string; readCount: number | null } }> };
-    const pagesOf = (title: string) => body.entries.filter((e) => e.kind === 'progress' && e.item.title === title).map((e) => e.item.readCount);
-    expect(pagesOf('Read again')).toEqual([1]);
-    expect(pagesOf('First read')).toEqual([0]);
+    // read twice here, pages in both: each page counts the finishes before its own read, not the book's total
+    const twice = await createItem(env.DB, { libraryId: first.libraryId, mediaType: 'book', title: 'Twice', length: 300, details: '{}' });
+    await addProgress(env.DB, twice.id, 50, null);
+    await env.DB.prepare("UPDATE reading_progress SET at = ?2 WHERE item_id = ?1").bind(twice.id, `${daysAgo(20)} 10:00:00`).run();
+    await env.DB.prepare('UPDATE reads SET began_on = ?2 WHERE item_id = ?1').bind(twice.id, daysAgo(21)).run();
+    await closeRead(env.DB, twice.id, await openRead(twice.id), 'completed', daysAgo(19));
+    await startRead(env.DB, twice.id, daysAgo(5));
+    await addProgress(env.DB, twice.id, 70, null);
+    await closeRead(env.DB, twice.id, await openRead(twice.id), 'completed', daysAgo(0));
+
+    const body = (await (await a.signedGet(`/federation/feed?view=${view.id}&since=0`, peer)).json()) as { entries: Array<{ kind: string; item: { title: string; readCount: number | null; progress: { page: number } | null } }> };
+    const pagesOf = (title: string) =>
+      body.entries.filter((e) => e.kind === 'progress' && e.item.title === title).map((e) => [e.item.progress!.page, e.item.readCount]);
+    expect(pagesOf('Read again')).toEqual([[60, 1]]);
+    expect(pagesOf('First read')).toEqual([[100, 0]]);
+    expect(pagesOf('Twice').sort()).toEqual([
+      [50, 0],
+      [70, 1],
+    ]);
     expect(body.entries.find((e) => e.kind === 'finished' && e.item.title === 'Read again')?.item.readCount).toBe(1);
   });
 });

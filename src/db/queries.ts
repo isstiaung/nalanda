@@ -726,7 +726,22 @@ function formReadStatements(d1: D1Database, itemId: number, form: FormRead): D1P
              SELECT 1 FROM reads o WHERE o.item_id = ?1 AND o.status = 'in_progress' AND o.id <> reads.id))`,
       )
       .bind(itemId, form.status, form.beganOn, ended),
+    adoptOrphanPages(d1, itemId),
   ];
+}
+
+/**
+ * Pages recorded before an item had any read — only a book marked not started that had pages when reads arrived —
+ * join its current read once it has one, as migration 0023 put everyone else's. Left behind with no read, they'd
+ * drop out of the item page while still being exported and shared. A no-op for every other item.
+ */
+function adoptOrphanPages(d1: D1Database, itemId: number): D1PreparedStatement {
+  return d1
+    .prepare(
+      `UPDATE reading_progress SET read_id = (SELECT r.id FROM reads r WHERE r.item_id = ?1 ORDER BY ${currentOrderSql('r')} LIMIT 1)
+       WHERE item_id = ?1 AND read_id IS NULL AND EXISTS (SELECT 1 FROM reads WHERE item_id = ?1)`,
+    )
+    .bind(itemId);
 }
 
 export type ReadEntry = ReadRow & { createdAt: string };
@@ -762,6 +777,7 @@ export async function startRead(d1: D1Database, itemId: number, beganOn: string)
            AND (SELECT count(*) FROM reads WHERE item_id = ?1) < ${MAX_READS_PER_ITEM}`,
       )
       .bind(itemId, beganOn),
+    adoptOrphanPages(d1, itemId),
     refreshReadState(d1, [itemId], { touch: true }),
   ]);
   return (inserted?.meta.changes ?? 0) > 0;
@@ -802,6 +818,7 @@ export async function addPastRead(d1: D1Database, itemId: number, read: ReadDraf
          WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1) AND (SELECT count(*) FROM reads WHERE item_id = ?1) < ${MAX_READS_PER_ITEM}`,
       )
       .bind(itemId, read.status, read.beganOn, read.endedOn),
+    adoptOrphanPages(d1, itemId),
     refreshReadState(d1, [itemId], { touch: true }),
   ]);
   return (inserted?.meta.changes ?? 0) > 0;
@@ -907,6 +924,7 @@ export async function addProgress(d1: D1Database, itemId: number, page: number, 
          WHERE item_id = ?1 AND status = 'in_progress' AND (began_on IS NULL OR trim(began_on) = '')`,
       )
       .bind(itemId),
+    adoptOrphanPages(d1, itemId),
     d1
       .prepare(
         `INSERT INTO reading_progress (item_id, page, added_by, read_id)
@@ -916,7 +934,7 @@ export async function addProgress(d1: D1Database, itemId: number, page: number, 
     // updated_at is deliberately untouched: connections see it, and a page is its own entry, not an edit of the book
     refreshReadState(d1, [itemId]),
   ]);
-  return (results[2]?.meta.changes ?? 0) > 0;
+  return (results[3]?.meta.changes ?? 0) > 0;
 }
 
 /**

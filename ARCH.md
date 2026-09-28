@@ -987,14 +987,20 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     reads, and an older export still imports from its status and dates. Goodreads' Read Count,
     which the import had kept in details, becomes undated finished reads, capped at 100, and
     leaves details; a Goodreads merge adds reads and never removes one (amending #14), and a
-    second run adds nothing. Migration 0023 does the same for what is there already, inside
+    second run adds nothing, even after reading done here since the first — a read finished,
+    stopped or started again here counts as the result a rule looks for. While a book is being
+    read again, its edit form's status and dates are shown locked: they describe its last
+    finish, and the re-read is managed on its page, so the form can't turn that finish into a
+    stop or overwrite its date. Migration 0023 does the same for what is there already, inside
     the import marker so none of it is news: on production's data (backup of 2026-09-28,
     rehearsed through 0012 → 0023) it made 381 reads, left 20 of 22 tables identical, removed
     only `read_count` from 1,681 details, and changed 8 statuses — 6 books not started that
     Goodreads counted as read once became Completed, and 2 books in progress that had been
     finished before became Completed and re-reading, so they leave the in-progress connection
-    view. Reads are household-level like status (§5); per-member reads and per-read ratings or
-    reviews stay out of scope.
+    view. Code from before 0023 writes status without reads, so a deploy of it goes out when
+    nobody is editing and the Worker isn't rolled back past it (runbooks/deploy.md). Reads are
+    household-level like status (§5); per-member reads and per-read ratings or reviews stay
+    out of scope.
 
 **2026-09-28 — versions and releases:**
 42. **Nalanda is released as SemVer versions, starting at 1.0.0, with notes written for whoever

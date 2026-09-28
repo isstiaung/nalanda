@@ -47,7 +47,7 @@ export function toFeedItem(
   kind: ActivityKind,
   stamp: string,
   progressPage: number | null = null,
-  progressReadFinished = false,
+  readsBefore = 0,
 ): FeedItem {
   const c = toConnectionItem(item);
   const long = c.review !== null && c.review.length > MAX_FEED_REVIEW_CHARS;
@@ -66,7 +66,8 @@ export function toFeedItem(
       completedOn: c.completedOn?.slice(0, MAX_SHORT_TEXT) ?? null,
       stamp,
       progress: progressPage ? { page: progressPage, percent: progressPercent(progressPage, item.length) } : null,
-      readCount: kind === 'progress' && progressReadFinished ? Math.max(0, c.readCount - 1) : c.readCount,
+      // a page: the finished reads before its own read; anything else: all of them
+      readCount: kind === 'progress' ? readsBefore : c.readCount,
     },
     kind,
   );

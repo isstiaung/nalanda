@@ -256,6 +256,16 @@ describe('reads through the export and back', () => {
     expect(row({ status: 'not_started', read_count: '999999' }).reads).toHaveLength(100);
   });
 
+  it('turns the Goodreads count an export from before reads kept in details into reads, and out of details', () => {
+    const old = { title: 'T', media_type: 'book', isbn10_upc: '', began_on: '', completed_on: '2020-01-01', status: 'completed', added_at: '' };
+    const m = mapNalandaRow({ ...old, details: '{"read_count":"3","binding":"Paperback"}' })!;
+    expect(m.reads).toHaveLength(3);
+    expect(JSON.parse(m.item.details as string)).toEqual({ binding: 'Paperback' });
+    // an export with a reads column is its own record: details are left as they are
+    const fresh = mapNalandaRow({ ...old, reads: 'completed:..2020-01-01', read_count: '1', details: '{"read_count":"3"}' })!;
+    expect(fresh.reads).toHaveLength(1);
+  });
+
   it('never lets reads fall into details, where share pages would show their dates', () => {
     const m = mapLibibRow({ title: 'A Nalanda export missing a column', reads: 'completed:2020-01-01..2020-02-01', read_count: '1' }, { defaultType: 'book', musicAsVinyl: true })!;
     expect(JSON.parse(m.item.details as string)).toEqual({});

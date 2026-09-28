@@ -48,7 +48,8 @@ const items = new Hono<AppEnv>();
 /**
  * What's wrong with the form's status and dates, or null (§16 #41). They describe the read that decides the item's
  * status, so: a book not started has no dates, one in progress no completion date, and a book with reads can't be
- * made not started from here — its reads are deleted on its page. A re-read in progress is managed there too.
+ * made not started from here — its reads are deleted on its page. A book being read again has its reading fields
+ * locked (see `rereadLocked`): they describe its last finish, and changing them here would rewrite that.
  */
 function formReadProblem(existing: Item | null, v: { status: ItemStatus; beganOn: string | null; completedOn: string | null }): string | null {
   if (v.status === 'not_started') {
@@ -59,7 +60,7 @@ function formReadProblem(existing: Item | null, v: { status: ItemStatus; beganOn
     return v.beganOn || v.completedOn ? 'A book not started has no reading dates: choose a status, or clear the dates.' : null;
   }
   if (v.status === 'in_progress' && v.completedOn) return 'A book in progress has no completion date: clear it, or choose Completed.';
-  if (v.status === 'in_progress' && existing?.rereading) return 'This book is being read again: finish or stop that read on its page first.';
+  if (v.status === 'in_progress' && existing?.rereading) return 'It already has a read in progress: choose Not started to clear its reads.';
   return readDateProblem({ status: v.status, beganOn: v.beganOn, endedOn: v.status === 'in_progress' ? null : v.completedOn });
 }
 
@@ -136,6 +137,13 @@ const readFields = (v: ParsedForm['values']) => ({ status: v.status ?? 'not_star
 const formItem = (existing: Item | null, v: ParsedForm['values']): Item =>
   ({ ...(existing ?? { id: 0, coverKey: null, readCount: 0, rereading: false }), ...v }) as Item;
 
+/**
+ * A book being read again: its form's status and dates describe its last finish, and are shown locked — the re-read
+ * is started, finished and corrected on the book's page. A form that sends them anyway (opened before the re-read
+ * began) may only send them unchanged.
+ */
+const rereadLocked = (item: Item) => item.mediaType === 'book' && item.rereading;
+
 const LENGTH_UNIT: Partial<Record<MediaType, string>> = {
   book: 'pages',
   boardgame: 'min play time',
@@ -168,7 +176,15 @@ items.post('/items', async (c) => {
         <div class="page-head">
           <h1>Add item</h1>
         </div>
-        <ItemForm libraries={libs} action="/items" submitLabel="Add item" item={formItem(null, parsed.values)} tags={parsed.tags} error={problem} />
+        <ItemForm
+          libraries={libs}
+          action="/items"
+          submitLabel="Add item"
+          item={formItem(null, parsed.values)}
+          tags={parsed.tags}
+          coverUrl={parsed.coverUrl}
+          error={problem}
+        />
       </>,
     );
   }
@@ -410,11 +426,20 @@ items.get('/items/:id/edit', async (c) => {
 // for the other direction's button, so the toggle round-trips.
 /**
  * The Reading section after a change, with the status pill above it swapped out of band — starting, finishing or
- * stopping a read changes that too. Without htmx the form posts and lands back on the item page.
+ * stopping a read changes that too. Without htmx the form posts and lands back on the item page. The change is
+ * already saved when this reads it back, so a failed read-back reloads the page rather than failing the request:
+ * a retry would record the page, or add the read, twice (§16 #39).
  */
 async function readingResponse(c: Context<AppEnv>, id: number, error?: string) {
   if (!c.req.header('HX-Request')) return c.redirect(`/items/${id}`);
-  const [item, log] = await Promise.all([getItem(c.env.DB, id), readingLog(c.env.DB, id)]);
+  let item: Item | null;
+  let log: Awaited<ReturnType<typeof readingLog>>;
+  try {
+    [item, log] = await Promise.all([getItem(c.env.DB, id), readingLog(c.env.DB, id)]);
+  } catch {
+    c.header('HX-Redirect', `/items/${id}`);
+    return c.body(null, 200);
+  }
   if (!item) return c.notFound();
   return c.html(
     <>
@@ -477,7 +502,11 @@ items.post('/items/:id/reads/start', async (c) => {
   const problem = readDateProblem({ status: 'in_progress', beganOn, endedOn: null });
   if (problem) return readingResponse(c, item.id, problem);
   const started = await startRead(c.env.DB, item.id, beganOn);
-  return readingResponse(c, item.id, started ? undefined : 'A read is already open. Finish or stop it first.');
+  return readingResponse(
+    c,
+    item.id,
+    started ? undefined : 'A read is already open — finish or stop it first — or this book has as many reads as it can hold.',
+  );
 });
 
 /** Finishes or stops the open read, on the date given or today. */
@@ -558,12 +587,21 @@ items.post('/items/:id', async (c) => {
   const id = Number(c.req.param('id'));
   const existing = await getItem(c.env.DB, id);
   if (!existing) return c.notFound();
-  const parsed = parseItemForm(await c.req.parseBody());
+  const body = await c.req.parseBody();
+  const parsed = parseItemForm(body);
   if (!parsed) return c.text('Title and shelf are required.', 400);
   if (!(await getLibrary(c.env.DB, parsed.values.libraryId))) return c.text('No such shelf.', 400);
-  const problem = formReadProblem(existing, readFields(parsed.values));
+  const locked = rereadLocked(existing);
+  const sent = readFields(parsed.values);
+  const unchanged =
+    sent.status === existing.status && sent.beganOn === (existing.beganOn || null) && sent.completedOn === (existing.completedOn || null);
+  const problem = locked
+    ? 'status' in body && !unchanged
+      ? 'This book is being read again: its reads are started, finished and corrected on its page, not here.'
+      : null
+    : formReadProblem(existing, sent);
   if (problem) {
-    const [libs, tags] = await Promise.all([listLibraries(c.env.DB), tagsForItem(c.env.DB, id)]);
+    const libs = await listLibraries(c.env.DB);
     c.status(400);
     return page(
       c,
@@ -575,7 +613,16 @@ items.post('/items/:id', async (c) => {
             <span class="sub mono">{accNo(existing.id)}</span>
           </div>
         </div>
-        <ItemForm libraries={libs} action={`/items/${id}`} submitLabel="Save changes" item={formItem(existing, parsed.values)} tags={tags} error={problem} />
+        <ItemForm
+          libraries={libs}
+          action={`/items/${id}`}
+          submitLabel="Save changes"
+          item={formItem(existing, locked ? { ...parsed.values, status: existing.status, beganOn: existing.beganOn, completedOn: existing.completedOn } : parsed.values)}
+          tags={parsed.tags}
+          coverUrl={parsed.coverUrl}
+          removeCover={parsed.removeCover}
+          error={problem}
+        />
       </>,
     );
   }
@@ -585,10 +632,13 @@ items.post('/items/:id', async (c) => {
   if (parsed.coverUrl) coverKey = (await storeCover(c.env.COVERS, parsed.coverUrl)) ?? coverKey;
 
   try {
-    await updateItemWithTags(c.env.DB, id, { ...parsed.values, coverKey }, parsed.tags, {
-      ...readFields(parsed.values),
-      clearReads: existing.mediaType !== 'book',
-    });
+    await updateItemWithTags(
+      c.env.DB,
+      id,
+      { ...parsed.values, coverKey },
+      parsed.tags,
+      locked ? undefined : { ...sent, clearReads: existing.mediaType !== 'book' },
+    );
   } catch (err) {
     if (coverKey !== existing.coverKey) c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // the new one: unused
     throw err;

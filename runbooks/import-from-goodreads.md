@@ -36,7 +36,9 @@ subtitles after ":", and initials spacing are ignored). On a match:
 - **Goodreads wins** for rating, review, and private notes — but a field Goodreads has no
   value for never blanks what's already in Nalanda.
 - **Reading arrives as reads, which are added and never removed** (ARCH.md §16 #41). Each
-  rule checks for its own result first, so a second import adds nothing:
+  rule checks for its own result first, and reading you did here since an earlier import
+  counts as that result. So importing the same file again adds nothing, even after you
+  finished, stopped or started a book again here:
   - `Date Read` is a finish. Nothing happens if a finished read already ends that day. On
     the read shelf it closes an open read that began by then. Otherwise it dates an undated
     finished read, or adds one.
@@ -44,8 +46,12 @@ subtitles after ":", and initials spacing are ignored). On a match:
     added.
   - Currently-reading makes sure a read is open, starting on `Date Started` when the file
     has it (the standard export doesn't). Its `Date Read` is the *previous* finish, so a
-    currently-reading book that was finished before arrives as Completed and re-reading.
-  - A DNF shelf stops an open read, or records a stopped one on a book with no reads.
+    currently-reading book that was finished before arrives as Completed and re-reading. If
+    a read here began since, or ended after that previous finish, that read was this one,
+    and nothing is reopened.
+  - A DNF shelf stops an open read that began by the DNF's date. Otherwise it records a
+    stopped read, and a read started here since stays open. Once a stopped read is here, it
+    does nothing.
   - `Read Count` tops the finished reads up with undated ones, capped at 100 a book.
   - A to-read shelf over there never removes a read recorded here.
 - **Copies, title, and bibliographic metadata are never touched** — Nalanda's
