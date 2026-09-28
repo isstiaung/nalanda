@@ -1,7 +1,9 @@
-// Cloudflare's free plan allows 50 D1 queries per Worker invocation, and work handed to waitUntil belongs to
-// the invocation of the page that started it. Background work — pulling feeds, and from phase 3 outboxes —
-// runs against a handle that refuses the query that would overspend its share. The work stops cleanly at a
-// point it can resume from, and the page that started it never runs short.
+// D1 calls are capped per Worker invocation, and work handed to waitUntil belongs to the invocation of the
+// page that started it. The design budget is the documented free-plan figure, 50; measured on this account
+// the runtime allows 1,000, and a batch counts as one call however many statements it holds (ARCH.md §16
+// #37). Background work — pulling feeds and outboxes — runs against a handle that refuses the call that
+// would overspend its share. The work stops cleanly at a point it can resume from, and the page that started
+// it never runs short.
 export class BudgetSpent extends Error {
   constructor() {
     super('this request’s D1 query budget for background work is spent');
@@ -41,7 +43,7 @@ function counted(inner: D1PreparedStatement, spend: (n: number) => void): D1Prep
 const unwrap = (statement: D1PreparedStatement): D1PreparedStatement =>
   (statement as unknown as Record<symbol, D1PreparedStatement>)[INNER] ?? statement;
 
-/** A D1 handle that counts every statement it runs — each statement in a batch included — against `budget`. */
+/** A D1 handle that counts every call it makes against `budget` — a batch is one call, as the runtime counts it. */
 export function budgeted(d1: D1Database, budget: Budget): D1Database {
   const spend = (n: number) => {
     if (budget.left < n) throw new BudgetSpent();
@@ -50,7 +52,7 @@ export function budgeted(d1: D1Database, budget: Budget): D1Database {
   const handle = {
     prepare: (query: string) => counted(d1.prepare(query), spend),
     batch: (statements: D1PreparedStatement[]) => {
-      spend(statements.length);
+      spend(1); // one request to D1, however many statements: measured, §16 #37
       return d1.batch(statements.map(unwrap));
     },
     exec: (query: string) => {
