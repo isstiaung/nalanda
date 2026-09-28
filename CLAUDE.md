@@ -92,7 +92,9 @@ shape from this file.
 - Connections see only `toConnectionItem()` fields (`src/federation/items.ts`, built on
   `toPublicItem()`), and only for items inside a connection view. Availability is a derived
   boolean — never a borrower, due date or copies count. Triggers on `items` record
-  activity only while a connection view exists (migration 0007).
+  activity only while a connection view exists (migration 0007), dated by when it happened —
+  an import's batch brackets itself with `import_in_progress` so old reads aren't news
+  (migration 0021, ARCH.md §16 #40).
 - Strings from another instance — household names, view names, feed entries, comments —
   render only as escaped text. A comment thread is only ever shown to the two households in it. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:
   the browser decodes HTML escapes back into quotes before it runs the script.

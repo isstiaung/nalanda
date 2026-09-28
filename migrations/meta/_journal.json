@@ -141,6 +141,20 @@
       "when": 1790573813194,
       "tag": "0019_remote-activities-autoincrement",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1790579465048,
+      "tag": "0020_import-in-progress",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1790579472029,
+      "tag": "0021_activity-dating",
+      "breakpoints": true
     }
   ]
 }

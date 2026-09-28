@@ -261,6 +261,12 @@ Nalanda has no event history today — items only have current state and `update
 - **Not logged in v1: "added to catalog."** A 2,000-book Goodreads import would bury every
   connection's feed. Bulk changes can still happen (an import that sets reviews), so the Feed
   page groups a household's events within a short window ("reviewed 40 books").
+- **Entries are dated by when things happened** (ARCH.md §16 #40). A finish carries its
+  `completed_on`; a rating or review is dated when given. The first-view backfill takes only
+  activity with a date of its own — `updated_at` is rewritten by imports and backfills, so
+  it says nothing about when a book was read. An import marks its own batch, and while it
+  runs every kind is dated by `completed_on` or not recorded, so importing years of reading
+  never lands on top of a follower's feed.
 
 ### Subscriptions — the receiving household decides
 
