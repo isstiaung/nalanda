@@ -218,6 +218,28 @@ describe('404 pages', () => {
     }
   });
 
+  it('answers a missing file — script, stylesheet, icon — in plain text, not with a page', async () => {
+    const cookie = await sessionCookie('member');
+    for (const path of ['/vendor/htmx-missing.min.js', '/no-such.css', '/icons/nope.png', '/vendor/fonts/gone.woff2']) {
+      const res = await plain.get(path, cookie);
+      expect(res.status, path).toBe(404);
+      expect(res.headers.get('content-type'), path).toContain('text/plain');
+      expect(await res.text(), path).toBe('Not found');
+    }
+  });
+
+  it('keeps real pages whose path holds a dot — a tag like “vol.2” — as pages (negative control)', async () => {
+    const shelf = await createLibrary(env.DB, 'Books');
+    const book = await createItem(env.DB, { libraryId: shelf.id, title: 'Tagged', copies: 1 });
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO tags (name) VALUES ('vol.2')"),
+      env.DB.prepare("INSERT INTO item_tags (item_id, tag_id) SELECT ?1, id FROM tags WHERE name = 'vol.2'").bind(book.id),
+    ]);
+    const res = await plain.get('/tags/vol.2', await sessionCookie('member'));
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('Tagged');
+  });
+
   it('still sends a signed-out visitor to log in, not to a page that says what exists (negative control)', async () => {
     const res = await plain.get('/no-such-page');
     expect(res.status).toBe(302);
