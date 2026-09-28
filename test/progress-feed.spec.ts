@@ -327,6 +327,7 @@ describe('the Feed page', () => {
     expect(html).toContain('finished</span> <strong>Piranesi');
     expect(html).not.toMatch(/reading<\/span> <strong>Piranesi/);
     expect(html).toContain('p. 150');
+    expect(html).not.toContain('progress-fill'); // no bar stuck at its last percent under "finished"
   });
 });
 

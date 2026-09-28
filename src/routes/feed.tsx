@@ -155,7 +155,8 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] }> = 
         {card.rating ? <span class="rating">{stars(card.rating)}</span> : null}
         {card.progress.length ? (
           <>
-            {card.progress[0]!.percent !== null ? (
+            {/* the bar says how far through a book they are — a finished book isn't partway through anything */}
+            {card.progress[0]!.percent !== null && !card.kinds.has('finished') ? (
               <div class="progress-track" role="img" aria-label={`${card.progress[0]!.percent}% read`}>
                 <div class="progress-fill" style={`width:${card.progress[0]!.percent}%`} />
               </div>

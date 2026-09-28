@@ -87,3 +87,28 @@ describe('a large export within the free plan', () => {
     expect(50 - budget.left).toBeLessThan(25); // room for the progress lookup and for growth
   });
 });
+
+describe('an export that fails partway', () => {
+  it('fails the download instead of handing over a file that just stops', async () => {
+    const lib = await createLibrary(env.DB, 'Everything');
+    await env.DB.prepare(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 2500)
+       INSERT INTO items (library_id, media_type, title, status, copies, details)
+       SELECT ?1, 'book', 'Book ' || i, 'not_started', 1, '{}' FROM n`,
+    ).bind(lib.id).run();
+    const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
+    const token = await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000));
+    // enough for the page and the first page of items, not the second: the stream is cut off partway
+    const budget = { left: 5 };
+    const ctx = createExecutionContext();
+    const res = await app.fetch(
+      new Request('http://nalanda.test/export.csv', { headers: { cookie: `${SESSION_COOKIE}=${token}` } }),
+      { ...env, DB: budgeted(env.DB, budget) },
+      ctx,
+    );
+
+    expect(res.status).toBe(200); // headers were sent before the failure — which is exactly why it must abort
+    await expect(res.text()).rejects.toThrow();
+    await waitOnExecutionContext(ctx).catch(() => {});
+  });
+});
