@@ -273,41 +273,41 @@ importexport.get('/export.csv', async (c) => {
   const libNames = new Map(libs.map((l) => [l.id, l.name]));
 
   const encoder = new TextEncoder();
-  const { readable, writable } = new TransformStream<Uint8Array>();
   const d1 = c.env.DB;
-
-  c.executionCtx.waitUntil(
-    (async () => {
-      const writer = writable.getWriter();
-      // Three queries a page (items, tags, reading progress) against the free plan's 50 per invocation: at
-      // 2,000 items a page an export can run to about 30,000 items. The response is already a 200 by the time a page is read, so a failure
-      // must abort the stream — closing it normally hands over a file that just stops, with nothing to say
-      // it is incomplete.
-      const PAGE = 2000;
+  // Three queries a page (items, tags, reading progress) against the free plan's 50 per invocation: at 2,000
+  // items a page an export can run to about 30,000 items. One page per pull, so a slow download holds one page in memory rather than all of
+  // them. The response is already a 200 by the time a page is read, so a failure must error the stream —
+  // ending it normally hands over a file that just stops, with nothing to say it is incomplete.
+  const PAGE = 2000;
+  let afterId = 0;
+  let headerSent = false;
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
       try {
-        await writer.write(encoder.encode(csvLine([...EXPORT_COLUMNS])));
-        for (let afterId = 0; ; ) {
-          const items = await pageItems(d1, { libraryId: scope, afterId, limit: PAGE });
-          if (!items.length) break;
-          const [from, to] = [items[0]!.id, items.at(-1)!.id];
-          const [tagMap, progressMap] = await Promise.all([tagsForIdRange(d1, from, to), progressForIdRange(d1, from, to)]);
-          let chunk = '';
-          for (const item of items) {
-            chunk += itemToCsvLine(item, libNames.get(item.libraryId) ?? '', tagMap.get(item.id) ?? [], progressMap.get(item.id) ?? []);
-          }
-          await writer.write(encoder.encode(chunk));
-          if (items.length < PAGE) break;
-          afterId = items.at(-1)!.id;
+        if (!headerSent) {
+          headerSent = true;
+          controller.enqueue(encoder.encode(csvLine([...EXPORT_COLUMNS])));
+          return;
         }
-        await writer.close();
+        const items = await pageItems(d1, { libraryId: scope, afterId, limit: PAGE });
+        if (!items.length) return controller.close();
+        const [from, to] = [items[0]!.id, items.at(-1)!.id];
+        const [tagMap, progressMap] = await Promise.all([tagsForIdRange(d1, from, to), progressForIdRange(d1, from, to)]);
+        let chunk = '';
+        for (const item of items) {
+          chunk += itemToCsvLine(item, libNames.get(item.libraryId) ?? '', tagMap.get(item.id) ?? [], progressMap.get(item.id) ?? []);
+        }
+        controller.enqueue(encoder.encode(chunk));
+        afterId = items.at(-1)!.id;
+        if (items.length < PAGE) controller.close();
       } catch (err) {
-        await writer.abort(err).catch(() => {});
+        controller.error(err);
       }
-    })(),
-  );
+    },
+  });
 
   const today = new Date().toISOString().slice(0, 10);
-  return new Response(readable, {
+  return new Response(body, {
     headers: {
       'content-type': 'text/csv; charset=utf-8',
       'content-disposition': `attachment; filename="nalanda-export-${today}.csv"`,
