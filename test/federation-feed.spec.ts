@@ -4,12 +4,15 @@ import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   applyLifecycle,
+  countItemsInView,
   createConnectionView,
   createSubscription,
   deleteConnectionView,
   dueSubscriptions,
   getFederationSettings,
+  listConnectionViews,
   storeEntries,
+  viewVolume,
   type NewRemoteActivity,
 } from '../src/db/federation';
 import { createItem, createLibrary, createLoan, deleteItem, updateItem } from '../src/db/queries';
@@ -255,6 +258,41 @@ describe('the feed this household serves', () => {
       { id: view.id, name: 'Everything', itemCount: 2, recent: { days: 90, activities: 1, bytes: expect.any(Number) } },
     ]);
     expect(body.views[0]!.recent.bytes).toBeGreaterThan(100);
+  });
+
+  it('lists any number of shared views in the same few queries, each with its own figures', async () => {
+    // Asked view by view, this cost two queries each — 43 at the 20-view cap, on a route any connection may call.
+    const shelf = await createLibrary(env.DB, 'Main');
+    const other = await createLibrary(env.DB, 'Other');
+    await createItem(env.DB, { libraryId: shelf.id, title: 'One', review: 'x'.repeat(100) });
+    await createItem(env.DB, { libraryId: other.id, title: 'Two', rating: 8 });
+    await shareView({ name: 'Main', libraryId: shelf.id });
+    type Listed = { views: Array<{ id: number }> };
+    const list = async () => {
+      clearSharedViewsCache();
+      const counter = { left: 1000 };
+      const counted = instanceA({ ...env, DB: budgeted(env.DB, counter), FEDERATION_PRIVATE_KEY: keysA.secret } as Bindings);
+      const body = (await (await counted.signedGet('/federation/views', peer)).json()) as Listed;
+      return { queries: 1000 - counter.left, body };
+    };
+    await list(); // the first request also looks the peer up; later ones find it remembered
+
+    const one = await list();
+    for (let i = 0; i < 19; i++) await shareView({ name: `View ${i}`, libraryId: i % 2 ? shelf.id : other.id });
+    const twenty = await list();
+
+    expect(twenty.queries).toBe(one.queries);
+    expect(twenty.queries).toBeLessThanOrEqual(5);
+    const views = await listConnectionViews(env.DB);
+    expect(twenty.body.views).toHaveLength(20);
+    for (const view of views) {
+      expect(twenty.body.views.find((v) => v.id === view.id)).toEqual({
+        id: view.id,
+        name: view.name,
+        itemCount: await countItemsInView(env.DB, view),
+        recent: { days: 90, ...(await viewVolume(env.DB, view, 90)) },
+      });
+    }
   });
 
   it('limits how often one connection may read', async () => {

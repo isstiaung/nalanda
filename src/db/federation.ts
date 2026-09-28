@@ -397,8 +397,11 @@ export async function deleteConnectionView(d1: D1Database, id: number): Promise<
   if ((await countConnectionViews(d1)) === 0) await d1.prepare('DELETE FROM activity_log').run();
 }
 
+const itemsInViewQuery = (dbi: ReturnType<typeof db>, view: ConnectionView) =>
+  dbi.select({ n: count() }).from(s.items).where(inView(view));
+
 export async function countItemsInView(d1: D1Database, view: ConnectionView): Promise<number> {
-  const [row] = await db(d1).select({ n: count() }).from(s.items).where(inView(view));
+  const [row] = await itemsInViewQuery(db(d1), view);
   return row?.n ?? 0;
 }
 
@@ -458,7 +461,32 @@ export async function viewVolume(
   view: ConnectionView,
   days: number,
 ): Promise<{ activities: number; bytes: number }> {
-  const [row] = await db(d1)
+  const [row] = await volumeQuery(db(d1), view, days);
+  return { activities: row?.activities ?? 0, bytes: row?.bytes ?? 0 };
+}
+
+/**
+ * Every view's size and recent volume in one batch — one D1 call however many views, where asking view by view
+ * cost two each: 43 calls at the 20-view cap, on a route any connection may call.
+ */
+export async function describeViews(
+  d1: D1Database,
+  views: ConnectionView[],
+  days: number,
+): Promise<Array<{ itemCount: number; activities: number; bytes: number }>> {
+  if (!views.length) return [];
+  const dbi = db(d1);
+  const [first, ...rest] = views.flatMap((view) => [itemsInViewQuery(dbi, view), volumeQuery(dbi, view, days)]);
+  const results = (await dbi.batch([first!, ...rest])) as unknown as Array<Array<{ n?: number; activities?: number; bytes?: number }>>;
+  return views.map((_, i) => ({
+    itemCount: results[2 * i]?.[0]?.n ?? 0,
+    activities: results[2 * i + 1]?.[0]?.activities ?? 0,
+    bytes: results[2 * i + 1]?.[0]?.bytes ?? 0,
+  }));
+}
+
+function volumeQuery(dbi: ReturnType<typeof db>, view: ConnectionView, days: number) {
+  return dbi
     .select({
       activities: count(),
       // an entry is its JSON: ~360 bytes of keys and short fields, plus title, creators and review
@@ -469,7 +497,6 @@ export async function viewVolume(
     .from(s.activityLog)
     .innerJoin(s.items, eq(s.activityLog.itemId, s.items.id))
     .where(and(sql`${s.activityLog.at} > datetime('now', ${`-${days} days`})`, inView(view), stillShows));
-  return { activities: row?.activities ?? 0, bytes: row?.bytes ?? 0 };
 }
 
 // ---------- subscriptions: what this household follows (phase 2) ----------

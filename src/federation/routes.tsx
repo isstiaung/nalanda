@@ -8,8 +8,8 @@ import {
   applyConnectionMessage,
   availability,
   countConnections,
-  countItemsInView,
   countPush,
+  describeViews,
   findRedeemableInvite,
   getConnectionByBaseUrl,
   getConnectionView,
@@ -21,7 +21,6 @@ import {
   redeemInvite,
   shelfPage,
   stillShared,
-  viewVolume,
 } from '../db/federation';
 import { getItem, tagsForItem } from '../db/queries';
 import type { Connection, NotificationKind } from '../db/schema';
@@ -204,7 +203,7 @@ async function fromActiveConnection(c: Context<AppEnv>, maxBodyBytes: number): P
 
 const digits = (raw: string | undefined): number | null => (raw !== undefined && /^\d{1,15}$/.test(raw) ? Number(raw) : null);
 
-// The shared views, with counts and volume, cost two queries per view; one isolate reuses them briefly.
+// The shared views with their counts and volume: a handful of queries, reused briefly by one isolate.
 let sharedViews: { json: string; expires: number } | null = null;
 
 /** Called when a view is added or removed, so this isolate serves the change at once. */
@@ -220,14 +219,13 @@ federation.get('/federation/views', async (c) => {
   if (!(await getFederationSettings(c.env.DB))) return c.notFound();
   if (!sharedViews || sharedViews.expires <= Date.now()) {
     const views = await listConnectionViews(c.env.DB);
-    const described = await Promise.all(
-      views.map(async (view) => ({
-        id: view.id,
-        name: view.name,
-        itemCount: await countItemsInView(c.env.DB, view),
-        recent: { days: VOLUME_WINDOW_DAYS, ...(await viewVolume(c.env.DB, view, VOLUME_WINDOW_DAYS)) },
-      })),
-    );
+    const sizes = await describeViews(c.env.DB, views, VOLUME_WINDOW_DAYS);
+    const described = views.map((view, i) => ({
+      id: view.id,
+      name: view.name,
+      itemCount: sizes[i]!.itemCount,
+      recent: { days: VOLUME_WINDOW_DAYS, activities: sizes[i]!.activities, bytes: sizes[i]!.bytes },
+    }));
     sharedViews = { json: JSON.stringify({ views: described }), expires: Date.now() + SHARED_VIEWS_CACHE_MS };
   }
   return c.body(sharedViews.json, 200, { 'content-type': 'application/json' });
