@@ -148,9 +148,7 @@ export const ReadingProgressSection: FC<{ item: Item; entries: { id: number; pag
           required
         />
         {item.length ? <span class="muted">of {item.length}</span> : null}
-        <button type="submit" class="btn">
-          Record
-        </button>
+        <button type="submit">Record</button>
       </form>
       {error ? <p class="error">{error}</p> : null}
 

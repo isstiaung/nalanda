@@ -92,6 +92,20 @@ describe('primary and secondary buttons', () => {
     expect(loans).toMatch(/<button type="submit" class="btn">\s*Mark returned/);
   });
 
+  it('makes each settings form’s one action primary too — Record, Rename, and the Save buttons', async () => {
+    const shelf = await createLibrary(env.DB, 'Books');
+    const book = await createItem(env.DB, { libraryId: shelf.id, title: 'A book', mediaType: 'book', copies: 1 });
+    const admin = await sessionCookie('admin');
+    expect(await (await plain.get(`/items/${book.id}`, admin)).text()).toContain('<button type="submit">Record</button>');
+    const shelfPage = await (await plain.get(`/libraries/${shelf.id}`, admin)).text();
+    expect(shelfPage).toContain('<button type="submit">Rename</button>');
+    expect(shelfPage).toMatch(/<button type="submit" class="btn">\s*Apply/); // the toolbar's Apply stays secondary
+    expect(await (await plain.get('/shares', admin)).text()).toContain('<button type="submit">Save</button>');
+
+    const { a } = await connected();
+    const connections = await (await a.get('/connections', await sessionCookie('admin'))).text();
+    expect(connections.match(/<button type="submit">Save<\/button>/g)).toHaveLength(2); // library name, progress sharing
+  });
 });
 
 describe('row actions', () => {

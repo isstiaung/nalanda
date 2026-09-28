@@ -186,9 +186,7 @@ const SharedViews: FC<{ views: PageProps['views']; libraries: Library[]; progres
           <input type="checkbox" name="progressToConnections" value="on" checked={progressToConnections} /> Share reading
           progress
         </label>
-        <button type="submit" class="btn">
-          Save
-        </button>
+        <button type="submit">Save</button>
       </form>
       <p class="muted">
         On by default. Each page you record becomes its own entry in their feed. Turning it off stops new entries and
@@ -301,9 +299,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
             aria-label="Library name"
             required
           />
-          <button type="submit" class="btn">
-            Save
-          </button>
+          <button type="submit">Save</button>
         </form>
         <p class="muted">
           Address: <span class="mono break-anywhere">{p.settings?.baseUrl ?? p.origin}</span>

@@ -215,9 +215,7 @@ libraries.get('/libraries/:id', async (c) => {
         <summary>Shelf settings</summary>
         <form method="post" action={`/libraries/${id}`} class="inline-form">
           <input name="name" value={lib.name} required />
-          <button type="submit" class="btn">
-            Rename
-          </button>
+          <button type="submit">Rename</button>
         </form>
         {user.role === 'admin' ? (
           <div class="share-panel">
