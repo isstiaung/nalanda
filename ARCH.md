@@ -1101,8 +1101,13 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       connections see that time, and an average that didn't move is no change to the book. So a
       second member's rating that moves the average is a "rated" entry, dated now (#40), one that
       doesn't move it records nothing, and inside an import's marker it is dated by the book's
-      last finish or left out, as before. `summarizeReviews()` is its TypeScript twin, held to it
-      by a test.
+      last finish or left out, as before. A review or rating taken away isn't news: the trigger
+      sees only that the item's review changed, so when a member's newer review goes and an older
+      one shows again, the same batch dates the replacement entry by when the review now shown was
+      written (and a rating entry by the latest remaining rating) — never later than the trigger
+      dated it, so something just written keeps its time (`redateReviewActivity()`; found by the
+      adversarial pass, which saw a 2019 review re-announced as today's). `summarizeReviews()` is
+      the refresh's TypeScript twin, held to it by a test.
 
     For a household of one every rule reduces to v1.2.1's, and the existing suite — run as one
     member owning what it seeds — passes unchanged in substance. **Inside the app** each person's
@@ -1112,7 +1117,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     shelf exactly as before. "Read again", Finish, Stop and Record act on the signed-in person's own
     reads, so another member can start their first read of a book someone finished; the edit form's
     status, dates, rating and review are the editor's own, and its re-read lock and "use Read again"
-    refusals are per person. A record's or game's "Not started" clears only the editor's reads.
+    refusals are per person. A record's or game's "Not started" clears only the editor's reads, so
+    its page lists everyone's reads by name too (once there is more than one member), where the
+    reader or an admin corrects or deletes one and an admin moves it; starting a read and pages
+    stay a book's.
 
     **Permissions.** Members change their own reads, pages and review; admins anyone's. Every route
     checks and answers 403 with a reason, and every statement that writes checks again (`Actor`,
@@ -1147,10 +1155,15 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     no name can break the cell; an empty name is a former member; no `@` is an export from before
     readers). A new `reviews` column holds everyone's reviews as JSON, with their writers and written
     times; `rating` and `review` stay beside it as the household summary for anything that reads only
-    those. On import a name that is a member here keeps them; any other name, and anything that names
-    nobody — an older export, a libib or Goodreads row — is the importer's, and the preview lists
-    each name, what it brings and whose it becomes. Two names landing on one person keep one open
-    read and the review written last. A Goodreads file is its importer's: it is reconciled with their
+    those. On import a name that is a member here keeps them — but only in an admin's import: a
+    member changes only their own reading, so a member's import is all theirs, or it would let them
+    write in someone else's name. Any other name, and anything that names nobody — an older export,
+    a libib or Goodreads row — is the importer's, and the preview lists each name, what it brings
+    and whose it becomes. Two names landing on one person keep one open read and the review written
+    last; several former members keep an open read each, as the database holds them. Reads are
+    capped at 100 per reader, as the app caps them, and 1,000 a row. A 1.3 export doesn't import
+    correctly into an older version, whose parser reads `2020-01-01@asha` as no date; the changelog
+    says so. A Goodreads file is its importer's: it is reconciled with their
     reads alone and merges into their review, so it never touches anyone else's.
 
     **Chosen without asking, overrulable:** `reviews.reviewed_at` beside the recommended columns —
@@ -1160,8 +1173,7 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     a household of more than one; progress among open reads is the latest page by anyone; a page
     recorded before reads (none on production) joins its recorder's first read; the per-read cap of
     100 is per reader; the Read by default is "Read by…" (no filter), with "anyone" meaning someone
-    finished it; records and games keep their reading in the edit form, per person, with no per-person
-    display. NULL readers are one "nobody" to the app's checks (`IS`), though SQLite's unique index
+    finished it; removing a review or rating is not news. NULL readers are one "nobody" to the app's checks (`IS`), though SQLite's unique index
     treats NULLs as distinct and so doesn't hold unattributed open reads to one; nothing in the app
     opens one.
 

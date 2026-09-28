@@ -225,7 +225,9 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
   (the average, rounded to 1–10) and `items.review` (the one written last, by `reviewed_at`)
   are their summary: write reviews and `refreshReviewState()` in one batch, never those
   columns directly. `reviewed_at` moves only when the text really changes, so a rating
-  changed alone never makes an old review the household's latest.
+  changed alone never makes an old review the household's latest; a write that can remove a
+  review also carries `redateReviewActivity()`, so an older review showing again isn't news.
+  Only an admin's import keeps the names a file gives reads and reviews; a member's is theirs.
 - Members change their own reads, pages and review; admins anyone's, and only admins move
   one to another member. Check it in the route (403 with a reason) *and* in the statement
   that writes (the `Actor` guards in `src/db/queries.ts`). No permission matrix beyond this.
