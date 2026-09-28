@@ -9,6 +9,7 @@ import { budgeted } from '../src/federation/budget';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import app from '../src/index';
 import { EXPORT_PAGE } from '../src/routes/importexport';
+import { expectOnlyBudgetErrors } from './console';
 
 type Click = (event: { preventDefault(): void }) => Promise<void>;
 
@@ -124,6 +125,7 @@ describe('the Export button', () => {
   });
 
   it('saves nothing, and says so, when a page fails partway', async () => {
+    expectOnlyBudgetErrors();
     await seed(EXPORT_PAGE * 2 + 3);
     const cookie = await signedIn();
     // the second request gets too few queries to read its page, so the Worker answers 500

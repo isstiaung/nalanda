@@ -46,6 +46,7 @@ import {
   type Keys,
   type Peer,
 } from './federation-helpers';
+import { expectOnlyBudgetErrors } from './console';
 
 let keysA: Keys;
 let a: ReturnType<typeof instanceA>;
@@ -129,6 +130,7 @@ describe('connection events', () => {
   });
 
   it('applies a connection message whole or not at all wherever it fails, so their retry still lands', async () => {
+    expectOnlyBudgetErrors();
     // The replay marker once went in first and alone: a failure after it turned every retry away as
     // "already processed", leaving a connection waiting on an acceptance that had arrived, or never removed.
     const cases = [
@@ -162,6 +164,7 @@ describe('connection events', () => {
   });
 
   it('records a redeemed invitation and its notice together, so a retry after a failure gets through', async () => {
+    expectOnlyBudgetErrors();
     // Notified after the redemption, a failure between the two left a request no admin was told about, and
     // their retry was refused because the invitation was already used.
     const admin = await person('admin');

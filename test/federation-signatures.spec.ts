@@ -3,6 +3,7 @@
 // own published vectors, so the code is checked against the standards, not only against itself.
 import { describe, expect, it } from 'vitest';
 import { fingerprint, importPublicKey, isPublicJwk, loadIdentity } from '../src/federation/keys';
+import { captureErrors } from './console';
 import {
   contentDigest,
   parseSignature,
@@ -257,17 +258,24 @@ describe('parsing stays inside the profile', () => {
 });
 
 describe('instance identity', () => {
-  it('is off when the secret is unset or malformed', async () => {
+  it('is off when the secret is unset or malformed, and says why in the log', async () => {
+    const logged = captureErrors();
     expect(await loadIdentity(undefined)).toBeNull();
     expect(await loadIdentity('')).toBeNull();
     expect(await loadIdentity('not json')).toBeNull();
     expect(await loadIdentity(JSON.stringify({ kty: 'EC', crv: 'P-256', x: 'a', d: 'b' }))).toBeNull();
+    expect(logged.mock.calls).toEqual([
+      ['FEDERATION_PRIVATE_KEY is not valid JSON; connections stay disabled.'],
+      ['FEDERATION_PRIVATE_KEY is not an Ed25519 private JWK; connections stay disabled.'],
+    ]);
   });
 
   it('refuses a key whose public half does not belong to its private half', async () => {
+    const logged = captureErrors();
     const a = JSON.parse(await secretFor(await keypair()));
     const b = JSON.parse(await secretFor(await keypair()));
     expect(await loadIdentity(JSON.stringify({ ...a, x: b.x }))).toBeNull();
+    expect(logged.mock.calls).toEqual([['FEDERATION_PRIVATE_KEY: public and private parts do not match; connections stay disabled.']]);
   });
 
   it('loads a valid key, publishes only its public half, and signs verifiably', async () => {

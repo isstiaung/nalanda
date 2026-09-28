@@ -152,8 +152,9 @@ src/federation/    connections between instances (docs/proposals/connections.md)
 public/            app.css, scanner.js, import.js, app.js + vendor/ (htmx, zxing, eczar fonts)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;
-                   apply-migrations.ts resets + re-migrates D1 before EVERY test, and
-                   fetch-mock.ts stubs outbound fetch (see §16 #25)
+                   apply-migrations.ts resets + re-migrates D1 before EVERY test and fails
+                   any test that logs an error it didn't capture and check (console.ts),
+                   and fetch-mock.ts stubs outbound fetch (see §16 #25)
 scripts/           vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp config),
                    backup.mjs, wrangler-remote.mjs + remote-config.mjs (real db id → temp
                    config), seed-demo.mjs, hash-password.mjs, federation-keygen.mjs,

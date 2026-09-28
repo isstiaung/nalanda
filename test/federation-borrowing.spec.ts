@@ -21,6 +21,7 @@ import {
   parseInboxMessage,
 } from '../src/federation/messages';
 import { refreshOutboxes } from '../src/federation/outbox';
+import { expectOnlyBudgetErrors } from './console';
 import {
   A,
   answerOutbound,
@@ -528,6 +529,7 @@ describe('a change here and the message that tells them: both or neither', () =>
     act: (app: ReturnType<typeof instanceA>) => Promise<Response>,
     changed: () => Promise<boolean>,
   ) {
+    expectOnlyBudgetErrors();
     for (let left = 0; ; left++) {
       expect(left, `${label} never finished`).toBeLessThan(60);
       await reset();

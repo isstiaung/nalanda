@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createLibrary, createUser, getItem, listShares, tagsForItem } from '../src/db/queries';
 import type { Bindings } from '../src/env';
 import { budgeted } from '../src/federation/budget';
+import { expectOnlyBudgetErrors } from './console';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import app from '../src/index';
 
@@ -311,6 +312,7 @@ describe('saving an item: all of it, or none of it', () => {
   const rows = async <T,>(q: string) => (await env.DB.prepare(q).all<T>()).results;
 
   it('creates an item with its tags and cover, or leaves nothing behind', async () => {
+    expectOnlyBudgetErrors();
     const { lib, cookie } = await seedSession();
     vi.stubGlobal('fetch', async () => image());
     const before = await covers();
@@ -331,6 +333,7 @@ describe('saving an item: all of it, or none of it', () => {
   });
 
   it('edits an item, its tags and its cover together, never pointing at a cover that is gone', async () => {
+    expectOnlyBudgetErrors();
     const { lib, cookie } = await seedSession();
     vi.stubGlobal('fetch', async () => image());
     const before = await covers();
