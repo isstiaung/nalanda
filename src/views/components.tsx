@@ -457,7 +457,8 @@ export const ReadsByPerson: FC<{ item: Item; reads: ReadingRead[]; viewer: Viewe
       {readers.map((id) => {
         const them = personalReading(item, reads, [], id);
         return (
-          <div class="reader">
+          // the viewer's own reads lead, styled as on a book's page
+          <div class={id === viewer.id ? 'reader reader-self' : 'reader'}>
             <p class="reader-name">
               {id === viewer.id ? (
                 <>
