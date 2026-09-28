@@ -26,6 +26,8 @@
 }
 
 :root {
+  /* native controls (date pickers, checkboxes, file buttons, scrollbars) follow the theme */
+  color-scheme: light;
   /* palette — light: the prepared palm leaf */
   --paper: #f6f2e7;
   --surface: #fdfaf1;
@@ -34,7 +36,7 @@
   --line-strong: #cdc2a6;
   --ink: #221d14;
   --ink-2: #5d564a;
-  --ink-3: #8f8672;
+  --ink-3: #746b58; /* 4.7:1 on paper — it carries 10–11px labels */
   --accent: #35447e;
   --accent-strong: #273766;
   --accent-ink: #fdfaf1;
@@ -56,6 +58,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
     /* dark: the lamp-lit reading room — warm blacks, pigments glowing */
     --paper: #171310;
     --surface: #1e1915;
@@ -64,7 +67,7 @@
     --line-strong: #463d2e;
     --ink: #ece4d2;
     --ink-2: #ab9f88;
-    --ink-3: #746a55;
+    --ink-3: #8f846d; /* 5.0:1 on paper */
     --accent: #8ba0d9;
     --accent-strong: #a5b7e6;
     --accent-ink: #10141f;
@@ -382,7 +385,7 @@ p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px sol
   display: inline-block;
   white-space: nowrap;
 }
-.pill.progress { border-color: var(--brass); color: var(--brass); }
+.pill.progress { border-color: var(--brass); color: color-mix(in srgb, var(--brass) 80%, var(--ink)); } /* brass as small text needs a touch of ink to read (4.7:1 on light paper) */
 .pill.done { border-color: var(--accent); color: var(--accent); background: var(--accent-tint); }
 .pill.dropped { color: var(--ink-3); text-decoration: line-through; }
 .pill.lent { border-color: var(--stamp); color: var(--stamp); }
