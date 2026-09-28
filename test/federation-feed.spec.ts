@@ -17,7 +17,7 @@ import {
 } from '../src/db/federation';
 import { addProgress, createItem, createLibrary, createLoan, deleteItem, importItems, mergeImportItems, updateItem } from '../src/db/queries';
 import type { Bindings } from '../src/env';
-import { budgeted, isBudgetSpent } from '../src/federation/budget';
+import { BudgetSpent, budgeted, isBudgetSpent } from '../src/federation/budget';
 import { FEED_READS_PER_WINDOW } from '../src/federation/config';
 import { refreshSubscription } from '../src/federation/feed';
 import { loadIdentity } from '../src/federation/keys';
@@ -232,6 +232,20 @@ describe('dating activity by when it happened', () => {
     await updateItem(env.DB, item.id, { rating: 7 });
     const rated = (await log()).find((e) => e.kind === 'rated')!;
     expect(recent(rated.at), rated.at).toBe(true);
+  });
+
+  it('removes the last view and clears the log in one call, so neither goes without the other', async () => {
+    const shelf = await createLibrary(env.DB, 'Main');
+    const view = await shareView();
+    await createItem(env.DB, { libraryId: shelf.id, title: 'Kindred', rating: 8 });
+    expect(await rows('SELECT * FROM activity_log')).toHaveLength(1);
+
+    // One call's worth of budget: as separate calls, the view went and the stale log stayed.
+    await deleteConnectionView(budgeted(env.DB, { left: 1 }), view.id);
+
+    expect(await rows('SELECT * FROM connection_views')).toHaveLength(0);
+    expect(await rows('SELECT * FROM activity_log')).toHaveLength(0);
+    await expect(deleteConnectionView(budgeted(env.DB, { left: 0 }), view.id)).rejects.toThrow(BudgetSpent);
   });
 
   it('never backfills a progress update twice, even over a log left behind', async () => {
