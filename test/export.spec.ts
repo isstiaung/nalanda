@@ -107,8 +107,18 @@ describe('an export that fails partway', () => {
       ctx,
     );
 
-    expect(res.status).toBe(200); // headers were sent before the failure — which is exactly why it must abort
-    await expect(res.text()).rejects.toThrow();
-    await waitOnExecutionContext(ctx).catch(() => {});
+    expect(res.status).toBe(200); // headers were sent before the failure — which is exactly why it must fail
+    // Read it the way a download does, chunk by chunk. (res.text() would also reject, but workerd leaves its
+    // internal reader's closed promise unhandled when the body errors, which vitest reports as a failure.)
+    const reader = res.body!.getReader();
+    reader.closed.catch(() => {});
+    let failed = false;
+    try {
+      while (!(await reader.read()).done);
+    } catch {
+      failed = true;
+    }
+    expect(failed).toBe(true);
+    await waitOnExecutionContext(ctx);
   });
 });
