@@ -23,7 +23,9 @@ export const TABLES = [
   'users',
   'libraries',
   'shares',
+  'site_settings',
   'items',
+  'reading_progress', // after items and users, which it references
   'tags',
   'item_tags',
   'loans',

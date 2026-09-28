@@ -355,8 +355,9 @@ items.get('/items/:id/edit', async (c) => {
 // no edit form. htmx-only — each swaps the clicked button (hx-swap="outerHTML")
 // for the other direction's button, so the toggle round-trips.
 /**
- * Records a page. A bad number re-renders the section with the reason rather than throwing away what
- * was typed, and htmx swaps the section either way; a form post without htmx falls back to the page.
+ * Records a page. A bad number re-renders the section with the reason, and htmx swaps the section
+ * either way; without htmx the form posts and lands back on the item page (the browser's pattern check
+ * stops most junk before it's sent).
  */
 items.post('/items/:id/progress', async (c) => {
   const id = Number(c.req.param('id'));

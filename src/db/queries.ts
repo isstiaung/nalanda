@@ -37,7 +37,12 @@ export async function listUsers(d1: D1Database): Promise<User[]> {
 }
 
 export async function deleteUser(d1: D1Database, id: number): Promise<void> {
-  await db(d1).delete(s.users).where(eq(s.users.id, id));
+  // reading_progress.added_by references users without ON DELETE SET NULL (and 0012 is applied, so it
+  // stays that way): keep the member's reading log, unattributed, rather than refuse the delete
+  await d1.batch([
+    d1.prepare('UPDATE reading_progress SET added_by = NULL WHERE added_by = ?1').bind(id),
+    d1.prepare('DELETE FROM users WHERE id = ?1').bind(id),
+  ]);
 }
 
 export async function setPassword(
@@ -507,10 +512,14 @@ export async function addProgress(d1: D1Database, itemId: number, page: number, 
     d1.prepare('INSERT INTO reading_progress (item_id, page, added_by) VALUES (?1, ?2, ?3)').bind(itemId, page, userId),
     d1
       .prepare(
+        // updated_at is deliberately untouched: connections see it, and the first-view backfill dates
+        // reviews and finishes by it, so a page recorded on a re-read would re-date an old review.
+        // began_on is filled only for a book being started — never after a finish (SET sees the old status).
         `UPDATE items SET progress_page = ?2,
            status = CASE WHEN status = 'not_started' THEN 'in_progress' ELSE status END,
-           began_on = CASE WHEN began_on IS NULL OR trim(began_on) = '' THEN date('now') ELSE began_on END,
-           updated_at = datetime('now')
+           began_on = CASE
+             WHEN (began_on IS NULL OR trim(began_on) = '') AND status IN ('not_started', 'in_progress') THEN date('now')
+             ELSE began_on END
          WHERE id = ?1`,
       )
       .bind(itemId, page),
@@ -535,7 +544,7 @@ export async function deleteProgress(d1: D1Database, itemId: number, entryId: nu
       .prepare(
         `UPDATE items SET progress_page = (
            SELECT page FROM reading_progress WHERE item_id = ?1 ORDER BY at DESC, id DESC LIMIT 1
-         ), updated_at = datetime('now') WHERE id = ?1`,
+         ) WHERE id = ?1`,
       )
       .bind(itemId),
   ]);
