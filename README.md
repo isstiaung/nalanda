@@ -32,7 +32,8 @@ manuscripts.
   title/author filter inside every shelf and sorting by newest, title, rating, or date
   finished.
 - **Reading progress**: record the page you're on, keep the log of how you got there, and
-  see how far through a book you are. Off share links unless you choose to show it.
+  see how far through a book you are. Connections follow it in their feed, page by page;
+  it stays off public share links unless you choose to show it there.
 - **Own your data**: every field round-trips through CSV export; plain-SQLite backups.
 - **The manuscript ledger**: a hand-written design system grounded in Nalanda's Pala-era
   scriptorium — palm-leaf paper, indigo and vermilion, Devanagari-first display type,

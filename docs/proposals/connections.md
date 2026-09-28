@@ -21,7 +21,7 @@ consistent with §4 ("no queues, no cron, no cache layer, no second service"). I
 
 **Goals** — between two instances that have explicitly connected:
 
-- a feed of each other's activity (reviewed, rated, finished)
+- a feed of each other's activity (reviewed, rated, finished, and reading progress)
 - comments on each other's reviews, both directions
 - request to borrow a book the other household owns
 - lend to a connected household, tracked on both sides
@@ -239,6 +239,19 @@ Nalanda has no event history today — items only have current state and `update
   the old id learns from the removal check that its copy is out of date. A review is compared
   with carriage returns dropped and surrounding whitespace trimmed, because a browser submits
   an untouched review with CRLF line endings and that isn't an edit.
+- **Reading progress (added later, ARCH.md §16 #35)** is the one kind that doesn't collapse:
+  each page recorded is its own `progress` entry, written by a trigger on `reading_progress`
+  (migration 0015) and pointing at that update through `activity_log.progress_id`, so an entry
+  carries the page it recorded rather than wherever the book has got to since. The (item, kind)
+  uniqueness is partial (`WHERE kind <> 'progress'`, migration 0014), which leaves 0007's
+  `INSERT OR REPLACE` collapsing the other kinds exactly as before. The feed item gains
+  `progress: { page, percent } | null`, set only on a `progress` entry. A household can switch
+  progress off (`site_settings.progress_to_connections`, on by default): no new entries are
+  written, and the removal check withdraws the ones already sent. Deleting an update withdraws
+  its entry the same way. **Compatibility:** a household on an older version skips `progress`
+  entries — its parser drops an entry of unknown kind and still advances the cursor — so its
+  feed carries on without them, and they are not backfilled if it upgrades later. An entry from
+  an older sender has no `progress` field, which reads as none.
 - **The switch is a connection view.** The triggers write only while at least one connection
   view exists. Sharing a first view records the last 90 days of activity (the newest 300
   entries), so connections have something to follow straight away. Removing the last view

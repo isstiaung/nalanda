@@ -467,13 +467,13 @@ export async function tagsForIdRange(d1: D1Database, fromId: number, toId: numbe
 
 // ---------- site settings ----------
 
-export type SiteSettings = { progressOnShares: boolean };
-const SITE_DEFAULTS: SiteSettings = { progressOnShares: false };
+export type SiteSettings = { progressOnShares: boolean; progressToConnections: boolean };
+const SITE_DEFAULTS: SiteSettings = { progressOnShares: false, progressToConnections: true };
 
 /** One row, id 1. Absent means defaults, so a fresh instance needs no setup step. */
 export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
   const [row] = await db(d1).select().from(s.siteSettings).where(eq(s.siteSettings.id, 1));
-  return row ? { progressOnShares: row.progressOnShares } : { ...SITE_DEFAULTS };
+  return row ? { progressOnShares: row.progressOnShares, progressToConnections: row.progressToConnections } : { ...SITE_DEFAULTS };
 }
 
 export async function updateSiteSettings(d1: D1Database, patch: Partial<SiteSettings>): Promise<void> {
@@ -524,6 +524,12 @@ export async function addProgress(d1: D1Database, itemId: number, page: number, 
  */
 export async function deleteProgress(d1: D1Database, itemId: number, entryId: number): Promise<void> {
   await d1.batch([
+    // its feed entry first: activity_log.progress_id references the update without a cascade
+    // (SQLite can't add one by ALTER TABLE), and connections learn it's gone from the removal check
+    d1.prepare(
+      `DELETE FROM activity_log WHERE progress_id = ?1
+         AND EXISTS (SELECT 1 FROM reading_progress WHERE id = ?1 AND item_id = ?2)`,
+    ).bind(entryId, itemId),
     d1.prepare('DELETE FROM reading_progress WHERE id = ?1 AND item_id = ?2').bind(entryId, itemId),
     d1
       .prepare(

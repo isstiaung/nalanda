@@ -253,11 +253,18 @@ function inView(view: ConnectionView): SQL | undefined {
  */
 const hasReview = sql`trim(replace(coalesce(${s.items.review}, ''), char(13), ''), ' ' || char(9) || char(10)) <> ''`;
 
-/** An activity is shared only while its item still shows it: a review entry needs its review. */
+/**
+ * An activity is shared only while its item still shows it: a review entry needs its review. A progress
+ * entry needs its update to exist and the household to be sharing progress — so switching progress off
+ * withdraws every entry already sent, through the same removal check that withdraws a deleted review.
+ */
 const stillShows = sql`(
   (${s.activityLog.kind} = 'reviewed' AND ${hasReview})
   OR (${s.activityLog.kind} = 'rated' AND coalesce(${s.items.rating}, 0) > 0)
   OR (${s.activityLog.kind} = 'finished' AND ${s.items.status} = 'completed')
+  OR (${s.activityLog.kind} = 'progress'
+      AND EXISTS (SELECT 1 FROM ${s.readingProgress} WHERE ${s.readingProgress.id} = ${s.activityLog.progressId})
+      AND coalesce((SELECT ${s.siteSettings.progressToConnections} FROM ${s.siteSettings} WHERE ${s.siteSettings.id} = 1), 1) = 1)
 )`;
 
 export async function listConnectionViews(d1: D1Database): Promise<ConnectionView[]> {
@@ -299,17 +306,22 @@ export async function createConnectionView(
 async function recordRecentActivity(d1: D1Database): Promise<void> {
   await d1
     .prepare(
-      `INSERT OR IGNORE INTO activity_log (item_id, kind, at)
-       SELECT item_id, kind, at FROM (
-         SELECT id AS item_id, 'reviewed' AS kind, datetime(updated_at) AS at FROM items
+      `INSERT OR IGNORE INTO activity_log (item_id, kind, at, progress_id)
+       SELECT item_id, kind, at, progress_id FROM (
+         SELECT id AS item_id, 'reviewed' AS kind, datetime(updated_at) AS at, NULL AS progress_id FROM items
            WHERE trim(replace(coalesce(review, ''), char(13), ''), ' ' || char(9) || char(10)) <> ''
              AND datetime(updated_at) > datetime('now', ?1)
          UNION ALL
-         SELECT id, 'rated', datetime(updated_at) FROM items
+         SELECT id, 'rated', datetime(updated_at), NULL FROM items
            WHERE coalesce(rating, 0) > 0 AND datetime(updated_at) > datetime('now', ?1)
          UNION ALL
-         SELECT id, 'finished', datetime(updated_at) FROM items
+         SELECT id, 'finished', datetime(updated_at), NULL FROM items
            WHERE status = 'completed' AND datetime(updated_at) > datetime('now', ?1)
+         UNION ALL
+         -- each progress update is its own entry, as migration 0015's trigger records them from here on
+         SELECT item_id, 'progress', datetime(at), id FROM reading_progress
+           WHERE datetime(at) > datetime('now', ?1)
+             AND coalesce((SELECT progress_to_connections FROM site_settings WHERE id = 1), 1) = 1
          ORDER BY at DESC LIMIT ?2
        ) ORDER BY at ASC`,
     )
@@ -332,7 +344,8 @@ export async function countItemsInView(d1: D1Database, view: ConnectionView): Pr
   return row?.n ?? 0;
 }
 
-export type SharedActivity = { id: number; kind: ActivityKind; at: string; item: Item };
+/** progressPage: the page that update recorded, on a progress entry; null on every other kind. */
+export type SharedActivity = { id: number; kind: ActivityKind; at: string; item: Item; progressPage: number | null };
 
 /**
  * Activity in a view after a cursor, oldest first, so a busy stretch arrives over several pulls instead
@@ -352,9 +365,16 @@ export async function activityInView(
   // A cursor past the end came from before a restore: start again rather than wait forever.
   const from = since > (top?.latest ?? 0) ? 0 : since;
   const rows = await dbi
-    .select({ id: s.activityLog.id, kind: s.activityLog.kind, at: s.activityLog.at, item: s.items })
+    .select({
+      id: s.activityLog.id,
+      kind: s.activityLog.kind,
+      at: s.activityLog.at,
+      item: s.items,
+      progressPage: s.readingProgress.page,
+    })
     .from(s.activityLog)
     .innerJoin(s.items, eq(s.activityLog.itemId, s.items.id))
+    .leftJoin(s.readingProgress, eq(s.activityLog.progressId, s.readingProgress.id))
     .where(and(gt(s.activityLog.id, from), inView(view), stillShows))
     .orderBy(from === 0 ? desc(s.activityLog.id) : asc(s.activityLog.id))
     .limit(limit);

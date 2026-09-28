@@ -138,6 +138,8 @@ export const siteSettings = sqliteTable('site_settings', {
   id: integer('id').primaryKey(),
   // Share pages show a book's reading progress only when this is on (ARCH.md §9, §16 #34).
   progressOnShares: integer('progress_on_shares', { mode: 'boolean' }).notNull().default(false),
+  // Progress updates reach connections' feeds unless this is turned off (§16 #35).
+  progressToConnections: integer('progress_to_connections', { mode: 'boolean' }).notNull().default(true),
   updatedAt: text('updated_at').notNull().default(now),
 });
 
@@ -244,13 +246,15 @@ export const readingProgress = sqliteTable(
   (t) => [index('idx_reading_progress_item').on(t.itemId, t.at)],
 );
 
-export const ACTIVITY_KINDS = ['reviewed', 'rated', 'finished'] as const;
+export const ACTIVITY_KINDS = ['reviewed', 'rated', 'finished', 'progress'] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 /**
- * Written only by triggers on `items` (migration 0007), and only while a connection view exists.
- * One row per item and kind: a repeat replaces the row under a new id, so the id doubles as the
- * feed cursor and a replaced id tells a connection its stored copy is out of date.
+ * Written only by triggers (migration 0007 on `items`, 0015 on `reading_progress`), and only while a
+ * connection view exists. One row per item and kind: a repeat replaces the row under a new id, so the
+ * id doubles as the feed cursor and a replaced id tells a connection its stored copy is out of date.
+ * Progress is the exception — every update is its own entry, pointing at its reading_progress row,
+ * and goes when that row does (§16 #35).
  */
 export const activityLog = sqliteTable(
   'activity_log',
@@ -261,8 +265,17 @@ export const activityLog = sqliteTable(
       .references(() => items.id, { onDelete: 'cascade' }),
     kind: text('kind', { enum: ACTIVITY_KINDS }).notNull(),
     at: text('at').notNull().default(now),
+    // Set only on a progress entry: which update it is, so it carries that page. No ON DELETE CASCADE:
+    // SQLite can't add one through ALTER TABLE, so deleteProgress() removes this row itself, first.
+    progressId: integer('progress_id').references(() => readingProgress.id),
   },
-  (t) => [uniqueIndex('activity_log_item_kind').on(t.itemId, t.kind), index('idx_activity_log_at').on(t.at)],
+  (t) => [
+    // partial: the INSERT OR REPLACE in 0007's triggers still collapses reviews, ratings and finishes,
+    // while progress entries accumulate
+    uniqueIndex('activity_log_item_kind').on(t.itemId, t.kind).where(sql`${t.kind} <> 'progress'`),
+    index('idx_activity_log_at').on(t.at),
+    index('idx_activity_log_progress').on(t.progressId),
+  ],
 );
 
 /** A view of a connection's that this household follows, with the limits it chose. */
