@@ -34,10 +34,13 @@ const Head: FC<{ title: string }> = ({ title }) => (
     <script
       dangerouslySetInnerHTML={{
         __html:
+          // A refusal also stops the event: htmx submits from its own listener on the form, which ignores a
+          // cancelled default. Capturing at the document runs first, so a stopped event never reaches it.
+          "function no(e){e.preventDefault();e.stopImmediatePropagation();}" +
           "document.addEventListener('submit',function(e){var f=e.target;" +
-          "if(f&&f.dataset&&f.dataset.confirm&&!confirm(f.dataset.confirm))e.preventDefault();},true);" +
+          "if(f&&f.dataset&&f.dataset.confirm&&!confirm(f.dataset.confirm))no(e);},true);" +
           "document.addEventListener('click',function(e){var b=e.target&&e.target.closest?e.target.closest('button[data-confirm]'):null;" +
-          "if(b&&!confirm(b.dataset.confirm))e.preventDefault();},true);",
+          "if(b&&!confirm(b.dataset.confirm))no(e);},true);",
       }}
     />
     <script src="/vendor/htmx.min.js" defer></script>

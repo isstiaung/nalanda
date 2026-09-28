@@ -27,7 +27,8 @@ describe('inline event handlers', () => {
       text
         .split('\n')
         .map((line, i) => ({ file, line: i + 1, text: line.trim() }))
-        .filter((l) => /\bon(submit|click|change|input|load|focus|blur|keydown|keyup|mouseover)=\{/.test(l.text)),
+        // on<event>={…}, and htmx's hx-on:<event>={…} — both run their value as script
+        .filter((l) => /\bon(submit|click|change|input|load|focus|blur|keydown|keyup|mouseover)=\{|\bhx-on[:-][\w:-]*=\{/.test(l.text)),
     );
     expect(offenders).toEqual([]);
   });
