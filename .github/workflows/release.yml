@@ -1,0 +1,58 @@
+name: Release
+
+# Publishes a GitHub Release when a version tag is pushed, with that version's section of CHANGELOG.md as
+# its notes. GitHub runs this file as it is in the tagged commit, so it only fires for tags on commits that
+# carry it: v1.0.0, tagged after the fact on a commit from before it existed, was published by hand. It never deploys: deploys happen elsewhere (runbooks/deploy.md), and nothing here should ever
+# be given a deploy token. The only credential is the job's own GITHUB_TOKEN, allowed to write releases.
+# Only people with push access can push a tag, so a fork's pull request can't start this.
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the notes come from main's CHANGELOG.md, which covers every release
+          persist-credentials: false # gh takes its token from GH_TOKEN; nothing else needs it
+
+      # A release is a commit on main. A version tag pushed anywhere else would otherwise publish main's notes
+      # against a commit that never shipped.
+      - name: Check the tag is on main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$GITHUB_REF_NAME is not on main"
+            exit 1
+          fi
+
+      # A tag from before versioning began (v1.0.0) has no version in package.json; every later one must match.
+      - name: Check the tag matches package.json
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          declared="$(node -p "require('./package.json').version || ''")"
+          if [ -n "$declared" ] && [ "$declared" != "$tagged" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, but package.json says $declared"
+            exit 1
+          fi
+
+      - name: Take this version's notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          git show origin/main:CHANGELOG.md \
+            | awk -v heading="## [$version]" 'index($0, "## [") == 1 { if (found) exit; found = (index($0, heading) == 1); next } found && !/^\[[0-9]+\.[0-9]+\.[0-9]+\]: /' \
+            > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::CHANGELOG.md on main has no section for $version"
+            exit 1
+          fi
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "Nalanda $GITHUB_REF_NAME" --notes-file notes.md --verify-tag

@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { getUserById, setPassword } from '../db/queries';
 import type { AppEnv } from '../env';
 import { hashPassword, verifyPassword } from '../lib/auth';
+import { VERSION } from '../version';
 import { page } from '../views/layout';
 
 const account = new Hono<AppEnv>();
@@ -33,6 +34,10 @@ const Form = ({ mustChange, error, ok }: { mustChange: boolean; error?: string; 
         <button type="submit">Change password</button>
       </form>
     </article>
+    <p class="muted version-line">
+      Nalanda <span class="mono">v{VERSION}</span> ·{' '}
+      <a href={`https://github.com/isstiaung/nalanda/releases/tag/v${VERSION}`}>release notes</a>
+    </p>
   </>
 );
 
