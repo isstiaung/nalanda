@@ -30,8 +30,11 @@
     true // error events don't bubble; capture sees them on the way down
   );
 
-  // complete with no pixels = already failed (a lazy image not yet requested isn't complete)
+  // Complete with no pixels means it already failed — but only if the image was ever requested, so a lazy cover still
+  // waiting below the fold is never swapped before it had a chance to load. Both guards hold that line: Chromium
+  // leaves currentSrc empty until it starts the fetch, and WebKit (checked with Playwright's build) reports such an
+  // image as not yet complete. Requiring both keeps an engine that gets one of them wrong from swapping early.
   document.querySelectorAll('img[data-fallback]').forEach(function (img) {
-    if (img.complete && img.naturalWidth === 0) useFallback(img);
+    if (img.complete && img.naturalWidth === 0 && img.currentSrc) useFallback(img);
   });
 })();

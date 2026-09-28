@@ -401,7 +401,16 @@ describe('a household that can’t be reached', () => {
 // Cover images that fail to load swap to the same media-icon box as a missing cover. public/covers.js does the
 // swapping in the browser (checked there by eye); these pin what it needs: every cover <img> carries its icon, and
 // every page that shows covers loads the script.
+// the script itself, as shipped — read at build time, like the inline-handler guard reads src/
+const coversJs = Object.values(import.meta.glob('../public/covers.js', { query: '?raw', import: 'default', eager: true }))[0] as string;
+
 describe('broken-cover fallback', () => {
+  it('sweeps at start-up only images that were requested and failed, with no inline handler anywhere', () => {
+    expect(coversJs).toContain("img.complete && img.naturalWidth === 0 && img.currentSrc");
+    expect(coversJs).toMatch(/addEventListener\(\s*'error'[\s\S]*?true/); // capture phase: error doesn't bubble
+    expect(coversJs).not.toMatch(/\.onerror\s*=|setAttribute\(\s*['"]onerror/i); // no handler property or attribute
+  });
+
   const plain = instanceA(env);
   const KEY = '0f0e0d0c-0b0a-4908-8706-050403020100'; // a cover key with no object behind it
   const coverImgs = (html: string) => [...html.matchAll(/<img\b[^>]*>/g)].map((m) => m[0]);
