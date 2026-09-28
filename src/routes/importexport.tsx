@@ -62,7 +62,8 @@ importexport.get('/import', async (c) => {
         don't recognize are kept losslessly in each item's details. Goodreads rows that match a book
         already on your shelves (by ISBN, then title + author) merge their rating, review, shelves,
         and read date onto it — Goodreads wins. The rest are added as “Not owned” reading-log
-        entries.
+        entries. Reads, ratings and reviews a file brings are yours, the signed-in member's; a
+        Nalanda export keeps each one with the member of the same name here.
       </p>
       <form id="import-form" onsubmit="return false" class="panel form-card">
         <label>
