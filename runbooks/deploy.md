@@ -55,7 +55,19 @@
 
 ## Every subsequent deploy
 
+If the deploy carries a migration, back up first. A migration changes production data as it's
+applied, and a code rollback doesn't undo it (see [Rollback](#rollback)). To see whether it
+carries one, compare what you're about to deploy with what's live: the commit you last
+deployed, or, with the git integration, the tip of the branch Cloudflare builds from.
+
 ```sh
+git diff --stat <deployed-commit-or-branch> HEAD -- migrations/
+```
+
+Any file listed there means a backup comes first:
+
+```sh
+npm run backup    # → backups/remote-<date>/, see backup-and-restore.md
 npm test && npm run deploy
 ```
 
