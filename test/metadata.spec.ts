@@ -114,6 +114,15 @@ describe('provider query cleaning (cover backfill pass 2)', () => {
 });
 
 describe('description cleaning', () => {
+  it('keeps an escaped > that is part of the text', () => {
+    expect(cleanDescription('<p>&gt;50 recipes for the weeknight cook, each under thirty minutes.</p>')).toBe(
+      '>50 recipes for the weeknight cook, each under thirty minutes.',
+    );
+    expect(cleanDescription('A study of attention and its limits.\n&gt;90% of readers finished it in a week.')).toBe(
+      'A study of attention and its limits.\n>90% of readers finished it in a week.',
+    );
+  });
+
   it('strips reference-style links and blockquote markers', () => {
     const raw =
       "[Comment by Kim Stanley Robinson, on The Guardian's website][1]:\n" +
