@@ -279,11 +279,15 @@ importexport.get('/export.csv', async (c) => {
   c.executionCtx.waitUntil(
     (async () => {
       const writer = writable.getWriter();
+      // Two queries a page against the free plan's 50 per invocation: at 2,000 items a page an export can
+      // run to about 40,000 items. The response is already a 200 by the time a page is read, so a failure
+      // must abort the stream — closing it normally hands over a file that just stops, with nothing to say
+      // it is incomplete.
+      const PAGE = 2000;
       try {
         await writer.write(encoder.encode(csvLine([...EXPORT_COLUMNS])));
-        const PAGE = 500;
-        for (let offset = 0; ; offset += PAGE) {
-          const items = await pageItems(d1, { libraryId: scope, offset, limit: PAGE });
+        for (let afterId = 0; ; ) {
+          const items = await pageItems(d1, { libraryId: scope, afterId, limit: PAGE });
           if (!items.length) break;
           const [from, to] = [items[0]!.id, items.at(-1)!.id];
           const [tagMap, progressMap] = await Promise.all([tagsForIdRange(d1, from, to), progressForIdRange(d1, from, to)]);
@@ -293,9 +297,11 @@ importexport.get('/export.csv', async (c) => {
           }
           await writer.write(encoder.encode(chunk));
           if (items.length < PAGE) break;
+          afterId = items.at(-1)!.id;
         }
-      } finally {
-        await writer.close().catch(() => {});
+        await writer.close();
+      } catch (err) {
+        await writer.abort(err).catch(() => {});
       }
     })(),
   );
