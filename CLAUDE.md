@@ -140,7 +140,8 @@ src/federation/    connections between instances (docs/proposals/connections.md)
                    borrowing.ts, dispatched by directed.ts), the outbox (outbox.ts), public
                    routes. Its D1 queries live in src/db/federation.ts; admin pages in
                    routes/connections, Feed in routes/feed, comments in routes/comments,
-                   shelves/requests/Borrowed and the Loans-page section in routes/borrowing
+                   shelves/requests/Borrowed and the Loans-page section in routes/borrowing,
+                   in-app notifications in routes/notifications (recorded in src/db/federation.ts)
 public/            app.css, scanner.js, import.js, app.js + vendor/ (htmx, zxing, eczar fonts)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;

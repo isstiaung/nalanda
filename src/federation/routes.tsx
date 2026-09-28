@@ -5,6 +5,7 @@
 import { Hono, type Context } from 'hono';
 import {
   activateConnection,
+  notify,
   activityInView,
   availability,
   countConnections,
@@ -153,6 +154,8 @@ federation.post('/federation/connect', async (c) => {
   );
   switch (outcome) {
     case 'pending':
+      // the one that needs someone here to act: they're waiting on a confirmation from us
+      await notify(c.env.DB, { kind: 'connection_request', householdName: descriptor.name, href: '/connections' });
       return c.json({ status: 'pending' }, 202);
     case 'invitation gone':
       return c.json({ error: 'invitation not found' }, 404);
@@ -421,15 +424,26 @@ federation.post('/federation/inbox', async (c) => {
   if (!(await markActivitySeen(c.env.DB, message.id))) return c.json({ status: 'already processed' });
 
   forgetPeer(connection.baseUrl);
+  // markActivitySeen above has already turned away a repeat of this message, so each notifies once.
+  const who = connection.householdName;
   switch (message.type) {
     case 'ConnectAccept':
-      await activateConnection(c.env.DB, connection.id, 'awaiting_them');
+      if (await activateConnection(c.env.DB, connection.id, 'awaiting_them')) {
+        await notify(c.env.DB, { kind: 'connection_accepted', householdName: who, href: '/connections' });
+      }
       return c.json({ status: 'active' });
     case 'ConnectDecline':
       await deleteConnection(c.env.DB, connection.id);
+      await notify(c.env.DB, { kind: 'connection_declined', householdName: who, href: '/connections' });
       return c.json({ status: 'declined' });
     case 'Disconnect':
       await deleteConnection(c.env.DB, connection.id);
+      // from a household still waiting on us, this takes back their request rather than ending a connection
+      await notify(c.env.DB, {
+        kind: connection.status === 'awaiting_us' ? 'connection_withdrawn' : 'disconnected',
+        householdName: who,
+        href: '/connections',
+      });
       return c.json({ status: 'disconnected' });
   }
 });

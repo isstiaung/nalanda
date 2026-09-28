@@ -16,6 +16,11 @@ export const users = sqliteTable('users', {
   role: text('role', { enum: ['admin', 'member'] }).notNull().default('member'),
   mustChangePassword: integer('must_change_password', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull().default(now),
+  // Each person's own read state (§16 #36): the newest notification and feed entry they were shown. Ids, not
+  // times — a feed visit pulls new entries after responding, usually within the same second, and a time
+  // marker would count those as seen. NULL means never looked, so everything counts.
+  notificationsSeenId: integer('notifications_seen_id'),
+  feedSeenId: integer('feed_seen_id'),
 });
 
 export const libraries = sqliteTable('libraries', {
@@ -325,6 +330,50 @@ export const remoteActivities = sqliteTable(
   ],
 );
 
+/**
+ * Things that happened with connections that someone here should know about (§16 #36). The kinds that need
+ * an admin to act — a household asking to connect — are shown only to admins.
+ */
+export const NOTIFICATION_KINDS = [
+  'connection_request', // they redeemed our invitation: confirm or decline on Connections
+  'connection_accepted', // they confirmed ours
+  'connection_declined',
+  'connection_withdrawn', // they took back a request still waiting on us
+  'disconnected',
+  'borrow_request',
+  'borrow_withdrawn',
+  'borrow_accepted',
+  'borrow_declined',
+  'returned', // the lender recorded our return
+  'comment',
+] as const;
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+export const ADMIN_NOTIFICATIONS: readonly NotificationKind[] = [
+  'connection_request',
+  'connection_accepted',
+  'connection_declined',
+  'connection_withdrawn',
+  'disconnected',
+];
+
+/**
+ * Household-wide, read per person through users.notifications_seen_at. Names and titles are copied in when
+ * the event happens, so a notification still reads right after the connection or book is gone. They come
+ * from another instance and render only as escaped text (CLAUDE.md); `href` is always built here.
+ */
+export const notifications = sqliteTable(
+  'notifications',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    kind: text('kind', { enum: NOTIFICATION_KINDS }).notNull(),
+    householdName: text('household_name').notNull(),
+    subject: text('subject'), // a book title, when the event is about one
+    href: text('href').notNull(),
+    at: text('at').notNull().default(now),
+  },
+  (t) => [index('idx_notifications_at').on(t.at)],
+);
+
 // Phase 3: comments on reviews, and the outbox behind every message addressed to one connection.
 
 /**
@@ -451,6 +500,7 @@ export type Connection = typeof connections.$inferSelect;
 export type ConnectionView = typeof connectionViews.$inferSelect;
 export type FeedSubscription = typeof feedSubscriptions.$inferSelect;
 export type ReadingProgress = typeof readingProgress.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;
 export type RemoteActivity = typeof remoteActivities.$inferSelect;
 export type Comment = typeof comments.$inferSelect;
 export type OutboxRow = typeof outbox.$inferSelect;

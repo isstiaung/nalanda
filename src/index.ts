@@ -18,6 +18,7 @@ import importExportRoutes from './routes/importexport';
 import itemRoutes from './routes/items';
 import libraryRoutes from './routes/libraries';
 import loanRoutes from './routes/loans';
+import notificationsRoutes from './routes/notifications';
 import searchRoutes from './routes/search';
 import settingsRoutes from './routes/settings';
 import shareRoutes, { clearSharePageCache } from './routes/share';
@@ -119,6 +120,7 @@ app.route('/', connectionsRoutes);
 app.route('/', feedRoutes);
 app.route('/', commentsRoutes);
 app.route('/', borrowingRoutes);
+app.route('/', notificationsRoutes);
 
 app.notFound((c) => c.text('Not found', 404));
 app.onError((err, c) => {
