@@ -354,8 +354,9 @@ borrowing.post('/households/:id/requests', async (c) => {
 
   const user = c.get('user');
   const message = borrowRequest(ctx.settings.baseUrl, item.id, item.stamp, user.username, rawNote || null);
-  // stored and queued together; a refusal declines it and takes it out of the outbox, also together
-  await requestToBorrow(
+  // stored and queued together, unless one for this book is already waiting (a double submit); a refusal
+  // declines it and takes it out of the outbox, also together
+  const requestId = await requestToBorrow(
     c.env.DB,
     {
       activityId: message.id,
@@ -372,6 +373,7 @@ borrowing.post('/households/:id/requests', async (c) => {
     },
     message,
   );
+  if (requestId === null) return c.redirect('/borrowed');
   const status = await pushNow(c.env.DB, ctx.identity, ctx.settings, connection, message);
   if (status !== null && status >= 400 && status < 500 && status !== 429) {
     return renderBorrowed(c, ctx, { error: `${connection.householdName} couldn’t take that request: the book isn’t available any more.` });

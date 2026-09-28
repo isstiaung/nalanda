@@ -1226,13 +1226,28 @@ export async function postComment(d1: D1Database, values: NewComment, message: {
   if (!(await queueWith(d1, values.connectionId, message, change))) throw new Error('no such connection to queue a message for');
 }
 
-/** A borrow request of ours, stored and queued for its connection in one batch. Returns the request's id. */
-export async function requestToBorrow(d1: D1Database, values: NewBorrowRequest, message: { id: string }): Promise<number> {
-  const change = [statement(d1, db(d1).insert(s.borrowRequests).values(values).returning({ id: s.borrowRequests.id }))];
-  const [insert] = (await queueWith(d1, values.connectionId, message, change)) ?? [];
-  const row = insert?.results[0] as { id: number } | undefined;
-  if (!row) throw new Error('no such connection to queue a message for');
-  return row.id;
+/**
+ * A borrow request of ours, stored and queued for its connection in one batch — only while no request of ours
+ * for that book is still waiting, decided inside the batch, so a double submit makes one request, not a second
+ * they'd refuse. Returns the request's id, or null when one was already waiting.
+ */
+export async function requestToBorrow(
+  d1: D1Database,
+  values: NewBorrowRequest & { theirItemId: number; theirItemStamp: string },
+  message: { id: string },
+): Promise<number | null> {
+  const waiting = sql`EXISTS (SELECT 1 FROM borrow_requests WHERE connection_id = ${values.connectionId} AND incoming = 0
+    AND their_item_id = ${values.theirItemId} AND their_item_stamp = ${values.theirItemStamp} AND status = 'pending')`;
+  const insert = sql`INSERT INTO borrow_requests (activity_id, connection_id, incoming, their_item_id, their_item_stamp,
+      their_view_id, item_title, cover_key, requester_name, requester_id, note)
+    SELECT ${values.activityId}, ${values.connectionId}, 0, ${values.theirItemId}, ${values.theirItemStamp},
+      ${values.theirViewId ?? null}, ${values.itemTitle}, ${values.coverKey ?? null}, ${values.requesterName},
+      ${values.requesterId ?? null}, ${values.note}
+    WHERE ${queued(message)}
+    RETURNING id`;
+  const results = await queueWith(d1, values.connectionId, message, [statement(d1, insert)], sql`NOT ${waiting}`);
+  const row = results?.[0]?.results[0] as { id: number } | undefined;
+  return row?.id ?? null;
 }
 
 /** The last sequence number queued for a connection. */

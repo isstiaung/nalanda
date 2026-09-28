@@ -620,6 +620,33 @@ describe('a change here and the message that tells them: both or neither', () =>
     );
   });
 
+  it('makes one request for a book however often it is submitted', async () => {
+    // The check for a request already waiting was a read of its own, so two quick submits could both pass it,
+    // and the second came back refused as "not available any more".
+    const values = (message: { id: string }) => ({
+      activityId: message.id, connectionId, incoming: false, theirItemId: 70, theirItemStamp: THEIRS, theirViewId: 7, itemTitle: 'Free one', requesterName: 'me', note: null,
+    });
+    const first = borrowRequest(A.url, 70, THEIRS, 'me', null);
+    const again = borrowRequest(A.url, 70, THEIRS, 'me', null);
+    expect(await requestToBorrow(env.DB, values(first), first)).toEqual(expect.any(Number));
+    expect(await requestToBorrow(env.DB, values(again), again)).toBeNull();
+    expect(await rows('SELECT activity_id FROM borrow_requests')).toEqual([{ activity_id: first.id }]);
+    expect(await queuedOf('BorrowRequest')).toBe(1);
+
+    // and through the page: two submits at once
+    await env.DB.batch([env.DB.prepare('DELETE FROM outbox'), env.DB.prepare('DELETE FROM borrow_requests')]);
+    const detail = { id: 70, mediaType: 'book', title: 'Free one', creators: null, publisher: null, published: null, description: null, length: null, coverKey: null, rating: null, review: null, inCollection: true, details: {}, completedOn: null, updatedAt: '2026-09-01 10:00:00', available: true, tags: [], stamp: THEIRS };
+    answerOutbound((req) => {
+      const { pathname } = new URL(req.url);
+      if (pathname === '/federation/item') return json(detail);
+      return pathname === '/federation/inbox' ? json({ status: 'received' }) : json({}, 404);
+    });
+    const submit = () => a.postForm(`/households/${connectionId}/requests`, { viewId: '7', itemId: '70', note: '' }, member);
+    await Promise.all([submit(), submit()]);
+    expect(await rows('SELECT status FROM borrow_requests')).toEqual([{ status: 'pending' }]);
+    expect(await queuedOf('BorrowRequest')).toBe(1);
+  });
+
   it('posts and deletes a comment with its message queued, or neither', async () => {
     const book = await createItem(env.DB, { libraryId: shelfId, title: 'Reviewed', review: 'A review.' });
     // a thread they started, so a reply is allowed
