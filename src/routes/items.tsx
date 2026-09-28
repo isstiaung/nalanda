@@ -4,7 +4,7 @@ import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import {
   activeLoansForItem,
   addProgress,
-  createItem,
+  createItemWithTags,
   deleteItem,
   deleteProgress,
   getItem,
@@ -12,9 +12,9 @@ import {
   getUserById,
   listLibraries,
   listProgress,
-  setItemTags,
   tagsForItem,
   updateItem,
+  updateItemWithTags,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { deleteCover, storeCover } from '../lib/covers';
@@ -127,13 +127,14 @@ items.post('/items', async (c) => {
   if (logOnly) parsed.values.copies = 0;
 
   const coverKey = await storeCover(c.env.COVERS, parsed.coverUrl);
-  const item = await createItem(c.env.DB, {
-    ...parsed.values,
-    coverKey,
-    addedBy: c.get('user').id,
-  });
-  if (parsed.tags.length) await setItemTags(c.env.DB, item.id, parsed.tags);
-  return c.redirect(logOnly ? `/items/${item.id}/edit` : `/items/${item.id}`);
+  let id: number;
+  try {
+    id = await createItemWithTags(c.env.DB, { ...parsed.values, coverKey, addedBy: c.get('user').id }, parsed.tags);
+  } catch (err) {
+    c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // nothing points at it
+    throw err;
+  }
+  return c.redirect(logOnly ? `/items/${id}/edit` : `/items/${id}`);
 });
 
 items.get('/items/:id', async (c) => {
@@ -428,20 +429,18 @@ items.post('/items/:id', async (c) => {
   if (!(await getLibrary(c.env.DB, parsed.values.libraryId))) return c.text('No such shelf.', 400);
 
   let coverKey = existing.coverKey;
-  if (parsed.removeCover) {
-    c.executionCtx.waitUntil(deleteCover(c.env.COVERS, existing.coverKey));
-    coverKey = null;
-  }
-  if (parsed.coverUrl) {
-    const newKey = await storeCover(c.env.COVERS, parsed.coverUrl);
-    if (newKey) {
-      c.executionCtx.waitUntil(deleteCover(c.env.COVERS, existing.coverKey));
-      coverKey = newKey;
-    }
-  }
+  if (parsed.removeCover) coverKey = null;
+  if (parsed.coverUrl) coverKey = (await storeCover(c.env.COVERS, parsed.coverUrl)) ?? coverKey;
 
-  await updateItem(c.env.DB, id, { ...parsed.values, coverKey });
-  await setItemTags(c.env.DB, id, parsed.tags);
+  try {
+    await updateItemWithTags(c.env.DB, id, { ...parsed.values, coverKey }, parsed.tags);
+  } catch (err) {
+    if (coverKey !== existing.coverKey) c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // the new one: unused
+    throw err;
+  }
+  // Only now is the old cover unreferenced. Deleted before the save, as it was, a failed save left the item
+  // pointing at a cover that was gone.
+  if (coverKey !== existing.coverKey) c.executionCtx.waitUntil(deleteCover(c.env.COVERS, existing.coverKey));
   return c.redirect(`/items/${id}`);
 });
 

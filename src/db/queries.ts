@@ -300,21 +300,61 @@ export function normalizeTags(names: string[]): string[] {
   return [...new Set(names.map((n) => n.trim().toLowerCase()).filter(Boolean))];
 }
 
-export async function setItemTags(d1: D1Database, itemId: number, names: string[]): Promise<void> {
-  const dbi = db(d1);
+/**
+ * The statements that link an item to `names`, adding any tag not seen before. `item` is its id, or
+ * 'newest' for an item inserted earlier in the same batch: rowids only grow, and nothing else writes inside
+ * a batch, so the newest item is that one.
+ */
+function tagLinkStatements(d1: D1Database, item: number | 'newest', names: string[]): D1PreparedStatement[] {
   const normalized = normalizeTags(names);
-  await dbi.delete(s.itemTags).where(eq(s.itemTags.itemId, itemId));
-  if (!normalized.length) return;
-  await dbi.batch(
-    normalized.map((name) => dbi.insert(s.tags).values({ name }).onConflictDoNothing()) as [never, ...never[]],
-  );
-  const tagRows = await dbi.select().from(s.tags).where(sql`${s.tags.name} IN (SELECT value FROM json_each(${JSON.stringify(normalized)}))`);
-  if (tagRows.length) {
-    await dbi
-      .insert(s.itemTags)
-      .values(tagRows.map((t) => ({ itemId, tagId: t.id })))
-      .onConflictDoNothing();
-  }
+  if (!normalized.length) return [];
+  const json = JSON.stringify(normalized);
+  const itemRef = item === 'newest' ? '(SELECT max(id) FROM items)' : '?2';
+  const params = item === 'newest' ? [json] : [json, item];
+  return [
+    // "WHERE true" keeps SQLite from reading ON CONFLICT as a join constraint
+    d1.prepare('INSERT INTO tags (name) SELECT value FROM json_each(?1) WHERE true ON CONFLICT (name) DO NOTHING').bind(json),
+    d1
+      .prepare(
+        `INSERT INTO item_tags (item_id, tag_id) SELECT ${itemRef}, id FROM tags
+         WHERE name IN (SELECT value FROM json_each(?1)) ON CONFLICT DO NOTHING`,
+      )
+      .bind(...params),
+  ];
+}
+
+/**
+ * Makes an item's tags exactly `names`, in one batch. It cleared the old links, then added the new ones, as
+ * separate calls, so a failure partway left the item with no tags until it was saved again.
+ */
+export async function setItemTags(d1: D1Database, itemId: number, names: string[]): Promise<void> {
+  await d1.batch([d1.prepare('DELETE FROM item_tags WHERE item_id = ?1').bind(itemId), ...tagLinkStatements(d1, itemId, names)]);
+}
+
+/**
+ * A new item and its tags in one batch: a failure between the two saved it without them, and the person's
+ * second try saved it twice. Returns its id.
+ */
+export async function createItemWithTags(d1: D1Database, values: NewItem, names: string[]): Promise<number> {
+  const q = db(d1).insert(s.items).values(values).returning({ id: s.items.id }).toSQL();
+  const [created] = await d1.batch([d1.prepare(q.sql).bind(...q.params), ...tagLinkStatements(d1, 'newest', names)]);
+  const row = created?.results[0] as { id: number } | undefined;
+  if (!row) throw new Error('failed to create item');
+  return row.id;
+}
+
+/** An edit and the item's new tags in one batch, so a failure can't save one without the other. */
+export async function updateItemWithTags(d1: D1Database, id: number, values: Partial<NewItem>, names: string[]): Promise<void> {
+  const q = db(d1)
+    .update(s.items)
+    .set({ ...values, updatedAt: sql`(datetime('now'))` })
+    .where(eq(s.items.id, id))
+    .toSQL();
+  await d1.batch([
+    d1.prepare(q.sql).bind(...q.params),
+    d1.prepare('DELETE FROM item_tags WHERE item_id = ?1').bind(id),
+    ...tagLinkStatements(d1, id, names),
+  ]);
 }
 
 export async function tagsForItem(d1: D1Database, itemId: number): Promise<string[]> {

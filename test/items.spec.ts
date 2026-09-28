@@ -1,8 +1,10 @@
 // Route-level: the add flow's "Log — not owned" action and the copies=0 lend guard,
 // driven through the real app (session cookie + browser-faithful CSRF headers).
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
-import { describe, expect, it } from 'vitest';
-import { createLibrary, createUser, getItem, listShares } from '../src/db/queries';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createLibrary, createUser, getItem, listShares, tagsForItem } from '../src/db/queries';
+import type { Bindings } from '../src/env';
+import { budgeted } from '../src/federation/budget';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import app from '../src/index';
 
@@ -18,7 +20,7 @@ async function seedSession() {
   return { lib, cookie: `${SESSION_COOKIE}=${token}` };
 }
 
-async function post(path: string, body: Record<string, string>, cookie: string): Promise<Response> {
+async function post(path: string, body: Record<string, string>, cookie: string, bindings: Bindings = env): Promise<Response> {
   const ctx = createExecutionContext();
   const res = await app.fetch(
     new Request(`http://nalanda.test${path}`, {
@@ -30,7 +32,7 @@ async function post(path: string, body: Record<string, string>, cookie: string):
       },
       body: new URLSearchParams(body).toString(),
     }),
-    env,
+    bindings,
     ctx,
   );
   await waitOnExecutionContext(ctx);
@@ -293,5 +295,61 @@ describe('shelf table columns', () => {
     );
     await waitOnExecutionContext(ctx);
     expect(await res.text()).not.toContain('id="columns-menu"');
+  });
+});
+
+describe('saving an item: all of it, or none of it', () => {
+  // The item, its tags and its cover were separate steps. A failure partway saved an item without its tags (and
+  // a second try saved it twice), stranded a new cover in the bucket, or — on an edit — had already deleted the
+  // old cover the item still pointed at.
+  afterEach(() => vi.unstubAllGlobals());
+  const image = () => new Response(new Uint8Array(2000), { headers: { 'content-type': 'image/jpeg' } });
+  const covers = async () => new Set((await env.COVERS.list()).objects.map((o) => o.key));
+  const added = async (before: Set<string>) => [...(await covers())].filter((k) => !before.has(k)).sort();
+  const withBudget = (left: number) => ({ ...env, DB: budgeted(env.DB, { left }) }) as Bindings;
+  const saved = (res: Response) => res.status === 302 && /^\/items\/\d+$/.test(res.headers.get('location') ?? '');
+  const rows = async <T,>(q: string) => (await env.DB.prepare(q).all<T>()).results;
+
+  it('creates an item with its tags and cover, or leaves nothing behind', async () => {
+    const { lib, cookie } = await seedSession();
+    vi.stubGlobal('fetch', async () => image());
+    const before = await covers();
+    const form = { title: 'Piranesi', libraryId: String(lib.id), mediaType: 'book', tags: 'fantasy, library', coverUrl: 'https://covers.example/p.jpg' };
+    for (let left = 0; ; left++) {
+      expect(left, 'never saved').toBeLessThan(20);
+      const res = await post('/items', form, cookie, withBudget(left));
+      const items = await rows<{ id: number; cover_key: string }>('SELECT id, cover_key FROM items');
+      const links = (await rows('SELECT item_id FROM item_tags')).length;
+      if (saved(res)) {
+        expect(items).toHaveLength(1);
+        expect(links).toBe(2);
+        expect(await added(before)).toEqual([items[0]!.cover_key]);
+        return;
+      }
+      expect({ items: items.length, links, covers: await added(before) }, `with room for ${left} queries`).toEqual({ items: 0, links: 0, covers: [] });
+    }
+  });
+
+  it('edits an item, its tags and its cover together, never pointing at a cover that is gone', async () => {
+    const { lib, cookie } = await seedSession();
+    vi.stubGlobal('fetch', async () => image());
+    const before = await covers();
+    const created = await post('/items', { title: 'Old', libraryId: String(lib.id), mediaType: 'book', tags: 'old', coverUrl: 'https://covers.example/a.jpg' }, cookie);
+    const id = Number(created.headers.get('location')!.match(/\d+/)![0]);
+    const original = (await getItem(env.DB, id))!.coverKey!;
+    const form = { title: 'New', libraryId: String(lib.id), mediaType: 'book', tags: 'new', coverUrl: 'https://covers.example/b.jpg' };
+    for (let left = 0; ; left++) {
+      expect(left, 'never saved').toBeLessThan(20);
+      const res = await post(`/items/${id}`, form, cookie, withBudget(left));
+      const item = (await getItem(env.DB, id))!;
+      // whatever happened, the item's cover is in the bucket, and nothing else is left there
+      expect(await added(before), `with room for ${left} queries`).toEqual([item.coverKey]);
+      if (saved(res)) {
+        expect({ title: item.title, tags: await tagsForItem(env.DB, id) }).toEqual({ title: 'New', tags: ['new'] });
+        expect(item.coverKey).not.toBe(original);
+        return;
+      }
+      expect({ title: item.title, tags: await tagsForItem(env.DB, id), cover: item.coverKey }).toEqual({ title: 'Old', tags: ['old'], cover: original });
+    }
   });
 });
