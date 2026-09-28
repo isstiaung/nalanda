@@ -79,6 +79,9 @@ export type PublicItem = {
   review: string | null;
   inCollection: boolean; // derived from copies > 0 — the count itself stays private
   details: Record<string, unknown>;
+  // How many times it has been finished, only from twice on — a re-read says something about a book, where a
+  // single read is what a finished book already means (§16 #41). Never the reads themselves, or their dates.
+  readCount?: number;
   // Only when the household has turned progress on for share pages, and only for a book in progress.
   progress?: { page: number; length: number | null; percent: number | null };
 };
@@ -120,6 +123,7 @@ export function toPublicItem(item: Item, opts: { progress?: boolean } = {}): Pub
     review: item.review,
     inCollection: item.copies > 0,
     details: parseDetails(item.details),
+    ...(item.readCount >= 2 ? { readCount: item.readCount } : {}),
     ...(showProgress
       ? { progress: { page: item.progressPage!, length: item.length, percent: progressPercent(item.progressPage, item.length) } }
       : {}),
