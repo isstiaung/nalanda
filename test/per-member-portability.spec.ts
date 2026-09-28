@@ -116,7 +116,7 @@ describe('the export and a re-import', () => {
 
   it('give names that aren’t members here to the importer, and say so in the preview', async () => {
     const asha = await member('asha', 'admin');
-    const ravi = await member('ravi');
+    const admin = await member('root', 'admin'); // an admin's import keeps the names it knows
     const shelf = await createLibrary(env.DB, 'In');
     const base = { library: 'x', media_type: 'book', isbn10_upc: '', added_at: '', details: '', progress_history: '', began_on: '', completed_on: '' };
     const row = {
@@ -128,23 +128,54 @@ describe('the export and a re-import', () => {
         { by: 'dan', rating: 2, review: 'Dan’s', at: '2021-01-02 00:00:00' },
       ]),
     };
-    const preview = await (await as(ravi, '/api/import', { json: { libraryId: shelf.id, rows: [row], dryRun: true } })).json<{ importer: string; people: unknown[] }>();
-    expect(preview.importer).toBe('ravi');
+    const preview = await (await as(admin, '/api/import', { json: { libraryId: shelf.id, rows: [row], dryRun: true } })).json<{ importer: string; keepsNames: boolean; people: unknown[] }>();
+    expect(preview).toMatchObject({ importer: 'root', keepsNames: true });
     expect(preview.people).toEqual(
       expect.arrayContaining([
-        { name: 'carol', former: false, reads: 2, reviews: 1, as: 'ravi', known: false },
+        { name: 'carol', former: false, reads: 2, reviews: 1, as: 'root', known: false },
         { name: 'asha', former: false, reads: 1, reviews: 0, as: 'asha', known: true },
       ]),
     );
-    expect((await as(ravi, '/api/import', { json: { libraryId: shelf.id, rows: [row] } })).status).toBe(200);
+    expect((await as(admin, '/api/import', { json: { libraryId: shelf.id, rows: [row] } })).status).toBe(200);
     const id = (await rows<{ id: number }>('SELECT id FROM items'))[0]!.id;
-    // carol's and dan's both land on ravi: one open read each person, one review each — the one written last
+    // carol's and dan's both land on the importer: one open read each person, one review each — the one written last
     expect((await readsOf(id)).map((r) => [r.readerId, r.status])).toEqual([
-      [ravi.id, 'completed'],
-      [ravi.id, 'in_progress'],
+      [admin.id, 'completed'],
+      [admin.id, 'in_progress'],
       [asha.id, 'completed'],
     ]);
-    expect((await reviewsOf(id)).map((r) => [r.userId, r.review])).toEqual([[ravi.id, 'Dan’s']]);
+    expect((await reviewsOf(id)).map((r) => [r.userId, r.review])).toEqual([[admin.id, 'Dan’s']]);
+  });
+
+  it('keep names only in an admin’s import: a member’s is all theirs, whatever the file says', async () => {
+    await member('asha', 'admin'); // a member the file names
+    const ravi = await member('ravi');
+    const shelf = await createLibrary(env.DB, 'In');
+    const row = {
+      library: 'x', media_type: 'book', isbn10_upc: '', added_at: '', details: '', progress_history: '', began_on: '', completed_on: '',
+      title: 'Planted',
+      reads: 'completed:..2024-01-01@asha;abandoned:..2024-02-01@',
+      reviews: JSON.stringify([{ by: 'asha', rating: 1, review: 'Asha says: awful', at: '2024-01-02 00:00:00' }, { by: null, rating: 3, review: null, at: null }]),
+    };
+    const preview = await (await as(ravi, '/api/import', { json: { libraryId: shelf.id, rows: [row], dryRun: true } })).json<{ keepsNames: boolean; people: Array<{ name: string | null; as: string | null }> }>();
+    expect(preview.keepsNames).toBe(false);
+    expect(preview.people.map((p) => p.as)).toEqual(['ravi', 'ravi']);
+    await as(ravi, '/api/import', { json: { libraryId: shelf.id, rows: [row] } });
+    const id = (await rows<{ id: number }>('SELECT id FROM items'))[0]!.id;
+    expect((await readsOf(id)).map((r) => r.readerId)).toEqual([ravi.id, ravi.id]);
+    // his one review: the one written last of the two that landed on him
+    expect((await reviewsOf(id)).map((r) => [r.userId, r.review])).toEqual([[ravi.id, 'Asha says: awful']]);
+  });
+
+  it('keep the preview as it was for a household of one importing its own file', async () => {
+    const solo = await member('solo', 'admin');
+    const shelf = await createLibrary(env.DB, 'In');
+    const row = { library: 'x', media_type: 'book', isbn10_upc: '', added_at: '', details: '', progress_history: '', began_on: '', completed_on: '', title: 'Mine', reads: 'completed:..2024-01-01@solo' };
+    const preview = await (await as(solo, '/api/import', { json: { libraryId: shelf.id, rows: [row], dryRun: true } })).json<Record<string, unknown>>();
+    expect(preview).not.toHaveProperty('importer');
+    // negative control: a name that isn't the importer's is reported
+    const other = await (await as(solo, '/api/import', { json: { libraryId: shelf.id, rows: [{ ...row, reads: 'completed:..2024-01-01@carol' }], dryRun: true } })).json<Record<string, unknown>>();
+    expect(other).toHaveProperty('importer', 'solo');
   });
 
   it('still import an export from before readers and reviews, as the importer’s', async () => {

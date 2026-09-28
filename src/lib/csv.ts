@@ -364,21 +364,23 @@ export type PeopleTally = Map<string | null | undefined, { reads: number; review
 /**
  * A mapped row's reads and reviews with their people as ids here. A username that is a member here is theirs; any
  * other name is the importer's, and so is anything that names nobody — an export from before readers, a libib or
- * Goodreads row; an entry the file marks as a former member's stays unattributed. Two reviews that land on one
- * person — two names that aren't members here — keep the one written last, as a person has one review. `tally`
- * counts it all for the preview.
+ * Goodreads row; an entry the file marks as a former member's stays unattributed. Only an admin's import keeps
+ * names (`keepNames`): members change only their own reading, so a member's import is theirs, whatever the file says
+ * — it can't make reads or reviews in anyone else's name, or ones only an admin could then change. Two reviews that
+ * land on one person keep the one written last, as a person has one review. `tally` counts it all for the preview.
  */
 export function attributePeople(
   m: MappedRow,
   members: Map<string, number>,
   importer: number,
   tally?: PeopleTally,
+  keepNames = true,
 ): { reads?: PersonRead[]; reviews?: PersonReview[] } {
   const resolve = (name: string | null | undefined): number | null =>
-    name === null ? null : name === undefined ? importer : (members.get(name) ?? importer);
+    !keepNames || name === undefined ? importer : name === null ? null : (members.get(name) ?? importer);
   const count = (name: string | null | undefined, what: 'reads' | 'reviews', n = 1) => {
     if (!tally || n < 1) return;
-    const entry = tally.get(name) ?? { reads: 0, reviews: 0, to: resolve(name), known: typeof name === 'string' && members.has(name) };
+    const entry = tally.get(name) ?? { reads: 0, reviews: 0, to: resolve(name), known: keepNames && typeof name === 'string' && members.has(name) };
     entry[what] += n;
     tally.set(name, entry);
   };

@@ -134,8 +134,9 @@
       append(`Nalanda export detected: every column maps back as it was exported, into the shelf chosen above. Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
       append('Rows are added, never merged — importing the same export into this library twice adds everything twice.');
       // whose each read and review becomes: a member of the same name here, or you
-      const people = data.people ?? [];
+      const people = data.importer ? (data.people ?? []) : [];
       if (people.length) {
+        if (!data.keepsNames) append(`As a member, everything in this file becomes yours (${data.importer}): only an admin's import keeps each reader's and reviewer's name.`);
         append(`Readers and reviewers in the first ${sampled} rows:`);
         const brings = (p) => [p.reads ? `${p.reads} ${p.reads === 1 ? 'read' : 'reads'}` : '', p.reviews ? `${p.reviews} ${p.reviews === 1 ? 'review' : 'reviews'}` : ''].filter(Boolean).join(', ');
         for (const p of people) {

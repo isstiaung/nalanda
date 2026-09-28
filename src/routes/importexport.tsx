@@ -182,14 +182,16 @@ importexport.post('/api/import', async (c) => {
     else skipped++;
   }
 
-  // Whose each read and review becomes (§16 #43): a Nalanda export names its members, and a name that is a member here
-  // keeps them; everything else — another name, or a file that names nobody — is the importer's.
+  // Whose each read and review becomes (§16 #43): a Nalanda export names its members, and in an admin's import a name
+  // that is a member here keeps them; everything else — another name, a file that names nobody, or any import by a
+  // member, who changes only their own reading — is the importer's.
   const user = c.get('user');
+  const keepNames = user.role === 'admin';
   const people = await listPeople(c.env.DB);
   const members = new Map(people.map((p) => [p.username, p.id]));
   const tally: PeopleTally = new Map();
   const withOwners = mapped.map((m) => {
-    const { reads, reviews } = attributePeople(m, members, user.id, tally);
+    const { reads, reviews } = attributePeople(m, members, user.id, tally, keepNames);
     return { ...m, reads, reviews, item: { ...m.item, libraryId, addedBy: user.id } };
   });
 
@@ -207,7 +209,10 @@ importexport.post('/api/import', async (c) => {
       fresh: match?.inserted ?? 0,
       // a libib row carries no reads of its own: the tally counted what importItems will derive from its status and dates
       reads: match?.reads ?? [...tally.values()].reduce((n, t) => n + t.reads, 0),
-      importer: user.username,
+      // A household of one importing its own file has nobody to tell apart: the preview says nothing new then.
+      ...(people.length > 1 || [...tally.keys()].some((name) => name !== undefined && name !== user.username)
+        ? { importer: user.username, keepsNames: keepNames }
+        : {}),
       // per name in the file: what it brings and whose it becomes here — `as` null is nobody's (a former member)
       people: [...tally.entries()].map(([name, t]) => ({
         name: name === undefined ? null : name,
