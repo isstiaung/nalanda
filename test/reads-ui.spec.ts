@@ -100,6 +100,21 @@ describe('the Reading section', () => {
     expect(await getItem(env.DB, item.id)).toMatchObject({ status: 'completed', rereading: true, completedOn: '2019-03-20' });
   });
 
+  it('gives each form’s own action the primary button, Stop the secondary one, and Delete the danger one', async () => {
+    const item = await finished();
+    const done = await (await request(`/items/${item.id}`)).text();
+    expect(done).toContain('<button type="submit">Read again</button>');
+    expect(done).toContain('<button type="submit">Save</button>'); // correcting a read
+    expect(done).toContain('<button type="submit">Add</button>'); // a past read
+    expect(done).toMatch(/<button type="submit" class="btn-danger">\s*Delete this read/);
+
+    await startRead(env.DB, item.id, '2026-09-01');
+    const open = await (await request(`/items/${item.id}`)).text();
+    expect(open).toContain('<button type="submit">Record</button>');
+    expect(open).toContain('<button type="submit">Finish</button>');
+    expect(open).toMatch(/<button type="submit" class="btn">\s*Stop re-reading/);
+  });
+
   it('lands back on the item page without htmx', async () => {
     const item = await finished();
     const res = await request(`/items/${item.id}/reads/start`, { body: {} });

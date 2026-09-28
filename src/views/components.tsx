@@ -218,9 +218,8 @@ export const ReadingSection: FC<{ item: Item; reads: ReadingRead[]; entries: Rea
         <form method="post" action={`${base}/progress`} class="inline-form" {...htmxTo(`${base}/progress`)}>
           <input name="page" inputmode="numeric" pattern="[0-9]+" class="mono" size={6} placeholder="Page" aria-label="Page reached" required />
           {item.length ? <span class="muted">of {item.length}</span> : null}
-          <button type="submit" class="btn">
-            Record
-          </button>
+          {/* each form's own action is primary (a plain submit); Stop is secondary (.btn), Delete a danger action */}
+          <button type="submit">Record</button>
         </form>
       ) : null}
 
@@ -233,21 +232,17 @@ export const ReadingSection: FC<{ item: Item; reads: ReadingRead[]; entries: Rea
           <>
             <form method="post" action={`${base}/reads/${open.id}/finish`} class="inline-form" {...htmxTo(`${base}/reads/${open.id}/finish`)}>
               <input type="date" name="date" value={today} aria-label="Finished on" class="mono" />
-              <button type="submit" class="btn">
-                Finish
-              </button>
+              <button type="submit">Finish</button>
             </form>
             <form method="post" action={`${base}/reads/${open.id}/stop`} class="inline-form" {...htmxTo(`${base}/reads/${open.id}/stop`)}>
-              <button type="submit" class="btn-quiet">
+              <button type="submit" class="btn">
                 {item.rereading ? 'Stop re-reading' : 'Stop reading'}
               </button>
             </form>
           </>
         ) : (
           <form method="post" action={`${base}/reads/start`} class="inline-form" {...htmxTo(`${base}/reads/start`)}>
-            <button type="submit" class="btn">
-              {item.readCount > 0 ? 'Read again' : reads.length ? 'Start again' : 'Start reading'}
-            </button>
+            <button type="submit">{item.readCount > 0 ? 'Read again' : reads.length ? 'Start again' : 'Start reading'}</button>
           </form>
         )}
       </div>
@@ -280,9 +275,7 @@ export const ReadingSection: FC<{ item: Item; reads: ReadingRead[]; entries: Rea
                       </select>
                       <input type="date" name="beganOn" value={r.beganOn ?? ''} aria-label="Began" class="mono" />
                       <input type="date" name="endedOn" value={r.endedOn ?? ''} aria-label="Ended" class="mono" />
-                      <button type="submit" class="btn">
-                        Save
-                      </button>
+                      <button type="submit">Save</button>
                     </form>
                     <form
                       method="post"
@@ -291,7 +284,7 @@ export const ReadingSection: FC<{ item: Item; reads: ReadingRead[]; entries: Rea
                       {...htmxTo(`${base}/reads/${r.id}/delete`)}
                       hx-confirm="Delete this read and the pages logged in it?"
                     >
-                      <button type="submit" class="progress-delete">
+                      <button type="submit" class="btn-danger">
                         Delete this read{pages.length ? ' and its pages' : ''}
                       </button>
                     </form>
@@ -313,9 +306,7 @@ export const ReadingSection: FC<{ item: Item; reads: ReadingRead[]; entries: Rea
           </select>
           <input type="date" name="beganOn" aria-label="Began" class="mono" />
           <input type="date" name="endedOn" aria-label="Ended" class="mono" />
-          <button type="submit" class="btn">
-            Add
-          </button>
+          <button type="submit">Add</button>
         </form>
       </details>
     </div>
