@@ -12,14 +12,16 @@ link appears on the same page when it's ready. One CSV covers everything.
 
 ## Import into Nalanda
 
-1. Log in → **/import**.
+1. Log in **as the person whose Goodreads export it is** → **/import**. Everything the file
+   brings — reads, rating, review — becomes that member's own (ARCH.md §16 #43). Each member
+   imports their own export; nobody's import touches anyone else's reads or review.
 2. Pick the CSV and the destination library. (The Goodreads format is auto-detected —
    the "default type" and "music as vinyl" options don't apply and are ignored.)
    The destination only affects **new** entries; matched books stay on their shelf.
 3. **Preview (dry run, optional)** — shows, for the first 200 rows, how many map
    cleanly, how many **match books already in Nalanda** (their reviews will merge), how
    many are **new** (added as "Not owned"), and how many **reads** it would add or date.
-   Nothing is written yet.
+   It names you as the member they'll be credited to. Nothing is written yet.
 4. **Import** — uploads in batches of 200 with live progress. Works directly without a
    preview.
 
@@ -33,11 +35,13 @@ A row is matched to an existing item by, in order: **ISBN-13 → ISBN-10 → nor
 title + first-author surname** (series suffixes like "(The Broken Earth, #1)",
 subtitles after ":", and initials spacing are ignored). On a match:
 
-- **Goodreads wins** for rating, review, and private notes — but a field Goodreads has no
-  value for never blanks what's already in Nalanda.
-- **Reading arrives as reads, which are added and never removed** (ARCH.md §16 #41). Each
-  rule checks for its own result first, and reading you did here since an earlier import
-  counts as that result. So importing the same file again adds nothing, even after you
+- **Goodreads wins** for *your* rating and review, and for the book's private notes — but a
+  field Goodreads has no value for never blanks what's already in Nalanda. Another member's
+  rating and review stay as they are; the book's rating on shelves and share pages becomes the
+  household's average, and its public review the one written last.
+- **Reading arrives as your reads, which are added and never removed** (ARCH.md §16 #41). Each
+  rule checks for its own result among *your* reads — another member's finish on the same day
+  isn't yours — and reading you did here since an earlier import counts as that result. So importing the same file again adds nothing, even after you
   finished, stopped or started a book again here:
   - `Date Read` is a finish. Nothing happens if a finished read already ends that day. On
     the read shelf it closes an open read that began by then. Otherwise it dates an undated
@@ -64,9 +68,9 @@ subtitles after ":", and initials spacing are ignored). On a match:
 |---|---|
 | `Title`, `Author` + `Additional Authors`, `Publisher` | title, creators, publisher |
 | `ISBN13` / `ISBN` (Excel guard `="…"` stripped) | `isbn13` / `isbn10_upc` |
-| `My Rating` (0–5 whole stars, 0 = unrated) | half-star rating (×2) |
+| `My Rating` (0–5 whole stars, 0 = unrated) | your half-star rating (×2) |
 | `Exclusive Shelf` | reads, and so status: read → a finished read, currently-reading → an open read, a dnf/abandoned shelf → a stopped read, to-read → none |
-| `My Review` (`<br/>` → line breaks) | review |
+| `My Review` (`<br/>` → line breaks) | your review |
 | `Private Notes` | private notes |
 | `Date Read` | the finished read's date, and so the completed date |
 | `Date Started` (if present) | the start of the read it belongs to |

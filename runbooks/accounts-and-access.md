@@ -7,7 +7,10 @@
 3. A temporary password is shown **once** — send it to them however you like.
 4. They log in with it and are forced to set their own password before doing anything else.
 
-Members can do everything except manage users and publish/rotate share links.
+Members can do everything except manage users and publish/rotate share links. Each person's
+reads, recorded pages, rating and review are their own (ARCH.md §16 #43): members change only
+theirs, and admins can change, delete or **move** anyone's — a read (with its pages) or a review
+credited to the wrong person moves from the book's page, under *Edit* on it.
 
 ## Someone forgot their password
 
@@ -18,7 +21,9 @@ and they set their own again at next login.
 ## Remove someone
 
 Settings → *Remove*. Revocation is immediate — every request re-checks that the user row
-still exists, so their session dies on their next click.
+still exists, so their session dies on their next click. Their reads, pages, ratings and
+reviews stay, shown as a *Former member*'s: nothing about a book changes on shelves, share
+pages or connections. An admin can move any of them to someone still here.
 
 ## Admin lockout (you forgot the admin password)
 

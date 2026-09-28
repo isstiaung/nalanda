@@ -62,6 +62,26 @@ immediately; no redeploy is needed.
 
 `npx wrangler tail` streams the live logs if anything looks wrong.
 
+## 6. Follow up, when the notes say so
+
+Some releases leave something for you to do after they're deployed.
+
+**1.3.0: give each member their own reading history.** From 1.3.0 every member has their own
+reads, pages, rating and review. Nothing before it recorded whose they were, so the upgrade credits
+all existing history to your **first admin**, the admin account with the lowest id (normally the
+one made at `/setup`). In a household of one there is nothing to do. Otherwise, as an admin:
+
+1. Open a book another member read or reviewed. With more than one member, its page names people.
+2. **A read:** under **Reading**, beside the read, choose **Edit**, then pick the member under
+   **Move** and press it. The read's recorded pages go with it.
+3. **A rating or review:** under **Ratings and reviews**, choose **Edit** on it, pick the member and
+   press **Move**. A member can hold one review of a book: if they already have one, delete one of
+   the two first.
+4. A shelf's **Read by** filter (for example "Read by me") finds what is credited to whom.
+
+Moving changes nothing that share pages or connections see: they show the household's summary,
+which is everyone's either way.
+
 ## Going back
 
 - **Code:** `npx wrangler rollback` returns to the previous deployment. It doesn't undo

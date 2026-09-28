@@ -95,6 +95,17 @@ come out exactly as they were. A few shapes change, all by the same rules import
 
 Take a backup first (above), so any of these can be undone by restoring it.
 
+**What 0024–0025 do to your data (1.3.0).** Reads, pages, ratings and reviews become each member's
+(ARCH.md §16 #43). Nothing said whose they were before, so every existing read, every recorded page,
+and each book's rating and review — as one review — are credited to the **first admin** (the admin
+with the lowest id). No book changes on shelves, share pages or connections: its status, dates,
+read count, rating and review are now the household's summary, and with one person's history that
+summary is what the book already said. The same two cautions as 0023 apply: an edit saved by the
+old Worker in the seconds between migration and new code makes a read nobody's and a rating with
+no review behind it (the rating then gives way to the reviews' average at the book's next review
+change), so deploy when nobody is editing, and don't roll back past it. Moving history to the
+right member afterwards is in [updating.md](updating.md).
+
 ## Taking your local data to production
 
 Been cataloging against local dev? Your catalog is a real SQLite database under
@@ -143,6 +154,8 @@ index restore cleanly; covers are re-fetched.)
 
 - **Code**: `npx wrangler rollback` reverts the Worker to the previous deployment. Not past
   migration 0023, though: code from before it writes reading state without reads (§16 #41).
+  Nor past 0025 (1.3.0): code from before it writes reads with no reader and ratings with no
+  review, which the household summary then overrides (§16 #43).
 - **Schema/data**: code rollback does NOT undo migrations. If a migration caused the
   problem, restore the database instead — see
   [backup-and-restore.md](backup-and-restore.md).

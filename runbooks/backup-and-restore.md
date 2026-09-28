@@ -77,7 +77,7 @@ npm run db:migrate:remote
 
 # 2. data, in FK-safe order — the order `npm run backup` prints, TABLES in scripts/backup.mjs
 #    (the files set defer_foreign_keys themselves; a table with no rows is an empty file)
-for t in users libraries shares site_settings items reads reading_progress tags item_tags loans \
+for t in users libraries shares site_settings items reads reading_progress reviews tags item_tags loans \
          federation_settings connection_invites connections connection_views activity_log \
          feed_subscriptions remote_activities comments outbox borrow_requests connection_loans \
          borrowed_items notifications; do
@@ -93,7 +93,9 @@ Restored into the latest schema, it would give Completed books no reads. So:
 2. Restore it, skipping tables that didn't exist yet.
 3. Apply the rest, so the data migrations run over it.
 
-This is the order the 0023 rehearsal used on the backup of 2026-09-28.
+This is the order the 0023 rehearsal used on the backup of 2026-09-28, and the 0025 rehearsal
+too (ARCH.md §16 #43): a backup from before 1.3.0 has no `reviews.sql`, and its reads say nobody's
+name, so it restores at 0023 and 0024–0025 then credit its history to the first admin.
 
 The search index repopulates automatically as the items insert (trigger-driven). Cover
 keys ride along in the data: if the R2 bucket is intact, images work immediately; if the

@@ -74,13 +74,20 @@ shape from this file.
 - `/share/:token` pages render a **field whitelist** via `toPublicItem()` in
   `src/lib/share.ts` — never add fields there without checking ARCH.md §9.
 - **Never** render on share pages: private `notes`, loans/borrowers, the `copies` count,
-  `added_by`, usernames, reads or their dates, or links into the authenticated app. (The
-  derived boolean `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned"
-  badge. So is `readCount`, only from two finishes on — "Read N times", ARCH.md §16 #41.)
-  Reading progress appears only when an admin turns on `site_settings.progress_on_shares`
-  (off by default), and then only for a book being read now — in progress, or finished and
-  being read again (`rereading`) — `toPublicItem(item, { progress })` omits the key otherwise.
-  Share pages get `noindex`.
+  `added_by`, usernames, reads or their dates, anything per member — whose reads, whose
+  rating, whose review — or links into the authenticated app. (The derived boolean
+  `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge. So is
+  `readCount`, the household's finishes, only from two on — "Read N times", ARCH.md §16 #41.)
+  `rating` and `review` there are the household summary: the average of everyone's ratings
+  and the review written last, with no author (§16 #43). Reading progress appears only when an
+  admin turns on `site_settings.progress_on_shares` (off by default), and then only for a book
+  being read now — in progress, or finished and being read again (`rereading`) — as the
+  latest page anyone reading it recorded; `toPublicItem(item, { progress })` omits the key
+  otherwise. Share pages get `noindex`.
+- The shelf's **"Read by" filter** (`ReaderFilter` in `src/db/queries.ts`) is never publishable:
+  it is deliberately not part of `ItemFilters`, so `shareFilters()`, `itemMatchesShare()` and
+  connection views have no room for it, and the publish form carries no field for it. Keep it
+  that way — a published "read by ravi" would tell the world who read what.
 - Share tokens are random 128-bit, **one per published view** (`shares` table — filters, or a
   tag, captured at publish time; `itemMatchesShare()` guards the public item route, and its
   query-side twin `shareFilters()` must stay in step with it).
@@ -94,7 +101,8 @@ shape from this file.
 - Connections see only `toConnectionItem()` fields (`src/federation/items.ts`, built on
   `toPublicItem()`), and only for items inside a connection view. Availability is a derived
   boolean — never a borrower, due date or copies count; reading history is a count
-  (`readCount`), never the reads or their dates. Triggers on `items` record
+  (`readCount`, the household's), never the reads, their dates or their readers; the rating
+  and review are the household summary, never a member's name. Triggers on `items` record
   activity only while a connection view exists (migration 0007), dated by when it happened —
   an import's batch brackets itself with `import_in_progress` so old reads aren't news
   (migration 0021, ARCH.md §16 #40).
@@ -143,8 +151,10 @@ src/db/            schema.ts (Drizzle) + queries.ts — the ONLY code touching D
 src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googlebooks, bgg,
                    discogs, itunes, musicbrainz — nothing else calls external APIs
 src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist), csv.ts
-                   (export + libib mapping), covers.ts (only R2 code), reads.ts (each read:
-                   how reads decide status, the legacy mapping, the export cell, Goodreads)
+                   (export + libib mapping, whose reads an import brings), covers.ts (only R2
+                   code), reads.ts (each read: how reads decide status, the legacy mapping, the
+                   export cell, Goodreads), reviews.ts (each member's review: the household
+                   summary, the export's reviews cell)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments and borrowing (comments.ts,
@@ -201,11 +211,24 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
 - Barcode routing lives in `src/metadata/index.ts`: EAN-13 starting `978`/`979` → book
   providers (Open Library + Google Books merged); any other EAN/UPC → Discogs.
 - Tags are normalized lowercase at write time; uniqueness is by exact string.
-- Reading state lives in `reads`, one row per read (ARCH.md §16 #41). `items.status`,
-  `began_on`, `completed_on`, `read_count`, `rereading` and `progress_page` are its cache:
-  write reads and `refreshReadState()` in one batch, never those columns directly. A re-read
-  keeps the book Completed (`rereading` marks it), so nothing moves between status-filtered
-  views; a finished book takes no page until "Read again" opens a read.
+- Reading state lives in `reads`, one row per read (ARCH.md §16 #41), each with its reader
+  (`reader_id`; NULL = a member removed since — §16 #43). `items.status`, `began_on`,
+  `completed_on`, `read_count`, `rereading` and `progress_page` are the **household's** summary
+  of everyone's reads: write reads and `refreshReadState()` in one batch, never those columns
+  directly. Completed once anyone has finished it; a re-read — or anyone's read of a book
+  someone finished — keeps it Completed (`rereading` marks it), so nothing moves between
+  status-filtered views. Each person has at most one open read of an item; "Read again",
+  Finish, Stop and Record act on the signed-in person's own reads, and the edit form's status
+  and dates are theirs. Pages belong to their read's reader (`reading_progress.added_by`
+  follows a moved read). A finished book takes no page from you until you "Read again".
+- Ratings and reviews live in `reviews`, one per member per item (§16 #43). `items.rating`
+  (the average, rounded to 1–10) and `items.review` (the one written last, by `reviewed_at`)
+  are their summary: write reviews and `refreshReviewState()` in one batch, never those
+  columns directly. `reviewed_at` moves only when the text really changes, so a rating
+  changed alone never makes an old review the household's latest.
+- Members change their own reads, pages and review; admins anyone's, and only admins move
+  one to another member. Check it in the route (403 with a reason) *and* in the statement
+  that writes (the `Actor` guards in `src/db/queries.ts`). No permission matrix beyond this.
 - `copies = 0` = "in the catalog, not in the physical collection" (reading-log entries,
   e.g. Goodreads imports). Not lendable; badged "Not owned" everywhere incl. share pages
   (ARCH.md §16 #13). The Holding toggle spans **only 0 and 1** — an item held in 2+ copies

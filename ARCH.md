@@ -122,10 +122,10 @@ CREATE TABLE items (
   description  TEXT,
   length       INTEGER,         -- pages (book) / play-minutes (boardgame) / tracks (vinyl)
   cover_key    TEXT,            -- R2 object key (random UUID — see §9 on covers)
-  status       TEXT NOT NULL DEFAULT 'not_started'
+  status       TEXT NOT NULL DEFAULT 'not_started'   -- the household's, from everyone's reads (§16 #43)
                CHECK (status IN ('not_started','in_progress','completed','abandoned')),
-  rating       INTEGER CHECK (rating BETWEEN 0 AND 10),   -- half-stars, rendered as 5 stars
-  review       TEXT,
+  rating       INTEGER CHECK (rating BETWEEN 0 AND 10),   -- half-stars, rendered as 5 stars; the
+  review       TEXT,                                      -- household's average and latest (§16 #43)
   notes        TEXT,            -- private notes — never rendered on share pages
   copies       INTEGER NOT NULL DEFAULT 1,
   began_on     TEXT,            -- status, began_on, completed_on, read_count, rereading and
@@ -140,16 +140,29 @@ CREATE TABLE items (
 CREATE INDEX idx_items_library ON items(library_id);
 CREATE INDEX idx_items_isbn13  ON items(isbn13);
 
-CREATE TABLE reads (             -- each time an item was read: the source of reading state (§16 #41)
+CREATE TABLE reads (             -- each time someone read an item: the source of reading state (§16 #41)
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
   status     TEXT NOT NULL CHECK (status IN ('in_progress','completed','abandoned')),
   began_on   TEXT,              -- NULL = not known
   ended_on   TEXT,              -- finished or stopped; NULL while open, or not known
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  reader_id  INTEGER REFERENCES users(id)   -- whose (§16 #43); NULL = a member removed since
 );
-CREATE UNIQUE INDEX reads_one_open ON reads(item_id) WHERE status = 'in_progress';
--- reading_progress (§16 #34) gains read_id → reads(id): each page belongs to a read
+CREATE UNIQUE INDEX reads_one_open_per_reader ON reads(item_id, reader_id) WHERE status = 'in_progress';
+-- reading_progress (§16 #34) gains read_id → reads(id): each page belongs to a read, and to its reader
+
+CREATE TABLE reviews (           -- each member's rating and review (§16 #43)
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  user_id     INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- NULL = a member removed since
+  rating      INTEGER,          -- half-stars 1–10; NULL = not rated
+  review      TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  reviewed_at TEXT              -- when the text was last written: whose review the household shows
+);
+CREATE UNIQUE INDEX reviews_item_user ON reviews(item_id, user_id);
 
 CREATE TABLE tags (
   id   INTEGER PRIMARY KEY,
@@ -198,10 +211,13 @@ columns also land here so imports are lossless):
 - `vinyl`: `{ discogs_id, format, label, catno, year, genres }` — format/pressing and
   catalog number are what collectors actually care about.
 
-Ratings and reading status are **per-item, not per-member** in v1 — one shared household
-opinion. Per-member ratings are a possible v1.x addition (§14). Reading state lives in
-`reads`, one row per time the item was read; `items.status` and its neighbours are a cache
-of it, recomputed in the same batch as every write (§16 #41).
+Reading and reviews are **per member** since 1.3.0 (§16 #43); they were one shared household
+opinion in v1. Reading state lives in `reads`, one row per time someone read the item, and
+ratings and reviews in `reviews`, one per member. `items.status`, `rating` and their
+neighbours are the **household's summary** of them — Completed once anyone has finished it,
+the average rating, the review written last — recomputed in the same batch as every write
+(§16 #41, #43), so shelves, filters, share pages, connections and the export read one value
+per item as they always have.
 
 Sessions are **not** in the database: a signed (HMAC, WebCrypto) cookie carries
 `{userId, expiry}`, verified per request against `SESSION_SECRET`, plus a cheap
@@ -232,7 +248,9 @@ confirm. Same confirm screen, different entry point.
 
 **Reading again**: a finished book's page offers "Read again", which opens a new read; the
 book stays Completed, marked re-reading, until Finish or "Stop re-reading" closes it. Every
-read is listed on the book's page, correctable and deletable (§16 #41).
+read is listed on the book's page, correctable and deletable (§16 #41). Each is its reader's:
+the buttons act on the signed-in person's own reads, another member can start their first read
+of a book someone else finished, and everyone's reading shows under their name (§16 #43).
 
 **Lending**: from an item page, "lend" captures borrower + optional due date; dashboard and
 `/loans` show what's out and overdue; "returned" stamps `returned_on`. History is kept.
@@ -256,8 +274,12 @@ Read, Date Started and Read Count become reads, added and never removed (§16 #4
 unmatched rows insert with `copies = 0` (reading-log entries, §16 #13) unless Goodreads'
 Owned Copies says otherwise. Re-runs are idempotent: previously inserted rows match on
 the next run. A dry-run preview shows mapping + match counts before anything is written.
-Export is the inverse: `GET /export.csv` writes every field back out, every read included
-(`reads`, `read_count`). The Export button
+Everything a file brings is the importing member's — a Goodreads merge meets their own reads
+and review only — except a Nalanda export, which names each read's reader and each review's
+writer; a name that is a member here keeps them, and the preview says who gets what (§16 #43).
+Export is the inverse: `GET /export.csv` writes every field back out, every read with its
+reader included (`reads`, `read_count`), and every member's review (`reviews`) beside the
+household's `rating` and `review`. The Export button
 fetches it a page at a time and joins the pages in the browser, so no request builds more than
 250 items (§16 #38); without a cursor the same route streams everything in one response.
 
@@ -300,7 +322,9 @@ Multi-user, built into the app (no email infrastructure, no paid services):
   (`must_change_password`). No invites, no email, no reset flows — admin can re-issue a
   temp password the same way.
 - **Roles**: `admin` = manage users + publish/unpublish share links; `member` = everything
-  else (full item/library/loan CRUD). Two roles, no permission matrix.
+  else (full item/library/loan CRUD). Two roles, no permission matrix. Reading and reviews
+  are each member's own (§16 #43): a member changes only their own reads, pages and review,
+  an admin anyone's, and only an admin moves one to another member.
 - Items record `added_by`, so "who added this" is visible on the detail page.
 - Password hashing: **PBKDF2-SHA256 (100k iterations) via WebCrypto** — native-speed, fits
   the free plan's CPU budget. Never bcrypt/argon2 npm packages (pure-JS, would blow it).
@@ -331,13 +355,18 @@ portable, and makes share routes trivially public. CF Access remains available l
 - **Field whitelist, not blacklist**: share pages render only title, creators, cover,
   publisher/label, published date, description, media details, tags, rating, review, and
   a derived boolean `inCollection` (`copies > 0`) so reading-log entries (`copies = 0`)
-  carry a "Not owned" badge (§16 #13), and `readCount` — how many times it was finished,
-  only from twice on ("Read N times"), never the reads or their dates (§16 #41).
-  **Never**: private notes, loans/borrowers, the copies count, added_by, or any nav into
-  the authenticated app. The whitelist lives in one view module so it can't drift.
+  carry a "Not owned" badge (§16 #13), and `readCount` — how many times the household
+  finished it, only from twice on ("Read N times"), never the reads or their dates (§16 #41).
+  The rating is the household's average and the review the one written last, with no author
+  (§16 #43). **Never**: private notes, loans/borrowers, the copies count, added_by, usernames
+  or anything else per member, or any nav into the authenticated app. The whitelist lives in
+  one view module so it can't drift.
+- **Who read what is never published.** The shelf's "Read by" filter isn't one of the
+  filters a view captures, so no link can be made of it (§16 #43).
 - **Reading progress is opt-in, household-wide** (`site_settings.progress_on_shares`, off by
   default, admin-only on **Shared links**). Even when on, only a book being read now — marked
-  *in progress*, or finished before and being read again (§16 #41) — shows its page and bar; a
+  *in progress*, or finished before and being read again (§16 #41) — shows its page and bar,
+  the latest page anyone reading it recorded (§16 #43); a
   finished book's last page is noise, an unstarted one has none — and the key is omitted
   entirely otherwise, so nothing downstream can render a stale value (§16 #34).
 - Pages carry `<meta name="robots" content="noindex">` — links are for people you send them
@@ -362,11 +391,14 @@ GET  /account                  change own password (also the forced first-login 
 GET  /                         dashboard: libraries, recent adds, loans out
                                (anonymous + HOME_SHARE_TOKEN set → 302 /share/<token>)
 GET  /libraries/:id            item grid/list; filter/sort/paging via htmx partials
+                               (?readBy= — "Read by", never publishable; §16 #43)
 GET  /items/:id                detail  ·  GET /items/:id/edit
 POST /items                    create  ·  POST /items/:id (update) · POST /items/:id/delete
 POST /items/:id/progress       record a page · POST /items/:id/progress/:entry/delete
 POST /items/:id/reads/start    open a read ("Read again") · POST /items/:id/reads (a past read)
 POST /items/:id/reads/:read    correct · …/finish · …/stop · …/delete   (books; §16 #41)
+                               · …/move (admins: to another member, with its pages; §16 #43)
+POST /items/:id/reviews/:rev   edit · …/delete · …/move (admins)   — own review, or any for an admin
 GET  /add                      add flow: scan | search | manual
 GET  /api/lookup               ?barcode=… | ?q=…&type=boardgame → JSON candidates
 POST /items/:id/loan           lend    ·  POST /loans/:id/return
@@ -509,7 +541,7 @@ backfill for imported items (client-driven batches, OL → Google Books → Disc
 (phone-first for scanning).
 
 **v1.x — candidates:**
-per-member ratings/status · stats page · bulk edit · TMDB/IGDB providers if movies/video
+~~per-member ratings/status~~ (done in 1.3.0, §16 #43) · stats page · bulk edit · TMDB/IGDB providers if movies/video
 games ever matter · Cloudflare Access as an optional extra gate · custom domain hookup.
 
 **Non-goals:** multi-tenant SaaS, native mobile apps, offline sync, public social features
@@ -1018,9 +1050,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     Goodreads counted as read once became Completed, and 2 books in progress that had been
     finished before became Completed and re-reading, so they leave the in-progress connection
     view. Code from before 0023 writes status without reads, so a deploy of it goes out when
-    nobody is editing and the Worker isn't rolled back past it (runbooks/deploy.md). Reads are
-    household-level like status (§5); per-member reads and per-read ratings or reviews stay
-    out of scope. One consequence predates reads and stays: `completed_on` is the last finish, so
+    nobody is editing and the Worker isn't rolled back past it (runbooks/deploy.md). Reads were
+    household-level like status (§5); per-read ratings or reviews stay out of scope. *Amended
+    by #43:* reads are each member's, the item's columns their household summary, and ratings
+    and reviews per member. One consequence predates reads and stays: `completed_on` is the last finish, so
     deleting the latest finish, or adding a past finish newer than the current one, moves it, and
     0021's trigger announces a "finished" dated by the new date — dated honestly, but announced.
 
@@ -1043,6 +1076,94 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     runs a tag's workflow as it is in the tagged commit, and that one predates the workflow, so
     v1.0.0's release was published by hand; every later tag is on a commit that carries it, and
     the workflow refuses a tag that isn't on main. runbooks/updating.md is the self-hoster's path.
+
+**2026-09-28 — each member's reading:**
+43. **Reads and reviews are each member's; the item keeps the household's summary.** A household
+    shared one status, one rating and one review per book, so two people reading the same book
+    overwrote each other, and nobody could say who had read what. `reads` gains `reader_id`, and
+    ratings and reviews move to a `reviews` table, one per member per item. **The owner chose to
+    keep one household value wherever a book is filtered or published**, derived from everyone's
+    rows, so every shelf, status filter, share link, connection view, activity trigger and export
+    column goes on reading the item's own columns:
+    - **status** is Completed if anyone has a finished read, else In progress if anyone has an open
+      one, else Abandoned if there are only stopped reads, else Not started — the same ordering #41
+      used, now over everyone's reads, so `READ_STATE_SET` is unchanged but for progress;
+      `completed_on` is the latest finish by anyone, `read_count` everyone's finishes, and
+      `rereading` an open read, by anyone, of a book finished before, by anyone — so a member's
+      first read of a book someone else finished shows as re-reading, and nothing moves between
+      views while it's read;
+    - **progress_page** is the latest page recorded in any open read (with none open, the deciding
+      read's last page, as before) — what "progress on share pages" shows;
+    - **rating** is the average of everyone's ratings, rounded to the 1–10 scale, and **review** the
+      one written most recently, by `reviews.reviewed_at`, with no author. `refreshReviewState()`
+      rides in the batch of every review write (#39), as `refreshReadState()` does for reads, and
+      writes an item only when its summary changed (an `UPDATE … FROM`), stamping `updated_at` then:
+      connections see that time, and an average that didn't move is no change to the book. So a
+      second member's rating that moves the average is a "rated" entry, dated now (#40), one that
+      doesn't move it records nothing, and inside an import's marker it is dated by the book's
+      last finish or left out, as before. `summarizeReviews()` is its TypeScript twin, held to it
+      by a test.
+
+    For a household of one every rule reduces to v1.2.1's, and the existing suite — run as one
+    member owning what it seeds — passes unchanged in substance. **Inside the app** each person's
+    reading shows on the book's page under their name, and everyone's rating and review with their
+    username — but only once the household has more than one member, or someone other than the
+    viewer has read or reviewed the book: a household of one sees the page, the edit form and the
+    shelf exactly as before. "Read again", Finish, Stop and Record act on the signed-in person's own
+    reads, so another member can start their first read of a book someone finished; the edit form's
+    status, dates, rating and review are the editor's own, and its re-read lock and "use Read again"
+    refusals are per person. A record's or game's "Not started" clears only the editor's reads.
+
+    **Permissions.** Members change their own reads, pages and review; admins anyone's. Every route
+    checks and answers 403 with a reason, and every statement that writes checks again (`Actor`,
+    `allowed()` in queries.ts), so a check and its write can't come apart and a hand-made request
+    changes nothing. Pages belong to their read's reader. **Admins can move** a read — with its pages
+    — or a review to another member, to fix misattributed history; a move is refused onto someone
+    already reading the book (their one open read) or who already has a review of it (one each, and
+    merging two reviews is a person's call). **The "Read by" filter** narrows a shelf or a search to
+    what someone finished (me, not me, a member by name, anyone) or is reading now. It is
+    deliberately not part of `ItemFilters`, the type share links and connection views capture, so
+    `shareFilters()`, `itemMatchesShare()` and the connection-view filters have no room for it and
+    stayed untouched; the publish form carries no field for it, and the shelf says a link made from
+    a filtered view shows it without "Read by". It is offered once there is more than one member.
+
+    **Existing data goes to the first admin** (the lowest-id admin), the owner's call: migration
+    0024 (generated) adds the column, replaces the open-read index with one per (item, reader) and
+    makes `reviews`; 0025 (hand-written) credits every read and every page to that admin and makes
+    one review per item with a rating or review, holding exactly what the item holds, dated by the
+    item's `updated_at` — the last the review could have been written. The items themselves aren't
+    touched and no trigger fires. Rehearsed on production's backup of 2026-09-28 (0000–0023, the
+    per-table restore, then 0024–0025): all 27 pre-existing tables identical in every pre-existing
+    column; 381 of 381 reads and the one page to the admin; 359 reviews (153 rating only, 20 review
+    only, 186 both), each matching its item; statuses 376 / 2 / 1,620 with 2 re-reading, as before;
+    and recomputing both summaries over all 1,998 items with the new SQL changed nothing in any of
+    the 28 tables. Other self-hosters' history is credited to their first admin too, which the
+    changelog says, with how to move it. **Removing a member** keeps their reads, pages and reviews,
+    unattributed ("Former member"); `deleteUser()` clears `reads.reader_id` itself, since drizzle-kit
+    drops ON DELETE on ALTER TABLE and D1 enforces foreign keys (a test fails with "FOREIGN KEY
+    constraint failed" without it). The household's summary doesn't change.
+
+    **Export and import.** The `reads` cell's tokens gain `@reader` (the username, percent-encoded so
+    no name can break the cell; an empty name is a former member; no `@` is an export from before
+    readers). A new `reviews` column holds everyone's reviews as JSON, with their writers and written
+    times; `rating` and `review` stay beside it as the household summary for anything that reads only
+    those. On import a name that is a member here keeps them; any other name, and anything that names
+    nobody — an older export, a libib or Goodreads row — is the importer's, and the preview lists
+    each name, what it brings and whose it becomes. Two names landing on one person keep one open
+    read and the review written last. A Goodreads file is its importer's: it is reconciled with their
+    reads alone and merges into their review, so it never touches anyone else's.
+
+    **Chosen without asking, overrulable:** `reviews.reviewed_at` beside the recommended columns —
+    without it, re-rating a book would make an old review the household's latest and announce it as
+    new; the migration's review times come from `items.updated_at`; migration 0025 also re-credits a
+    page another member recorded, so a read and its pages agree; the book page names people only in
+    a household of more than one; progress among open reads is the latest page by anyone; a page
+    recorded before reads (none on production) joins its recorder's first read; the per-read cap of
+    100 is per reader; the Read by default is "Read by…" (no filter), with "anyone" meaning someone
+    finished it; records and games keep their reading in the edit form, per person, with no per-person
+    display. NULL readers are one "nobody" to the app's checks (`IS`), though SQLite's unique index
+    treats NULLs as distinct and so doesn't hold unattributed open reads to one; nothing in the app
+    opens one.
 
 The honest comparison, since it was asked:
 
