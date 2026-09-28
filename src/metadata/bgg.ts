@@ -9,7 +9,10 @@ import type { Candidate, MetadataProvider } from './provider';
 // The documented root. BGG asks that the www. subdomain not be used, as it can interfere with authorization.
 const API = 'https://boardgamegeek.com/xmlapi2';
 
-/** BGG refused the token: missing, revoked or mistyped. Distinct from throttling, which a retry fixes. */
+/**
+ * BGG refused the token: revoked or mistyped. Only a 401 means that — BGG's Cloudflare edge answers 403 to
+ * requests it wants to challenge, which is BGG not answering, not the token being wrong.
+ */
 export class BggAuthError extends Error {
   constructor(status: number) {
     super(`BoardGameGeek refused the request (HTTP ${status})`);
@@ -24,7 +27,8 @@ const parser = new XMLParser({
 
 async function fetchText(url: string, token: string): Promise<string | null> {
   const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT, Authorization: `Bearer ${token}` } });
-  if (res.status === 401 || res.status === 403) throw new BggAuthError(res.status);
+  if (res.status === 401) throw new BggAuthError(res.status);
+  if (res.status === 403) throw new Error('BoardGameGeek turned the request away (HTTP 403)');
   if (!res.ok) return null; // BGG throttles with 429/202; fail soft, the user can retry
   return res.text();
 }

@@ -61,4 +61,12 @@ describe('BoardGameGeek', () => {
     expect(firstIds(big, 8)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8']);
     expect(firstIds('<items total="0"></items>', 8)).toEqual([]);
   });
+
+  it("reads a 403 from BGG's edge as BGG not answering, not as a bad token", async () => {
+    stubBgg(() => new Response('<html>challenge</html>', { status: 403 }));
+    const result = await searchByName(env('fine-token'), 'Catan', 'boardgame');
+
+    expect(result.notices.join(' ')).toContain('did not answer');
+    expect(result.notices.join(' ')).not.toContain('rejected the BGG_TOKEN');
+  });
 });
