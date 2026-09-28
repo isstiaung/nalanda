@@ -5,7 +5,7 @@
 // The parse functions are the other direction: everything a connection sends is untrusted, checked
 // field by field before it is stored or rendered.
 import { ACTIVITY_KINDS, MEDIA_TYPES, type ActivityKind, type Item, type MediaType } from '../db/schema';
-import { progressPercent } from '../lib/progress';
+import { MAX_PROGRESS_PAGE, progressPercent } from '../lib/progress';
 import { toPublicItem, type PublicItem } from '../lib/share';
 import { MAX_DETAIL_TEXT_CHARS, MAX_FEED_REVIEW_CHARS, MAX_FEED_TEXT_CHARS } from './config';
 
@@ -126,8 +126,11 @@ export function parseFeedItem(value: unknown): FeedItem | null {
   };
 }
 
-/** Beyond any printed book; a larger page is a broken or hostile sender, not a long read. */
-export const MAX_FEED_PAGE = 100_000;
+/**
+ * Beyond any printed book: a larger page is a broken or hostile sender, not a long read. The same bound the
+ * item page enforces when a page is recorded, so nothing is kept here that every connection would drop.
+ */
+export const MAX_FEED_PAGE = MAX_PROGRESS_PAGE;
 
 /**
  * A progress field from a connection: null when absent — a household on an older version sends none, and
