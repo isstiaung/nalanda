@@ -4,6 +4,7 @@ import { and, asc, count, desc, eq, gt, isNotNull, isNull, sql, type SQL } from 
 import { drizzle } from 'drizzle-orm/d1';
 import { listItems } from './queries';
 import * as s from './schema';
+import { ADMIN_NOTIFICATIONS } from './schema';
 import {
   BACKFILL_ENTRIES,
   MAX_FEED_REVIEW_CHARS,
@@ -27,6 +28,8 @@ import type {
   Item,
   ItemStatus,
   MediaType,
+  Notification,
+  NotificationKind,
   OutboxRow,
 } from './schema';
 
@@ -1610,3 +1613,100 @@ export async function federationExport(d1: D1Database): Promise<Record<string, u
   };
 }
 
+// ---------- notifications (§16 #36) ----------
+
+const MAX_NOTIFICATION_TEXT = 200;
+
+export type NewNotification = { kind: NotificationKind; householdName: string; subject?: string | null; href: string };
+
+/**
+ * Records one. Callers do it only once the event has really happened — a repeat of the same message (from a
+ * retry or an outbox pull) must not notify twice, so each call sits behind the check that made the change.
+ */
+export async function notify(d1: D1Database, n: NewNotification): Promise<void> {
+  await db(d1)
+    .insert(s.notifications)
+    .values({
+      kind: n.kind,
+      householdName: n.householdName.slice(0, MAX_NOTIFICATION_TEXT),
+      subject: n.subject ? n.subject.slice(0, MAX_NOTIFICATION_TEXT) : null,
+      href: n.href,
+    });
+}
+
+/** Kinds this person is shown: connection requests and changes only reach admins, who can act on them. */
+const visibleTo = (userId: number) =>
+  sql`((SELECT role FROM users WHERE id = ${userId}) = 'admin'
+       OR ${s.notifications.kind} NOT IN (SELECT value FROM json_each(${JSON.stringify(ADMIN_NOTIFICATIONS)})))`;
+
+/**
+ * Unread notifications and feed entries for one person, in a single query — it runs on every page an
+ * instance with connections renders. Both compare ids against the person's watermarks, so each count is an
+ * index range, not a scan.
+ */
+export async function unreadCounts(d1: D1Database, userId: number): Promise<{ notifications: number; feed: number }> {
+  const row = await d1
+    .prepare(
+      `SELECT
+         (SELECT count(*) FROM notifications n
+            WHERE n.id > coalesce((SELECT notifications_seen_id FROM users WHERE id = ?1), 0)
+              AND ((SELECT role FROM users WHERE id = ?1) = 'admin'
+                   OR n.kind NOT IN (SELECT value FROM json_each(?2)))) AS notifications,
+         (SELECT count(*) FROM remote_activities
+            WHERE id > coalesce((SELECT feed_seen_id FROM users WHERE id = ?1), 0)) AS feed`,
+    )
+    .bind(userId, JSON.stringify(ADMIN_NOTIFICATIONS))
+    .first<{ notifications: number; feed: number }>();
+  return { notifications: row?.notifications ?? 0, feed: row?.feed ?? 0 };
+}
+
+export async function listNotifications(d1: D1Database, userId: number, limit = 100): Promise<Notification[]> {
+  return db(d1).select().from(s.notifications).where(visibleTo(userId)).orderBy(desc(s.notifications.id)).limit(limit);
+}
+
+/** Up to the newest one this person was shown — not "now", so anything that lands meanwhile stays unread. */
+export async function markNotificationsSeen(d1: D1Database, userId: number, upToId: number): Promise<void> {
+  await d1
+    .prepare('UPDATE users SET notifications_seen_id = max(coalesce(notifications_seen_id, 0), ?2) WHERE id = ?1')
+    .bind(userId, upToId)
+    .run();
+}
+
+/**
+ * Marks the feed seen up to the newest entry stored right now, in one statement. The Feed page calls it before
+ * starting its own pull, so entries that pull brings in land above the mark and stay unread until shown.
+ */
+export async function markFeedSeen(d1: D1Database, userId: number): Promise<void> {
+  await d1
+    .prepare(
+      `UPDATE users SET feed_seen_id = max(coalesce(feed_seen_id, 0), (SELECT coalesce(max(id), 0) FROM remote_activities))
+       WHERE id = ?1`,
+    )
+    .bind(userId)
+    .run();
+}
+
+/** Where this person's notifications were read up to, so the page can tell the new ones from the rest. */
+export async function notificationsWatermark(d1: D1Database, userId: number): Promise<number> {
+  const row = await d1.prepare('SELECT coalesce(notifications_seen_id, 0) AS id FROM users WHERE id = ?1').bind(userId).first<{ id: number }>();
+  return row?.id ?? 0;
+}
+
+/** Kept for half a year; they're a prompt to look, not a record — the record is the connection, loan or thread. */
+export async function pruneNotifications(d1: D1Database): Promise<void> {
+  await d1.prepare("DELETE FROM notifications WHERE at < datetime('now', '-180 days')").run();
+}
+
+/** One of their books' titles, as last stored from their feed — what a notification about a thread names. */
+export async function theirItemTitle(d1: D1Database, connectionId: number, itemRemoteId: number, stamp: string): Promise<string | null> {
+  const row = await d1
+    .prepare(
+      `SELECT json_extract(ra.item, '$.title') AS title FROM remote_activities ra
+       JOIN feed_subscriptions fs ON fs.id = ra.subscription_id
+       WHERE fs.connection_id = ?1 AND ra.item_remote_id = ?2 AND ra.item_stamp = ?3
+       ORDER BY ra.id DESC LIMIT 1`,
+    )
+    .bind(connectionId, itemRemoteId, stamp)
+    .first<{ title: string | null }>();
+  return row?.title ?? null;
+}

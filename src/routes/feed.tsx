@@ -12,6 +12,7 @@ import {
   countSubscriptions,
   feedPage,
   getFederationSettings,
+  markFeedSeen,
   recentCommentsOnOurReviews,
   takeRemovedCount,
   type FeedCursor,
@@ -219,6 +220,8 @@ feed.get('/feed', async (c) => {
   const before = parseBefore(c.req.query('before'));
   const firstPage = before === null;
 
+  // Before refreshInBackground starts writing: entries its pull brings in stay unread until a visit shows them.
+  if (firstPage) await markFeedSeen(c.env.DB, user.id);
   const [{ entries, next }, subscriptions, removed] = settings
     ? await Promise.all([
         feedPage(c.env.DB, { before, maxEntries: FEED_PAGE_ENTRIES, maxBytes: FEED_PAGE_BYTES }),

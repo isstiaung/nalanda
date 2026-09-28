@@ -28,6 +28,8 @@ manuscripts.
   self-hosts Nalanda — follow each other's reading in a feed, comment on each other's
   reviews, and borrow each other's books with the loan tracked on both sides. One-to-one
   and invite-only, never a network or the fediverse; off unless you give the instance a key.
+  **Notifications** count connection requests, borrowing and comments, and Feed counts what's
+  new, per person in the household.
 - **Tags, half-star ratings, full-text search** across the collection, plus a quick
   title/author filter inside every shelf and sorting by newest, title, rating, or date
   finished.

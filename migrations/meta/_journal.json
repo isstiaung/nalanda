@@ -113,6 +113,34 @@
       "when": 1790567761706,
       "tag": "0015_progress-activity-trigger",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1790568626300,
+      "tag": "0016_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1790568688233,
+      "tag": "0017_notifications-drop-time-markers",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1790568688906,
+      "tag": "0018_notifications-seen-ids",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1790573813194,
+      "tag": "0019_remote-activities-autoincrement",
+      "breakpoints": true
     }
   ]
 }

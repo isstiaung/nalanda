@@ -394,8 +394,9 @@ describe('borrowing: this household asks', () => {
     const accept = borrowAccept(peer.url, pushes[0]!.id as string, '2026-09-15', null);
     const connection = (await getConnection(env.DB, connectionId))!;
 
-    // Room to find the request, not to write the answer: nothing changes, so a later pull applies it in full.
-    await expect(receiveBorrowing(budgeted(env.DB, { left: 2 }), connection, accept)).rejects.toThrow(BudgetSpent);
+    // Room to find the request, not to write the answer — the write is one batch, one call, so a budget of
+    // one covers the lookup and nothing more. Nothing changes, so a later pull applies it in full.
+    await expect(receiveBorrowing(budgeted(env.DB, { left: 1 }), connection, accept)).rejects.toThrow(BudgetSpent);
     expect(await rows('SELECT status FROM borrow_requests')).toEqual([{ status: 'pending' }]);
     expect(await rows('SELECT * FROM borrowed_items')).toHaveLength(0);
 

@@ -83,6 +83,19 @@ you do.
 - **Stop sharing** removes a view. The next time a household pulls, whatever they stored from
   it is deleted.
 
+## Notifications
+
+**Notifications** in the sidebar lists what happened with your connections: a household asking to
+connect (waiting on your confirmation), accepting or declining yours, disconnecting; someone asking
+to borrow a book, withdrawing, lending you one, declining, or recording a return; a comment on a
+review. The number beside it is how many you haven't seen. Each person in the household has their
+own, and requests to connect only reach admins, who are the ones who can confirm them.
+
+New entries in the feed of a household you follow aren't notified one by one. **Feed** shows how
+many arrived since you last looked instead. On a phone the badge sits in the top bar.
+
+Nothing is sent anywhere: no email, no push. It's a count you see the next time you open Nalanda.
+
 ## Follow a household's feed
 
 **Connections → Feed**, next to a connected household, lists the views they share with how busy

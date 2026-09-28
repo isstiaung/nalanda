@@ -54,8 +54,11 @@ shape from this file.
   Durable Objects) or any AWS service.
 - **10 ms CPU per request**: no server-side image processing; no server-side bulk parsing —
   CSV imports are parsed in the browser and posted as JSON batches; CSV export streams.
-- **50 D1 queries per Worker invocation** on the free plan — each statement in a `batch()`
-  counts, and so does work handed to `waitUntil`, which belongs to the page's invocation.
+- **D1 calls per Worker invocation — design to 50, the real cap is 1,000** (ARCH.md §16 #37).
+  D1's limits page says 50 on the free plan, but measured on this account the runtime allowed
+  exactly 1,000 D1 calls per invocation, and a `batch()` counted as **one** call however many
+  statements it held. Work handed to `waitUntil` belongs to the page's invocation. Keep 50 as
+  the budget — conservative, and possibly what binds elsewhere — but a batch is one call.
   Connections' background work (feed and outbox pulls, push retries) runs through the
   budgeted handle in `src/federation/budget.ts`; tests count queries per page load with it.
 - Password hashing is WebCrypto PBKDF2 only (100k iterations — also workerd's cap). Never
@@ -140,7 +143,8 @@ src/federation/    connections between instances (docs/proposals/connections.md)
                    borrowing.ts, dispatched by directed.ts), the outbox (outbox.ts), public
                    routes. Its D1 queries live in src/db/federation.ts; admin pages in
                    routes/connections, Feed in routes/feed, comments in routes/comments,
-                   shelves/requests/Borrowed and the Loans-page section in routes/borrowing
+                   shelves/requests/Borrowed and the Loans-page section in routes/borrowing,
+                   in-app notifications in routes/notifications (recorded in src/db/federation.ts)
 public/            app.css, scanner.js, import.js, app.js + vendor/ (htmx, zxing, eczar fonts)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;
