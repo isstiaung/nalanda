@@ -236,6 +236,39 @@ describe('connections see the household, never a person', () => {
     expect(await rated()).toEqual(second);
   });
 
+  it('don’t hear an older review as news when a newer one is deleted — it keeps the time it was written', async () => {
+    await createConnectionView(env.DB, { name: 'Everything', libraryId: null, mediaType: null, status: null, owned: null });
+    const asha = await member('asha', 'admin');
+    const ravi = await member('ravi');
+    const item = await book(asha, { rating: 8, review: 'Hers, from 2019.' });
+    await env.DB.prepare("UPDATE reviews SET reviewed_at = '2019-06-01 10:00:00', updated_at = '2019-06-01 10:00:00'").run();
+    const entries = () => rows<{ id: number; kind: string; at: string }>('SELECT id, kind, at FROM activity_log WHERE item_id = ?1 ORDER BY kind', item.id);
+
+    const edit = (fields: Record<string, string>) =>
+      as(ravi, `/items/${item.id}`, { body: { libraryId: String(item.libraryId), title: item.title, mediaType: 'book', status: 'not_started', ...fields } });
+    await edit({ rating: '4', review: 'His, today.' });
+    const his = await entries();
+    expect(his.map((e) => e.kind)).toEqual(['rated', 'reviewed']);
+    for (const e of his) expect(e.at.slice(0, 10)).toBe(new Date().toISOString().slice(0, 10)); // genuinely new: today
+
+    // he clears his: the household shows hers again, and her average — neither is news
+    await edit({ rating: '', review: '' });
+    expect(await summaryOf(item.id)).toMatchObject({ rating: 8, review: 'Hers, from 2019.' });
+    const after = await entries();
+    expect(after).toEqual([
+      { id: expect.any(Number), kind: 'rated', at: '2019-06-01 10:00:00' },
+      { id: expect.any(Number), kind: 'reviewed', at: '2019-06-01 10:00:00' },
+    ]);
+    // new ids all the same, so connections holding his review learn it's gone
+    expect(after.map((e) => e.id).some((id) => his.some((h) => h.id === id))).toBe(false);
+
+    // and deleting from the book's page does the same
+    await edit({ rating: '5', review: 'His again.' });
+    const [review] = (await rows<{ id: number }>('SELECT id FROM reviews WHERE user_id = ?1', ravi.id));
+    await as(asha, `/items/${item.id}/reviews/${review!.id}/delete`, { body: {} });
+    expect((await entries()).map((e) => e.at)).toEqual(['2019-06-01 10:00:00', '2019-06-01 10:00:00']);
+  });
+
   it('record nothing new from an import: a Goodreads rating is dated by its read, or left out', async () => {
     await createConnectionView(env.DB, { name: 'Everything', libraryId: null, mediaType: null, status: null, owned: null });
     const asha = await member('asha', 'admin');

@@ -480,6 +480,7 @@ export async function updateItemWithTags(
     // reads first, as everywhere: a rating given with a finish is dated by it inside an import (§16 #40)
     ...(formReview ? reviewWriteStatements(d1, id, person, formReview, 'replace') : []),
     refreshReviewState(d1, [id]),
+    redateReviewActivity(d1, [id]),
   ]);
 }
 
@@ -1096,6 +1097,26 @@ export function refreshReviewState(d1: D1Database, ids: number[] | 'newest'): D1
   return ids === 'newest' ? stmt : stmt.bind(JSON.stringify(ids));
 }
 
+/**
+ * Dates the household's "reviewed" and "rated" activity by when what they now show was given (§16 #40). When a
+ * member's review or rating goes — deleted, or cleared from the edit form — the one the household shows next is
+ * older, but migration 0021's trigger sees only that the item's review or rating changed, and dates its replacement
+ * now: an old review would reach connections as news. This moves such an entry back to when the review now shown was
+ * written, or the latest rating was given. Never forward, so an entry for something just written keeps its time, and
+ * an import's, dated by its read, keeps that. The entry keeps its new id, so connections still learn their copy is out
+ * of date. Rides in the batch of every write that can remove a review, after refreshReviewState().
+ */
+function redateReviewActivity(d1: D1Database, ids: number[]): D1PreparedStatement {
+  return d1
+    .prepare(
+      `UPDATE activity_log SET at = min(at, coalesce(CASE kind
+         WHEN 'reviewed' THEN (SELECT max(v.reviewed_at) FROM reviews v WHERE v.item_id = activity_log.item_id AND v.review IS NOT NULL)
+         ELSE (SELECT max(v.updated_at) FROM reviews v WHERE v.item_id = activity_log.item_id AND v.rating IS NOT NULL) END, at))
+       WHERE item_id IN (SELECT value FROM json_each(?1)) AND kind IN ('reviewed', 'rated')`,
+    )
+    .bind(JSON.stringify(ids));
+}
+
 /** The item columns for reviews it is inserted with, so its insert trigger sees the rating and review it will have. */
 function withReviewState<T extends NewItem>(values: T, reviews: ReviewDraft[]): T {
   return { ...values, ...summarizeReviews(reviews) };
@@ -1211,6 +1232,7 @@ export async function updateReview(d1: D1Database, itemId: number, reviewId: num
       .prepare(`DELETE FROM reviews WHERE id = ?1 AND item_id = ?2 AND ${allowed('user_id', '?5', '?6')} AND ?3 IS NULL AND ?4 IS NULL`)
       .bind(...binds),
     refreshReviewState(d1, [itemId]),
+    redateReviewActivity(d1, [itemId]),
   ]);
   return (results[0]?.meta.changes ?? 0) + (results[1]?.meta.changes ?? 0) > 0;
 }
@@ -1220,6 +1242,7 @@ export async function deleteReview(d1: D1Database, itemId: number, reviewId: num
   const [deleted] = await d1.batch([
     d1.prepare(`DELETE FROM reviews WHERE id = ?1 AND item_id = ?2 AND ${allowed('user_id', '?3', '?4')}`).bind(reviewId, itemId, ...actorBinds(by)),
     refreshReviewState(d1, [itemId]),
+    redateReviewActivity(d1, [itemId]),
   ]);
   return (deleted?.meta.changes ?? 0) > 0;
 }
