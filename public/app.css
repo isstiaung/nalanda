@@ -568,6 +568,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .props dd .progress-track { flex-basis: 100%; margin: 0.2rem 0 0; }
 .feed-progress { margin-top: 0.3rem; font-size: 12px; }
 .feed-progress li .mono:first-child { min-width: 2.8rem; }
+.feed-progress li .mono:nth-child(2) { min-width: 4rem; } /* so the dates line up whatever the page number */
 
 .circulation { border: 1px solid var(--line); border-left: 3px solid var(--stamp); border-radius: var(--radius); padding: 0.8rem 1rem; margin-top: 1.4rem; background: var(--surface); }
 .circulation.free { border-left-color: var(--line-strong); }
@@ -706,7 +707,9 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .feed-line { margin: 0 0 0.2rem; line-height: 1.35; overflow-wrap: anywhere; }
 .feed-line small { color: var(--ink-2); }
 .feed-review { margin: 0.45rem 0 0; font-size: 13px; overflow-wrap: anywhere; }
-.feed-burst { max-width: 46rem; margin: 0; }
+.feed-burst { max-width: 46rem; margin: 0; border-color: var(--line); } /* framed like the cards around it */
+.feed-burst::after { content: none; }
+.feed-burst summary .mono { font-size: 11.5px; font-weight: 400; color: var(--ink-2); }
 .sub-settings { display: flex; flex-wrap: wrap; gap: 0.35rem 0.6rem; align-items: center; }
 .sub-settings label { display: inline-flex; gap: 0.35rem; align-items: center; margin: 0; font-size: 12.5px; }
 .sub-settings select, .sub-settings input[type='number'] { width: auto; margin: 0; height: 30px; }
@@ -749,7 +752,7 @@ button.comment-delete:hover, button.progress-delete:hover { background: none; co
 /* ── notifications ───────────────────────────────────────────────────────── */
 .notifications { list-style: none; padding: 0; margin: 0 0 1.25rem; display: grid; gap: 0; border-top: 1px solid var(--line); }
 .notifications li { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: 0.6rem 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
-.notifications li a { color: var(--ink); text-decoration: none; }
+.notifications li a { position: relative; padding-left: 1rem; color: var(--ink); text-decoration: none; } /* read and unread text start at one edge */
 .notifications li a:hover { text-decoration: underline; }
-.notifications li.unread a::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 0.5rem; border-radius: 50%; background: var(--accent); vertical-align: 1px; }
+.notifications li.unread a::before { content: ''; position: absolute; left: 0; top: 0.55em; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .notifications li .mono { flex-shrink: 0; font-size: 11.5px; }

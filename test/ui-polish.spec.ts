@@ -3,9 +3,10 @@
 // pin the markup it depends on, so a later edit can't quietly undo it.
 import { env } from 'cloudflare:test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSubscription } from '../src/db/federation';
+import { createSubscription, storeEntries } from '../src/db/federation';
+import type { MediaType } from '../src/db/schema';
 import type { Bindings } from '../src/env';
-import { answerOutbound, connectPeer, instanceA, json, makeKeys, makePeer, sessionCookie, setUpA } from './federation-helpers';
+import { answerOutbound, connectPeer, instanceA, json, makeKeys, makePeer, sessionCookie, setUpA, sqlAgo } from './federation-helpers';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -19,7 +20,51 @@ async function connected() {
   await setUpA();
   const peer = await makePeer('Riverbank library');
   const { id } = await connectPeer(peer);
-  return { a, connectionId: id };
+  return { a, connectionId: id, peer };
+}
+
+/** A followed view of theirs with `count` finished entries, a minute apart and newest `startMinutesAgo` ago. */
+async function followWithEntries(
+  connectionId: number,
+  count: number,
+  opts: { startMinutesAgo?: number; coverKey?: string | null; mediaType?: MediaType } = {},
+) {
+  const sub = await createSubscription(env.DB, {
+    connectionId,
+    viewId: 7,
+    viewName: 'Finished this year',
+    intervalMinutes: 60,
+    retentionDays: 90,
+    maxEntries: 500,
+  });
+  const entries = Array.from({ length: count }, (_, i) => {
+    const item = JSON.stringify({
+      id: 100 + i,
+      mediaType: opts.mediaType ?? 'book',
+      title: `Their book ${i}`,
+      creators: null,
+      published: null,
+      coverKey: opts.coverKey ?? null,
+      rating: null,
+      review: null,
+      reviewTruncated: false,
+      inCollection: true,
+      completedOn: null,
+      stamp: (100 + i).toString(16).padStart(16, 'a'),
+      progress: null,
+    });
+    return {
+      remoteId: i + 1,
+      itemRemoteId: 100 + i,
+      itemStamp: (100 + i).toString(16).padStart(16, 'a'),
+      kind: 'finished' as const,
+      publishedAt: sqlAgo((opts.startMinutesAgo ?? 5) + (count - i)),
+      item,
+      bytes: item.length,
+    };
+  });
+  await storeEntries(env.DB, sub!.id, entries);
+  return sub!;
 }
 
 describe('row actions', () => {
@@ -54,5 +99,28 @@ describe('row actions', () => {
     expect(html).toContain('<th class="hide-sm">Stored</th>');
     expect(html).toContain('<td class="num hide-sm">');
     expect(html).toMatch(/FEED · 0 ENTRIES · [^<]+ STORED/); // the total stays in the head, on every screen
+  });
+});
+
+describe('connections rhythm', () => {
+  it('sets each row’s actions in one flex row, not word-spaced inline forms', async () => {
+    const { a } = await connected();
+    const html = await (await a.get('/connections', await sessionCookie('admin'))).text();
+    expect(html).toMatch(/<td class="actions-cell"><div class="inline-form">(?:(?!<\/td>).)*Disconnect/s);
+  });
+
+  it('frames an import-sized burst with its count and date in mono', async () => {
+    const { a, connectionId } = await connected();
+    await followWithEntries(connectionId, 7);
+    const html = await (await a.get('/feed', await sessionCookie('member'))).text();
+    expect(html).toMatch(/<details class="feed-burst"><summary><strong>Riverbank library<\/strong> <span class="mono">· 7 books · \d{4}-\d{2}-\d{2}<\/span><\/summary>/);
+  });
+
+  it('shows fewer entries than a burst as ordinary cards (negative control)', async () => {
+    const { a, connectionId } = await connected();
+    await followWithEntries(connectionId, 3);
+    const html = await (await a.get('/feed', await sessionCookie('member'))).text();
+    expect(html).not.toContain('feed-burst');
+    expect(html.match(/<article class="feed-card">/g)).toHaveLength(3);
   });
 });

@@ -312,8 +312,11 @@ feed.get('/feed', async (c) => {
             run.length >= BURST_MIN_CARDS ? (
               <details class="feed-burst">
                 <summary>
-                  <strong>{run[0]!.householdName}</strong> · {run.length}{' '}
-                  {run.every((card) => card.item.mediaType === 'book') ? 'books' : 'items'} · {run[0]!.published.slice(0, 10)}
+                  <strong>{run[0]!.householdName}</strong>{' '}
+                  <span class="mono">
+                    · {run.length} {run.every((card) => card.item.mediaType === 'book') ? 'books' : 'items'} ·{' '}
+                    {run[0]!.published.slice(0, 10)}
+                  </span>
                 </summary>
                 <div class="feed">
                   {run.map((card) => (

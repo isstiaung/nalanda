@@ -145,7 +145,10 @@ const ConnectionTable: FC<{
                 </td>
                 <td class="hide-sm mono break-anywhere">{row.baseUrl}</td>
                 <td class="date hide-sm">{since(row).slice(0, 10)}</td>
-                <td class="actions-cell">{actions(row)}</td>
+                <td class="actions-cell">
+                  {/* one flex row, so each pair sits the same 0.5rem apart as on /shares and /loans */}
+                  <div class="inline-form">{actions(row)}</div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -390,7 +393,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
           <>
             <form method="post" action={`/connections/${row.id}/confirm`} class="inline">
               <button type="submit">Confirm</button>
-            </form>{' '}
+            </form>
             <form method="post" action={`/connections/${row.id}/decline`} class="inline">
               <button class="btn-danger" type="submit">
                 Decline
@@ -421,12 +424,12 @@ const ConnectionsPage: FC<PageProps> = (p) => {
             <>
               {usage && usage.entries > 0 ? (
                 <small class="muted">
-                  {usage.entries} stored · {formatBytes(usage.bytes)}{' '}
+                  {usage.entries} stored · {formatBytes(usage.bytes)}
                 </small>
               ) : null}
               <a class="btn" href={`/connections/${row.id}/feed`}>
                 Feed
-              </a>{' '}
+              </a>
               <form
                 method="post"
                 action={`/connections/${row.id}/disconnect`}
@@ -793,16 +796,18 @@ const ConnectionFeedPage: FC<
                     </td>
                     <td class="date hide-sm">{sub.lastPulledAt ? sub.lastPulledAt.slice(0, 16) : 'Not yet'}</td>
                     <td class="actions-cell">
-                      <form method="post" action={`${base}/subscriptions/${sub.id}/purge`} class="inline">
-                        <button class="btn-danger" type="submit">
-                          Purge
-                        </button>
-                      </form>{' '}
-                      <form method="post" action={`${base}/subscriptions/${sub.id}/unfollow`} class="inline">
-                        <button class="btn-danger" type="submit">
-                          Unfollow
-                        </button>
-                      </form>
+                      <div class="inline-form">
+                        <form method="post" action={`${base}/subscriptions/${sub.id}/purge`} class="inline">
+                          <button class="btn-danger" type="submit">
+                            Purge
+                          </button>
+                        </form>
+                        <form method="post" action={`${base}/subscriptions/${sub.id}/unfollow`} class="inline">
+                          <button class="btn-danger" type="submit">
+                            Unfollow
+                          </button>
+                        </form>
+                      </div>
                     </td>
                   </tr>
                 ))}
