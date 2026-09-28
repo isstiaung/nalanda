@@ -545,13 +545,17 @@ export const DETAIL_LABELS: Record<string, string> = {
 
 const isUrl = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\//.test(v);
 
-/** Details values render as text, except URLs (e.g. reviewed_in), which link out. */
-const DetailValue: FC<{ value: unknown }> = ({ value }) => (
+/**
+ * Details values render as text, except URLs (e.g. reviewed_in), which link out — but only for this
+ * household's own details. Another household's are text: a link on a page inside this app carries this
+ * app's trust, and a connection could plant any URL it liked.
+ */
+const DetailValue: FC<{ value: unknown; links: boolean }> = ({ value, links }) => (
   <>
     {(Array.isArray(value) ? value : [value]).map((p, i) => (
       <>
         {i > 0 ? ', ' : ''}
-        {isUrl(p) ? (
+        {links && isUrl(p) ? (
           <a href={p} rel="noopener noreferrer">
             {p.replace(/^https?:\/\//, '')}
           </a>
@@ -563,7 +567,7 @@ const DetailValue: FC<{ value: unknown }> = ({ value }) => (
   </>
 );
 
-export const DetailsList: FC<{ details: Record<string, unknown> }> = ({ details }) => {
+export const DetailsList: FC<{ details: Record<string, unknown>; fromConnection?: boolean }> = ({ details, fromConnection }) => {
   const entries = Object.entries(details).filter(([, v]) => v !== null && v !== undefined && v !== '');
   if (!entries.length) return null;
   return (
@@ -572,7 +576,7 @@ export const DetailsList: FC<{ details: Record<string, unknown> }> = ({ details 
         <>
           <dt>{DETAIL_LABELS[k] ?? k.replaceAll('_', ' ')}</dt>
           <dd>
-            <DetailValue value={v} />
+            <DetailValue value={v} links={!fromConnection} />
           </dd>
         </>
       ))}
