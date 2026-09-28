@@ -314,6 +314,19 @@ describe('borrowing: this household asks', () => {
     expect(await (await a.get(`/households/${connectionId}/views/7`, member)).text()).toContain('Free one');
   });
 
+  it("shows a connection's detail values as text, never as links into their chosen URL", async () => {
+    answerOutbound((req) =>
+      new URL(req.url).pathname === '/federation/item'
+        ? json({ ...detailJson(true), details: { reviewed_in: 'https://evil.example/phish', format: 'Paperback' } })
+        : json({}, 404),
+    );
+    const html = await (await a.get(`/households/${connectionId}/views/7/items/70`, await sessionCookie('member'))).text();
+
+    expect(html).toContain('https://evil.example/phish'); // still shown, as text
+    expect(html).not.toContain('href="https://evil.example');
+    expect(html).toContain('Paperback');
+  });
+
   it('asks to borrow, and follows the answer through to the return', async () => {
     const pushes: Record<string, unknown>[] = [];
     answerOutbound((req) => {

@@ -26,7 +26,7 @@ shape from this file.
   (`drizzle-kit generate --custom`) — Drizzle's DSL can't express them.
 - R2 for cover art. Metadata providers behind `src/metadata/provider.ts`:
   Open Library + Google Books (books, both keyless-capable), BoardGameGeek XML API2 (board
-  games — no barcode lookup, name search only), Discogs (vinyl, **has** barcode search,
+  games — no barcode lookup, name search only, needs `BGG_TOKEN` — BGG went registration-only in 2025), Discogs (vinyl, **has** barcode search,
   needs `DISCOGS_TOKEN`).
 - Styling is the hand-written design system in `public/app.css` — no CSS framework. The
   visual identity is "the manuscript ledger" (ARCH.md §16 #16), grounded in Nalanda's
@@ -182,7 +182,7 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
   `backfill:remote` only.
 - Any destructive remote operation (dropping data, hand-run `wrangler d1 execute --remote`)
   requires a fresh `npm run backup` first.
-- Secrets (`SESSION_SECRET`, `DISCOGS_TOKEN`, optional `GOOGLE_BOOKS_KEY`, optional
+- Secrets (`SESSION_SECRET`, `DISCOGS_TOKEN`, `BGG_TOKEN`, optional `GOOGLE_BOOKS_KEY`, optional
   `HOME_SHARE_TOKEN` — points logged-out `/` at a share page, ARCH.md §16 #21) via
   `wrangler secret put` — never in code, `wrangler.jsonc`, or git. Local values go in
   `.dev.vars` (gitignored; see `.dev.vars.example`).

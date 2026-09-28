@@ -268,7 +268,7 @@ libraries.get('/libraries/:id', async (c) => {
         <form
           method="post"
           action={`/libraries/${id}/delete`}
-          onsubmit={`return confirm('Delete “${lib.name}” and all ${total} items in it? This cannot be undone.')`}
+          data-confirm={`Delete “${lib.name}” and all ${total} items in it? This cannot be undone.`}
         >
           <button type="submit" class="btn-danger">
             Delete shelf

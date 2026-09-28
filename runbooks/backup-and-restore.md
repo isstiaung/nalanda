@@ -39,7 +39,11 @@ FTS index rebuilt to match.
 
 - Run one before anything risky (uncertain migrations, bulk imports, manual SQL).
 - Keep an off-machine copy occasionally — `backups/` is gitignored on purpose.
-- A second, app-agnostic layer: log in → `/import` → *Export everything as CSV*.
+- A second, app-agnostic layer: log in → `/import` → *Export everything as CSV*. It imports
+  back faithfully: `/import` recognizes its own export and restores every column — type,
+  identifiers, dates, rating, tags, copies, details — into the shelf you pick on the form. It
+  doesn't recreate shelves (a whole-catalog export lands on one shelf) and doesn't restore reading
+  progress, so the per-table backup above is still the full restore.
 
 ## Restore
 

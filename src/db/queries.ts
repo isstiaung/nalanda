@@ -37,7 +37,13 @@ export async function listUsers(d1: D1Database): Promise<User[]> {
 }
 
 export async function deleteUser(d1: D1Database, id: number): Promise<void> {
-  await db(d1).delete(s.users).where(eq(s.users.id, id));
+  // items.added_by references users with no ON DELETE action (migration 0000, already applied), so a
+  // member who ever added something couldn't be removed. Their items stay, just unattributed — the item
+  // page already shows nothing for a missing added_by.
+  await d1.batch([
+    d1.prepare('UPDATE items SET added_by = NULL WHERE added_by = ?1').bind(id),
+    d1.prepare('DELETE FROM users WHERE id = ?1').bind(id),
+  ]);
 }
 
 export async function setPassword(
@@ -284,7 +290,7 @@ export async function setItemTags(d1: D1Database, itemId: number, names: string[
   await dbi.batch(
     normalized.map((name) => dbi.insert(s.tags).values({ name }).onConflictDoNothing()) as [never, ...never[]],
   );
-  const tagRows = await dbi.select().from(s.tags).where(inArray(s.tags.name, normalized));
+  const tagRows = await dbi.select().from(s.tags).where(sql`${s.tags.name} IN (SELECT value FROM json_each(${JSON.stringify(normalized)}))`);
   if (tagRows.length) {
     await dbi
       .insert(s.itemTags)
@@ -365,12 +371,35 @@ export async function loanHistory(d1: D1Database, limit = 100): Promise<LoanWith
   return loansJoined(d1, sql`${s.loans.returnedOn} IS NOT NULL`, limit);
 }
 
-export async function activeLoanForItem(d1: D1Database, itemId: number): Promise<Loan | null> {
-  const [l] = await db(d1)
+/** Every open loan of an item, oldest first — an item held in two copies can be out twice. */
+export async function activeLoansForItem(d1: D1Database, itemId: number): Promise<Loan[]> {
+  return db(d1)
     .select()
     .from(s.loans)
-    .where(and(eq(s.loans.itemId, itemId), isNull(s.loans.returnedOn)));
-  return l ?? null;
+    .where(and(eq(s.loans.itemId, itemId), isNull(s.loans.returnedOn)))
+    .orderBy(asc(s.loans.loanedOn), asc(s.loans.id));
+}
+
+/**
+ * Lends a copy only while one is free — copies held above copies out, the rule connections' borrowing
+ * already uses (availability() in src/db/federation.ts). One conditional insert, so two quick submits
+ * can't both take the last copy. False when every copy is out.
+ */
+export async function lendIfFree(
+  d1: D1Database,
+  values: { itemId: number; borrower: string; contact: string | null; dueOn: string | null },
+): Promise<boolean> {
+  const row = await d1
+    .prepare(
+      `INSERT INTO loans (item_id, borrower, contact, due_on)
+       SELECT ?1, ?2, ?3, ?4
+       WHERE (SELECT copies FROM items WHERE id = ?1)
+           > (SELECT count(*) FROM loans WHERE item_id = ?1 AND returned_on IS NULL)
+       RETURNING id`,
+    )
+    .bind(values.itemId, values.borrower, values.contact, values.dueOn)
+    .first<{ id: number }>();
+  return !!row;
 }
 
 export async function activeLoanItemIds(d1: D1Database, itemIds: number[]): Promise<Set<number>> {
@@ -462,7 +491,9 @@ async function linkTags(dbi: ReturnType<typeof db>, pairs: Array<{ itemId: numbe
   await dbi.batch(
     names.map((name) => dbi.insert(s.tags).values({ name }).onConflictDoNothing()) as [never, ...never[]],
   );
-  const tagRows = await dbi.select().from(s.tags).where(inArray(s.tags.name, names));
+  // one JSON parameter however many names: an import batch can carry more distinct tags than D1's
+  // 100 bound parameters, and the items were already committed when this used to throw
+  const tagRows = await dbi.select().from(s.tags).where(sql`${s.tags.name} IN (SELECT value FROM json_each(${JSON.stringify(names)}))`);
   const idByName = new Map(tagRows.map((t) => [t.name, t.id]));
   const links = pairs
     .map((p) => ({ itemId: p.itemId, tagId: idByName.get(p.tag) }))
