@@ -80,6 +80,20 @@ doesn't make a read, and the book's next change of reading then goes by its read
 when nobody is editing, and don't roll the Worker back past it: older code writes status
 directly.
 
+**What 0023 does to your data.** It turns each book's status and dates into reads, and most books
+come out exactly as they were. A few shapes change, all by the same rules imports use:
+
+- A **not-started** book with a **start date** becomes **In progress**: a start date says a read
+  began. One with a **completion date** becomes **Completed**.
+- An **abandoned** book with a Goodreads **Read Count** becomes **Completed**, with that many
+  finished reads beside the stopped one.
+- A Goodreads **Read Count** becomes that many finished reads (at most 100) and leaves the book's
+  details. A count that isn't a whole number (`2.0`, `3abc`, a negative) stays in details as it
+  was, and still shows wherever details show.
+- Pages recorded on a **not-started** book stay unattached until the book is started.
+
+Take a backup first (above), so any of these can be undone by restoring it.
+
 ## Taking your local data to production
 
 Been cataloging against local dev? Your catalog is a real SQLite database under

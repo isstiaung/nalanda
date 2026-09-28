@@ -1003,7 +1003,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     view. Code from before 0023 writes status without reads, so a deploy of it goes out when
     nobody is editing and the Worker isn't rolled back past it (runbooks/deploy.md). Reads are
     household-level like status (§5); per-member reads and per-read ratings or reviews stay
-    out of scope.
+    out of scope. One consequence predates reads and stays: `completed_on` is the last finish, so
+    deleting the latest finish, or adding a past finish newer than the current one, moves it, and
+    0021's trigger announces a "finished" dated by the new date — dated honestly, but announced.
 
 **2026-09-28 — versions and releases:**
 42. **Nalanda is released as SemVer versions, starting at 1.0.0, with notes written for whoever
