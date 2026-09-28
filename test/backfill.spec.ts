@@ -16,6 +16,7 @@ import {
 import { olSearchLean, openLibrary } from '../src/metadata/openlibrary';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import app from '../src/index';
+import { findCover } from '../src/metadata';
 
 beforeEach(() => {
   activateFetchMock();
@@ -337,5 +338,37 @@ describe('Open Library request size', () => {
     await openLibrary.search('Frankenstein');
 
     expect(seen).toContain('isbn');
+  });
+});
+
+describe('an item that only wants a description', () => {
+  // Every description-only item used to run the whole provider chain — about three Google Books calls
+  // each, against a quota of 1,000 a day. It now stops at the first description and skips cover lookups.
+  it('stops at the first description, and never asks a cover-only source', async () => {
+    const asked: string[] = [];
+    const mocked = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      asked.push(new URL(String(input instanceof Request ? input.url : input)).host + new URL(String(input instanceof Request ? input.url : input)).pathname);
+      return mocked(input, init);
+    }) as typeof fetch;
+
+    intercept('https://openlibrary.org', olSearch('9780000000077'), json({ docs: [{ title: 'Covered Already' }] }));
+    intercept(
+      'https://www.googleapis.com',
+      gbSearch('9780000000077'),
+      json({ items: [{ volumeInfo: { title: 'Covered Already', description: 'Long enough to be worth keeping, and then some more.' } }] }),
+    );
+
+    const result = await findCover(
+      env,
+      { barcode: '9780000000077', title: 'Covered Already', mediaType: 'book', wantCover: false },
+      async () => {
+        throw new Error('no cover should be stored for an item that has one');
+      },
+    );
+
+    expect(result?.candidate?.description).toContain('worth keeping');
+    // two requests: Open Library's search, then Google Books — no edition record, iTunes or title passes
+    expect(asked).toEqual(['openlibrary.org/search.json', 'www.googleapis.com/books/v1/volumes']);
   });
 });

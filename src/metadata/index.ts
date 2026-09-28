@@ -78,6 +78,10 @@ export type CoverSubject = {
   title: string;
   creators?: string | null;
   mediaType: MediaType;
+  // False for an item that already has a cover and only wants details. Its search can then stop at the
+  // first description and skip the cover-only lookups — without this, every description-only item ran the
+  // whole chain, about three Google Books calls each against a 1,000-a-day quota.
+  wantCover?: boolean;
 };
 
 export type CoverResult = {
@@ -118,12 +122,16 @@ export async function findCover(
   subject: CoverSubject,
   store: (url: string) => Promise<string | null>,
 ): Promise<CoverResult | null> {
-  const tryStore = async (url: string | null | undefined) => (url ? store(url) : null);
   const { title, creators, mediaType } = subject;
+  const wantCover = subject.wantCover !== false;
+  // nothing is fetched or stored for an item that already has its cover
+  const tryStore = async (url: string | null | undefined) => (url && wantCover ? store(url) : null);
   // Providers are complementary: Open Library's search carries no description, Google Books does,
   // so a later record fills what an earlier one left blank rather than replacing it.
   let details: Candidate | null = null;
   let key: string | null = null;
+  /** Done once there's a description and either a cover or no wish for one. */
+  const satisfied = () => (!!key || !wantCover) && !!details?.description;
 
   const classified = subject.barcode ? classifyBarcode(subject.barcode) : null;
   if (classified?.kind === 'isbn13') {
@@ -138,27 +146,27 @@ export async function findCover(
       details = keep(details, ol);
       key = await tryStore(ol.coverUrl);
     }
-    if (!key) {
+    if (!key && wantCover) {
       const edition = await olEditionCover(isbn).catch(() => null);
       if (edition && titleOk(edition.title)) key = await tryStore(edition.coverUrl);
     }
-    if (!key || !details?.description) {
+    if (!satisfied()) {
       const gb = await googleBooks(env.GOOGLE_BOOKS_KEY).lookupByBarcode(isbn).catch(() => null);
       if (gb && (gb.isbn13 === isbn || gb.isbn10Upc === isbn || titleOk(gb.title))) {
         details = keep(details, gb);
         key ??= await tryStore(gb.coverUrl);
       }
     }
-    if (!key) key = await tryStore(await itunesCoverByIsbn(isbn, title).catch(() => null));
-    if (key && details?.description) return { key, method: 'barcode', candidate: details };
+    if (!key && wantCover) key = await tryStore(await itunesCoverByIsbn(isbn, title).catch(() => null));
+    if (satisfied()) return { key, method: key ? 'barcode' : 'title', candidate: details };
   } else if (classified) {
     if (env.DISCOGS_TOKEN) {
       const release = await discogs(env.DISCOGS_TOKEN).lookupByBarcode(classified.code).catch(() => null);
       details = keep(details, release);
       key = await tryStore(release?.coverUrl);
     }
-    if (!key) key = await tryStore(await caaCoverByBarcode(classified.code).catch(() => null));
-    if (key && details?.description) return { key, method: 'barcode', candidate: details };
+    if (!key && wantCover) key = await tryStore(await caaCoverByBarcode(classified.code).catch(() => null));
+    if (satisfied()) return { key, method: key ? 'barcode' : 'title', candidate: details };
   }
   const method: CoverResult['method'] = key ? 'barcode' : 'title';
 
@@ -177,7 +185,7 @@ export async function findCover(
       if (!candidate) continue;
       details = keep(details, candidate);
       key ??= await tryStore(candidate.coverUrl);
-      if (key && details?.description) break;
+      if (satisfied()) break;
     }
     return key || details ? { key, method: key ? method : 'title', candidate: details } : null;
   };

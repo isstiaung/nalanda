@@ -388,7 +388,7 @@ async function enrich(target, flags) {
     const needsCover = !item.cover_key;
     const result = await M.findCover(
       env,
-      { barcode: item.isbn13 ?? item.isbn10_upc, title: item.title, creators: item.creators, mediaType: item.media_type },
+      { barcode: item.isbn13 ?? item.isbn10_upc, title: item.title, creators: item.creators, mediaType: item.media_type, wantCover: needsCover },
       needsCover ? storeCoverLocally : async () => null,
     );
     const patch = {};
