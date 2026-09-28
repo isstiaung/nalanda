@@ -53,9 +53,7 @@ add.get('/add', async (c) => {
           hx-swap="innerHTML"
         >
           <input name="barcode" placeholder="…or type the barcode digits" inputmode="numeric" />
-          <button type="submit" class="btn">
-            Look up
-          </button>
+          <button type="submit">Look up</button>
         </form>
         <div id="scan-results"></div>
       </section>

@@ -26,6 +26,8 @@
 }
 
 :root {
+  /* native controls (date pickers, checkboxes, file buttons, scrollbars) follow the theme */
+  color-scheme: light;
   /* palette — light: the prepared palm leaf */
   --paper: #f6f2e7;
   --surface: #fdfaf1;
@@ -34,7 +36,7 @@
   --line-strong: #cdc2a6;
   --ink: #221d14;
   --ink-2: #5d564a;
-  --ink-3: #8f8672;
+  --ink-3: #746b58; /* 4.7:1 on paper — it carries 10–11px labels */
   --accent: #35447e;
   --accent-strong: #273766;
   --accent-ink: #fdfaf1;
@@ -56,6 +58,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    color-scheme: dark;
     /* dark: the lamp-lit reading room — warm blacks, pigments glowing */
     --paper: #171310;
     --surface: #1e1915;
@@ -64,7 +67,7 @@
     --line-strong: #463d2e;
     --ink: #ece4d2;
     --ink-2: #ab9f88;
-    --ink-3: #746a55;
+    --ink-3: #8f846d; /* 5.0:1 on paper */
     --accent: #8ba0d9;
     --accent-strong: #a5b7e6;
     --accent-ink: #10141f;
@@ -234,6 +237,9 @@ button[type='submit'], .btn-primary {
   color: var(--accent-ink);
 }
 button[type='submit']:hover, .btn-primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--accent-ink); }
+/* A submit marked .btn is a secondary action: without this, button[type='submit'] outranks .btn and fills it indigo. */
+button.btn { background: var(--surface); border-color: var(--line-strong); color: var(--ink); }
+button.btn:hover { background: var(--surface-2); border-color: var(--line-strong); color: var(--ink); }
 
 .btn-quiet, button.btn-quiet { background: transparent; border-color: transparent; color: var(--ink-2); }
 .btn-quiet:hover { background: var(--surface-2); color: var(--ink); }
@@ -279,8 +285,22 @@ input[type='checkbox'] { width: auto; height: auto; margin: 0 0.4rem 0 0; accent
 input[type='date'] { font-family: var(--mono); font-size: 12px; }
 input[inputmode='numeric'] { font-family: var(--mono); }
 input[type='search'] { font-size: 13px; }
+input[type='file'] { height: auto; padding: 0.25rem; }
+input[type='file']::file-selector-button {
+  font: 600 12.5px var(--sans);
+  height: 24px;
+  padding: 0 0.7rem;
+  margin-right: 0.6rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--ink);
+  cursor: pointer;
+}
 
 .form-card { max-width: 640px; }
+/* a standalone search box (overview, /search) keeps clear of the frame or table below it */
+form[role='search'] { margin-bottom: 1rem; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0 1rem; }
 
 details { border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 0.6rem 0.9rem; margin: 0.75rem 0; background: var(--surface); }
@@ -349,12 +369,13 @@ p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px sol
 .data-table td { padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
 .data-table tbody tr:last-child td { border-bottom: none; }
 .data-table tbody tr:hover { background: var(--accent-tint); }
-.data-table .num, .data-table .date { font-family: var(--mono); font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+.data-table td.num, .data-table td.date { font-family: var(--mono); font-size: 12px; color: var(--ink-2); white-space: nowrap; }
 .data-table .actions-cell { text-align: right; white-space: nowrap; width: 1%; }
 /* row actions stay on one line — the cell is narrow, and a wrapped pair reads as two rows */
 .data-table .actions-cell .inline-form { flex-wrap: nowrap; justify-content: flex-end; }
 /* a share URL is one long unbreakable token; let it fold instead of widening the table */
 .break-anywhere { overflow-wrap: anywhere; }
+.data-table + p { margin-top: 0.75rem; }
 
 /* max-width caps the title column under auto table layout so a long title
    truncates with an ellipsis instead of crowding every other column out */
@@ -382,7 +403,7 @@ p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px sol
   display: inline-block;
   white-space: nowrap;
 }
-.pill.progress { border-color: var(--brass); color: var(--brass); }
+.pill.progress { border-color: var(--brass); color: color-mix(in srgb, var(--brass) 80%, var(--ink)); } /* brass as small text needs a touch of ink to read (4.7:1 on light paper) */
 .pill.done { border-color: var(--accent); color: var(--accent); background: var(--accent-tint); }
 .pill.dropped { color: var(--ink-3); text-decoration: line-through; }
 .pill.lent { border-color: var(--stamp); color: var(--stamp); }
@@ -403,7 +424,7 @@ html[data-hide-cols~="holding"] .col-holding,
 html[data-hide-cols~="tags"] .col-tags,
 html[data-hide-cols~="acc"] .col-acc { display: none; }
 
-.pill-btn { cursor: pointer; }
+.pill-btn { cursor: pointer; height: auto; line-height: inherit; } /* a <button> pill sizes like any other pill, not like a 30px button */
 .pill-btn:hover { border-color: var(--accent); color: var(--accent); }
 .pill.done.pill-btn:hover { border-color: var(--accent-strong); color: var(--accent-strong); }
 
@@ -418,11 +439,12 @@ html[data-hide-cols~="acc"] .col-acc { display: none; }
   padding: 0.12rem 0.55rem;
   margin: 0 0.3rem 0.3rem 0;
   text-decoration: none;
+  white-space: nowrap; /* a two-word tag is one chip, never two lines inside one */
 }
 a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
 .tag-cloud { line-height: 2.1; }
 
-.acc-no { font-family: var(--mono); font-size: 11px; color: var(--ink-3); letter-spacing: 0.04em; }
+.acc-no { font-family: var(--mono); font-size: 11px; color: var(--ink-3); letter-spacing: 0.04em; white-space: nowrap; }
 .rating { color: var(--brass); font-size: 12.5px; letter-spacing: 0.08em; white-space: nowrap; }
 
 /* ── covers & grid view ───────────────────────────────────────────────────── */
@@ -437,7 +459,9 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .item-meta { display: flex; flex-direction: column; line-height: 1.3; }
 .item-meta strong { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .item-meta small { font-size: 11px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.item-meta .mline { display: flex; gap: 0.4rem; align-items: center; margin-top: 0.1rem; }
+.item-meta .mline { display: flex; flex-wrap: wrap; gap: 0.15rem 0.4rem; align-items: center; margin-top: 0.1rem; }
+/* the accession number (or a share card's type) never shrinks to "№ 00…" — a pill wraps below it instead */
+.item-meta .mline > small { flex: none; }
 
 /* ── toolbar / filters / view toggle ──────────────────────────────────────── */
 
@@ -493,7 +517,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   border-radius: var(--radius);
   box-shadow: var(--shadow);
 }
-.filter-menu label { display: flex; align-items: center; gap: 0.45rem; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
+.filter-menu label { display: flex; align-items: center; gap: 0.45rem; margin: 0; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
 .filter-menu input[type='checkbox'] { width: auto; height: auto; margin: 0; accent-color: var(--accent); }
 .toolbar input[type='search'] { width: 190px; margin: 0; height: 30px; font-size: 12.5px; }
 .toolbar .spacer { flex: 1; }
@@ -510,7 +534,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 
 .item-detail { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 1.75rem; align-items: start; }
 .item-detail-cover { position: sticky; top: 1.5rem; }
-.item-detail-cover .cover-img, .item-detail-cover .cover-fallback { border-radius: var(--radius); box-shadow: var(--shadow), 0 0 0 1px var(--line); width: 100%; aspect-ratio: 2 / 3; font-size: 3.5rem; }
+.item-detail-cover .cover-img, .item-detail-cover .cover-fallback { border-radius: var(--radius); box-shadow: var(--shadow), 0 0 0 1px var(--line); width: 100%; aspect-ratio: 2 / 3; font-size: 3.5rem; background: var(--surface-2); }
 .item-detail-body hgroup { margin-bottom: 0.4rem; }
 .item-detail-body hgroup h1 { font-size: 24px; }
 .item-detail-body hgroup p { color: var(--ink-2); font-size: 14px; margin: 0.15rem 0 0; }
@@ -545,6 +569,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .props dd .progress-track { flex-basis: 100%; margin: 0.2rem 0 0; }
 .feed-progress { margin-top: 0.3rem; font-size: 12px; }
 .feed-progress li .mono:first-child { min-width: 2.8rem; }
+.feed-progress li .mono:nth-child(2) { min-width: 4rem; } /* so the dates line up whatever the page number */
 
 .circulation { border: 1px solid var(--line); border-left: 3px solid var(--stamp); border-radius: var(--radius); padding: 0.8rem 1rem; margin-top: 1.4rem; background: var(--surface); }
 .circulation.free { border-left-color: var(--line-strong); }
@@ -565,9 +590,10 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 
 .candidate { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 1rem; padding: 0.9rem; margin: 0.75rem 0; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); }
 .candidate-cover img, .candidate-cover .cover-fallback { width: 84px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: var(--radius-sm); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; justify-content: center; font-size: 1.8rem; background: var(--surface-2); }
-.candidate-body strong { font-size: 14px; }
+.candidate-body strong { font-size: 14px; display: block; } /* its own line, even when no creator line follows */
 .candidate-body small { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.03em; }
-.candidate-save { display: flex; gap: 0.5rem; margin-top: 0.65rem; }
+.candidate-save { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.65rem; }
+#tab-search .inline-form input[type='search'] { flex: 1 1 16rem; }
 .candidate-save select { width: auto; margin: 0; height: 30px; font-size: 12.5px; }
 
 /* ── auth (login / setup / account) ───────────────────────────────────────── */
@@ -591,7 +617,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   border-top: 1px solid var(--line);
 }
 
-.share-shell { max-width: 1020px; margin: 0 auto; padding: 2rem 1.5rem 3rem; }
+.share-shell { max-width: 1020px; margin: 0 auto; padding: 2rem 2rem 3rem; } /* the app's 2rem desktop gutter */
 .share-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--line); padding-bottom: 0.9rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
 .share-head h1 { margin: 0; }
 .share-mark { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-3); }
@@ -601,7 +627,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 
 .details-list { display: grid; grid-template-columns: max-content 1fr; gap: 0.1rem 1rem; font-size: 12.5px; }
 .details-list dt { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); padding-top: 0.15rem; }
-.details-list dd { margin: 0; }
+.details-list dd { margin: 0; font-family: var(--mono); font-size: 12px; } /* catalogue data: ISBNs, ids, formats */
 
 /* ── responsive ───────────────────────────────────────────────────────────── */
 
@@ -613,10 +639,12 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
     width: min(78vw, var(--sidebar-w));
     z-index: 40;
     transform: translateX(-102%);
-    transition: transform 160ms ease;
+    /* closed, it's out of the tab order and the accessibility tree — hidden only once the slide has finished */
+    visibility: hidden;
+    transition: transform 160ms ease, visibility 0s linear 160ms;
     box-shadow: var(--shadow);
   }
-  body.nav-open .sidebar { transform: translateX(0); }
+  body.nav-open .sidebar { transform: translateX(0); visibility: visible; transition: transform 160ms ease, visibility 0s; }
   .mobile-bar {
     display: flex;
     align-items: center;
@@ -629,8 +657,16 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
     z-index: 30;
   }
   .mobile-bar .brand-name { font-size: 14px; }
+  /* A 36px target, pulled left by its own slack so the ☰ ink sits on the 16px gutter with the page title below
+     (the glyph is ~12px wide: (36 − 12) / 2 = 12px of air on each side). */
+  #nav-toggle { font-size: 18px; width: 36px; height: 36px; padding: 0; margin-left: -12px; color: var(--ink); }
+  /* the open drawer dims the page behind it; a tap there closes it (app.js) */
+  body.nav-open::after { content: ''; position: fixed; inset: 0; background: rgba(23, 19, 16, 0.35); z-index: 35; }
   .mobile-bar .mobile-unread { margin-left: auto; text-decoration: none; }
   .content { padding: 1.1rem 1rem 3rem; }
+  /* one phone gutter everywhere: public share pages and the login card sit on the same 16px line as the app */
+  .share-shell { padding: 1.25rem 1rem 3rem; }
+  .auth-shell { padding: 1rem; }
   .item-detail { grid-template-columns: 1fr; }
   .item-detail-cover { position: static; max-width: 190px; }
   .data-table .hide-sm { display: none; }
@@ -638,6 +674,24 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   /* two-column reflow for any stat count (the not-owned stat is conditional) */
   .stat:nth-child(odd) { border-left: none; }
   .stat:nth-child(n + 3) { border-top: 1px solid var(--line); }
+  /* an odd count leaves the last stat alone on its row: let it take the whole row */
+  .stat:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+  /* Row actions stay on screen: the buttons stack and wrap their words instead of pushing the table
+     wider than the phone, and a long share URL keeps a readable column instead of one word per line. */
+  .data-table th, .data-table td { padding-left: 0.45rem; padding-right: 0.45rem; }
+  .data-table .actions-cell { white-space: normal; }
+  .data-table .actions-cell .inline-form { flex-direction: column; align-items: flex-end; }
+  .data-table .actions-cell button,
+  .data-table .actions-cell .btn { white-space: normal; height: auto; min-height: 30px; padding: 0.3rem 0.55rem; line-height: 1.2; text-align: center; }
+  .data-table td:has(> .break-anywhere) { min-width: 7rem; }
+  .data-table .col-type { display: none; }
+  /* the item table still scrolls on a phone (Columns trims it), but a long title no longer hides Status */
+  .cell-title { max-width: 11rem; }
+  .data-table .sub-settings select { max-width: 7.5rem; }
+  .data-table .sub-settings input[type='number'] { width: 4.25rem; }
+  /* columns already hidden on a phone have nothing to toggle */
+  #columns-menu label:has(> [data-col='type'], > [data-col='shelf'], > [data-col='year'], > [data-col='completed'], > [data-col='tags'], > [data-col='acc']) { display: none; }
 }
 
 @media (min-width: 881px) {
@@ -664,12 +718,19 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .feed-line { margin: 0 0 0.2rem; line-height: 1.35; overflow-wrap: anywhere; }
 .feed-line small { color: var(--ink-2); }
 .feed-review { margin: 0.45rem 0 0; font-size: 13px; overflow-wrap: anywhere; }
-.feed-burst { max-width: 46rem; margin: 0; }
+.feed-burst { max-width: 46rem; margin: 0; border-color: var(--line); } /* framed like the cards around it */
+.feed-burst::after { content: none; }
+.feed-burst summary .mono { font-size: 11.5px; font-weight: 400; color: var(--ink-2); }
 .sub-settings { display: flex; flex-wrap: wrap; gap: 0.35rem 0.6rem; align-items: center; }
 .sub-settings label { display: inline-flex; gap: 0.35rem; align-items: center; margin: 0; font-size: 12.5px; }
 .sub-settings select, .sub-settings input[type='number'] { width: auto; margin: 0; height: 30px; }
 .sub-settings input[type='number'] { width: 5.5rem; }
 .view-form select { width: auto; margin: 0; }
+/* a failed pull, under its view's name: its own line, and wide enough not to wrap every two words */
+.pull-error { display: block; margin-top: 0.15rem; line-height: 1.35; }
+@media (min-width: 881px) {
+  .pull-error { min-width: 10rem; }
+}
 .view-form input { flex: 1 1 14rem; }
 
 /* ── connections: comments ────────────────────────────────────────────────── */
@@ -681,6 +742,7 @@ details.thread::after { content: none; }
 .comment { border-left: 2px solid var(--line-strong); padding: 0.05rem 0 0.05rem 0.7rem; margin: 0.45rem 0; }
 .comment-meta { margin: 0; font-size: 11.5px; color: var(--ink-2); }
 .comment-meta .inline { display: inline; margin-left: 0.45rem; }
+.comment-meta .mono { white-space: nowrap; }
 button.comment-delete, button.progress-delete { height: auto; padding: 0; border: none; background: none; font-size: 11.5px; font-weight: 400; color: var(--ink-3); text-decoration: underline; text-underline-offset: 2px; }
 button.comment-delete:hover, button.progress-delete:hover { background: none; color: var(--stamp); }
 .comment .prewrap { margin: 0.15rem 0 0; font-size: 13px; overflow-wrap: anywhere; }
@@ -706,7 +768,7 @@ button.comment-delete:hover, button.progress-delete:hover { background: none; co
 /* ── notifications ───────────────────────────────────────────────────────── */
 .notifications { list-style: none; padding: 0; margin: 0 0 1.25rem; display: grid; gap: 0; border-top: 1px solid var(--line); }
 .notifications li { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: 0.6rem 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
-.notifications li a { color: var(--ink); text-decoration: none; }
+.notifications li a { position: relative; padding-left: 1rem; color: var(--ink); text-decoration: none; } /* read and unread text start at one edge */
 .notifications li a:hover { text-decoration: underline; }
-.notifications li.unread a::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 0.5rem; border-radius: 50%; background: var(--accent); vertical-align: 1px; }
+.notifications li.unread a::before { content: ''; position: absolute; left: 0; top: 0.55em; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .notifications li .mono { flex-shrink: 0; font-size: 11.5px; }

@@ -46,6 +46,8 @@ const Head: FC<{ title: string }> = ({ title }) => (
     />
     <script src="/vendor/htmx.min.js" defer></script>
     <script src="/app.js" defer></script>
+    {/* a cover that fails to load falls back to its media icon — shared with the public share pages */}
+    <script src="/covers.js" defer></script>
   </head>
 );
 
@@ -155,10 +157,14 @@ export const Layout: FC<
           <Sidebar user={user} path={path} libraries={libraries} federation={federation} unread={unread} />
           <div>
             <header class="mobile-bar">
-              <button type="button" id="nav-toggle" class="btn-quiet" aria-label="Menu" aria-controls="sidebar">
+              <button type="button" id="nav-toggle" class="btn-quiet" aria-label="Menu" aria-controls="sidebar" aria-expanded="false">
                 ☰
               </button>
-              <span class="brand-name">Nalanda</span>
+              {/* the wordmark hangs from its headstroke here too — the rule lives in .brand-rule, as in the sidebar */}
+              <div class="mobile-brand">
+                <div class="brand-rule"></div>
+                <div class="brand-name">Nalanda</div>
+              </div>
               {/* the sidebar folds away on a phone, taking its badges with it — so the bar carries the one that matters */}
               {unread.notifications ? (
                 <a href="/notifications" class="nav-unread mobile-unread" aria-label={`${unread.notifications} unread notifications`}>

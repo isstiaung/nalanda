@@ -136,7 +136,14 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] }> = 
     <article class="feed-card">
       <div class="feed-cover">
         {cover ? (
-          <img class="cover-img" src={cover} alt={`Cover of ${item.title}`} loading="lazy" referrerpolicy="no-referrer" />
+          <img
+            class="cover-img"
+            src={cover}
+            alt={`Cover of ${item.title}`}
+            loading="lazy"
+            referrerpolicy="no-referrer"
+            data-fallback={MEDIA_ICON[item.mediaType]}
+          />
         ) : (
           <div class="cover-fallback" aria-hidden="true">
             {MEDIA_ICON[item.mediaType]}
@@ -312,8 +319,11 @@ feed.get('/feed', async (c) => {
             run.length >= BURST_MIN_CARDS ? (
               <details class="feed-burst">
                 <summary>
-                  <strong>{run[0]!.householdName}</strong> · {run.length}{' '}
-                  {run.every((card) => card.item.mediaType === 'book') ? 'books' : 'items'} · {run[0]!.published.slice(0, 10)}
+                  <strong>{run[0]!.householdName}</strong>{' '}
+                  <span class="mono">
+                    · {run.length} {run.every((card) => card.item.mediaType === 'book') ? 'books' : 'items'} ·{' '}
+                    {run[0]!.published.slice(0, 10)}
+                  </span>
                 </summary>
                 <div class="feed">
                   {run.map((card) => (

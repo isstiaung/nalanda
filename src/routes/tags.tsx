@@ -68,9 +68,7 @@ const TagLinks: FC<{ tag: string; links: Share[]; origin: string }> = ({ tag, li
         <option value="rating">By rating</option>
         <option value="added">By date added</option>
       </select>
-      <button type="submit" class="btn">
-        Publish this tag
-      </button>
+      <button type="submit">Publish this tag</button>
     </form>
     <small class="muted">
       A link here shows every item tagged “{tag}”, on any shelf, owned or not. Public pages show only whitelisted

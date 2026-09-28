@@ -62,6 +62,8 @@ const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string }>> = ({ 
       <title>{title}</title>
       <link rel="icon" href="/logo.svg" type="image/svg+xml" />
       <link rel="stylesheet" href="/app.css" />
+      {/* a cover that fails to load falls back to its media icon */}
+      <script src="/covers.js" defer></script>
     </head>
     <body>
       <main class="share-shell">
@@ -86,7 +88,13 @@ const PublicCard: FC<{ item: PublicItem; token: string }> = ({ item, token }) =>
   <a href={`/share/${token}/items/${item.id}`} class="item-card">
     <div class="item-cover">
       {item.coverKey ? (
-        <img class="cover-img" src={`/covers/${item.coverKey}`} alt={`Cover of ${item.title}`} loading="lazy" />
+        <img
+          class="cover-img"
+          src={`/covers/${item.coverKey}`}
+          alt={`Cover of ${item.title}`}
+          loading="lazy"
+          data-fallback={MEDIA_ICON[item.mediaType]}
+        />
       ) : (
         <div class="cover-fallback">{MEDIA_ICON[item.mediaType]}</div>
       )}
@@ -105,6 +113,20 @@ const PublicCard: FC<{ item: PublicItem; token: string }> = ({ item, token }) =>
 
 function renderShare(c: Context<AppEnv>, title: string, shelf: string, body: Child) {
   return c.html(`<!doctype html>${ShareLayout({ title, shelf, children: body })}`);
+}
+
+/**
+ * Any share URL that doesn't resolve — unknown or rotated token, an item outside the view, a mistyped path. One
+ * fixed page for all of them: no share name, no shelf, no title, so it can't confirm what a link was or held.
+ */
+export function shareNotFound(c: Context<AppEnv>) {
+  c.status(404);
+  return renderShare(
+    c,
+    'Link not found',
+    'Link not found',
+    <p class="muted">This link has been changed or removed. Ask whoever sent it for a new one.</p>,
+  );
 }
 
 share.get('/:token', async (c) => {
@@ -140,11 +162,18 @@ share.get('/:token/items/:id', async (c) => {
   const token = c.req.param('token');
   const view = await getShareByToken(c.env.DB, token);
   if (!view) return c.notFound();
-  const item = await getItem(c.env.DB, Number(c.req.param('id')));
-  if (!item) return c.notFound();
-  const [tagMap, settings] = await Promise.all([tagsForItems(c.env.DB, [item.id]), getSiteSettings(c.env.DB)]);
-  const tags = tagMap.get(item.id) ?? [];
-  if (!itemMatchesShare(view, item, tags)) return c.notFound(); // token only unlocks its own view
+  // Past a live token, every answer does the same work — the item, its tags and the settings, all at once —
+  // and only then decides. Stopping early on a missing item made "no such item" measurably faster than "an item
+  // outside this view", so a link's holder could time which ids exist. A non-numeric id looks up 0, which never does.
+  const raw = Number(c.req.param('id'));
+  const id = Number.isSafeInteger(raw) && raw > 0 ? raw : 0;
+  const [item, tagMap, settings] = await Promise.all([
+    getItem(c.env.DB, id),
+    tagsForItems(c.env.DB, [id]),
+    getSiteSettings(c.env.DB),
+  ]);
+  const tags = tagMap.get(id) ?? [];
+  if (!item || !itemMatchesShare(view, item, tags)) return c.notFound(); // token only unlocks its own view
   const pub = toPublicItem(item, { progress: settings.progressOnShares });
 
   return renderShare(
@@ -154,7 +183,7 @@ share.get('/:token/items/:id', async (c) => {
     <article class="item-detail">
       <div class="item-detail-cover">
         {pub.coverKey ? (
-          <img class="cover-img" src={`/covers/${pub.coverKey}`} alt={`Cover of ${pub.title}`} />
+          <img class="cover-img" src={`/covers/${pub.coverKey}`} alt={`Cover of ${pub.title}`} data-fallback={MEDIA_ICON[pub.mediaType]} />
         ) : (
           <div class="cover-fallback">{MEDIA_ICON[pub.mediaType]}</div>
         )}
@@ -252,5 +281,9 @@ share.get('/:token/items/:id', async (c) => {
     </article>,
   );
 });
+
+// Anything else under /share — /share itself, a trailing slash, an extra path segment — is a dead link too. Without
+// this it fell past the public routes into the session middleware and answered with a login redirect.
+share.all('*', (c) => shareNotFound(c));
 
 export default share;

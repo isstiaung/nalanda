@@ -572,7 +572,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     vermilion double rule sits *above* the wordmark, which hangs from it like
     Devanagari letters from their headstroke; नालन्दा appears in the brand sub-line
     and share footer (system Devanagari fonts, graceful fallback). Logo, PWA icons,
-    manifest, and theme-color metas follow the new palette.
+    manifest, and theme-color metas follow the new palette. The faintest ink, `--ink-3`,
+    was deepened to `#746b58` (light) and `#8f846d` (dark) so the 10–11px mono labels it
+    carries clear 4.5:1 on paper.
 17. **Mark: Ratnodadhi in brick.** The logo is Nalanda's nine-storey library tower
     ("Ocean of Jewels") as it stood — red-brick storeys on palm-leaf buff, turmeric
     jewel at the summit, lampblack plinth. Chosen over an indigo-ground version (the

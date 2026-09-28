@@ -136,9 +136,7 @@ shares.get('/shares', async (c) => {
             <input type="checkbox" name="progressOnShares" value="on" checked={settings.progressOnShares} /> Show how far
             through a book you are
           </label>
-          <button type="submit" class="btn">
-            Save
-          </button>
+          <button type="submit">Save</button>
         </form>
         <p class="muted">
           Off by default. When on, a book marked <em>In progress</em> shows its current page and a progress bar on its

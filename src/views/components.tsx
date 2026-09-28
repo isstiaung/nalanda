@@ -148,9 +148,7 @@ export const ReadingProgressSection: FC<{ item: Item; entries: { id: number; pag
           required
         />
         {item.length ? <span class="muted">of {item.length}</span> : null}
-        <button type="submit" class="btn">
-          Record
-        </button>
+        <button type="submit">Record</button>
       </form>
       {error ? <p class="error">{error}</p> : null}
 
@@ -237,7 +235,7 @@ export const Cover: FC<{ coverKey: string | null; title: string; mediaType: Medi
   mediaType,
 }) =>
   coverKey ? (
-    <img class="cover-img" src={`/covers/${coverKey}`} alt={`Cover of ${title}`} loading="lazy" />
+    <img class="cover-img" src={`/covers/${coverKey}`} alt={`Cover of ${title}`} loading="lazy" data-fallback={MEDIA_ICON[mediaType]} />
   ) : (
     <div class="cover-fallback" aria-hidden="true">
       {MEDIA_ICON[mediaType]}
@@ -338,7 +336,7 @@ export const ItemTable: FC<{
             <td>
               <span class="cell-title">
                 {item.coverKey ? (
-                  <img class="thumb" src={`/covers/${item.coverKey}`} alt="" loading="lazy" />
+                  <img class="thumb" src={`/covers/${item.coverKey}`} alt="" loading="lazy" data-fallback={MEDIA_ICON[item.mediaType]} />
                 ) : (
                   <span class="thumb-fallback" aria-hidden="true">
                     {MEDIA_ICON[item.mediaType]}
@@ -561,7 +559,7 @@ export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[] }> =
   <article class="candidate">
     <div class="candidate-cover">
       {candidate.coverUrl ? (
-        <img src={candidate.coverUrl} alt="" loading="lazy" />
+        <img src={candidate.coverUrl} alt="" loading="lazy" data-fallback={MEDIA_ICON[candidate.mediaType]} />
       ) : (
         <div class="cover-fallback">{MEDIA_ICON[candidate.mediaType]}</div>
       )}

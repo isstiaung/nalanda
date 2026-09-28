@@ -108,7 +108,14 @@ function parseShelf(value: unknown): Shelf | null {
 const TheirCover: FC<{ baseUrl: string; coverKey: string | null; title: string; mediaType: ShelfItem['mediaType'] }> = (p) => {
   const url = coverUrl(p.baseUrl, p.coverKey);
   return url ? (
-    <img class="cover-img" src={url} alt={`Cover of ${p.title}`} loading="lazy" referrerpolicy="no-referrer" />
+    <img
+      class="cover-img"
+      src={url}
+      alt={`Cover of ${p.title}`}
+      loading="lazy"
+      referrerpolicy="no-referrer"
+      data-fallback={MEDIA_ICON[p.mediaType]}
+    />
   ) : (
     <div class="cover-fallback" aria-hidden="true">
       {MEDIA_ICON[p.mediaType]}
@@ -116,8 +123,9 @@ const TheirCover: FC<{ baseUrl: string; coverKey: string | null; title: string; 
   );
 };
 
+/** A notice, not an error: a household being offline is ordinary, and vermilion stays for circulation and danger. */
 const Unreachable: FC<{ connection: Connection }> = ({ connection }) => (
-  <p class="muted">Couldn’t reach {connection.householdName} just now. Their library may be offline — try again later.</p>
+  <article class="notice">Couldn’t reach {connection.householdName} just now. Their library may be offline — try again later.</article>
 );
 
 /** The shelves a household shares. */
@@ -175,7 +183,7 @@ borrowing.get('/households/:id/views/:viewId', async (c) => {
           <h1>{shelf?.name ?? connection.householdName}</h1>
           <span class="sub">
             {connection.householdName.toUpperCase()}
-            {shelf ? ` · ${shelf.total} ${shelf.total === 1 ? 'ITEM' : 'ITEMS'}` : ''}
+            {shelf ? ` · ${shelf.total} ${shelf.total === 1 ? 'ITEM' : 'ITEMS'}` : status === 404 ? ' · NO LONGER SHARED' : ' · UNREACHABLE'}
           </span>
         </div>
       </div>
@@ -232,9 +240,15 @@ borrowing.get('/households/:id/views/:viewId/items/:itemId', async (c) => {
       c,
       connection.householdName,
       <>
+        <div class="page-head">
+          <div>
+            <h1>{connection.householdName}</h1>
+            <span class="sub">{status === 404 ? 'NO LONGER SHARED' : 'UNREACHABLE'}</span>
+          </div>
+        </div>
         {status === 404 ? <p class="muted">That book isn’t on a shelf they share any more.</p> : <Unreachable connection={connection} />}
         <p class="back-link">
-          <a href={back}>← back</a>
+          <a href={back}>← back to the shelf</a>
         </p>
       </>,
     );
@@ -537,11 +551,13 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
                     </td>
                     <td class="actions-cell">
                       {r.status === 'pending' ? (
-                        <form method="post" action={`/borrow-requests/${r.id}/withdraw`} class="inline">
-                          <button type="submit" class="btn">
-                            Withdraw
-                          </button>
-                        </form>
+                        <div class="inline-form">
+                          <form method="post" action={`/borrow-requests/${r.id}/withdraw`} class="inline">
+                            <button type="submit" class="btn">
+                              Withdraw
+                            </button>
+                          </form>
+                        </div>
                       ) : null}
                     </td>
                   </tr>
@@ -589,11 +605,13 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
                     <td>{b.householdName}</td>
                     <td class="date">{b.returnedOn}</td>
                     <td class="actions-cell">
-                      <form method="post" action={`/borrowed/${b.id}/remove`} class="inline">
-                        <button type="submit" class="btn">
-                          Remove
-                        </button>
-                      </form>
+                      <div class="inline-form">
+                        <form method="post" action={`/borrowed/${b.id}/remove`} class="inline">
+                          <button type="submit" class="btn">
+                            Remove
+                          </button>
+                        </form>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -683,9 +701,7 @@ export async function loanRequestsSection(c: Context<AppEnv>): Promise<Child | n
                     {free.get(r.item.id) ? (
                       <form method="post" action={`/borrow-requests/${r.id}/accept`} class="inline-form">
                         <input type="date" name="dueOn" aria-label="Due date" />
-                        <button type="submit" class="btn">
-                          Lend
-                        </button>
+                        <button type="submit">Lend</button>
                       </form>
                     ) : (
                       <small class="muted">No copy free</small>

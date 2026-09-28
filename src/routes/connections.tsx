@@ -145,7 +145,10 @@ const ConnectionTable: FC<{
                 </td>
                 <td class="hide-sm mono break-anywhere">{row.baseUrl}</td>
                 <td class="date hide-sm">{since(row).slice(0, 10)}</td>
-                <td class="actions-cell">{actions(row)}</td>
+                <td class="actions-cell">
+                  {/* one flex row, so each pair sits the same 0.5rem apart as on /shares and /loans */}
+                  <div class="inline-form">{actions(row)}</div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -183,9 +186,7 @@ const SharedViews: FC<{ views: PageProps['views']; libraries: Library[]; progres
           <input type="checkbox" name="progressToConnections" value="on" checked={progressToConnections} /> Share reading
           progress
         </label>
-        <button type="submit" class="btn">
-          Save
-        </button>
+        <button type="submit">Save</button>
       </form>
       <p class="muted">
         On by default. Each page you record becomes its own entry in their feed. Turning it off stops new entries and
@@ -298,9 +299,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
             aria-label="Library name"
             required
           />
-          <button type="submit" class="btn">
-            Save
-          </button>
+          <button type="submit">Save</button>
         </form>
         <p class="muted">
           Address: <span class="mono break-anywhere">{p.settings?.baseUrl ?? p.origin}</span>
@@ -390,7 +389,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
           <>
             <form method="post" action={`/connections/${row.id}/confirm`} class="inline">
               <button type="submit">Confirm</button>
-            </form>{' '}
+            </form>
             <form method="post" action={`/connections/${row.id}/decline`} class="inline">
               <button class="btn-danger" type="submit">
                 Decline
@@ -421,12 +420,12 @@ const ConnectionsPage: FC<PageProps> = (p) => {
             <>
               {usage && usage.entries > 0 ? (
                 <small class="muted">
-                  {usage.entries} stored · {formatBytes(usage.bytes)}{' '}
+                  {usage.entries} stored · {formatBytes(usage.bytes)}
                 </small>
               ) : null}
               <a class="btn" href={`/connections/${row.id}/feed`}>
                 Feed
-              </a>{' '}
+              </a>
               <form
                 method="post"
                 action={`/connections/${row.id}/disconnect`}
@@ -755,7 +754,7 @@ const ConnectionFeedPage: FC<
                 <tr>
                   <th>View</th>
                   <th>Settings</th>
-                  <th>Stored</th>
+                  <th class="hide-sm">Stored</th>
                   <th class="hide-sm">Last pulled</th>
                   <th class="actions-cell"></th>
                 </tr>
@@ -771,12 +770,7 @@ const ConnectionFeedPage: FC<
                           <span class="pill ghost">No longer shared</span>
                         </>
                       ) : null}
-                      {sub.lastError ? (
-                        <>
-                          <br />
-                          <small class="muted">{sub.lastError}</small>
-                        </>
-                      ) : null}
+                      {sub.lastError ? <small class="muted pull-error">{sub.lastError}</small> : null}
                     </td>
                     <td>
                       <form method="post" action={`${base}/subscriptions/${sub.id}`} class="sub-settings">
@@ -786,23 +780,25 @@ const ConnectionFeedPage: FC<
                         </button>
                       </form>
                     </td>
-                    <td class="num">
+                    <td class="num hide-sm">
                       {sub.entries}
                       <br />
                       <small class="muted">{formatBytes(sub.bytes)}</small>
                     </td>
                     <td class="date hide-sm">{sub.lastPulledAt ? sub.lastPulledAt.slice(0, 16) : 'Not yet'}</td>
                     <td class="actions-cell">
-                      <form method="post" action={`${base}/subscriptions/${sub.id}/purge`} class="inline">
-                        <button class="btn" type="submit">
-                          Purge
-                        </button>
-                      </form>{' '}
-                      <form method="post" action={`${base}/subscriptions/${sub.id}/unfollow`} class="inline">
-                        <button class="btn-danger" type="submit">
-                          Unfollow
-                        </button>
-                      </form>
+                      <div class="inline-form">
+                        <form method="post" action={`${base}/subscriptions/${sub.id}/purge`} class="inline">
+                          <button class="btn-danger" type="submit">
+                            Purge
+                          </button>
+                        </form>
+                        <form method="post" action={`${base}/subscriptions/${sub.id}/unfollow`} class="inline">
+                          <button class="btn-danger" type="submit">
+                            Unfollow
+                          </button>
+                        </form>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -820,7 +816,7 @@ const ConnectionFeedPage: FC<
       <section class="fed-section">
         <p class="eyebrow">Views they share</p>
         {p.theirViews === null ? (
-          <p class="muted">Couldn’t reach {p.connection.householdName} just now. Try again later.</p>
+          <article class="notice">Couldn’t reach {p.connection.householdName} just now. Try again later.</article>
         ) : p.theirViews.length === 0 ? (
           <p class="muted">{p.connection.householdName} isn’t sharing any views yet.</p>
         ) : (
