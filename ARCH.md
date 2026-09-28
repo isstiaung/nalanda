@@ -67,7 +67,7 @@ Family browsers (phone/laptop)          Share-link visitors (read-only)
         ▼                                         ▼
 Cloudflare Worker — one Hono app (auth'd routes | public share routes)
   • pages & htmx partials (hono/jsx)   • /api/lookup, /api/import (JSON)
-  • session middleware, roles          • CSV export streaming
+  • session middleware, roles          • CSV export, a page a request
         │                  │                        │
         ▼                  ▼                        ▼
        D1 (SQLite)        R2 (cover art)      Metadata APIs (outbound fetch,
@@ -235,7 +235,9 @@ a field it has no value for, and never touches copies or bibliographic metadata)
 unmatched rows insert with `copies = 0` (reading-log entries, §16 #13) unless Goodreads'
 Owned Copies says otherwise. Re-runs are idempotent: previously inserted rows match on
 the next run. A dry-run preview shows mapping + match counts before anything is written.
-Export is the inverse: `GET /export.csv` streams every field back out.
+Export is the inverse: `GET /export.csv` writes every field back out. The Export button
+fetches it a page at a time and joins the pages in the browser, so no request builds more than
+250 items (§16 #38); without a cursor the same route streams everything in one response.
 
 ## 7. Metadata providers
 
@@ -340,7 +342,8 @@ GET  /loans                    out + overdue + history
 GET  /search                   ?q= — FTS5 across title/creators/description/notes
 GET  /tags · GET /tags/:id     browse by tag
 GET  /import                   POST /api/import (JSON batches from client-parsed CSV)
-GET  /export.csv               everything, streaming; ?library=:id to scope
+GET  /export.csv               everything; ?library=:id to scope; ?after=:id for one page of 250
+                               (x-export-next names the next page) — the Export button's way
 GET  /covers/:key              cover art from R2 (public, unguessable, immutable cache)
 
 GET  /settings/users           admin: create/remove members, reissue temp passwords
@@ -433,7 +436,8 @@ Every authenticated page route returns a full document normally and a partial wh
 | External APIs | OL keyless · BGG and Discogs free tokens (Discogs 60/min) · Google free quota | add-time only, single-digit calls |
 
 The **10 ms CPU ceiling** is the one real constraint, and the design bends around it in
-three places: CSV parsing happens in the browser (server just validates JSON batches);
+four places: CSV parsing happens in the browser (server just validates JSON batches);
+CSV export is fetched a page at a time and joined in the browser (§16 #38);
 cover images are stored as-fetched, never resized server-side; password hashing uses
 WebCrypto (native) rather than a JS hashing library. Parsing one BGG XML response with
 `fast-xml-parser` is sub-millisecond — fine. Everything else is I/O. Escape hatch if we
@@ -850,6 +854,21 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     probe was deleted afterwards and never touched Nalanda's data. Designs keep 50 as their
     budget — conservative, and possibly what binds on another account — but a batch is no
     longer counted per statement.
+38. **CSV export is fetched a page at a time, and the browser joins the pages.** The export
+    streamed the whole catalog from one request, and a stream's work all counts against that one
+    invocation's 10 ms of CPU. The pre-deploy review estimated 15–20 ms for production's 1,998
+    items; timing the real `pageItems` and `itemToCsvLine` in V8, on rows heavier than production's,
+    gave 12 ms warm and 20 ms on a cold isolate for 2,000 items, 1.8 and 6 ms for 250. So the
+    Export button asks for `/export.csv?after=<id>`: one page of 250 items a request, the header row
+    on the first page only, and `x-export-next` naming where the next starts until a page comes
+    back short. `public/import.js` joins the pages into one Blob and saves it under the filename
+    the first page names. A page that fails fails the export, and nothing is saved, and a lapsed
+    session can't slip the login page into the file (`redirect: 'error'`, and each page must be
+    `text/csv`). Imports already worked this way round, in 200-row batches. The route without a
+    cursor still streams everything in one response: what the link does without JavaScript, and
+    what a script fetching the URL gets. On a large catalog the runtime can cut that off, and the
+    download then fails rather than stopping short. Workers Paid's 30 s would have made the stream
+    enough on its own, but this app stays on the free plan.
 
 The honest comparison, since it was asked:
 

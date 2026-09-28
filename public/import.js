@@ -174,3 +174,59 @@
     runBtn.disabled = false;
   });
 })();
+
+// CSV export, the same way round: fetch the export a page at a time (/export.csv?after=…), each
+// request well inside the 10 ms CPU cap, and join the pages here into one file. A page that
+// fails fails the export — nothing partial is saved. Without JavaScript the link still
+// downloads, streamed in one request (ARCH.md §16 #38).
+(() => {
+  const link = document.querySelector('a[data-export]');
+  const status = document.getElementById('export-status');
+  if (!link || !status || !window.Blob || !window.URL?.createObjectURL) return;
+  let busy = false;
+
+  link.addEventListener('click', async (event) => {
+    event.preventDefault();
+    if (busy) return;
+    busy = true;
+    link.setAttribute('aria-disabled', 'true');
+    const parts = [];
+    let items = 0;
+    let filename = 'nalanda-export.csv';
+    status.textContent = 'Exporting…';
+    try {
+      const url = new URL(link.href);
+      let after = '0';
+      for (;;) {
+        url.searchParams.set('after', after);
+        // a lapsed session redirects to the login page, which must not end up inside the file
+        const res = await fetch(url, { redirect: 'error', cache: 'no-store' });
+        if (!res.ok) throw new Error(`the server answered ${res.status}`);
+        if (!(res.headers.get('content-type') || '').startsWith('text/csv')) throw new Error('the server sent something other than CSV');
+        if (after === '0') {
+          filename = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')?.[1] || filename;
+        }
+        parts.push(await res.text());
+        items += Number(res.headers.get('x-export-rows') || 0);
+        const next = res.headers.get('x-export-next');
+        if (!next) break;
+        after = next;
+        status.textContent = `Exporting… ${items} items so far`;
+      }
+      const href = URL.createObjectURL(new Blob(parts, { type: 'text/csv;charset=utf-8' }));
+      const save = document.createElement('a');
+      save.href = href;
+      save.download = filename;
+      document.body.append(save);
+      save.click();
+      save.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 60_000);
+      status.textContent = `Exported ${items} ${items === 1 ? 'item' : 'items'} to ${filename}.`;
+    } catch (err) {
+      status.textContent = `Export failed partway (${err instanceof Error ? err.message : 'no answer'}), so nothing was saved. Try again.`;
+    } finally {
+      busy = false;
+      link.removeAttribute('aria-disabled');
+    }
+  });
+})();
