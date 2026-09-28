@@ -441,6 +441,29 @@ describe('a Goodreads row meeting the reads already here', () => {
     expect(await rows('SELECT item_id, status, began_on, ended_on FROM reads ORDER BY id')).toEqual(snapshot);
     expect(snapshot).toHaveLength(4);
   });
+
+  it('leaves updated_at alone on a re-import that changes nothing, and moves it for one that does', async () => {
+    // connections see updated_at: a no-op Goodreads re-import used to bump it on every matched book
+    const shelf = await createLibrary(env.DB, 'Shelf');
+    await createItem(env.DB, { libraryId: shelf.id, title: 'Kindred', creators: 'Octavia Butler', isbn13: '9780807083697' });
+    const row = (rating: number) => ({
+      item: { libraryId: shelf.id, title: 'Kindred', creators: 'Octavia Butler', isbn13: '9780807083697', rating, review: 'Stays with you.' },
+      tags: [],
+      goodreads: g({ dateRead: '2024-03-10', readCount: 1 }),
+    });
+    const withReads = (r: ReturnType<typeof row>) => ({ ...r, reads: apply([], r.goodreads) });
+    await mergeImportItems(env.DB, [withReads(row(8))]);
+    const OLD = '2000-01-01 00:00:00';
+    await env.DB.prepare('UPDATE items SET updated_at = ?1').bind(OLD).run();
+
+    await mergeImportItems(env.DB, [withReads(row(8))]);
+    expect(await rows('SELECT updated_at FROM items')).toEqual([{ updated_at: OLD }]);
+
+    await mergeImportItems(env.DB, [withReads(row(10))]); // a new rating is a real change
+    const [after] = await rows<{ updated_at: string; rating: number }>('SELECT updated_at, rating FROM items');
+    expect(after).toMatchObject({ rating: 10 });
+    expect(after!.updated_at).not.toBe(OLD);
+  });
 });
 
 describe('two rows for the same book in one Goodreads file', () => {

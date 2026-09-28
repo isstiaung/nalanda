@@ -1222,18 +1222,30 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
   if (!dryRun) {
     if (merges.length) {
       const ids = [...new Set(merges.map((m) => m.id))];
+      // A re-import that changes nothing leaves updated_at alone — connections see it. Only books whose reads
+      // changed are touched by the refresh, and a rating, review or notes value is written only when it differs.
+      const touched = ids.filter((id) => work.get(id)?.some((r) => r.changed));
+      const untouched = ids.filter((id) => !touched.includes(id));
+      const merged = { rating: s.items.rating, review: s.items.review, notes: s.items.notes } as const;
       const updates = merges
         .filter((m) => Object.keys(m.set).length)
         .map((m) => {
+          const differs = or(
+            ...Object.entries(m.set).map(([k, v]) => sql`${merged[k as keyof typeof merged]} IS NOT ${v}`),
+          );
           const q = dbi
             .update(s.items)
             .set({ ...m.set, updatedAt: sql`(datetime('now'))` })
-            .where(eq(s.items.id, m.id))
+            .where(and(eq(s.items.id, m.id), differs))
             .toSQL();
           return d1.prepare(q.sql).bind(...q.params);
         });
+      const refreshes = [
+        ...(touched.length ? [refreshReadState(d1, touched, { touch: true })] : []),
+        ...(untouched.length ? [refreshReadState(d1, untouched)] : []),
+      ];
       // reads and their refresh first, so a rating merged in the same batch is dated by the finish it arrived with
-      await d1.batch(asImport(d1, [...writes, refreshReadState(d1, ids, { touch: true }), ...updates]));
+      await d1.batch(asImport(d1, [...writes, ...refreshes, ...updates]));
       const pairs: Array<{ itemId: number; tag: string }> = [];
       for (const m of merges) for (const tag of normalizeTags(m.tags)) pairs.push({ itemId: m.id, tag });
       await linkTags(dbi, pairs);
