@@ -115,10 +115,24 @@ export async function redeemInvite(
   inviteId: number,
   peer: { baseUrl: string; householdName: string; publicKey: string },
   maxConnections: number,
+  notice?: NewNotification,
 ): Promise<Redemption> {
   let inserted: unknown[];
   try {
-    const [insert] = await d1.batch([
+    // The notice goes in too, on the insert's own condition. Recorded after the batch, a failure between
+    // the two left a pending request no admin was told about, and their retry found the invitation used.
+    const notification = notice
+      ? [
+          notifyIfStatement(
+            d1,
+            notice,
+            sql`EXISTS (SELECT 1 FROM connection_invites WHERE id = ${inviteId} AND used_at IS NULL AND expires_at > datetime('now'))
+                AND (SELECT count(*) FROM connections) < ${maxConnections}`,
+          ),
+        ]
+      : [];
+    const results = await d1.batch([
+      ...notification, // first: after the batch's update the invitation no longer reads as redeemable
       d1
         .prepare(
           `INSERT INTO connections (base_url, household_name, public_key, status, invite_id)
@@ -136,7 +150,7 @@ export async function redeemInvite(
         )
         .bind(inviteId),
     ]);
-    inserted = insert?.results ?? [];
+    inserted = results[notification.length]?.results ?? [];
   } catch (err) {
     // Their address is unique: they redeemed another invitation from us meanwhile. Nothing was committed.
     if (String(err).includes('UNIQUE')) return 'already connected';
@@ -198,16 +212,46 @@ export async function deleteConnection(d1: D1Database, id: number): Promise<void
 // ---------- replay protection ----------
 
 /**
- * True the first time an activity id arrives; false on a replay. Each new id also prunes a few entries
- * older than an hour, through the index, so the table stays small without a scan per message.
+ * A connection message from them — ConnectAccept (`activate`), ConnectDecline or Disconnect (`delete`) —
+ * applied with its notification and its replay marker in one batch. The marker used to go in first, alone,
+ * so a failure after it turned every retry away as "already processed" with nothing done: a connection left
+ * waiting on an acceptance that had arrived, or never removed. Now the effect and the notice run only while
+ * the id is unseen, and the marker lands with them or not at all. False when the id was seen already.
+ * Each new id also prunes a few entries older than an hour, through the index, so the table stays small
+ * without a scan per message.
  */
-export async function markActivitySeen(d1: D1Database, activityId: string): Promise<boolean> {
-  const rows = await db(d1)
+export async function applyConnectionMessage(
+  d1: D1Database,
+  activityId: string,
+  connectionId: number,
+  change: 'activate' | 'delete',
+  notice: NewNotification,
+): Promise<boolean> {
+  const dbi = db(d1);
+  const unseen = sql`NOT EXISTS (SELECT 1 FROM federation_seen WHERE activity_id = ${activityId})`;
+  // activation only from waiting on them, so a repeat notifies nothing
+  const target =
+    change === 'activate'
+      ? and(eq(s.connections.id, connectionId), eq(s.connections.status, 'awaiting_them'))
+      : eq(s.connections.id, connectionId);
+  const notification = notifyIf(dbi, notice, sql`${unseen} AND EXISTS (SELECT 1 FROM connections WHERE ${target})`);
+  const marker = dbi
     .insert(s.federationSeen)
     .values({ activityId })
     .onConflictDoNothing()
     .returning({ activityId: s.federationSeen.activityId });
-  if (rows.length !== 1) return false;
+  const [, , marked] =
+    change === 'activate'
+      ? await dbi.batch([
+          notification,
+          dbi
+            .update(s.connections)
+            .set({ status: 'active', confirmedAt: sql`(datetime('now'))` })
+            .where(and(target, unseen)),
+          marker,
+        ])
+      : await dbi.batch([notification, dbi.delete(s.connections).where(and(target, unseen)), marker]);
+  if (marked.length !== 1) return false;
   await d1
     .prepare(
       `DELETE FROM federation_seen WHERE activity_id IN (
@@ -1509,12 +1553,13 @@ export async function acceptOwnRequest(
       .bind(requestId, dueOn),
   ];
   if (notice) {
-    const q = notifyIf(
-      db(d1),
-      notice,
-      sql`EXISTS (SELECT 1 FROM borrow_requests WHERE id = ${requestId} AND incoming = 0 AND status IN ('pending', 'withdrawn'))`,
-    ).toSQL();
-    statements.unshift(d1.prepare(q.sql).bind(...q.params));
+    statements.unshift(
+      notifyIfStatement(
+        d1,
+        notice,
+        sql`EXISTS (SELECT 1 FROM borrow_requests WHERE id = ${requestId} AND incoming = 0 AND status IN ('pending', 'withdrawn'))`,
+      ),
+    );
   }
   const results = await d1.batch<{ id: number }>(statements);
   return results.at(-1)?.results.length === 1;
@@ -1681,6 +1726,12 @@ export async function notify(d1: D1Database, n: NewNotification): Promise<void> 
  * calls, a pull that ran out of queries between them kept the change and lost its notification for good: the
  * replay found the change already made, and notified nothing.
  */
+/** `notifyIf` as a plain D1 statement, for a batch of hand-written SQL. */
+function notifyIfStatement(d1: D1Database, n: NewNotification, condition: SQL): D1PreparedStatement {
+  const q = notifyIf(db(d1), n, condition).toSQL();
+  return d1.prepare(q.sql).bind(...q.params);
+}
+
 function notifyIf(dbi: ReturnType<typeof db>, n: NewNotification, condition: SQL) {
   const v = clipped(n);
   // An insert from a select, not raw SQL: Drizzle's D1 batch can't take a raw statement with parameters. It

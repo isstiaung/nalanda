@@ -74,6 +74,12 @@ const kinds = async () =>
 
 const inbox = (message: unknown, from: Peer = peer) => a.signedPost('/federation/inbox', from, message);
 
+const count = async (query: string, ...params: unknown[]) => (await env.DB.prepare(query).bind(...params).first<{ n: number }>())!.n;
+
+/** Instance A with room for only `left` D1 calls, so a request fails at a chosen point. */
+const withBudget = (left: number) =>
+  instanceA({ ...env, DB: budgeted(env.DB, { left }), FEDERATION_PRIVATE_KEY: keysA.secret } as Bindings);
+
 // ---------- connections ----------
 
 describe('connection events', () => {
@@ -120,6 +126,71 @@ describe('connection events', () => {
     await inbox(inboxMessage('Disconnect', other.url), other);
 
     expect(await kinds()).toEqual(['connection_withdrawn', 'connection_declined', 'disconnected']);
+  });
+
+  it('applies a connection message whole or not at all wherever it fails, so their retry still lands', async () => {
+    // The replay marker once went in first and alone: a failure after it turned every retry away as
+    // "already processed", leaving a connection waiting on an acceptance that had arrived, or never removed.
+    const cases = [
+      { type: 'ConnectAccept', from: 'awaiting_them', done: async () => (await getConnectionByBaseUrl(env.DB, peer.url))?.status === 'active' },
+      { type: 'ConnectDecline', from: 'awaiting_them', done: async () => !(await getConnectionByBaseUrl(env.DB, peer.url)) },
+      { type: 'Disconnect', from: 'active', done: async () => !(await getConnectionByBaseUrl(env.DB, peer.url)) },
+    ] as const;
+    for (const { type, from, done } of cases) {
+      for (let left = 0; ; left++) {
+        expect(left, `${type} never finished`).toBeLessThan(20);
+        await env.DB.batch(['connections', 'federation_seen', 'notifications'].map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
+        await connectPeer(peer, from);
+        const message = inboxMessage(type, peer.url);
+
+        const res = await withBudget(left).signedPost('/federation/inbox', peer, message);
+
+        const seen = await count('SELECT count(*) AS n FROM federation_seen WHERE activity_id = ?1', message.id);
+        const state = { seen, applied: (await done()) ? 1 : 0, notified: await count('SELECT count(*) AS n FROM notifications') };
+        expect(state, `${type}, with room for ${left} queries`).toEqual({ seen, applied: seen, notified: seen });
+        if (res.status === 200) {
+          expect(state, type).toEqual({ seen: 1, applied: 1, notified: 1 });
+          break;
+        }
+        expect(res.status).toBe(500);
+        const retry = await inbox(message);
+        expect(await retry.json(), `${type} retried after failing with room for ${left}`).not.toEqual({ status: 'already processed' });
+        expect(await done()).toBe(true);
+        expect(await count('SELECT count(*) AS n FROM notifications')).toBe(1);
+      }
+    }
+  });
+
+  it('records a redeemed invitation and its notice together, so a retry after a failure gets through', async () => {
+    // Notified after the redemption, a failure between the two left a request no admin was told about, and
+    // their retry was refused because the invitation was already used.
+    const admin = await person('admin');
+    answerOutbound((req) =>
+      req.url === `${peer.url}/.well-known/nalanda`
+        ? json({ protocol: 'nalanda-connections', version: 1, name: peer.name, url: peer.url, publicKey: peer.publicJwk })
+        : new Response('not found', { status: 404 }),
+    );
+    for (let left = 0; ; left++) {
+      expect(left, 'never finished').toBeLessThan(20);
+      await env.DB.batch(['connections', 'connection_invites', 'notifications'].map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
+      const token = newInviteToken();
+      await createInvite(env.DB, { tokenHash: await hashToken(token), createdBy: admin.id, ttlDays: 7 });
+      const request = connectRequest(peer.url, peer.name, peer.publicJwk, token);
+
+      const res = await withBudget(left).signedPost('/federation/connect', peer, request);
+
+      const pending = await count("SELECT count(*) AS n FROM connections WHERE status = 'awaiting_us'");
+      const used = await count('SELECT count(*) AS n FROM connection_invites WHERE used_at IS NOT NULL');
+      const notified = await count('SELECT count(*) AS n FROM notifications');
+      expect({ used, notified }, `with room for ${left} queries`).toEqual({ used: pending, notified: pending });
+      if (res.status === 202) {
+        expect(pending).toBe(1);
+        break;
+      }
+      expect(res.status).toBe(500);
+      expect((await a.signedPost('/federation/connect', peer, request)).status, `retried after failing with room for ${left}`).toBe(202);
+      expect(await kinds()).toEqual(['connection_request']);
+    }
   });
 });
 
@@ -184,8 +255,6 @@ describe('borrowing and comment events', () => {
       { message: borrowAccept(peer.url, 'urn:uuid:ours-accepted', '2026-09-15', null), kind: 'borrow_accepted', applied: "SELECT count(*) AS n FROM borrow_requests WHERE status = 'accepted'" },
       { message: returned, kind: 'returned', applied: 'SELECT count(*) AS n FROM borrowed_items WHERE returned_on IS NOT NULL' },
     ];
-    const n = async (query: string, ...params: unknown[]) => (await env.DB.prepare(query).bind(...params).first<{ n: number }>())!.n;
-
     for (const { message, kind, applied } of cases) {
       for (let left = 0; ; left++) {
         expect(left, `${kind} never finished`).toBeLessThan(20);
@@ -194,7 +263,7 @@ describe('borrowing and comment events', () => {
           return null;
         });
         // wherever it stopped, the change and its notification are both there or both missing
-        const now = { applied: await n(applied), notified: await n('SELECT count(*) AS n FROM notifications WHERE kind = ?1', kind) };
+        const now = { applied: await count(applied), notified: await count('SELECT count(*) AS n FROM notifications WHERE kind = ?1', kind) };
         expect(now.notified, `${kind}, with room for ${left} queries`).toBe(now.applied);
         if (outcome) {
           expect(outcome.status, kind).toBe(200);

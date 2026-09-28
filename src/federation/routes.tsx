@@ -4,21 +4,18 @@
 // a household name to have been saved.
 import { Hono, type Context } from 'hono';
 import {
-  activateConnection,
-  notify,
   activityInView,
+  applyConnectionMessage,
   availability,
   countConnections,
   countItemsInView,
   countPush,
-  deleteConnection,
   findRedeemableInvite,
   getConnectionByBaseUrl,
   getConnectionView,
   getFederationSettings,
   itemMatchesView,
   listConnectionViews,
-  markActivitySeen,
   outboxAfter,
   outboxHead,
   redeemInvite,
@@ -27,7 +24,7 @@ import {
   viewVolume,
 } from '../db/federation';
 import { getItem, tagsForItem } from '../db/queries';
-import type { Connection } from '../db/schema';
+import type { Connection, NotificationKind } from '../db/schema';
 import type { AppEnv } from '../env';
 import { page } from '../views/layout';
 import {
@@ -151,11 +148,11 @@ federation.post('/federation/connect', async (c) => {
     invite.id,
     { baseUrl: request.actor, householdName: descriptor.name, publicKey: JSON.stringify(descriptor.publicKey) },
     MAX_ACTIVE_CONNECTIONS,
+    // the one that needs someone here to act: they're waiting on a confirmation from us
+    { kind: 'connection_request', householdName: descriptor.name, href: '/connections' },
   );
   switch (outcome) {
     case 'pending':
-      // the one that needs someone here to act: they're waiting on a confirmation from us
-      await notify(c.env.DB, { kind: 'connection_request', householdName: descriptor.name, href: '/connections' });
       return c.json({ status: 'pending' }, 202);
     case 'invitation gone':
       return c.json({ error: 'invitation not found' }, 404);
@@ -421,36 +418,31 @@ federation.post('/federation/inbox', async (c) => {
     const outcome = await receiveDirected(c.env.DB, settings, connection, message);
     return c.json(outcome.body, outcome.status);
   }
-  if (!(await markActivitySeen(c.env.DB, message.id))) return c.json({ status: 'already processed' });
-
   forgetPeer(connection.baseUrl);
-  // markActivitySeen above has already turned away a repeat of this message, so each notifies once.
+  // The effect, its notification and the replay marker land together, so a repeat of this message changes
+  // nothing and notifies nothing, and a failure part way leaves the message new for their retry.
   const who = connection.householdName;
+  const apply = (change: 'activate' | 'delete', kind: NotificationKind) =>
+    applyConnectionMessage(c.env.DB, message.id, connection.id, change, { kind, householdName: who, href: '/connections' });
   switch (message.type) {
     case 'ConnectAccept':
-      if (await activateConnection(c.env.DB, connection.id, 'awaiting_them')) {
-        await notify(c.env.DB, { kind: 'connection_accepted', householdName: who, href: '/connections' });
-      }
+      if (!(await apply('activate', 'connection_accepted'))) return c.json({ status: 'already processed' });
       return c.json({ status: 'active' });
     case 'ConnectDecline':
-      await deleteConnection(c.env.DB, connection.id);
-      await notify(c.env.DB, { kind: 'connection_declined', householdName: who, href: '/connections' });
+      if (!(await apply('delete', 'connection_declined'))) return c.json({ status: 'already processed' });
       return c.json({ status: 'declined' });
-    case 'Disconnect':
-      await deleteConnection(c.env.DB, connection.id);
+    case 'Disconnect': {
       // What a Disconnect means depends on where it found us: a household still waiting on us takes back its
       // request; one we asked, that never confirmed, has in effect declined; only an active one disconnects.
-      await notify(c.env.DB, {
-        kind:
-          connection.status === 'awaiting_us'
-            ? 'connection_withdrawn'
-            : connection.status === 'awaiting_them'
-              ? 'connection_declined'
-              : 'disconnected',
-        householdName: who,
-        href: '/connections',
-      });
+      const kind =
+        connection.status === 'awaiting_us'
+          ? 'connection_withdrawn'
+          : connection.status === 'awaiting_them'
+            ? 'connection_declined'
+            : 'disconnected';
+      if (!(await apply('delete', kind))) return c.json({ status: 'already processed' });
       return c.json({ status: 'disconnected' });
+    }
   }
 });
 

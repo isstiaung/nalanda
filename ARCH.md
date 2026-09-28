@@ -821,11 +821,16 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     notifications cover the discrete events someone may need to act on or would want to know:
     connection requested, accepted, declined, withdrawn, disconnected; a borrow requested,
     withdrawn, accepted, declined, returned; a comment. Each is recorded behind the check that
-    proved the event happened — `markActivitySeen`, `setRequestStatus`'s return, `insertComment`'s
-    conflict — so a message replayed from an outbox notifies once. And each is written in the same
-    batch as its change, on the change's own precondition (`notifyIf`): as two calls, an outbox pull
-    that ran out of budget between them kept the change, and the replay — seeing it made — skipped
-    the message, so its notification never came. Names and titles are copied in,
+    proved the event happened — the `federation_seen` replay marker, `setRequestStatus`'s return,
+    `insertComment`'s conflict — so a message replayed from an outbox notifies once. And each is
+    written in the same batch as its change, on the change's own precondition (`notifyIf`): as two
+    calls, an outbox pull that ran out of budget between them kept the change, and the replay —
+    seeing it made — skipped the message, so its notification never came. The same failure hit
+    whatever went before its effect: a connection message's replay marker was written first and
+    alone, so a failure after it turned the retry away as "already processed" with nothing done,
+    and a redeemed invitation that failed to notify left a request no admin was told about. The
+    marker, the effect and the notice are now one batch (`applyConnectionMessage`, `redeemInvite`).
+    Names and titles are copied in,
     so a notification still reads after a disconnect, and render as escaped text; `href` is always
     built here. Connection kinds reach admins only, since only admins can act on them. Feed activity
     is counted, not notified — a notification per progress update would bury everything else.
