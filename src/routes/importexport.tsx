@@ -8,8 +8,8 @@ import {
   mergeImportItems,
   nextBackfillable,
   pageItems,
-  progressForItems,
-  tagsForItems,
+  progressForIdRange,
+  tagsForIdRange,
   updateItem,
 } from '../db/queries';
 import type { AppEnv } from '../env';
@@ -285,8 +285,8 @@ importexport.get('/export.csv', async (c) => {
         for (let offset = 0; ; offset += PAGE) {
           const items = await pageItems(d1, { libraryId: scope, offset, limit: PAGE });
           if (!items.length) break;
-          const ids = items.map((i) => i.id);
-          const [tagMap, progressMap] = await Promise.all([tagsForItems(d1, ids), progressForItems(d1, ids)]);
+          const [from, to] = [items[0]!.id, items.at(-1)!.id];
+          const [tagMap, progressMap] = await Promise.all([tagsForIdRange(d1, from, to), progressForIdRange(d1, from, to)]);
           let chunk = '';
           for (const item of items) {
             chunk += itemToCsvLine(item, libNames.get(item.libraryId) ?? '', tagMap.get(item.id) ?? [], progressMap.get(item.id) ?? []);

@@ -10,7 +10,7 @@ import {
   deleteProgress,
   getItem,
   listProgress,
-  progressForItems,
+  progressForIdRange,
 } from '../src/db/queries';
 import { progressHistoryCell } from '../src/lib/csv';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
@@ -213,10 +213,10 @@ describe('export', () => {
     await addProgress(env.DB, one.id, 124, null);
     await addProgress(env.DB, two.id, 12, null);
 
-    const map = await progressForItems(env.DB, [one.id, two.id]);
+    const map = await progressForIdRange(env.DB, one.id, two.id);
 
     expect(map.get(one.id)?.map((e) => e.page)).toEqual([36, 124]);
     expect(map.get(two.id)?.map((e) => e.page)).toEqual([12]);
-    expect(await progressForItems(env.DB, [])).toEqual(new Map());
+    expect((await progressForIdRange(env.DB, two.id + 1, two.id + 50)).size).toBe(0);
   });
 });

@@ -1,5 +1,5 @@
 // All D1 access lives here (plus src/lib/covers.ts for R2) — ARCH.md §13.
-import { and, asc, count, desc, eq, gt, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import * as s from './schema';
 import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, Share, User } from './schema';
@@ -303,14 +303,32 @@ export async function tagsForItem(d1: D1Database, itemId: number): Promise<strin
   return rows.map((r) => r.name);
 }
 
+/**
+ * D1 binds at most 100 parameters per statement, and an `IN (…)` over a long id list is a statement
+ * with one parameter per id. Unchunked, the export's 500-id pages threw "too many SQL variables"
+ * inside waitUntil and the download came back as a header row and nothing else.
+ */
+const MAX_IDS_PER_STATEMENT = 90;
+function chunked<T>(list: T[]): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += MAX_IDS_PER_STATEMENT) out.push(list.slice(i, i + MAX_IDS_PER_STATEMENT));
+  return out;
+}
+
 export async function tagsForItems(d1: D1Database, itemIds: number[]): Promise<Map<number, string[]>> {
   const result = new Map<number, string[]>();
   if (!itemIds.length) return result;
-  const rows = await db(d1)
-    .select({ itemId: s.itemTags.itemId, name: s.tags.name })
-    .from(s.itemTags)
-    .innerJoin(s.tags, eq(s.itemTags.tagId, s.tags.id))
-    .where(inArray(s.itemTags.itemId, itemIds));
+  const rows = (
+    await Promise.all(
+      chunked(itemIds).map((ids) =>
+        db(d1)
+          .select({ itemId: s.itemTags.itemId, name: s.tags.name })
+          .from(s.itemTags)
+          .innerJoin(s.tags, eq(s.itemTags.tagId, s.tags.id))
+          .where(inArray(s.itemTags.itemId, ids)),
+      ),
+    )
+  ).flat();
   for (const r of rows) {
     const list = result.get(r.itemId) ?? [];
     list.push(r.name);
@@ -375,10 +393,16 @@ export async function activeLoanForItem(d1: D1Database, itemId: number): Promise
 
 export async function activeLoanItemIds(d1: D1Database, itemIds: number[]): Promise<Set<number>> {
   if (!itemIds.length) return new Set();
-  const rows = await db(d1)
-    .select({ itemId: s.loans.itemId })
-    .from(s.loans)
-    .where(and(inArray(s.loans.itemId, itemIds), isNull(s.loans.returnedOn)));
+  const rows = (
+    await Promise.all(
+      chunked(itemIds).map((ids) =>
+        db(d1)
+          .select({ itemId: s.loans.itemId })
+          .from(s.loans)
+          .where(and(inArray(s.loans.itemId, ids), isNull(s.loans.returnedOn))),
+      ),
+    )
+  ).flat();
   return new Set(rows.map((r) => r.itemId));
 }
 
@@ -417,6 +441,28 @@ export async function pageItems(
     .orderBy(asc(s.items.id))
     .limit(opts.limit)
     .offset(opts.offset);
+}
+
+/**
+ * Tags for every item whose id lies in [fromId, toId]. The export pages through items in id order,
+ * so a page is one contiguous id range: one query with two parameters, however large the page,
+ * where an IN list would need one parameter per id and, chunked, one query per 90 ids against
+ * the 50-query budget. Items outside the page's library filter can come back too; callers look up
+ * the ids they have, so those are simply never read.
+ */
+export async function tagsForIdRange(d1: D1Database, fromId: number, toId: number): Promise<Map<number, string[]>> {
+  const result = new Map<number, string[]>();
+  const rows = await db(d1)
+    .select({ itemId: s.itemTags.itemId, name: s.tags.name })
+    .from(s.itemTags)
+    .innerJoin(s.tags, eq(s.itemTags.tagId, s.tags.id))
+    .where(and(gte(s.itemTags.itemId, fromId), lte(s.itemTags.itemId, toId)));
+  for (const r of rows) {
+    const list = result.get(r.itemId) ?? [];
+    list.push(r.name);
+    result.set(r.itemId, list);
+  }
+  return result;
 }
 
 // ---------- reading progress ----------
@@ -472,30 +518,26 @@ export async function deleteProgress(d1: D1Database, itemId: number, entryId: nu
 }
 
 /**
- * Progress history for a page of items, for the CSV export. Ids are chunked because D1 allows 100
- * bound parameters per statement — the cap that broke the tag page when it passed a few hundred.
+ * Progress history for every item whose id lies in [fromId, toId] — the export's pages are contiguous
+ * in id order, so one query covers a page (see tagsForIdRange for why not an IN list).
  */
-export async function progressForItems(d1: D1Database, itemIds: number[]): Promise<Map<number, ProgressEntry[]>> {
+export async function progressForIdRange(d1: D1Database, fromId: number, toId: number): Promise<Map<number, ProgressEntry[]>> {
   const result = new Map<number, ProgressEntry[]>();
-  if (!itemIds.length) return result;
-  const CHUNK = 90;
-  for (let i = 0; i < itemIds.length; i += CHUNK) {
-    const rows = await db(d1)
-      .select({
-        itemId: s.readingProgress.itemId,
-        id: s.readingProgress.id,
-        page: s.readingProgress.page,
-        at: s.readingProgress.at,
-        addedBy: s.readingProgress.addedBy,
-      })
-      .from(s.readingProgress)
-      .where(inArray(s.readingProgress.itemId, itemIds.slice(i, i + CHUNK)))
-      .orderBy(asc(s.readingProgress.at), asc(s.readingProgress.id));
-    for (const r of rows) {
-      const list = result.get(r.itemId) ?? [];
-      list.push({ id: r.id, page: r.page, at: r.at, addedBy: r.addedBy });
-      result.set(r.itemId, list);
-    }
+  const rows = await db(d1)
+    .select({
+      itemId: s.readingProgress.itemId,
+      id: s.readingProgress.id,
+      page: s.readingProgress.page,
+      at: s.readingProgress.at,
+      addedBy: s.readingProgress.addedBy,
+    })
+    .from(s.readingProgress)
+    .where(and(gte(s.readingProgress.itemId, fromId), lte(s.readingProgress.itemId, toId)))
+    .orderBy(asc(s.readingProgress.at), asc(s.readingProgress.id));
+  for (const r of rows) {
+    const list = result.get(r.itemId) ?? [];
+    list.push({ id: r.id, page: r.page, at: r.at, addedBy: r.addedBy });
+    result.set(r.itemId, list);
   }
   return result;
 }
