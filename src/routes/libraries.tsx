@@ -8,9 +8,11 @@ import {
   deleteLibrary,
   getLibrary,
   listItems,
+  listPeople,
   listShares,
   renameLibrary,
   tagsForItems,
+  type ReaderFilter,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { deleteCover } from '../lib/covers';
@@ -49,6 +51,48 @@ const FilterMenu: FC<{
   </details>
 );
 
+/**
+ * The "Read by" filter's value (ARCH.md §16 #43): `me`, `not-me`, `anyone`, or a member's id — finished by them — and
+ * `now-me`, `now-anyone` or `now-<id>` — being read by them now. Anything else, or a member who isn't one, is no
+ * filter. Never publishable: it isn't in ItemFilters, and a share or connection view has nowhere to hold it.
+ */
+export function parseReadBy(raw: string | undefined, me: number, people: Array<{ id: number }>): ReaderFilter | undefined {
+  const m = /^(now-)?(me|not-me|anyone|\d{1,15})$/.exec(raw ?? '');
+  if (!m) return undefined;
+  const mode = m[1] ? 'reading' : m[2] === 'not-me' ? 'unfinished' : 'finished';
+  if (m[1] && m[2] === 'not-me') return undefined;
+  if (m[2] === 'anyone') return { readerId: null, mode };
+  if (m[2] === 'me' || m[2] === 'not-me') return { readerId: me, mode };
+  const id = Number(m[2]);
+  return people.some((p) => p.id === id) ? { readerId: id, mode } : undefined;
+}
+
+/** The Read by select — shown once the household has more than one member; one person's shelf is already theirs. */
+export const ReadByMenu: FC<{ value: string; me: number; people: Array<{ id: number; username: string }> }> = ({ value, me, people }) => {
+  const others = people.filter((p) => p.id !== me);
+  const option = (v: string, text: string) => (
+    <option value={v} selected={value === v}>
+      {text}
+    </option>
+  );
+  return (
+    <select name="readBy" aria-label="Read by">
+      {option('', 'Read by…')}
+      <optgroup label="Finished by">
+        {option('me', 'Read by me')}
+        {option('not-me', 'Not read by me')}
+        {others.map((p) => option(String(p.id), `Read by ${p.username}`))}
+        {option('anyone', 'Read by anyone')}
+      </optgroup>
+      <optgroup label="Reading now">
+        {option('now-me', 'Being read by me')}
+        {others.map((p) => option(`now-${p.id}`, `Being read by ${p.username}`))}
+        {option('now-anyone', 'Being read by anyone')}
+      </optgroup>
+    </select>
+  );
+};
+
 const libraries = new Hono<AppEnv>();
 
 libraries.post('/libraries', async (c) => {
@@ -76,21 +120,30 @@ libraries.get('/libraries/:id', async (c) => {
   const ownedSel = [...new Set(c.req.queries('owned') ?? [])].filter((v) => v === '1' || v === '0');
   const owned = ownedSel.length === 1 ? ownedSel[0] === '1' : undefined;
   const name = (c.req.query('q') ?? '').trim() || undefined;
+  const user = c.get('user');
+  const people = await listPeople(c.env.DB);
+  const reader = parseReadBy(c.req.query('readBy'), user.id, people);
+  const readBy = reader ? (c.req.query('readBy') ?? '') : '';
   const sortQ = c.req.query('sort');
   const sort = sortQ === 'title' || sortQ === 'rating' || sortQ === 'completed' ? sortQ : 'added';
   const view = c.req.query('view') === 'grid' ? 'grid' : 'table';
   const pageNum = Number.parseInt(c.req.query('page') ?? '1', 10) || 1;
 
   // No filter at all, and nothing found: the shelf itself is empty, and the filters have nothing to work on.
-  const filtered = mediaTypes.length > 0 || statuses.length > 0 || owned !== undefined || name !== undefined;
-  const { items, total, page: current, pages } = await listItems(c.env.DB, id, {
-    mediaTypes,
-    statuses,
-    owned,
-    q: name,
-    sort,
-    page: pageNum,
-  });
+  const filtered = mediaTypes.length > 0 || statuses.length > 0 || owned !== undefined || name !== undefined || !!reader;
+  const { items, total, page: current, pages } = await listItems(
+    c.env.DB,
+    id,
+    {
+      mediaTypes,
+      statuses,
+      owned,
+      q: name,
+      sort,
+      page: pageNum,
+    },
+    reader,
+  );
   const ids = items.map((i) => i.id);
   const [onLoanIds, tagsMap] = await Promise.all([
     activeLoanItemIds(c.env.DB, ids),
@@ -103,6 +156,7 @@ libraries.get('/libraries/:id', async (c) => {
     for (const st of statuses) params.append('status', st);
     for (const o of ownedSel) params.append('owned', o);
     if (name) params.set('q', name);
+    if (readBy) params.set('readBy', readBy);
     if (sort !== 'added') params.set('sort', sort);
     if (v !== 'table') params.set('view', v);
     if (p > 1) params.set('page', String(p));
@@ -110,7 +164,6 @@ libraries.get('/libraries/:id', async (c) => {
     return `/libraries/${id}${qs ? `?${qs}` : ''}`;
   };
 
-  const user = c.get('user');
   const shares = user.role === 'admin' ? await listShares(c.env.DB, id) : [];
   const origin = new URL(c.req.url).origin;
 
@@ -159,6 +212,7 @@ libraries.get('/libraries/:id', async (c) => {
             ]}
             selected={ownedSel}
           />
+          {people.length > 1 || reader ? <ReadByMenu value={readBy} me={user.id} people={people} /> : null}
           <select name="sort" aria-label="Sort">
             <option value="added" selected={sort === 'added'}>
               Newest first
@@ -263,7 +317,9 @@ libraries.get('/libraries/:id', async (c) => {
               .
               {mediaTypes.length > 1 || statuses.length > 1
                 ? ' Share links hold one value per filter, so a multi-selection publishes as "all".'
-                : ''}{' '}
+                : ''}
+              {/* who read what is never published (§16 #43): the form above has no field for it */}
+              {reader ? ' "Read by" is never published: the link shows this view without it.' : ''}{' '}
               Public pages show only whitelisted fields — never notes, loans, or copy counts.
             </small>
           </div>
