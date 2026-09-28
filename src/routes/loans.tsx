@@ -1,5 +1,11 @@
 import { Hono } from 'hono';
-import { activeLoans, createLoan, getItem, loanHistory, returnLoan } from '../db/queries';
+import {
+  activeLoans,
+  getItem,
+  lendIfFree,
+  loanHistory,
+  returnLoan,
+} from '../db/queries';
 import type { AppEnv } from '../env';
 import { page } from '../views/layout';
 import { loanRequestsSection } from './borrowing';
@@ -119,12 +125,13 @@ loans.post('/items/:id/loan', async (c) => {
   const body = await c.req.parseBody();
   const borrower = String(body['borrower'] ?? '').trim();
   if (borrower) {
-    await createLoan(c.env.DB, {
+    const lent = await lendIfFree(c.env.DB, {
       itemId,
       borrower,
       contact: String(body['contact'] ?? '').trim() || null,
       dueOn: String(body['dueOn'] ?? '').trim() || null,
     });
+    if (!lent) return c.text('Every copy is already out on loan.', 409);
   }
   return c.redirect(`/items/${itemId}`);
 });

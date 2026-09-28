@@ -391,12 +391,35 @@ export async function loanHistory(d1: D1Database, limit = 100): Promise<LoanWith
   return loansJoined(d1, sql`${s.loans.returnedOn} IS NOT NULL`, limit);
 }
 
-export async function activeLoanForItem(d1: D1Database, itemId: number): Promise<Loan | null> {
-  const [l] = await db(d1)
+/** Every open loan of an item, oldest first — an item held in two copies can be out twice. */
+export async function activeLoansForItem(d1: D1Database, itemId: number): Promise<Loan[]> {
+  return db(d1)
     .select()
     .from(s.loans)
-    .where(and(eq(s.loans.itemId, itemId), isNull(s.loans.returnedOn)));
-  return l ?? null;
+    .where(and(eq(s.loans.itemId, itemId), isNull(s.loans.returnedOn)))
+    .orderBy(asc(s.loans.loanedOn), asc(s.loans.id));
+}
+
+/**
+ * Lends a copy only while one is free — copies held above copies out, the rule connections' borrowing
+ * already uses (availability() in src/db/federation.ts). One conditional insert, so two quick submits
+ * can't both take the last copy. False when every copy is out.
+ */
+export async function lendIfFree(
+  d1: D1Database,
+  values: { itemId: number; borrower: string; contact: string | null; dueOn: string | null },
+): Promise<boolean> {
+  const row = await d1
+    .prepare(
+      `INSERT INTO loans (item_id, borrower, contact, due_on)
+       SELECT ?1, ?2, ?3, ?4
+       WHERE (SELECT copies FROM items WHERE id = ?1)
+           > (SELECT count(*) FROM loans WHERE item_id = ?1 AND returned_on IS NULL)
+       RETURNING id`,
+    )
+    .bind(values.itemId, values.borrower, values.contact, values.dueOn)
+    .first<{ id: number }>();
+  return !!row;
 }
 
 export async function activeLoanItemIds(d1: D1Database, itemIds: number[]): Promise<Set<number>> {
