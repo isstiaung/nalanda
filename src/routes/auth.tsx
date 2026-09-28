@@ -50,8 +50,8 @@ const LoginForm = ({ error }: { error?: string }) => (
 );
 
 // Without a session secret nobody can be signed in: the cookie is signed with it. Setup and login say so before
-// they read or write anything. (An empty one once let setup create the admin and then fail on signing — which
-// closed setup, and login failed the same way.)
+// they write anything. (An empty one once let setup create the admin and then fail on signing — which closed
+// setup, and login failed the same way.)
 const NoSessionSecret = ({ note }: { note?: string }) => (
   <article class="auth-card">
     <Brand />
@@ -77,6 +77,13 @@ const NoSessionSecret = ({ note }: { note?: string }) => (
 function noSessionSecret(c: Context<AppEnv>, note?: string) {
   c.status(503);
   return page(c, 'Not ready yet', <NoSessionSecret note={note} />);
+}
+
+// Setup's note says what to do once the secret is set. An account may already exist — the old failure above made
+// it — and then setup will be gone: log in with the password chosen for it.
+async function setupWithoutSecret(c: Context<AppEnv>, posted: boolean) {
+  if ((await countUsers(c.env.DB)) > 0) return noSessionSecret(c, 'An account already exists: once it is set, log in with it.');
+  return noSessionSecret(c, posted ? 'Nothing was saved: set it, then create the account again.' : undefined);
 }
 
 auth.get('/login', async (c) => {
@@ -136,7 +143,7 @@ const SetupForm = ({ error }: { error?: string }) => (
 );
 
 auth.get('/setup', async (c) => {
-  if (!hasSessionSecret(c.env.SESSION_SECRET)) return noSessionSecret(c);
+  if (!hasSessionSecret(c.env.SESSION_SECRET)) return setupWithoutSecret(c, false);
   if ((await countUsers(c.env.DB)) > 0) return c.notFound();
   return page(c, 'Setup', <SetupForm />);
 });
@@ -146,7 +153,7 @@ const STARTER_SHELVES = ['Books', 'Board games', 'Vinyl'];
 
 auth.post('/setup', async (c) => {
   const secret = c.env.SESSION_SECRET;
-  if (!hasSessionSecret(secret)) return noSessionSecret(c, 'Nothing was saved: set it, then create the account again.');
+  if (!hasSessionSecret(secret)) return setupWithoutSecret(c, true);
   if ((await countUsers(c.env.DB)) > 0) return c.notFound();
   const body = await c.req.parseBody();
   const username = String(body['username'] ?? '').trim();
@@ -158,9 +165,11 @@ auth.post('/setup', async (c) => {
   if (password !== confirm) {
     return page(c, 'Setup', <SetupForm error="Passwords do not match." />);
   }
-  // The count above only saves hashing on a closed setup. The batch decides: of two setups racing, one wins.
+  // The count above only saves hashing on a closed setup. The batch decides: of two setups racing, one wins. The
+  // loser goes to login: usually it's the second click of a double-click, whose response is the page the browser
+  // shows, and the password just chosen works there.
   const adminId = await createFirstAdmin(c.env.DB, { username, passwordHash: await hashPassword(password) }, STARTER_SHELVES);
-  if (adminId === null) return c.notFound();
+  if (adminId === null) return c.redirect('/login');
   const token = await createSessionToken(secret, adminId, Math.floor(Date.now() / 1000));
   setSessionCookie(c, token, new URL(c.req.url).protocol === 'https:');
   return c.redirect('/');
