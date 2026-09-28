@@ -37,9 +37,12 @@ export async function listUsers(d1: D1Database): Promise<User[]> {
 }
 
 export async function deleteUser(d1: D1Database, id: number): Promise<void> {
-  // reading_progress.added_by references users without ON DELETE SET NULL (and 0012 is applied, so it
-  // stays that way): keep the member's reading log, unattributed, rather than refuse the delete
+  // Two references to users have no ON DELETE action (migrations 0000 and 0012, both applied): items.added_by
+  // and reading_progress.added_by. Either would stop a member being removed — and a member who both added an
+  // item and recorded a page hits both — so both are cleared in the same batch. Their items and reading log
+  // stay, just unattributed.
   await d1.batch([
+    d1.prepare('UPDATE items SET added_by = NULL WHERE added_by = ?1').bind(id),
     d1.prepare('UPDATE reading_progress SET added_by = NULL WHERE added_by = ?1').bind(id),
     d1.prepare('DELETE FROM users WHERE id = ?1').bind(id),
   ]);
@@ -305,7 +308,7 @@ export async function setItemTags(d1: D1Database, itemId: number, names: string[
   await dbi.batch(
     normalized.map((name) => dbi.insert(s.tags).values({ name }).onConflictDoNothing()) as [never, ...never[]],
   );
-  const tagRows = await dbi.select().from(s.tags).where(inArray(s.tags.name, normalized));
+  const tagRows = await dbi.select().from(s.tags).where(sql`${s.tags.name} IN (SELECT value FROM json_each(${JSON.stringify(normalized)}))`);
   if (tagRows.length) {
     await dbi
       .insert(s.itemTags)
@@ -404,12 +407,35 @@ export async function loanHistory(d1: D1Database, limit = 100): Promise<LoanWith
   return loansJoined(d1, sql`${s.loans.returnedOn} IS NOT NULL`, limit);
 }
 
-export async function activeLoanForItem(d1: D1Database, itemId: number): Promise<Loan | null> {
-  const [l] = await db(d1)
+/** Every open loan of an item, oldest first — an item held in two copies can be out twice. */
+export async function activeLoansForItem(d1: D1Database, itemId: number): Promise<Loan[]> {
+  return db(d1)
     .select()
     .from(s.loans)
-    .where(and(eq(s.loans.itemId, itemId), isNull(s.loans.returnedOn)));
-  return l ?? null;
+    .where(and(eq(s.loans.itemId, itemId), isNull(s.loans.returnedOn)))
+    .orderBy(asc(s.loans.loanedOn), asc(s.loans.id));
+}
+
+/**
+ * Lends a copy only while one is free — copies held above copies out, the rule connections' borrowing
+ * already uses (availability() in src/db/federation.ts). One conditional insert, so two quick submits
+ * can't both take the last copy. False when every copy is out.
+ */
+export async function lendIfFree(
+  d1: D1Database,
+  values: { itemId: number; borrower: string; contact: string | null; dueOn: string | null },
+): Promise<boolean> {
+  const row = await d1
+    .prepare(
+      `INSERT INTO loans (item_id, borrower, contact, due_on)
+       SELECT ?1, ?2, ?3, ?4
+       WHERE (SELECT copies FROM items WHERE id = ?1)
+           > (SELECT count(*) FROM loans WHERE item_id = ?1 AND returned_on IS NULL)
+       RETURNING id`,
+    )
+    .bind(values.itemId, values.borrower, values.contact, values.dueOn)
+    .first<{ id: number }>();
+  return !!row;
 }
 
 export async function activeLoanItemIds(d1: D1Database, itemIds: number[]): Promise<Set<number>> {
@@ -473,13 +499,25 @@ export async function pageItems(
  * the 50-query budget. Items outside the page's library filter can come back too; callers look up
  * the ids they have, so those are simply never read.
  */
-export async function tagsForIdRange(d1: D1Database, fromId: number, toId: number): Promise<Map<number, string[]>> {
+export async function tagsForIdRange(
+  d1: D1Database,
+  fromId: number,
+  toId: number,
+  libraryId?: number,
+): Promise<Map<number, string[]>> {
   const result = new Map<number, string[]>();
   const rows = await db(d1)
     .select({ itemId: s.itemTags.itemId, name: s.tags.name })
     .from(s.itemTags)
     .innerJoin(s.tags, eq(s.itemTags.tagId, s.tags.id))
-    .where(and(gte(s.itemTags.itemId, fromId), lte(s.itemTags.itemId, toId)));
+    .where(
+      and(
+        gte(s.itemTags.itemId, fromId),
+        lte(s.itemTags.itemId, toId),
+        // scoped to one shelf, a page's id range can span every other shelf's rows too — skip them in SQL
+        libraryId ? sql`${s.itemTags.itemId} IN (SELECT id FROM items WHERE library_id = ${libraryId})` : undefined,
+      ),
+    );
   for (const r of rows) {
     const list = result.get(r.itemId) ?? [];
     list.push(r.name);
@@ -572,7 +610,12 @@ export async function deleteProgress(d1: D1Database, itemId: number, entryId: nu
  * Progress history for every item whose id lies in [fromId, toId] — the export's pages are contiguous
  * in id order, so one query covers a page (see tagsForIdRange for why not an IN list).
  */
-export async function progressForIdRange(d1: D1Database, fromId: number, toId: number): Promise<Map<number, ProgressEntry[]>> {
+export async function progressForIdRange(
+  d1: D1Database,
+  fromId: number,
+  toId: number,
+  libraryId?: number,
+): Promise<Map<number, ProgressEntry[]>> {
   const result = new Map<number, ProgressEntry[]>();
   const rows = await db(d1)
     .select({
@@ -583,7 +626,14 @@ export async function progressForIdRange(d1: D1Database, fromId: number, toId: n
       addedBy: s.readingProgress.addedBy,
     })
     .from(s.readingProgress)
-    .where(and(gte(s.readingProgress.itemId, fromId), lte(s.readingProgress.itemId, toId)))
+    .where(
+      and(
+        gte(s.readingProgress.itemId, fromId),
+        lte(s.readingProgress.itemId, toId),
+        // as tagsForIdRange: a scoped page's range can span other shelves' rows
+        libraryId ? sql`${s.readingProgress.itemId} IN (SELECT id FROM items WHERE library_id = ${libraryId})` : undefined,
+      ),
+    )
     .orderBy(asc(s.readingProgress.at), asc(s.readingProgress.id));
   for (const r of rows) {
     const list = result.get(r.itemId) ?? [];
@@ -636,7 +686,9 @@ async function linkTags(dbi: ReturnType<typeof db>, pairs: Array<{ itemId: numbe
   await dbi.batch(
     names.map((name) => dbi.insert(s.tags).values({ name }).onConflictDoNothing()) as [never, ...never[]],
   );
-  const tagRows = await dbi.select().from(s.tags).where(inArray(s.tags.name, names));
+  // one JSON parameter however many names: an import batch can carry more distinct tags than D1's
+  // 100 bound parameters, and the items were already committed when this used to throw
+  const tagRows = await dbi.select().from(s.tags).where(sql`${s.tags.name} IN (SELECT value FROM json_each(${JSON.stringify(names)}))`);
   const idByName = new Map(tagRows.map((t) => [t.name, t.id]));
   const links = pairs
     .map((p) => ({ itemId: p.itemId, tagId: idByName.get(p.tag) }))

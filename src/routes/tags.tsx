@@ -82,7 +82,7 @@ const TagLinks: FC<{ tag: string; links: Share[]; origin: string }> = ({ tag, li
 // Paged like a shelf: a tag can carry hundreds of items, and both the loan lookup (D1 caps bound
 // parameters at 100) and the render budget are sized for one page, not a whole tag.
 tags.get('/tags/:name', async (c) => {
-  const name = decodeURIComponent(c.req.param('name'));
+  const name = c.req.param('name'); // already decoded by Hono — decoding again threw on a tag like "100% cotton"
   const tag = name.toLowerCase();
   const admin = c.get('user').role === 'admin';
   const pageNum = Number.parseInt(c.req.query('page') ?? '1', 10) || 1;
