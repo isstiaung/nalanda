@@ -67,6 +67,9 @@ async function call(path: string, cookie: string, json?: unknown) {
   return { status: res.status, text };
 }
 
+// The DB layer's own callers here act for the whole household, as an admin would (§16 #43).
+const HOUSEHOLD = { id: null, admin: true };
+
 const FIELDS = [
   'mediaType', 'title', 'creators', 'isbn13', 'isbn10Upc', 'publisher', 'published', 'description', 'length',
   'status', 'rating', 'review', 'notes', 'copies', 'beganOn', 'completedOn', 'readCount', 'rereading', 'addedAt', 'details',
@@ -182,12 +185,14 @@ async function signedIn() {
 describe('reads through the export and back', () => {
   it('carries every read, in order, with its pages named by read', async () => {
     const cookie = await signedIn();
+    const admin = (await env.DB.prepare("SELECT id FROM users WHERE username = 'admin'").first<{ id: number }>())!.id;
     const shelf = await createLibrary(env.DB, 'Fiction');
-    const book = await createItem(env.DB, { libraryId: shelf.id, title: 'The Dispossessed', length: 387, status: 'completed', beganOn: '2019-03-01', completedOn: '2019-03-20', details: '{}' });
-    await addPastRead(env.DB, book.id, { status: 'completed', beganOn: null, endedOn: null });
-    await addPastRead(env.DB, book.id, { status: 'abandoned', beganOn: '2023-02-01', endedOn: '2023-02-10' });
-    await startRead(env.DB, book.id, '2026-09-01');
-    await addProgress(env.DB, book.id, 142, null);
+    // a household of one: the admin's reads (§16 #43)
+    const book = await createItem(env.DB, { libraryId: shelf.id, title: 'The Dispossessed', length: 387, status: 'completed', beganOn: '2019-03-01', completedOn: '2019-03-20', details: '{}', addedBy: admin });
+    await addPastRead(env.DB, book.id, { status: 'completed', beganOn: null, endedOn: null }, admin);
+    await addPastRead(env.DB, book.id, { status: 'abandoned', beganOn: '2023-02-01', endedOn: '2023-02-10' }, admin);
+    await startRead(env.DB, book.id, '2026-09-01', admin);
+    await addProgress(env.DB, book.id, 142, admin);
 
     const csv = parseCsv((await call('/export.csv', cookie)).text);
     expect(csv[0]).toMatchObject({
@@ -195,7 +200,7 @@ describe('reads through the export and back', () => {
       began_on: '2019-03-01',
       completed_on: '2019-03-20',
       read_count: '2',
-      reads: 'completed:..;completed:2019-03-01..2019-03-20;abandoned:2023-02-01..2023-02-10;in_progress:2026-09-01..',
+      reads: 'completed:..@admin;completed:2019-03-01..2019-03-20@admin;abandoned:2023-02-01..2023-02-10@admin;in_progress:2026-09-01..@admin',
     });
     expect(csv[0]!.progress_history).toMatch(/^142@\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}#4$/); // the 4th read, the open one
 
@@ -234,7 +239,7 @@ describe('reads through the export and back', () => {
     const book = await createItem(env.DB, { libraryId: shelf.id, title: 'Kindred', status: 'completed', completedOn: '2020-01-01', details: '{}' });
     await startRead(env.DB, book.id, '2026-09-01');
     const open = (await env.DB.prepare("SELECT id FROM reads WHERE status = 'in_progress'").first<{ id: number }>())!.id;
-    await closeRead(env.DB, book.id, open, 'completed', '2026-09-20');
+    await closeRead(env.DB, book.id, open, 'completed', '2026-09-20', HOUSEHOLD);
     const [row] = parseCsv((await call('/export.csv', cookie)).text);
     // an older Nalanda drops the columns it doesn't know and keeps these: one finished read, the latest
     expect(row).toMatchObject({ status: 'completed', began_on: '2026-09-01', completed_on: '2026-09-20' });

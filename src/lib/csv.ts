@@ -11,10 +11,12 @@ import {
   reconcileGoodreads,
   summarizeReads,
   topUpReads,
+  type CellRead,
   type GoodreadsReading,
-  type ReadDraft,
+  type PersonRead,
   type ReadRow,
 } from './reads';
+import { formatReviewsCell, parseReviewsCell, summarizeReviews, type CellReview, type PersonReview } from './reviews';
 
 export const EXPORT_COLUMNS = [
   'library',
@@ -31,6 +33,7 @@ export const EXPORT_COLUMNS = [
   'status',
   'rating',
   'review',
+  'reviews',
   'notes',
   'tags',
   'copies',
@@ -69,12 +72,17 @@ export function progressHistoryCell(
     .join(';');
 }
 
+/**
+ * One item as a line of the export. `rating` and `review` are the household's summary (§16 #43); `reviews` holds
+ * everyone's, and `reads` names each read's reader, so a re-import gives every member back their own.
+ */
 export function itemToCsvLine(
   item: Item,
   libraryName: string,
   tags: string[],
   progress: { page: number; at: string; readId?: number | null }[] = [],
-  reads: ReadRow[] = [],
+  reads: Array<ReadRow & { reader?: string | null }> = [],
+  reviews: CellReview[] = [],
 ): string {
   const ordered = inDisplayOrder(reads);
   const position = new Map(ordered.map((r, i) => [r.id, i + 1]));
@@ -93,6 +101,7 @@ export function itemToCsvLine(
     item.status,
     item.rating,
     item.review,
+    formatReviewsCell(reviews),
     item.notes,
     tags.join(', '),
     item.copies,
@@ -117,8 +126,10 @@ export type MappedRow = {
   item: Omit<NewItem, 'libraryId' | 'addedBy'>;
   tags: string[];
   // the row's reads, when the file says more than one status and pair of dates can (§16 #41); otherwise the
-  // importer makes them from the item's status and dates
-  reads?: ReadDraft[];
+  // importer makes them from the item's status and dates. A Nalanda export names each read's reader (§16 #43).
+  reads?: CellRead[];
+  // a Nalanda export's `reviews`, each member's by name; otherwise the row's rating and review are the importer's
+  reviews?: CellReview[];
   // a Goodreads row's reading, which a merge reconciles with the reads already here
   goodreads?: GoodreadsReading;
 };
@@ -129,9 +140,11 @@ const KNOWN_COLUMNS = new Set([
   // which share pages and connections render. Re-importing a Nalanda export doesn't restore it.
   'progress_page',
   'progress_history',
-  // and each read, with its dates, is as private as the dates columns (§16 #41)
+  // and each read, with its dates and reader, is as private as the dates columns (§16 #41, #43) — and so is
+  // everyone's review with their name
   'read_count',
   'reads',
+  'reviews',
   'item_type',
   'type',
   'ean_isbn13',
@@ -305,6 +318,11 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
     count,
   );
   const state = summarizeReads(reads);
+  // Everyone's reviews, when the file has them (§16 #43): the item's own rating and review are then only their summary.
+  // Otherwise — an export from before reviews, or a row whose reviews cell was emptied — those two columns are one
+  // review, the importer's.
+  const reviews = parseReviewsCell(r['reviews']);
+  const summary = reviews ? summarizeReviews(reviews) : { rating: rating && rating >= 1 && rating <= 10 ? rating : null, review: r['review'] || null };
   return {
     item: {
       mediaType: (MEDIA_TYPES as readonly string[]).includes(r['media_type'] ?? '') ? (r['media_type'] as MediaType) : 'book',
@@ -317,8 +335,8 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
       description: r['description'] || null,
       length: length && length > 0 ? length : null,
       status: state.status,
-      rating: rating && rating >= 1 && rating <= 10 ? rating : null,
-      review: r['review'] || null,
+      rating: summary.rating,
+      review: summary.review,
       notes: r['notes'] || null,
       copies: copies ?? 1,
       beganOn: state.beganOn,
@@ -327,11 +345,69 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
       details,
     },
     reads,
+    ...(reviews ? { reviews } : {}),
     tags: (r['tags'] ?? '')
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean),
   };
+}
+
+// ---------- whose reads and reviews an import brings (§16 #43) ----------
+
+/**
+ * How the people in a file were matched, for the preview: per name — `undefined` for reads and reviews that name
+ * nobody, `null` for a member removed since — what it brings and whose it becomes here (`to`, null: nobody's).
+ */
+export type PeopleTally = Map<string | null | undefined, { reads: number; reviews: number; to: number | null; known: boolean }>;
+
+/**
+ * A mapped row's reads and reviews with their people as ids here. A username that is a member here is theirs; any
+ * other name is the importer's, and so is anything that names nobody — an export from before readers, a libib or
+ * Goodreads row; an entry the file marks as a former member's stays unattributed. Two reviews that land on one
+ * person — two names that aren't members here — keep the one written last, as a person has one review. `tally`
+ * counts it all for the preview.
+ */
+export function attributePeople(
+  m: MappedRow,
+  members: Map<string, number>,
+  importer: number,
+  tally?: PeopleTally,
+): { reads?: PersonRead[]; reviews?: PersonReview[] } {
+  const resolve = (name: string | null | undefined): number | null =>
+    name === null ? null : name === undefined ? importer : (members.get(name) ?? importer);
+  const count = (name: string | null | undefined, what: 'reads' | 'reviews', n = 1) => {
+    if (!tally || n < 1) return;
+    const entry = tally.get(name) ?? { reads: 0, reviews: 0, to: resolve(name), known: typeof name === 'string' && members.has(name) };
+    entry[what] += n;
+    tally.set(name, entry);
+  };
+
+  const reads = m.reads?.map(({ reader, ...read }) => {
+    count(reader, 'reads');
+    return { ...read, readerId: resolve(reader) };
+  });
+  // a row without reads of its own makes them from its status and dates, all the importer's
+  if (!m.reads) count(undefined, 'reads', readsFromColumns(m.item.status ?? 'not_started', m.item.beganOn, m.item.completedOn).length);
+
+  let reviews: PersonReview[] | undefined;
+  if (m.reviews) {
+    const resolved = m.reviews.map(({ by, ...review }) => {
+      count(by, 'reviews');
+      return { ...review, userId: resolve(by) };
+    });
+    const chosen = new Map<number, number>(); // person → the index of the review kept for them
+    resolved.forEach((r, i) => {
+      if (r.userId === null) return;
+      const j = chosen.get(r.userId);
+      if (j === undefined || (r.reviewedAt ?? '') >= (resolved[j]!.reviewedAt ?? '')) chosen.set(r.userId, i);
+    });
+    // still oldest first, as exported: ids then break ties between equal times the same way here
+    reviews = resolved.filter((r, i) => r.userId === null || chosen.get(r.userId) === i);
+  } else if (m.item.rating != null || m.item.review) {
+    count(undefined, 'reviews');
+  }
+  return { ...(reads ? { reads } : {}), ...(reviews ? { reviews } : {}) };
 }
 
 // ---------- Goodreads import mapping ----------

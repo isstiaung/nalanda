@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { listLibraries } from '../db/queries';
+import { listLibraries, listPeople } from '../db/queries';
 import type { AppEnv } from '../env';
 import { lookupByBarcode, searchByName, type SearchType } from '../metadata';
 import { CandidateCard, ItemForm } from '../views/components';
@@ -8,7 +8,7 @@ import { page } from '../views/layout';
 const add = new Hono<AppEnv>();
 
 add.get('/add', async (c) => {
-  const libs = await listLibraries(c.env.DB);
+  const [libs, people] = await Promise.all([listLibraries(c.env.DB), listPeople(c.env.DB)]);
   return page(
     c,
     'Add items',
@@ -72,7 +72,7 @@ add.get('/add', async (c) => {
       </section>
 
       <section id="tab-manual" class="tab-panel" hidden>
-        <ItemForm libraries={libs} action="/items" submitLabel="Add item" />
+        <ItemForm libraries={libs} action="/items" submitLabel="Add item" perMember={people.length > 1} />
       </section>
       <script src="/scanner.js" defer></script>
     </>,

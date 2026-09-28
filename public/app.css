@@ -800,3 +800,33 @@ details.read-edit .inline-form + .inline-form { margin-top: 0.4rem; }
 details.read-add { margin-top: 0.7rem; }
 .form-note { margin: -0.25rem 0 0.75rem; font-size: 12.5px; }
 .read-count { font-size: 11px; }
+
+/* ── each member's reading and reviews (ARCH.md §16 #43) ─────────────────────
+   A book's page names people once the household has more than one: each reader's
+   reads under their name, and everyone's rating and review. Existing tokens only —
+   a person is an eyebrow-weight mono name over a hairline, like the ledger's other
+   headings, and the viewer's own block keeps the indigo working accent. */
+.reader { margin-top: 1rem; padding-top: 0.6rem; border-top: 1px solid var(--line); }
+.reader.reader-self { margin-top: 0.2rem; padding-top: 0; border-top: none; }
+.reader + .reader { margin-top: 1.1rem; }
+.reader-name { font-family: var(--mono); font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; color: var(--ink); margin: 0 0 0.35rem; overflow-wrap: anywhere; }
+.reader-self > .reader-name { color: var(--accent); }
+.reader .read-history { margin-top: 0.4rem; }
+.member-reviews { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.8rem; }
+.member-reviews > li { padding-top: 0.55rem; border-top: 1px solid var(--line); min-width: 0; }
+.member-reviews > li:first-child { border-top: none; padding-top: 0; }
+.review-by { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.7rem; margin: 0 0 0.3rem; font-size: 12.5px; }
+.review-by .reviewer { font-family: var(--mono); font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; overflow-wrap: anywhere; }
+.review-by .mono { font-size: 11px; }
+.member-reviews .prewrap { margin: 0 0 0.35rem; overflow-wrap: anywhere; }
+/* a review's own form: rating, text, Save — stacked, since the text wants the width */
+.review-form { display: grid; gap: 0.45rem; max-width: 560px; }
+.review-form select { width: auto; margin: 0; justify-self: start; }
+.review-form textarea { margin: 0; }
+.review-form button { justify-self: start; }
+.rating-note { font-size: 12px; }
+/* the search box keeps its width beside the Read by select, and wraps under it on a phone */
+form.search-by-reader { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+form.search-by-reader input[type='search'] { flex: 1 1 16rem; width: auto; margin: 0; }
+form.search-by-reader select { width: auto; margin: 0; max-width: 100%; }
+.toolbar select[name='readBy'] { max-width: 100%; }

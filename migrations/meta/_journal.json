@@ -169,6 +169,20 @@
       "when": 1790588781213,
       "tag": "0023_reads-backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1790611931710,
+      "tag": "0024_per-member",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1790612064052,
+      "tag": "0025_per-member-backfill",
+      "breakpoints": true
     }
   ]
 }

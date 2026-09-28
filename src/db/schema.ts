@@ -57,9 +57,11 @@ export const items = sqliteTable(
     coverKey: text('cover_key'),
     // status, began_on, completed_on, read_count and rereading are worked out from `reads` (ARCH.md §16 #41) and
     // kept here so a shelf, a filter or a share view never needs a subquery. Only refreshReadState() writes them
-    // once an item has reads: status, began_on and completed_on describe its last finished read, or else its open
-    // one, or else its last abandoned one.
+    // once an item has reads. They are the household's, from everyone's reads (§16 #43): status, began_on and
+    // completed_on describe the last finished read by anyone, or else an open one, or else the last abandoned one.
     status: text('status', { enum: ITEM_STATUSES }).notNull().default('not_started'),
+    // The household's summary of `reviews` (§16 #43): the average rating, rounded to the 1–10 scale, and the review
+    // written most recently. Only refreshReviewState() writes them once an item has reviews.
     rating: integer('rating'),
     review: text('review'),
     notes: text('notes'),
@@ -241,9 +243,10 @@ export const connectionViews = sqliteTable('connection_views', {
 });
 
 /**
- * Each time an item was read — started, finished, stopped — the source of truth for its reading state
- * (ARCH.md §16 #41). items.status and the columns beside it are derived from these rows by
- * refreshReadState(), in the same batch as any write here. At most one read is open at a time.
+ * Each time someone read an item — started, finished, stopped — the source of truth for its reading state
+ * (ARCH.md §16 #41, #43). items.status and the columns beside it are the household's summary of these rows,
+ * derived by refreshReadState() in the same batch as any write here. Each reader has at most one open read of
+ * an item at a time.
  */
 export const reads = sqliteTable(
   'reads',
@@ -257,12 +260,45 @@ export const reads = sqliteTable(
     beganOn: text('began_on'), // YYYY-MM-DD; NULL = not known
     endedOn: text('ended_on'), // when it was finished or stopped; NULL while open, or not known
     createdAt: text('created_at').notNull().default(now),
+    // Whose read it is (§16 #43). NULL: a member removed since — their reads stay, unattributed, like items.added_by.
+    // No ON DELETE action: drizzle-kit drops it on ALTER TABLE, so deleteUser() clears it in its own batch.
+    readerId: integer('reader_id').references(() => users.id),
   },
   (t) => [
     index('idx_reads_item').on(t.itemId),
-    // a second "Read again" while one is open makes nothing rather than a second open read
-    uniqueIndex('reads_one_open').on(t.itemId).where(sql`${t.status} = 'in_progress'`),
+    // a second "Read again" while one is open makes nothing rather than a second open read — per reader, so two
+    // people can read a book at once. NULLs are distinct in a unique index, so unattributed open reads aren't held
+    // to one here; the app never opens one, and treats them as one reader when it checks (sameReader in queries.ts).
+    uniqueIndex('reads_one_open_per_reader').on(t.itemId, t.readerId).where(sql`${t.status} = 'in_progress'`),
   ],
+);
+
+/**
+ * Each member's rating and review of an item (§16 #43). items.rating and items.review are the household's summary
+ * of these rows — the average rating, and the review written most recently — kept by refreshReviewState() in the
+ * same batch as every write here, so share pages, connections, the activity triggers and the export read them as
+ * before.
+ */
+export const reviews = sqliteTable(
+  'reviews',
+  {
+    // AUTOINCREMENT: a review's id is in its routes, so it never names another one
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    // NULL: a member removed since, whose review stays, unattributed
+    userId: integer('user_id').references(() => users.id, { onDelete: 'set null' }),
+    rating: integer('rating'), // half-stars 1–10; NULL = not rated
+    review: text('review'), // NULL = no review, only a rating
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+    // When its text was last written — which review is the household's latest. A rating changed on its own leaves it,
+    // so re-rating a book doesn't push an old review over a newer one. NULL with no text.
+    reviewedAt: text('reviewed_at'),
+  },
+  // one review per person per item; NULLs are distinct, so reviews of removed members never collide
+  (t) => [uniqueIndex('reviews_item_user').on(t.itemId, t.userId)],
 );
 
 /**
@@ -281,6 +317,7 @@ export const readingProgress = sqliteTable(
     // number shouldn't be refused because Open Library disagrees. Percentages clamp at 100 instead.
     page: integer('page').notNull(),
     at: text('at').notNull().default(now),
+    // Whose page it is: the reader of its read (§16 #43) — moving a read moves its pages' too.
     addedBy: integer('added_by').references(() => users.id),
     // Which read the page belongs to. NULL only for a page recorded before reads existed on an item that has
     // none. No ON DELETE action — drizzle-kit drops it on ALTER TABLE — so deleteRead() removes the pages first.
@@ -550,6 +587,7 @@ export type ConnectionView = typeof connectionViews.$inferSelect;
 export type FeedSubscription = typeof feedSubscriptions.$inferSelect;
 export type ReadingProgress = typeof readingProgress.$inferSelect;
 export type Read = typeof reads.$inferSelect;
+export type Review = typeof reviews.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type RemoteActivity = typeof remoteActivities.$inferSelect;
 export type Comment = typeof comments.$inferSelect;

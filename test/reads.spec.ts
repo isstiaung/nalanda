@@ -38,6 +38,9 @@ import {
   type ReadRow,
 } from '../src/lib/reads';
 
+// The DB layer's own callers here act for the whole household, as an admin would (§16 #43).
+const HOUSEHOLD = { id: null, admin: true };
+
 const rows = async <T = Record<string, unknown>>(query: string, ...binds: unknown[]) =>
   (await env.DB.prepare(query).bind(...binds).all<T>()).results;
 
@@ -188,20 +191,20 @@ describe('every write path keeps the item columns in step with the reads', () =>
     expect(await addProgress(env.DB, id, 40, null)).toBe(true);
     await expectCacheMatchesReads(id);
     const [page] = await listProgress(env.DB, id);
-    await deleteProgress(env.DB, id, page!.id);
+    await deleteProgress(env.DB, id, page!.id, HOUSEHOLD);
     await expectCacheMatchesReads(id);
 
     const open = (await readsOf(id)).find((r) => r.status === 'in_progress')!;
-    expect(await closeRead(env.DB, id, open.id, 'completed', '2026-09-28')).toBe(true);
+    expect(await closeRead(env.DB, id, open.id, 'completed', '2026-09-28', HOUSEHOLD)).toBe(true);
     await expectCacheMatchesReads(id);
     expect(await getItem(env.DB, id)).toMatchObject({ status: 'completed', completedOn: '2026-09-28', readCount: 2, rereading: false });
 
     expect(await addPastRead(env.DB, id, d('completed', '2010-05-01', '2010-06-01'))).toBe(true);
     await expectCacheMatchesReads(id);
     const past = (await readsOf(id)).find((r) => r.beganOn === '2010-05-01')!;
-    expect(await updateRead(env.DB, id, past.id, d('abandoned', '2010-05-01', '2010-05-20'))).toBe(true);
+    expect(await updateRead(env.DB, id, past.id, d('abandoned', '2010-05-01', '2010-05-20'), HOUSEHOLD)).toBe(true);
     await expectCacheMatchesReads(id);
-    await deleteRead(env.DB, id, past.id);
+    await deleteRead(env.DB, id, past.id, HOUSEHOLD);
     await expectCacheMatchesReads(id);
     expect(await getItem(env.DB, id)).toMatchObject({ readCount: 2 });
   });
@@ -248,7 +251,7 @@ describe('reading a finished book again', () => {
     await startRead(env.DB, item.id, '2026-09-01');
     await addProgress(env.DB, item.id, 80, null);
     const open = (await readsOf(item.id)).find((r) => r.status === 'in_progress')!;
-    expect(await closeRead(env.DB, item.id, open.id, 'abandoned', '2026-09-10')).toBe(true);
+    expect(await closeRead(env.DB, item.id, open.id, 'abandoned', '2026-09-10', HOUSEHOLD)).toBe(true);
 
     expect(await getItem(env.DB, item.id)).toMatchObject({ status: 'completed', completedOn: '2019-03-20', readCount: 1, rereading: false });
     expect((await readsOf(item.id)).map((r) => r.status)).toEqual(['completed', 'abandoned']);
@@ -259,9 +262,9 @@ describe('reading a finished book again', () => {
     const item = await book();
     await startRead(env.DB, item.id, '2026-09-10');
     const [open] = await readsOf(item.id);
-    expect(await closeRead(env.DB, item.id, open!.id, 'completed', '2026-09-01')).toBe(false);
-    expect(await closeRead(env.DB, item.id, open!.id, 'completed', '2026-09-12')).toBe(true);
-    expect(await closeRead(env.DB, item.id, open!.id, 'completed', '2026-09-13')).toBe(false); // already closed
+    expect(await closeRead(env.DB, item.id, open!.id, 'completed', '2026-09-01', HOUSEHOLD)).toBe(false);
+    expect(await closeRead(env.DB, item.id, open!.id, 'completed', '2026-09-12', HOUSEHOLD)).toBe(true);
+    expect(await closeRead(env.DB, item.id, open!.id, 'completed', '2026-09-13', HOUSEHOLD)).toBe(false); // already closed
     expect(await getItem(env.DB, item.id)).toMatchObject({ completedOn: '2026-09-12' });
   });
 
@@ -269,7 +272,7 @@ describe('reading a finished book again', () => {
     const item = await book({ status: 'completed', completedOn: '2020-01-01' });
     await startRead(env.DB, item.id, '2026-09-01');
     const finished = (await readsOf(item.id)).find((r) => r.status === 'completed')!;
-    expect(await updateRead(env.DB, item.id, finished.id, d('in_progress', '2019-12-01'))).toBe(false);
+    expect(await updateRead(env.DB, item.id, finished.id, d('in_progress', '2019-12-01'), HOUSEHOLD)).toBe(false);
     expect((await readsOf(item.id)).filter((r) => r.status === 'in_progress')).toHaveLength(1);
   });
 
@@ -277,8 +280,8 @@ describe('reading a finished book again', () => {
     const mine = await book({ status: 'completed', completedOn: '2020-01-01' });
     const other = await book({ status: 'completed', completedOn: '2021-01-01' });
     const [theirs] = await readsOf(other.id);
-    expect(await updateRead(env.DB, mine.id, theirs!.id, d('abandoned'))).toBe(false);
-    await deleteRead(env.DB, mine.id, theirs!.id);
+    expect(await updateRead(env.DB, mine.id, theirs!.id, d('abandoned'), HOUSEHOLD)).toBe(false);
+    await deleteRead(env.DB, mine.id, theirs!.id, HOUSEHOLD);
     expect(await readsOf(other.id)).toHaveLength(1);
   });
 
@@ -305,7 +308,7 @@ describe('deleting', () => {
     await expect(env.DB.prepare('DELETE FROM reading_progress WHERE item_id = ?1').bind(item.id).run()).rejects.toThrow(/FOREIGN KEY/);
 
     const [read] = await readsOf(item.id);
-    await deleteRead(env.DB, item.id, read!.id);
+    await deleteRead(env.DB, item.id, read!.id, HOUSEHOLD);
     expect(await readsOf(item.id)).toEqual([]);
     expect(await listProgress(env.DB, item.id)).toEqual([]);
     expect(await rows("SELECT * FROM activity_log WHERE kind = 'progress'")).toEqual([]);

@@ -133,11 +133,24 @@
     if (data.format === 'nalanda') {
       append(`Nalanda export detected: every column maps back as it was exported, into the shelf chosen above. Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
       append('Rows are added, never merged — importing the same export into this library twice adds everything twice.');
+      // whose each read and review becomes: a member of the same name here, or you
+      const people = data.people ?? [];
+      if (people.length) {
+        append(`Readers and reviewers in the first ${sampled} rows:`);
+        const brings = (p) => [p.reads ? `${p.reads} ${p.reads === 1 ? 'read' : 'reads'}` : '', p.reviews ? `${p.reviews} ${p.reviews === 1 ? 'review' : 'reviews'}` : ''].filter(Boolean).join(', ');
+        for (const p of people) {
+          const who = p.former ? 'a former member' : p.name === null ? 'nobody named (an older export)' : p.name;
+          const as = p.former ? 'kept unattributed' : p.known ? `→ ${p.as}` : `→ you (${data.importer})${p.name === null ? '' : ': no member here has that name'}`;
+          append(`  · ${who}: ${brings(p)} ${as}`);
+        }
+      }
     } else if (data.format === 'goodreads') {
       append(`Goodreads export detected: ${data.merged} match books already here (rating/review/shelves will merge onto them — Goodreads wins), ${data.fresh} are new (added as “Not owned” reading-log entries).`);
       append(`Reading history: ${data.reads ?? 0} reads to add or date from shelves, Date Read and Read Count — reads already recorded here are never removed, and a second import adds nothing.`);
+      if (data.importer) append(`These reads, ratings and reviews become yours (${data.importer}); everyone else's stay as they are.`);
     } else {
       append(`Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
+      if (data.importer) append(`Reads, ratings and reviews in this file become yours (${data.importer}).`);
     }
     for (const s of data.sample) {
       append(`  · [${s.mediaType}] ${s.title}${s.creators ? ` — ${s.creators}` : ''}${s.tags.length ? ` (${s.tags.join(', ')})` : ''}`);

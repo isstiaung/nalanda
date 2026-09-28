@@ -6,17 +6,20 @@ import {
   getLibrary,
   importItems,
   listLibraries,
+  listPeople,
   mergeImportItems,
   nextBackfillable,
   pageItems,
   progressForIdRange,
   readsForIdRange,
+  reviewsForIdRange,
   tagsForIdRange,
   updateItem,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { storeCover } from '../lib/covers';
 import {
+  attributePeople,
   csvLine,
   EXPORT_COLUMNS,
   itemToCsvLine,
@@ -26,8 +29,8 @@ import {
   mapLibibRow,
   mapNalandaRow,
   type ImportOptions,
+  type PeopleTally,
 } from '../lib/csv';
-import { readsFromColumns } from '../lib/reads';
 import { findCover, findDescription } from '../metadata';
 import { MEDIA_LABEL } from '../views/components';
 import { page } from '../views/layout';
@@ -178,13 +181,22 @@ importexport.post('/api/import', async (c) => {
     else skipped++;
   }
 
-  const userId = c.get('user').id;
-  const withOwners = mapped.map((m) => ({ ...m, item: { ...m.item, libraryId, addedBy: userId } }));
+  // Whose each read and review becomes (§16 #43): a Nalanda export names its members, and a name that is a member here
+  // keeps them; everything else — another name, or a file that names nobody — is the importer's.
+  const user = c.get('user');
+  const people = await listPeople(c.env.DB);
+  const members = new Map(people.map((p) => [p.username, p.id]));
+  const tally: PeopleTally = new Map();
+  const withOwners = mapped.map((m) => {
+    const { reads, reviews } = attributePeople(m, members, user.id, tally);
+    return { ...m, reads, reviews, item: { ...m.item, libraryId, addedBy: user.id } };
+  });
 
   if (body.dryRun) {
     const byType: Record<string, number> = {};
     for (const m of mapped) byType[m.item.mediaType ?? 'book'] = (byType[m.item.mediaType ?? 'book'] ?? 0) + 1;
     const match = isGoodreads ? await mergeImportItems(c.env.DB, withOwners, true) : null;
+    const nameOf = (id: number | null) => (id === null ? null : (people.find((p) => p.id === id)?.username ?? null));
     return c.json({
       format,
       mapped: mapped.length,
@@ -192,13 +204,18 @@ importexport.post('/api/import', async (c) => {
       byType,
       merged: match?.merged ?? 0,
       fresh: match?.inserted ?? 0,
-      // a libib row carries no reads of its own: count what importItems will derive from its status and dates
-      reads:
-        match?.reads ??
-        mapped.reduce(
-          (n, m) => n + (m.reads ?? readsFromColumns(m.item.status ?? 'not_started', m.item.beganOn, m.item.completedOn)).length,
-          0,
-        ),
+      // a libib row carries no reads of its own: the tally counted what importItems will derive from its status and dates
+      reads: match?.reads ?? [...tally.values()].reduce((n, t) => n + t.reads, 0),
+      importer: user.username,
+      // per name in the file: what it brings and whose it becomes here — `as` null is nobody's (a former member)
+      people: [...tally.entries()].map(([name, t]) => ({
+        name: name === undefined ? null : name,
+        former: name === null,
+        reads: t.reads,
+        reviews: t.reviews,
+        as: nameOf(t.to),
+        known: t.known,
+      })),
       sample: mapped.slice(0, 5).map((m) => ({
         title: m.item.title,
         mediaType: m.item.mediaType,
@@ -294,7 +311,7 @@ importexport.post('/api/backfill-covers', async (c) => {
  */
 export const EXPORT_PAGE = 250;
 
-/** Items after `afterId` as CSV lines, with their tags, reads and reading logs: four queries. */
+/** Items after `afterId` as CSV lines, with their tags, reads, reviews and reading logs: five queries. */
 async function exportRows(
   d1: D1Database,
   scope: number | undefined,
@@ -305,10 +322,11 @@ async function exportRows(
   const items = await pageItems(d1, { libraryId: scope, afterId, limit });
   if (!items.length) return { csv: '', count: 0, lastId: afterId };
   const [from, to] = [items[0]!.id, items.at(-1)!.id];
-  const [tagMap, progressMap, readMap] = await Promise.all([
+  const [tagMap, progressMap, readMap, reviewMap] = await Promise.all([
     tagsForIdRange(d1, from, to, scope),
     progressForIdRange(d1, from, to, scope),
     readsForIdRange(d1, from, to, scope),
+    reviewsForIdRange(d1, from, to, scope),
   ]);
   let csv = '';
   for (const item of items) {
@@ -318,6 +336,7 @@ async function exportRows(
       tagMap.get(item.id) ?? [],
       progressMap.get(item.id) ?? [],
       readMap.get(item.id) ?? [],
+      reviewMap.get(item.id) ?? [],
     );
   }
   return { csv, count: items.length, lastId: to };
@@ -354,8 +373,8 @@ importexport.get('/export.csv', async (c) => {
 
   // Without a cursor, the whole export in one streamed response: what the link does without JavaScript, and
   // what a script fetching /export.csv gets. Its CPU grows with the catalog, so a large one can be cut off by
-  // the free plan's 10 ms limit, and the download fails rather than completing. Four queries a page
-  // (items, tags, reads, reading progress) against the 50 budgeted per invocation. One page per pull, so a slow
+  // the free plan's 10 ms limit, and the download fails rather than completing. Five queries a page
+  // (items, tags, reads, reviews, reading progress) against the 50 budgeted per invocation. One page per pull, so a slow
   // download holds one page in memory rather than all of them. The response is already a 200 by the time a
   // page is read, so a failure must error the stream — ending it normally hands over a file that just stops,
   // with nothing to say it is incomplete.

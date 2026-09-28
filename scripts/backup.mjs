@@ -28,6 +28,7 @@ export const TABLES = [
   'items',
   'reads', // after items, before reading_progress, which references it
   'reading_progress', // after items, users and reads, which it references
+  'reviews', // after items and users, which it references
   'tags',
   'item_tags',
   'loans',

@@ -1,7 +1,7 @@
 // Reading a book again, from its page (ARCH.md §16 #41): the Reading section and its routes, the re-reading
 // marker wherever status shows, the edit form's rules, and progress on share pages for a re-read.
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import {
   addProgress,
   closeRead,
@@ -25,19 +25,24 @@ import app from '../src/index';
 const rows = async <T = Record<string, unknown>>(query: string, ...binds: unknown[]) =>
   (await env.DB.prepare(query).bind(...binds).all<T>()).results;
 
+// A household of one (§16 #43): every request is by the same member, whose reads and review the seeded books carry —
+// what v1.2.1's household-level reads were, and must still behave as.
 let userId = 0;
+beforeEach(() => {
+  userId = 0; // every test resets the database, so the user is made again
+});
 async function user() {
   if (!userId) {
     userId = (await createUser(env.DB, { username: `member${Date.now()}`, passwordHash: 'pbkdf2$1$x$y', role: 'member', mustChangePassword: false })).id;
   }
   return userId;
 }
+const self = async () => ({ id: await user(), admin: false });
 
 async function request(
   path: string,
   init: { body?: Record<string, string>; htmx?: boolean; origin?: string; anonymous?: boolean } = {},
 ): Promise<Response> {
-  userId = 0; // every test resets the database, so the user is made again
   const headers: Record<string, string> = { origin: init.origin ?? 'http://nalanda.test' };
   if (!init.anonymous) {
     const token = await createSessionToken(env.SESSION_SECRET, await user(), Math.floor(Date.now() / 1000));
@@ -62,7 +67,7 @@ async function request(
 
 async function book(overrides: Partial<Item> = {}) {
   const shelf = await createLibrary(env.DB, 'Reading shelf');
-  return createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'The Dispossessed', length: 300, details: '{}', ...overrides });
+  return createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'The Dispossessed', length: 300, details: '{}', addedBy: await user(), ...overrides });
 }
 
 const finished = () => book({ status: 'completed', beganOn: '2019-03-01', completedOn: '2019-03-20' });
@@ -109,7 +114,7 @@ describe('the Reading section', () => {
     expect(done).toContain('<button type="submit">Add</button>'); // a past read
     expect(done).toMatch(/<button type="submit" class="btn-danger">\s*Delete this read/);
 
-    await startRead(env.DB, item.id, '2026-09-01');
+    await startRead(env.DB, item.id, '2026-09-01', await user());
     const open = await (await request(`/items/${item.id}`)).text();
     expect(open).toContain('<button type="submit">Record</button>');
     expect(open).toContain('<button type="submit">Finish</button>');
@@ -125,7 +130,7 @@ describe('the Reading section', () => {
 
   it('finishing the re-read moves completed_on to it and counts it', async () => {
     const item = await finished();
-    await startRead(env.DB, item.id, '2026-09-01');
+    await startRead(env.DB, item.id, '2026-09-01', await user());
     const html = await (await request(`/items/${item.id}/reads/${await openRead(item.id)}/finish`, { body: { date: '2026-09-20' }, htmx: true })).text();
     expect(html).toContain('Finished 2026-09-20 · read 2 times');
     expect(await getItem(env.DB, item.id)).toMatchObject({ status: 'completed', completedOn: '2026-09-20', readCount: 2, rereading: false });
@@ -133,8 +138,8 @@ describe('the Reading section', () => {
 
   it('stopping a re-read keeps it as stopped, and the book as it was', async () => {
     const item = await finished();
-    await startRead(env.DB, item.id, '2026-09-01');
-    await addProgress(env.DB, item.id, 80, null);
+    await startRead(env.DB, item.id, '2026-09-01', await user());
+    await addProgress(env.DB, item.id, 80, await user());
     const html = await (await request(`/items/${item.id}/reads/${await openRead(item.id)}/stop`, { body: {}, htmx: true })).text();
     expect(html).toContain('stopped at p. 80');
     expect(html).toContain('Read again');
@@ -167,7 +172,7 @@ describe('the Reading section', () => {
 
   it('won’t reopen an old read while another is open, and says so', async () => {
     const item = await finished();
-    await startRead(env.DB, item.id, '2026-09-01');
+    await startRead(env.DB, item.id, '2026-09-01', await user());
     const first = (await rows<{ id: number }>("SELECT id FROM reads WHERE item_id = ?1 AND status = 'completed'", item.id))[0]!.id;
     const html = await (await request(`/items/${item.id}/reads/${first}`, { body: { status: 'in_progress', beganOn: '2019-03-01' }, htmx: true })).text();
     expect(html).toContain('Another read is open');
@@ -215,7 +220,7 @@ describe('the re-reading marker', () => {
     const quiet = await (await request(`/libraries/${item.libraryId}`)).text();
     expect(quiet).not.toContain('pill rereading'); // negative control: not before the re-read opens
 
-    await startRead(env.DB, item.id, '2026-09-01');
+    await startRead(env.DB, item.id, '2026-09-01', await user());
     expect(await (await request(`/items/${item.id}`)).text()).toContain('pill rereading');
     expect(quiet).not.toContain('×'); // one finish: no count
     expect(await (await request(`/libraries/${item.libraryId}`)).text()).toContain('pill rereading');
@@ -225,8 +230,8 @@ describe('the re-reading marker', () => {
 
   it('counts the finishes on the shelf once there is more than one', async () => {
     const item = await finished();
-    await startRead(env.DB, item.id, '2026-09-01');
-    await closeRead(env.DB, item.id, await openRead(item.id), 'completed', '2026-09-20');
+    await startRead(env.DB, item.id, '2026-09-01', await user());
+    await closeRead(env.DB, item.id, await openRead(item.id), 'completed', '2026-09-20', await self());
     const html = await (await request(`/libraries/${item.libraryId}`)).text();
     expect(html).toContain('2026-09-20');
     expect(html).toContain('×2');
@@ -234,7 +239,7 @@ describe('the re-reading marker', () => {
 
   it('leaves the book where status filters put it', async () => {
     const item = await finished();
-    await startRead(env.DB, item.id, '2026-09-01');
+    await startRead(env.DB, item.id, '2026-09-01', await user());
     const completed = await (await request(`/libraries/${item.libraryId}?status=completed`)).text();
     const inProgress = await (await request(`/libraries/${item.libraryId}?status=in_progress`)).text();
     expect(completed).toContain('The Dispossessed');
@@ -279,7 +284,7 @@ describe('the edit form', () => {
 
   it('won’t reopen the last finish while a re-read is open', async () => {
     const item = await finished();
-    await startRead(env.DB, item.id, '2026-09-01');
+    await startRead(env.DB, item.id, '2026-09-01', await user());
     const res = await request(`/items/${item.id}`, { body: form(item, { status: 'in_progress', completedOn: '' }) });
     expect(res.status).toBe(400);
     expect(await res.text()).toContain('being read again');
@@ -287,7 +292,7 @@ describe('the edit form', () => {
 
   it('locks the reading fields of a book being read again, so its last finish can’t be rewritten from here', async () => {
     const item = await finished();
-    await startRead(env.DB, item.id, '2026-09-01');
+    await startRead(env.DB, item.id, '2026-09-01', await user());
     const html = await (await request(`/items/${item.id}/edit`)).text();
     expect(html).toMatch(/<select name="status" disabled/);
     expect(html).toMatch(/name="completedOn" value="2019-03-20" disabled/);
@@ -345,7 +350,7 @@ describe('the edit form', () => {
     const shelf = await createLibrary(env.DB, 'Records');
     await importItems(env.DB, [
       {
-        item: { libraryId: shelf.id, mediaType: 'vinyl', title: 'Kind of Blue', details: '{}' },
+        item: { libraryId: shelf.id, mediaType: 'vinyl', title: 'Kind of Blue', details: '{}', addedBy: await user() },
         tags: [],
         reads: [
           { status: 'completed', beganOn: '2020-01-01', endedOn: '2020-01-10' },
@@ -384,7 +389,7 @@ describe('the edit form', () => {
     expect((await request(`/items/${done.id}`, { body: form(done, { completedOn: '2019-03-22' }) })).status).toBe(302);
     expect(await getItem(env.DB, done.id)).toMatchObject({ status: 'completed', completedOn: '2019-03-22', readCount: 1 });
 
-    const record = await createItem(env.DB, { libraryId: (await createLibrary(env.DB, 'Records')).id, mediaType: 'vinyl', title: 'Blue', status: 'completed', completedOn: '2020-01-01', details: '{}' });
+    const record = await createItem(env.DB, { libraryId: (await createLibrary(env.DB, 'Records')).id, mediaType: 'vinyl', title: 'Blue', status: 'completed', completedOn: '2020-01-01', details: '{}', addedBy: await user() });
     const body = { libraryId: String(record.libraryId), title: 'Blue', mediaType: 'vinyl', status: 'abandoned', beganOn: '', completedOn: '2020-01-01' };
     expect((await request(`/items/${record.id}`, { body })).status).toBe(302); // no Reading section: the form is how
     expect(await getItem(env.DB, record.id)).toMatchObject({ status: 'abandoned' });
@@ -411,7 +416,7 @@ describe('the edit form', () => {
 
   it('lets a record or board game be made not started again, clearing its read — a book has its page for that', async () => {
     const shelf = await createLibrary(env.DB, 'Records');
-    const record = await createItem(env.DB, { libraryId: shelf.id, mediaType: 'vinyl', title: 'Kind of Blue', status: 'completed', completedOn: '2020-01-01', details: '{}' });
+    const record = await createItem(env.DB, { libraryId: shelf.id, mediaType: 'vinyl', title: 'Kind of Blue', status: 'completed', completedOn: '2020-01-01', details: '{}', addedBy: await user() });
     expect(await (await request(`/items/${record.id}/edit`)).text()).toContain('value="not_started"');
     const res = await request(`/items/${record.id}`, {
       body: { libraryId: String(shelf.id), title: 'Kind of Blue', mediaType: 'vinyl', status: 'not_started', beganOn: '', completedOn: '' },
@@ -443,8 +448,8 @@ describe('progress on share pages for a re-read', () => {
 
     expect(await page()).not.toContain('progress-track'); // finished, not being read: nothing to show
 
-    await startRead(env.DB, item.id, '2026-09-01');
-    await addProgress(env.DB, item.id, 150, null);
+    await startRead(env.DB, item.id, '2026-09-01', await user());
+    await addProgress(env.DB, item.id, 150, await user());
     expect(await page()).toContain('p. 150');
 
     await updateSiteSettings(env.DB, { progressOnShares: false });

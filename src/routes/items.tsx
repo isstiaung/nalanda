@@ -10,21 +10,32 @@ import {
   deleteItem,
   deleteProgress,
   deleteRead,
+  deleteReview,
   getItem,
   getLibrary,
-  getUserById,
+  getProgressEntry,
+  getRead,
+  getReview,
   listLibraries,
+  listPeople,
+  moveRead,
+  moveReview,
   readingLog,
   startRead,
   tagsForItem,
   updateItem,
   updateItemWithTags,
   updateRead,
+  updateReview,
+  type Actor,
+  type ReadEntry,
+  type ReviewEntry,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { deleteCover, storeCover } from '../lib/covers';
 import { MAX_PROGRESS_PAGE } from '../lib/progress';
-import { isReadStatus, readDateProblem, todayUtc, type ReadDraft } from '../lib/reads';
+import { isReadStatus, readDateProblem, summarizeReads, todayUtc, type ReadDraft } from '../lib/reads';
+import { reviewText } from '../lib/reviews';
 import { parseDetails } from '../lib/share';
 import {
   accNo,
@@ -38,18 +49,47 @@ import {
   ItemStatusPills,
   MEDIA_LABEL,
   ReadingSection,
+  ReviewsSection,
   stars,
+  type Person,
+  type Viewer,
 } from '../views/components';
 import { page } from '../views/layout';
 import { itemComments } from './comments';
 
 const items = new Hono<AppEnv>();
 
+/** The signed-in person, as the reading and review routes check them: their own, or anyone's for an admin (§16 #43). */
+function viewerOf(c: Context<AppEnv>): Viewer & Actor {
+  const user = c.get('user');
+  return { id: user.id, admin: user.role === 'admin' };
+}
+
 /**
- * What's wrong with the form's status and dates, or null (§16 #41). They describe the read that decides the item's
- * status, so: a book not started has no dates, one in progress no completion date, and a book with reads can't be
- * made not started from here — its reads are deleted on its page. A book being read again has its reading fields
- * locked (see `rereadLocked`): they describe its last finish, and changing them here would rewrite that.
+ * Whether the book's page shows people: once the household has more than one member, or anyone but the viewer has
+ * read or reviewed it (a member removed since, say). A household of one sees the page as it always was.
+ */
+const showsPeople = (people: Person[], viewer: Viewer, log: { reads: ReadEntry[]; reviews: ReviewEntry[] }) =>
+  people.length > 1 || log.reads.some((r) => r.readerId !== viewer.id) || log.reviews.some((r) => r.userId !== viewer.id);
+
+/**
+ * The item as one person's edit form shows it (§16 #43): their reading — the status and dates of their read that
+ * decides their status, their finishes, whether they're reading it again — and their rating and review, over the
+ * household's item. The form edits exactly these, whoever else has read or reviewed it.
+ */
+function personalItem(item: Item, log: { reads: ReadEntry[]; reviews: ReviewEntry[] }, person: number): Item {
+  // summarizeReads takes reads in insertion order
+  const mine = log.reads.filter((r) => r.readerId === person).sort((a, b) => a.id - b.id);
+  const review = log.reviews.find((r) => r.userId === person);
+  return { ...item, ...summarizeReads(mine), rating: review?.rating ?? null, review: review?.review ?? null };
+}
+
+/**
+ * What's wrong with the form's status and dates, or null (§16 #41). They describe the editor's read that decides
+ * their status (§16 #43) — `existing` is the item as personalItem() shows it to them — so: a book not started has no
+ * dates, one in progress no completion date, and a book they've read can't be made not started from here — their
+ * reads are deleted on its page. A book they're reading again has its reading fields locked (see `rereadLocked`):
+ * they describe their last finish, and changing them here would rewrite that.
  */
 function formReadProblem(existing: Item | null, v: { status: ItemStatus; beganOn: string | null; completedOn: string | null }): string | null {
   if (v.status === 'not_started') {
@@ -83,6 +123,12 @@ type ParsedForm = {
   removeCover: boolean;
 };
 
+/** A rating from a form: half-stars 1–10, or none. */
+const formRating = (raw: unknown): number | null => {
+  const n = Number.parseInt(typeof raw === 'string' ? raw.trim() : '', 10);
+  return Number.isFinite(n) && n >= 1 && n <= 10 ? n : null;
+};
+
 function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
   const str = (k: string) => {
     const v = body[k];
@@ -100,7 +146,6 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
   const status = (ITEM_STATUSES as readonly string[]).includes(str('status'))
     ? (str('status') as ItemStatus)
     : 'not_started';
-  const ratingNum = Number.parseInt(str('rating'), 10);
   const lengthNum = Number.parseInt(str('length').replace(/\D/g, ''), 10);
   const copiesNum = Number.parseInt(str('copies').replace(/\D/g, ''), 10);
 
@@ -128,7 +173,7 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
       description: orNull(str('description')),
       length: Number.isFinite(lengthNum) && lengthNum > 0 ? lengthNum : null,
       status,
-      rating: Number.isFinite(ratingNum) && ratingNum >= 1 && ratingNum <= 10 ? ratingNum : null,
+      rating: formRating(body['rating']),
       review: orNull(str('review')),
       notes: orNull(str('notes')),
       copies: Number.isFinite(copiesNum) && copiesNum >= 0 ? copiesNum : 1, // 0 = cataloged, not owned
@@ -150,9 +195,9 @@ const formItem = (existing: Item | null, v: ParsedForm['values']): Item =>
   ({ ...(existing ?? { id: 0, coverKey: null, readCount: 0, rereading: false }), ...v }) as Item;
 
 /**
- * A book being read again: its form's status and dates describe its last finish, and are shown locked — the re-read
- * is started, finished and corrected on the book's page. A form that sends them anyway (opened before the re-read
- * began) may only send them unchanged.
+ * A book the editor is reading again: their form's status and dates describe their last finish, and are shown
+ * locked — the re-read is started, finished and corrected on the book's page. A form that sends them anyway (opened
+ * before the re-read began) may only send them unchanged. `item` is the editor's view (personalItem).
  */
 const rereadLocked = (item: Item) => item.mediaType === 'book' && item.rereading;
 
@@ -179,7 +224,7 @@ items.post('/items', async (c) => {
 
   const problem = formReadProblem(null, readFields(parsed.values));
   if (problem) {
-    const libs = await listLibraries(c.env.DB);
+    const [libs, people] = await Promise.all([listLibraries(c.env.DB), listPeople(c.env.DB)]);
     c.status(400);
     return page(
       c,
@@ -196,6 +241,7 @@ items.post('/items', async (c) => {
           tags={parsed.tags}
           coverUrl={parsed.coverUrl}
           error={problem}
+          perMember={people.length > 1}
         />
       </>,
     );
@@ -204,6 +250,7 @@ items.post('/items', async (c) => {
   const coverKey = await storeCover(c.env.COVERS, parsed.coverUrl);
   let id: number;
   try {
+    // its status, dates, rating and review become the adder's read and review (added_by)
     id = await createItemWithTags(c.env.DB, { ...parsed.values, coverKey, addedBy: c.get('user').id }, parsed.tags);
   } catch (err) {
     c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // nothing points at it
@@ -212,17 +259,21 @@ items.post('/items', async (c) => {
   return c.redirect(logOnly ? `/items/${id}/edit` : `/items/${id}`);
 });
 
-items.get('/items/:id', async (c) => {
-  const id = Number(c.req.param('id'));
+/** The item page. `reviewError` says why a change to a review from this page was refused. */
+async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
-  const [lib, tags, loans, addedBy, log] = await Promise.all([
+  const viewer = viewerOf(c);
+  const [lib, tags, loans, people, log] = await Promise.all([
     getLibrary(c.env.DB, item.libraryId),
     tagsForItem(c.env.DB, id),
     activeLoansForItem(c.env.DB, id),
-    item.addedBy ? getUserById(c.env.DB, item.addedBy) : Promise.resolve(null),
-    item.mediaType === 'book' ? readingLog(c.env.DB, id) : Promise.resolve({ reads: [], entries: [] }),
+    listPeople(c.env.DB),
+    readingLog(c.env.DB, id),
   ]);
+  const addedBy = item.addedBy ? (people.find((p) => p.id === item.addedBy) ?? null) : null;
+  const grouped = showsPeople(people, viewer, log);
+  const ratings = log.reviews.filter((r) => r.rating !== null).length;
   const today = new Date().toISOString().slice(0, 10);
   const isOverdue = (l: { dueOn: string | null }) => !!(l.dueOn && l.dueOn < today);
   const overdue = loans.some(isOverdue);
@@ -274,6 +325,8 @@ items.get('/items/:id', async (c) => {
               <dt>Rating</dt>
               <dd>
                 <span class="rating">{stars(item.rating)}</span>
+                {/* the household's: everyone's ratings averaged, as share pages and connections see it */}
+                {grouped && ratings > 1 ? <span class="muted rating-note"> average of {ratings}</span> : null}
               </dd>
             </>
           ) : null}
@@ -344,14 +397,29 @@ items.get('/items/:id', async (c) => {
           </div>
         ) : null}
 
-        {item.review ? (
+        {grouped ? (
+          <>
+            {reviewError ? <p class="error">{reviewError}</p> : null}
+            <ReviewsSection item={item} reviews={log.reviews} viewer={viewer} people={people} />
+          </>
+        ) : item.review ? (
           <div class="detail-section">
             <p class="eyebrow">Review</p>
             <p class="prewrap">{item.review}</p>
           </div>
         ) : null}
 
-        {item.mediaType === 'book' ? <ReadingSection item={item} reads={log.reads} entries={log.entries} today={todayUtc()} /> : null}
+        {item.mediaType === 'book' ? (
+          <ReadingSection
+            item={item}
+            reads={log.reads}
+            entries={log.entries}
+            today={todayUtc()}
+            viewer={viewer}
+            people={people}
+            grouped={grouped}
+          />
+        ) : null}
 
         {discussion}
 
@@ -411,13 +479,20 @@ items.get('/items/:id', async (c) => {
       </div>
     </article>,
   );
-});
+}
+
+items.get('/items/:id', (c) => itemPage(c, Number(c.req.param('id'))));
 
 items.get('/items/:id/edit', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
-  const [libs, tags] = await Promise.all([listLibraries(c.env.DB), tagsForItem(c.env.DB, id)]);
+  const [libs, tags, log, people] = await Promise.all([
+    listLibraries(c.env.DB),
+    tagsForItem(c.env.DB, id),
+    readingLog(c.env.DB, id),
+    listPeople(c.env.DB),
+  ]);
   return page(
     c,
     `Edit · ${item.title}`,
@@ -428,7 +503,14 @@ items.get('/items/:id/edit', async (c) => {
           <span class="sub mono">{accNo(item.id)}</span>
         </div>
       </div>
-      <ItemForm libraries={libs} action={`/items/${id}`} submitLabel="Save changes" item={item} tags={tags} />
+      <ItemForm
+        libraries={libs}
+        action={`/items/${id}`}
+        submitLabel="Save changes"
+        item={personalItem(item, log, c.get('user').id)}
+        tags={tags}
+        perMember={people.length > 1}
+      />
     </>,
   );
 });
@@ -446,20 +528,34 @@ async function readingResponse(c: Context<AppEnv>, id: number, error?: string) {
   if (!c.req.header('HX-Request')) return c.redirect(`/items/${id}`);
   let item: Item | null;
   let log: Awaited<ReturnType<typeof readingLog>>;
+  let people: Person[];
   try {
-    [item, log] = await Promise.all([getItem(c.env.DB, id), readingLog(c.env.DB, id)]);
+    [item, log, people] = await Promise.all([getItem(c.env.DB, id), readingLog(c.env.DB, id), listPeople(c.env.DB)]);
   } catch {
     c.header('HX-Redirect', `/items/${id}`);
     return c.body(null, 200);
   }
   if (!item) return c.notFound();
+  const viewer = viewerOf(c);
   return c.html(
     <>
-      <ReadingSection item={item} reads={log.reads} entries={log.entries} today={todayUtc()} error={error} />
+      <ReadingSection
+        item={item}
+        reads={log.reads}
+        entries={log.entries}
+        today={todayUtc()}
+        viewer={viewer}
+        people={people}
+        grouped={showsPeople(people, viewer, log)}
+        error={error}
+      />
       <ItemStatusPills item={item} oob={true} />
     </>,
   );
 }
+
+/** A change to someone else's reading or review, refused (§16 #43). The page never offers one; a hand-made request gets this. */
+const notYours = (c: Context<AppEnv>, what: string) => c.text(`That ${what} is someone else’s: only they or an admin can change it.`, 403);
 
 /** The book a reading route is for, or null: reads and pages are kept for books (the edit form covers the rest). */
 async function bookFor(c: Context<AppEnv>): Promise<Item | null> {
@@ -470,9 +566,9 @@ async function bookFor(c: Context<AppEnv>): Promise<Item | null> {
 const formDate = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
 /**
- * Records a page. A bad number re-renders the section with the reason, and htmx swaps the section
- * either way; without htmx the form posts and lands back on the item page (the browser's pattern check
- * stops most junk before it's sent).
+ * Records a page, in the signed-in person's own open read. A bad number re-renders the section with the reason, and
+ * htmx swaps the section either way; without htmx the form posts and lands back on the item page (the browser's
+ * pattern check stops most junk before it's sent).
  */
 items.post('/items/:id/progress', async (c) => {
   const id = Number(c.req.param('id'));
@@ -496,24 +592,31 @@ items.post('/items/:id/progress', async (c) => {
   );
 });
 
+/** Removes a page: its reader's, or anyone's for an admin. */
 items.post('/items/:id/progress/:entryId/delete', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
-  await deleteProgress(c.env.DB, id, Number(c.req.param('entryId')));
+  const viewer = viewerOf(c);
+  const entry = await getProgressEntry(c.env.DB, id, Number(c.req.param('entryId')));
+  if (entry && !viewer.admin && entry.ownerId !== viewer.id) return notYours(c, 'page');
+  if (entry) await deleteProgress(c.env.DB, id, entry.id, viewer);
   return readingResponse(c, id);
 });
 
-// ---------- reads (ARCH.md §16 #41) ----------
+// ---------- reads (ARCH.md §16 #41, #43) ----------
 
-/** Starts a read: the first, or "Read again" on a finished book — which stays Completed, marked re-reading. */
+/**
+ * Starts a read of the signed-in person's own: their first, or "Read again" on a book they've finished — which stays
+ * Completed, marked re-reading. Someone else reading it doesn't stop them.
+ */
 items.post('/items/:id/reads/start', async (c) => {
   const item = await bookFor(c);
   if (!item) return c.notFound();
   const beganOn = formDate((await c.req.parseBody())['date']) ?? todayUtc();
   const problem = readDateProblem({ status: 'in_progress', beganOn, endedOn: null });
   if (problem) return readingResponse(c, item.id, problem);
-  const started = await startRead(c.env.DB, item.id, beganOn);
+  const started = await startRead(c.env.DB, item.id, beganOn, c.get('user').id);
   return readingResponse(
     c,
     item.id,
@@ -521,7 +624,18 @@ items.post('/items/:id/reads/start', async (c) => {
   );
 });
 
-/** Finishes or stops the open read, on the date given or today. */
+/**
+ * The read a route names, when the signed-in person may change it: 'missing' when there's no such read of this book,
+ * 'refused' when it's someone else's and they aren't an admin.
+ */
+async function readFor(c: Context<AppEnv>, item: Item): Promise<ReadEntry | 'missing' | 'refused'> {
+  const read = await getRead(c.env.DB, item.id, Number(c.req.param('readId')));
+  if (!read) return 'missing';
+  const viewer = viewerOf(c);
+  return viewer.admin || read.readerId === viewer.id ? read : 'refused';
+}
+
+/** Finishes or stops an open read, on the date given or today — the reader's own, or anyone's for an admin. */
 for (const [action, status] of [
   ['finish', 'completed'],
   ['stop', 'abandoned'],
@@ -529,15 +643,17 @@ for (const [action, status] of [
   items.post(`/items/:id/reads/:readId/${action}`, async (c) => {
     const item = await bookFor(c);
     if (!item) return c.notFound();
+    const read = await readFor(c, item);
+    if (read === 'refused') return notYours(c, 'read');
     const endedOn = formDate((await c.req.parseBody())['date']) ?? todayUtc();
     const problem = readDateProblem({ status, beganOn: null, endedOn });
     if (problem) return readingResponse(c, item.id, problem);
-    const closed = await closeRead(c.env.DB, item.id, Number(c.req.param('readId')), status, endedOn);
+    const closed = read !== 'missing' && (await closeRead(c.env.DB, item.id, read.id, status, endedOn, viewerOf(c)));
     return readingResponse(c, item.id, closed ? undefined : 'That read isn’t open any more, or began after that date.');
   });
 }
 
-/** A read from before, finished or stopped: "I also read this in 2010". */
+/** A read of the signed-in person's from before, finished or stopped: "I also read this in 2010". */
 items.post('/items/:id/reads', async (c) => {
   const item = await bookFor(c);
   if (!item) return c.notFound();
@@ -546,14 +662,16 @@ items.post('/items/:id/reads', async (c) => {
   const read: ReadDraft = { status, beganOn: formDate(body['beganOn']), endedOn: formDate(body['endedOn']) };
   const problem = readDateProblem(read);
   if (problem) return readingResponse(c, item.id, problem);
-  const added = await addPastRead(c.env.DB, item.id, read);
+  const added = await addPastRead(c.env.DB, item.id, read, c.get('user').id);
   return readingResponse(c, item.id, added ? undefined : 'This book has as many reads as it can hold.');
 });
 
-/** Corrects one read's outcome and dates. */
+/** Corrects one read's outcome and dates — the reader's own, or anyone's for an admin. */
 items.post('/items/:id/reads/:readId', async (c) => {
   const item = await bookFor(c);
   if (!item) return c.notFound();
+  const found = await readFor(c, item);
+  if (found === 'refused') return notYours(c, 'read');
   const body = await c.req.parseBody();
   if (!isReadStatus(body['status'])) return readingResponse(c, item.id, 'Choose how that read went.');
   const read: ReadDraft = {
@@ -563,16 +681,99 @@ items.post('/items/:id/reads/:readId', async (c) => {
   };
   const problem = readDateProblem(read);
   if (problem) return readingResponse(c, item.id, problem);
-  const updated = await updateRead(c.env.DB, item.id, Number(c.req.param('readId')), read);
+  const updated = found !== 'missing' && (await updateRead(c.env.DB, item.id, found.id, read, viewerOf(c)));
   return readingResponse(c, item.id, updated ? undefined : 'Another read is open. Finish or stop it before reopening this one.');
 });
 
-/** Deletes a read and the pages logged in it. */
+/** Deletes a read and the pages logged in it — the reader's own, or anyone's for an admin. */
 items.post('/items/:id/reads/:readId/delete', async (c) => {
   const item = await bookFor(c);
   if (!item) return c.notFound();
-  await deleteRead(c.env.DB, item.id, Number(c.req.param('readId')));
+  const read = await readFor(c, item);
+  if (read === 'refused') return notYours(c, 'read');
+  if (read !== 'missing') await deleteRead(c.env.DB, item.id, read.id, viewerOf(c));
   return readingResponse(c, item.id);
+});
+
+/** The member a move names, when there is one. */
+async function moveTarget(c: Context<AppEnv>): Promise<Person | null> {
+  const raw = (await c.req.parseBody())['to'];
+  const to = typeof raw === 'string' && /^\d{1,15}$/.test(raw) ? Number(raw) : 0;
+  return (await listPeople(c.env.DB)).find((p) => p.id === to) ?? null;
+}
+
+/**
+ * Moves a read, with its pages, to another member — admins only, to fix history credited to the wrong person, such
+ * as everything the upgrade to 1.3.0 gave the first admin (§16 #43).
+ */
+items.post('/items/:id/reads/:readId/move', async (c) => {
+  const item = await bookFor(c);
+  if (!item) return c.notFound();
+  const viewer = viewerOf(c);
+  if (!viewer.admin) return c.text('Only an admin can move a read to someone else.', 403);
+  const read = await getRead(c.env.DB, item.id, Number(c.req.param('readId')));
+  const to = await moveTarget(c);
+  if (!read || !to) return readingResponse(c, item.id, 'Choose a member to move that read to.');
+  if (read.readerId === to.id) return readingResponse(c, item.id, `That read is ${to.username}’s already.`);
+  const moved = await moveRead(c.env.DB, item.id, read.id, to.id, viewer);
+  return readingResponse(
+    c,
+    item.id,
+    moved
+      ? undefined
+      : read.status === 'in_progress'
+        ? `${to.username} is reading this book now. Finish or stop that read first, then move this one.`
+        : `${to.username} has as many reads of this book as it can hold.`,
+  );
+});
+
+// ---------- reviews (ARCH.md §16 #43) ----------
+
+/** The review a route names, when the signed-in person may change it — as readFor. */
+async function reviewFor(c: Context<AppEnv>, itemId: number): Promise<ReviewEntry | 'missing' | 'refused'> {
+  const review = await getReview(c.env.DB, itemId, Number(c.req.param('reviewId')));
+  if (!review) return 'missing';
+  const viewer = viewerOf(c);
+  return viewer.admin || review.userId === viewer.id ? review : 'refused';
+}
+
+/** Edits a review from the item page — the writer's own, or anyone's for an admin. Both fields empty deletes it. */
+items.post('/items/:id/reviews/:reviewId', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!(await getItem(c.env.DB, id))) return c.notFound();
+  const found = await reviewFor(c, id);
+  if (found === 'refused') return notYours(c, 'review');
+  if (found === 'missing') return itemPage(c, id, 'That review isn’t there any more.');
+  const body = await c.req.parseBody();
+  await updateReview(c.env.DB, id, found.id, { rating: formRating(body['rating']), review: reviewText(String(body['review'] ?? '').trim()) }, viewerOf(c));
+  return c.redirect(`/items/${id}#reviews`);
+});
+
+/** Deletes a review — the writer's own, or anyone's for an admin. */
+items.post('/items/:id/reviews/:reviewId/delete', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!(await getItem(c.env.DB, id))) return c.notFound();
+  const found = await reviewFor(c, id);
+  if (found === 'refused') return notYours(c, 'review');
+  if (found !== 'missing') await deleteReview(c.env.DB, id, found.id, viewerOf(c));
+  return c.redirect(`/items/${id}#reviews`);
+});
+
+/** Moves a review to another member — admins only, as a read. One review each: a member who has one must lose it first. */
+items.post('/items/:id/reviews/:reviewId/move', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!(await getItem(c.env.DB, id))) return c.notFound();
+  const viewer = viewerOf(c);
+  if (!viewer.admin) return c.text('Only an admin can move a review to someone else.', 403);
+  const review = await getReview(c.env.DB, id, Number(c.req.param('reviewId')));
+  const to = await moveTarget(c);
+  if (!review || !to) return itemPage(c, id, 'Choose a member to move that review to.');
+  if (review.userId === to.id) return itemPage(c, id, `That review is ${to.username}’s already.`);
+  if (!(await moveReview(c.env.DB, id, review.id, to.id, viewer))) {
+    c.status(409);
+    return itemPage(c, id, `${to.username} has a review of this already: delete one of the two first, then move.`);
+  }
+  return c.redirect(`/items/${id}#reviews`);
 });
 
 items.post('/items/:id/mark-owned', async (c) => {
@@ -602,16 +803,20 @@ items.post('/items/:id', async (c) => {
   const body = await c.req.parseBody();
   const parsed = parseItemForm(body);
   if (!parsed) return c.text('Title and shelf are required.', 400);
-  if (!(await getLibrary(c.env.DB, parsed.values.libraryId))) return c.text('No such shelf.', 400);
-  const locked = rereadLocked(existing);
+  const [lib, log, people] = await Promise.all([getLibrary(c.env.DB, parsed.values.libraryId), readingLog(c.env.DB, id), listPeople(c.env.DB)]);
+  if (!lib) return c.text('No such shelf.', 400);
+  const user = c.get('user');
+  // the form's reading, rating and review are the editor's own (§16 #43)
+  const mine = personalItem(existing, log, user.id);
+  const locked = rereadLocked(mine);
   const sent = readFields(parsed.values);
   const unchanged =
-    sent.status === existing.status && sent.beganOn === (existing.beganOn || null) && sent.completedOn === (existing.completedOn || null);
+    sent.status === mine.status && sent.beganOn === (mine.beganOn || null) && sent.completedOn === (mine.completedOn || null);
   const problem = locked
     ? 'status' in body && !unchanged
       ? 'This book is being read again: its reads are started, finished and corrected on its page, not here.'
       : null
-    : formReadProblem(existing, sent);
+    : formReadProblem(mine, sent);
   if (problem) {
     const libs = await listLibraries(c.env.DB);
     c.status(400);
@@ -629,11 +834,12 @@ items.post('/items/:id', async (c) => {
           libraries={libs}
           action={`/items/${id}`}
           submitLabel="Save changes"
-          item={formItem(existing, locked ? { ...parsed.values, status: existing.status, beganOn: existing.beganOn, completedOn: existing.completedOn } : parsed.values)}
+          item={formItem(mine, locked ? { ...parsed.values, status: mine.status, beganOn: mine.beganOn, completedOn: mine.completedOn } : parsed.values)}
           tags={parsed.tags}
           coverUrl={parsed.coverUrl}
           removeCover={parsed.removeCover}
           error={problem}
+          perMember={people.length > 1}
         />
       </>,
     );
@@ -650,6 +856,8 @@ items.post('/items/:id', async (c) => {
       { ...parsed.values, coverKey },
       parsed.tags,
       locked ? undefined : { ...sent, clearReads: existing.mediaType !== 'book' },
+      user.id,
+      { rating: parsed.values.rating ?? null, review: reviewText(parsed.values.review) },
     );
   } catch (err) {
     if (coverKey !== existing.coverKey) c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // the new one: unused
