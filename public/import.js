@@ -132,6 +132,7 @@
     append(`Sample of first ${sampled} rows: ${data.mapped} map cleanly, ${data.skipped} would be skipped (no title).`);
     if (data.format === 'nalanda') {
       append(`Nalanda export detected: every column maps back as it was exported, into the shelf chosen above. Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
+      append('Rows are added, never merged — importing the same export into this library twice adds everything twice.');
     } else if (data.format === 'goodreads') {
       append(`Goodreads export detected: ${data.merged} match books already here (rating/review/shelves will merge onto them — Goodreads wins), ${data.fresh} are new (added as “Not owned” reading-log entries).`);
     } else {

@@ -211,10 +211,16 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
 
   const title = r['title'];
   if (!title) return null;
-  const int = (raw: string | undefined) => (/^\d+$/.test(raw ?? '') ? Number(raw) : null);
-  const rating = int(r['rating']);
-  const length = int(r['length']);
-  const copies = int(r['copies']);
+  // Whole numbers only, and within reason: /^\d+$/ alone let "99999999999999999999" through as 1e20.
+  const int = (raw: string | undefined, max: number) => {
+    if (!/^\d+$/.test(raw ?? '')) return null;
+    const n = Number(raw);
+    return Number.isSafeInteger(n) && n <= max ? n : null;
+  };
+  const date = (raw: string | undefined) => (/^\d{4}-\d{2}-\d{2}$/.test(raw ?? '') ? raw! : null);
+  const rating = int(r['rating'], 10);
+  const length = int(r['length'], 100_000);
+  const copies = int(r['copies'], 9_999);
   let details = '{}';
   try {
     const parsed: unknown = JSON.parse(r['details'] || '{}');
@@ -238,8 +244,8 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
       review: r['review'] || null,
       notes: r['notes'] || null,
       copies: copies ?? 1,
-      beganOn: r['began_on'] || null,
-      completedOn: r['completed_on'] || null,
+      beganOn: date(r['began_on']),
+      completedOn: date(r['completed_on']),
       ...(SQL_DATETIME.test(r['added_at'] ?? '') ? { addedAt: r['added_at'] } : {}),
       details,
     },

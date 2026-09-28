@@ -130,4 +130,16 @@ describe('a Nalanda export, imported again', () => {
     const row = await env.DB.prepare('SELECT rating FROM items WHERE title = ?1').bind('Dune').first<{ rating: number }>();
     expect(row?.rating).toBe(9); // libib's 4.5 of 5 is 9 of 10 here
   });
+
+  it('refuses numbers and dates that no export of ours could hold', async () => {
+    const { mapNalandaRow } = await import('../src/lib/csv');
+    const row = (over: Record<string, string>) =>
+      mapNalandaRow({ title: 'T', media_type: 'book', isbn10_upc: '', began_on: '', completed_on: '', added_at: '', details: '', ...over })!.item;
+
+    expect(row({ copies: '99999999999999999999' }).copies).toBe(1); // was 1e20, stored as a REAL
+    expect(row({ copies: '3' }).copies).toBe(3);
+    expect(row({ length: '1e5' }).length).toBeNull();
+    expect(row({ rating: '11' }).rating).toBeNull();
+    expect(row({ began_on: 'not a date', completed_on: '2026-09-28' })).toMatchObject({ beganOn: null, completedOn: '2026-09-28' });
+  });
 });
