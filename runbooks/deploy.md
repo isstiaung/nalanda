@@ -19,6 +19,7 @@
    ```sh
    npx wrangler secret put SESSION_SECRET   # generate one: openssl rand -base64 32
    npx wrangler secret put DISCOGS_TOKEN    # see "API tokens" below — enables vinyl lookup
+   npx wrangler secret put BGG_TOKEN        # see "API tokens" below — enables board game search
    npx wrangler secret put GOOGLE_BOOKS_KEY # optional, raises book-lookup quota
    npx wrangler secret put HOME_SHARE_TOKEN # optional front door: logged-out "/" 302s to
                                             # /share/<value>. Setting a secret applies
@@ -93,6 +94,7 @@ index restore cleanly; covers are re-fetched.)
 - [ ] `npx wrangler r2 bucket create nalanda-covers`
 - [ ] `npx wrangler secret put SESSION_SECRET` (`openssl rand -base64 32`)
 - [ ] `npx wrangler secret put DISCOGS_TOKEN` (vinyl lookups)
+- [ ] `npx wrangler secret put BGG_TOKEN` (board game search)
 - [ ] optional: `npx wrangler secret put GOOGLE_BOOKS_KEY`
 - [ ] optional: `npx wrangler secret put HOME_SHARE_TOKEN` (front door → share page)
 - [ ] data: migrate the local catalog (section above) — or start fresh via `/setup`
@@ -118,7 +120,12 @@ index restore cleanly; covers are re-fetched.)
   works.
 - **Google Books** (optional): console.cloud.google.com → create a project → enable
   *Books API* → Credentials → API key. Books work keyless; the key only raises the quota.
-- **Open Library / BoardGameGeek**: no keys, nothing to do.
+- **BoardGameGeek** (board game search): BGG made its XML API registration-only in 2025, and
+  answers every unregistered request with 401. Sign in at boardgamegeek.com, register an
+  application at <https://boardgamegeek.com/applications>, and create a token for it. Set it as
+  the `BGG_TOKEN` secret; for `npm run backfill:remote`, put it in `.dev.vars` too. Without it,
+  board game search shows a notice asking for the token, and manual entry still works.
+- **Open Library**: no key, nothing to do.
 
 For local development, put the same values in `.dev.vars` (never committed).
 

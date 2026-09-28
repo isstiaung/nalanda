@@ -25,15 +25,25 @@ still fails the script stops and says which table — run it again a little late
 
 **Why per-table files instead of one dump:** D1 refuses to export any database that
 contains virtual tables — and our FTS5 search index is one. So backups are data-only
-INSERT files for the real tables (`users`, `libraries`, `items`, `tags`, `item_tags`,
-`loans`, in that FK-safe order). The schema is never backed up because it lives in
-`migrations/`, and the search index rebuilds itself from triggers during restore.
+INSERT files for the real tables, in a foreign-key-safe order — the list, and the order,
+live in `TABLES` in `scripts/backup.mjs`, and the script prints the restore order when it
+finishes. The schema is never backed up because it lives in `migrations/`, and the search
+index rebuilds itself from triggers during restore.
+
+Left out on purpose: `login_attempts` (login throttling, stale within minutes),
+`federation_seen` and `connection_push_counts` (replay and rate bookkeeping, stale within a
+day), and `d1_migrations` (recreated when migrations are applied). The federation private key
+isn't in the database at all — it's a secret, so keep your own copy of it.
 This procedure is rehearsed: a 315-item backup restored with every row present and the
 FTS index rebuilt to match.
 
 - Run one before anything risky (uncertain migrations, bulk imports, manual SQL).
 - Keep an off-machine copy occasionally — `backups/` is gitignored on purpose.
-- A second, app-agnostic layer: log in → `/import` → *Export everything as CSV*.
+- A second, app-agnostic layer: log in → `/import` → *Export everything as CSV*. It imports
+  back faithfully: `/import` recognizes its own export and restores every column — type,
+  identifiers, dates, rating, tags, copies, details — into the shelf you pick on the form. It
+  doesn't recreate shelves (a whole-catalog export lands on one shelf) and doesn't restore reading
+  progress, so the per-table backup above is still the full restore.
 
 ## Restore
 

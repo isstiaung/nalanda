@@ -253,13 +253,13 @@ interface MetadataProvider {
 |---|---|---|---|---|
 | Open Library | books | none | ✓ (ISBN) | default; covers via covers.openlibrary.org |
 | Google Books | books | free API key (optional) | ✓ (ISBN) | fallback — coverage differs from OL |
-| BoardGameGeek XML API2 | board games | none | ✗ | XML (hence `fast-xml-parser`); name search + `thing` detail; be polite, BGG throttles |
+| BoardGameGeek XML API2 | board games | **`BGG_TOKEN`** (free, registered app) | ✗ | XML (hence `fast-xml-parser`); name search + `thing` detail; `Authorization: Bearer` since BGG went registration-only in 2025 — 401 without it; be polite, BGG throttles |
 | Discogs | vinyl (all music) | free personal token | **✓ (UPC/EAN)** | 60 req/min with token; returns format, label, catno |
 
 - Providers are called only at add/import time — zero runtime dependency on them for
   browsing, and no background sync to burn anyone's quota.
-- Secrets: `DISCOGS_TOKEN` (recommended), `GOOGLE_BOOKS_KEY` (optional) via
-  `wrangler secret put`.
+- Secrets: `DISCOGS_TOKEN` and `BGG_TOKEN` (recommended — vinyl and board games need them),
+  `GOOGLE_BOOKS_KEY` (optional) via `wrangler secret put`.
 - Movies/CDs/video games: schema supports them (manual entry); TMDB/IGDB providers are v1.x
   **only if wanted** — deprioritized per review (§16).
 
@@ -311,9 +311,9 @@ portable, and makes share routes trivially public. CF Access remains available l
   key is omitted entirely otherwise, so nothing downstream can render a stale value (§16 #34).
 - Pages carry `<meta name="robots" content="noindex">` — links are for people you send them
   to, not search engines.
-- Unpublish or regenerate the token any time; old URLs die within a minute (the
-  per-isolate page cache, §16 #19 — D1 stops being asked immediately, cached HTML
-  can outlive the token by up to its 60 s TTL).
+- Unpublish or regenerate the token any time; D1 stops being asked immediately, but an
+  isolate that cached the page can keep serving it for up to an hour (the per-isolate
+  page cache, §16 #19 — its TTL was raised from 60 s to one hour).
 - **Covers**: share pages need cover images without auth, so `GET /covers/:key` is public
   with random-UUID keys (unguessable, no listing). Acceptable exposure: covers are public
   cover art by definition.
@@ -430,7 +430,7 @@ Every authenticated page route returns a full document normally and a partial wh
 | R2 | 10 GB · 1M writes/mo · 10M reads/mo · **$0 egress** | 10k covers ≈ ~0.3 GB |
 | Static assets | free, don't count as Worker requests | htmx/css/wasm |
 | TLS + workers.dev subdomain | free | — |
-| External APIs | OL/BGG keyless · Discogs 60/min · Google free quota | add-time only, single-digit calls |
+| External APIs | OL keyless · BGG and Discogs free tokens (Discogs 60/min) · Google free quota | add-time only, single-digit calls |
 
 The **10 ms CPU ceiling** is the one real constraint, and the design bends around it in
 three places: CSV parsing happens in the browser (server just validates JSON batches);

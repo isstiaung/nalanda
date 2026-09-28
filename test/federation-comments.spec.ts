@@ -382,11 +382,16 @@ describe('the outbox', () => {
     const counter = { left: 100_000 };
     const counted = instanceA({ ...env, DB: budgeted(env.DB, counter), FEDERATION_PRIVATE_KEY: keysA.secret } as Bindings);
     const member = await sessionCookie('member');
+    // A backlog ends each load's pull by spending its budget — the normal way to stop, so nothing is logged.
+    // Drizzle wraps that BudgetSpent in its own error, which the guard used to miss: every load logged
+    // "outbox pull failed" and "background refresh failed", and skipped the feed refresh meant to come next.
+    const logged = vi.spyOn(console, 'error');
     for (let load = 0; load < 12; load++) {
       const before = counter.left;
       await counted.get('/feed', member);
       expect(before - counter.left).toBeLessThanOrEqual(50);
     }
+    expect(logged.mock.calls.map((call) => String(call[0]))).toEqual([]);
     expect(await rows('SELECT count(*) AS n FROM comments')).toEqual([{ n: 30 }]);
     expect(await rows('SELECT outbox_cursor FROM connections WHERE id = ?', connectionId)).toEqual([{ outbox_cursor: 30 }]);
   });
