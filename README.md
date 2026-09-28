@@ -15,8 +15,9 @@ manuscripts.
   review, no shelf space required. A Holding column flips a logged book to owned in one
   click when a copy finally arrives, and back again.
 - **Goodreads import**: drop in a Goodreads export CSV — rows matching your shelves merge
-  their ratings/reviews/read-dates onto existing books; the rest arrive as reading-log
-  entries. Re-runs merge instead of duplicating. libib CSV import too.
+  their ratings/reviews onto existing books, and their shelves, read dates and read counts
+  become reads; the rest arrive as reading-log entries. Re-runs merge instead of duplicating,
+  and never remove a read. libib CSV import too.
 - **Public share links, per view**: publish any filtered slice of a shelf ("my reviews",
   "owned sci-fi"), or everything carrying a tag, at its own unguessable URL — rotate or remove each link independently.
   Private notes, loans, and copy counts never appear. Reviews can link out to blog posts.
@@ -36,6 +37,11 @@ manuscripts.
 - **Reading progress**: record the page you're on, keep the log of how you got there, and
   see how far through a book you are. Connections follow it in their feed, page by page;
   it stays off public share links unless you choose to show it there.
+- **Re-reading**: "Read again" on a finished book starts a new read — the book stays
+  Completed, marked re-reading, until you finish or stop it. Every read keeps its own dates
+  and pages, and can be corrected, deleted or added after the fact; a book read more than
+  once says "Read N times" on share pages, and connections see "re-reading" and "finished
+  again".
 - **Own your data**: every field round-trips through CSV export; plain-SQLite backups.
 - **The manuscript ledger**: a hand-written design system grounded in Nalanda's Pala-era
   scriptorium — palm-leaf paper, indigo and vermilion, Devanagari-first display type,

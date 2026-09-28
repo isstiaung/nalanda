@@ -127,8 +127,10 @@ CREATE TABLE items (
   review       TEXT,
   notes        TEXT,            -- private notes — never rendered on share pages
   copies       INTEGER NOT NULL DEFAULT 1,
-  began_on     TEXT,
-  completed_on TEXT,
+  began_on     TEXT,            -- status, began_on, completed_on, read_count, rereading and
+  completed_on TEXT,            -- progress_page are derived from `reads` (§16 #41)
+  read_count   INTEGER NOT NULL DEFAULT 0,  -- finished reads
+  rereading    INTEGER NOT NULL DEFAULT 0,  -- finished before, and read again now
   details      TEXT NOT NULL DEFAULT '{}',  -- JSON: type-specific + unmapped import fields
   added_by     INTEGER REFERENCES users(id),
   added_at     TEXT NOT NULL DEFAULT (datetime('now')),
@@ -136,6 +138,17 @@ CREATE TABLE items (
 );
 CREATE INDEX idx_items_library ON items(library_id);
 CREATE INDEX idx_items_isbn13  ON items(isbn13);
+
+CREATE TABLE reads (             -- each time an item was read: the source of reading state (§16 #41)
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  status     TEXT NOT NULL CHECK (status IN ('in_progress','completed','abandoned')),
+  began_on   TEXT,              -- NULL = not known
+  ended_on   TEXT,              -- finished or stopped; NULL while open, or not known
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX reads_one_open ON reads(item_id) WHERE status = 'in_progress';
+-- reading_progress (§16 #34) gains read_id → reads(id): each page belongs to a read
 
 CREATE TABLE tags (
   id   INTEGER PRIMARY KEY,
@@ -185,7 +198,9 @@ columns also land here so imports are lossless):
   catalog number are what collectors actually care about.
 
 Ratings and reading status are **per-item, not per-member** in v1 — one shared household
-opinion. Per-member ratings are a possible v1.x addition (§14).
+opinion. Per-member ratings are a possible v1.x addition (§14). Reading state lives in
+`reads`, one row per time the item was read; `items.status` and its neighbours are a cache
+of it, recomputed in the same batch as every write (§16 #41).
 
 Sessions are **not** in the database: a signed (HMAC, WebCrypto) cookie carries
 `{userId, expiry}`, verified per request against `SESSION_SECRET`, plus a cheap
@@ -214,6 +229,10 @@ confirm. Same confirm screen, different entry point.
 
 **Manual add/edit**: plain form, all media types, works from day one.
 
+**Reading again**: a finished book's page offers "Read again", which opens a new read; the
+book stays Completed, marked re-reading, until Finish or "Stop re-reading" closes it. Every
+read is listed on the book's page, correctable and deletable (§16 #41).
+
 **Lending**: from an item page, "lend" captures borrower + optional due date; dashboard and
 `/loans` show what's out and overdue; "returned" stamps `returned_on`. History is kept.
 
@@ -230,12 +249,14 @@ the browser** and posts JSON batches of ~200 rows (this sidesteps the Worker CPU
 in `details` JSON so the import is lossless. libib rows always insert (`group` becomes a
 tag). Goodreads rows **match-and-merge** (§16 #14): a row matching an existing item — by
 ISBN-13, then ISBN-10, then normalized title + first-author surname — merges rating,
-review, status, read date, and shelves-as-tags onto it (Goodreads wins, but never blanks
-a field it has no value for, and never touches copies or bibliographic metadata);
+review, notes and shelves-as-tags onto it (Goodreads wins, but never blanks a field it has
+no value for, and never touches copies or bibliographic metadata), and its shelf, Date
+Read, Date Started and Read Count become reads, added and never removed (§16 #41);
 unmatched rows insert with `copies = 0` (reading-log entries, §16 #13) unless Goodreads'
 Owned Copies says otherwise. Re-runs are idempotent: previously inserted rows match on
 the next run. A dry-run preview shows mapping + match counts before anything is written.
-Export is the inverse: `GET /export.csv` writes every field back out. The Export button
+Export is the inverse: `GET /export.csv` writes every field back out, every read included
+(`reads`, `read_count`). The Export button
 fetches it a page at a time and joins the pages in the browser, so no request builds more than
 250 items (§16 #38); without a cursor the same route streams everything in one response.
 
@@ -304,13 +325,15 @@ portable, and makes share routes trivially public. CF Access remains available l
 - **Field whitelist, not blacklist**: share pages render only title, creators, cover,
   publisher/label, published date, description, media details, tags, rating, review, and
   a derived boolean `inCollection` (`copies > 0`) so reading-log entries (`copies = 0`)
-  carry a "Not owned" badge (§16 #13).
+  carry a "Not owned" badge (§16 #13), and `readCount` — how many times it was finished,
+  only from twice on ("Read N times"), never the reads or their dates (§16 #41).
   **Never**: private notes, loans/borrowers, the copies count, added_by, or any nav into
   the authenticated app. The whitelist lives in one view module so it can't drift.
 - **Reading progress is opt-in, household-wide** (`site_settings.progress_on_shares`, off by
-  default, admin-only on **Shared links**). Even when on, only a book marked *in progress* shows
-  its page and bar — a finished book's last page is noise, an unstarted one has none — and the
-  key is omitted entirely otherwise, so nothing downstream can render a stale value (§16 #34).
+  default, admin-only on **Shared links**). Even when on, only a book being read now — marked
+  *in progress*, or finished before and being read again (§16 #41) — shows its page and bar; a
+  finished book's last page is noise, an unstarted one has none — and the key is omitted
+  entirely otherwise, so nothing downstream can render a stale value (§16 #34).
 - Pages carry `<meta name="robots" content="noindex">` — links are for people you send them
   to, not search engines.
 - Unpublish or regenerate the token any time; D1 stops being asked immediately, but an
@@ -335,6 +358,9 @@ GET  /                         dashboard: libraries, recent adds, loans out
 GET  /libraries/:id            item grid/list; filter/sort/paging via htmx partials
 GET  /items/:id                detail  ·  GET /items/:id/edit
 POST /items                    create  ·  POST /items/:id (update) · POST /items/:id/delete
+POST /items/:id/progress       record a page · POST /items/:id/progress/:entry/delete
+POST /items/:id/reads/start    open a read ("Read again") · POST /items/:id/reads (a past read)
+POST /items/:id/reads/:read    correct · …/finish · …/stop · …/delete   (books; §16 #41)
 GET  /add                      add flow: scan | search | manual
 GET  /api/lookup               ?barcode=… | ?q=…&type=boardgame → JSON candidates
 POST /items/:id/loan           lend    ·  POST /loans/:id/return
@@ -556,7 +582,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     `Exclusive Shelf` → status (read/currently-reading/to-read, custom dnf/abandoned
     shelves → abandoned); ISBNs are unwrapped from Excel guards (`="…"`). Format is
     auto-detected server-side per batch, so /api/import needs no format flag and the
-    same endpoint serves both importers.
+    same endpoint serves both importers. *Amended by #41:* status and the read date now
+    arrive as reads, which a merge adds and never removes — Goodreads still wins for
+    rating, review and notes.
 15. **"Log — not owned" on scan/search results** — the ongoing Goodreads replacement:
     every add-flow candidate card gets a second submit that presets `copies = 0` and
     redirects to the edit form (not the detail page) so rating/review/status/read date
@@ -805,6 +833,8 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     like a private note than a published review, but some households want a public "reading now"
     — stored in a single-row `site_settings` table whose missing row means every default, so a
     fresh instance needs no setup (§9). It reaches connections separately, as feed entries (§16 #35).
+    *Amended by #41:* a page belongs to a read and goes only to an open one — a finished book takes
+    none until "Read again" — and `progress_page` is the current read's latest.
 35. **Progress reaches connections as a timeline: every update its own feed entry.** The
     household chose that over "latest progress per book". `activity_log`'s (item, kind)
     uniqueness became partial (`WHERE kind <> 'progress'`) so progress accumulates while 0007's
@@ -920,6 +950,53 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     highest id it sent. The first view and its opening entries are one batch. Deleting the last view clears the log in the
     same batch, so a stale log can't survive to the next first view.
 
+**2026-09-28 — reading a book again:**
+41. **Each read of a book is a row, and a re-read keeps the book Completed.** A book had one
+    status and one pair of dates, so reading it again overwrote the first read, and nothing
+    counted reads. `reads` now holds one row per read — status (`in_progress`, `completed`,
+    `abandoned`), began, ended — with at most one open read per item (a partial unique index).
+    It is the source of truth; `items.status`, `began_on`, `completed_on`, `progress_page` and
+    the new `read_count` and `rereading` stay as a cache of it, because every shelf, filter,
+    share view, connection view, trigger and the export already read those columns and a shelf
+    can't afford a subquery per item. One statement, `refreshReadState()`, derives them, and
+    rides in the same batch as every write to reads (#39); `summarizeReads()` is its TypeScript
+    twin for inserts, and a test holds them together. **The owner chose that a re-read keeps
+    the book Completed** (over moving it to In progress, and over making Completed filters
+    match anything ever finished): status comes from the last finished read if there is one,
+    else the open one, else the last stopped one, so nothing moves between status-filtered
+    views — shelves, share links, connection views — while a book is read again. `rereading`
+    (an open read on a finished book) marks it instead, as a dashed indigo pill wherever
+    status shows; `began_on` and `completed_on` stay the last finish's, and `completed_on`
+    moves when a re-read finishes. A stopped re-read is kept, as a stopped read with the page
+    it reached — the history is the point, and Delete removes one made by mistake — and the
+    book stays Completed. A finished book takes no page until "Read again" opens a read
+    (amending #34), so a page typed on the wrong book can't start anything. **Chosen without
+    asking, overrulable:** with progress on share pages switched on, a re-read's progress shows
+    like a first read's — the setting means "what I'm reading now". The edit form's status and
+    dates edit the read that decides status, and it refuses what a read can't be — dates on a
+    book not started, a completion date in progress, "Not started" for a book with reads —
+    rather than guess. Share pages gain `readCount` from two finishes on ("Read N times"),
+    always on, through `toPublicItem`; the reads and their dates stay private. Connections get
+    `readCount` on every item — on a progress entry, the finished reads before the one its page
+    belongs to, so a receiver can tell a re-read's pages from a first read's — and the Feed says
+    "re-reading" and "finished again"; older versions ignore the field. No trigger changed: a
+    finished re-read moves `completed_on`, and 0021's trigger already records a finish on that,
+    dated by it (#40), inside an import too; starting or stopping a re-read changes neither
+    column and records nothing. The export gains `reads` (`status:began..ended`, oldest first)
+    and `read_count`; progress entries name their read (`#n`); a Nalanda re-import rebuilds the
+    reads, and an older export still imports from its status and dates. Goodreads' Read Count,
+    which the import had kept in details, becomes undated finished reads, capped at 100, and
+    leaves details; a Goodreads merge adds reads and never removes one (amending #14), and a
+    second run adds nothing. Migration 0023 does the same for what is there already, inside
+    the import marker so none of it is news: on production's data (backup of 2026-09-28,
+    rehearsed through 0012 → 0023) it made 381 reads, left 20 of 22 tables identical, removed
+    only `read_count` from 1,681 details, and changed 8 statuses — 6 books not started that
+    Goodreads counted as read once became Completed, and 2 books in progress that had been
+    finished before became Completed and re-reading, so they leave the in-progress connection
+    view. Reads are household-level like status (§5); per-member reads and per-read ratings or
+    reviews stay out of scope.
+
+**2026-09-28 — versions and releases:**
 42. **Nalanda is released as SemVer versions, starting at 1.0.0, with notes written for whoever
     hosts it.** Other households run their own copies, and a migration applies itself on deploy,
     so the one thing a self-hoster can't learn from the code is what an update will do to their

@@ -70,8 +70,9 @@ or all of them, a type, a status, owned or not — then **Share view**. Nothing 
 you do.
 
 - Every connected household sees every view.
-- For the books in a view they see the title, creators, cover, rating, review and when you
-  finished it. Never notes, loans, borrowers or how many copies you have.
+- For the books in a view they see the title, creators, cover, rating, review, when you last
+  finished it, and how many times you have. Never notes, loans, borrowers, how many copies you
+  have, or the dates of your other reads.
 - What reaches them is activity: a book reviewed, rated or finished, and each page you record
   as you read. Sharing your first view includes the last 90 days of it.
 - Each entry is dated by when it happened. A finish carries its **completed** date, so marking a
@@ -83,6 +84,11 @@ you do.
   new. Each imported read is dated by its completed date. A read without one isn't sent at all.
   A household following you sees last week's reads in last week's place. Older ones fall outside
   what they keep.
+- **Reading a book again** keeps it Completed, so it stays in the views it was in: a view of
+  books in progress won't show a re-read, and a view of finished books keeps it. Its pages are
+  sent as you record them, and its finish, when you get there, is sent as a new finish dated
+  that day. Starting or stopping a re-read sends nothing. Households on this version see
+  "re-reading" and "finished again"; one on an older version sees plain reading and finished.
 - **Share reading progress**, in the same section, is on by default. Turn it off and nothing new
   is sent; entries already sent are withdrawn the next time each household checks. It's
   separate from showing progress on public share links (**Shared links**), which is off by
