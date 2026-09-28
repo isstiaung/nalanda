@@ -97,12 +97,15 @@ export function parseDetails(json: string | null | undefined): Record<string, un
 }
 
 /**
- * `progress` is opt-in (site_settings.progress_on_shares, off by default) and even then limited to a
- * book marked in progress: a finished book's last page is noise, and an unstarted one has none. The key
- * is left out entirely otherwise, so nothing downstream can render an empty or stale value.
+ * `progress` is opt-in (site_settings.progress_on_shares, off by default) and even then limited to a book
+ * being read now — in progress, or finished before and being read again (§16 #41: the setting means "show what
+ * I'm reading now", and a re-read keeps its Completed status). A finished book's last page is noise, and an
+ * unstarted one has none. The key is left out entirely otherwise, so nothing downstream can render an empty or
+ * stale value.
  */
 export function toPublicItem(item: Item, opts: { progress?: boolean } = {}): PublicItem {
-  const showProgress = opts.progress === true && item.mediaType === 'book' && item.status === 'in_progress' && !!item.progressPage;
+  const readingNow = item.status === 'in_progress' || item.rereading;
+  const showProgress = opts.progress === true && item.mediaType === 'book' && readingNow && !!item.progressPage;
   return {
     id: item.id,
     mediaType: item.mediaType,
