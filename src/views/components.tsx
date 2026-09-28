@@ -566,6 +566,13 @@ export const ItemForm: FC<{
 }> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverUrl, removeCover }) => {
   // a book being read again: status and dates describe its last finish, and the re-read is managed on its page
   const readingLocked = item?.mediaType === 'book' && !!item?.rereading;
+  // A book finished before: the form edits that finish, so it offers Completed only — reading it again, or a stop, is
+  // done on its page (the route refuses the rest). A book with reads can't be made not started from here either. The
+  // status the form was sent with is always offered, so a refused form shows what was chosen.
+  const shown = item?.status ?? 'not_started';
+  const finishedBook = item?.mediaType === 'book' && (item?.readCount ?? 0) > 0;
+  const offered = (st: ItemStatus) =>
+    st === shown || (finishedBook ? st === 'completed' : st !== 'not_started' || shown === 'not_started' || item?.mediaType !== 'book');
   // reviewed_in gets its own field; the advanced JSON box shows everything else
   const details = parseDetails(item?.details);
   const reviewedIn = Array.isArray(details['reviewed_in']) ? (details['reviewed_in'] as string[]) : [];
@@ -637,8 +644,8 @@ export const ItemForm: FC<{
       <label>
         Status
         <select name="status" disabled={readingLocked}>
-          {/* a book with reads can't be "not started" from here: its reads are deleted on its page (§16 #41) */}
-          {ITEM_STATUSES.filter((st) => st !== 'not_started' || (item?.status ?? 'not_started') === 'not_started' || item?.mediaType !== 'book').map((st) => (
+          {/* only what a read can become from here (`offered`, §16 #41) */}
+          {ITEM_STATUSES.filter(offered).map((st) => (
             <option value={st} selected={(item?.status ?? 'not_started') === st}>
               {STATUS_LABEL[st]}
             </option>
@@ -665,6 +672,12 @@ export const ItemForm: FC<{
         <input type="date" name="completedOn" value={item?.status === 'in_progress' ? '' : (item?.completedOn ?? '')} disabled={readingLocked} />
       </label>
     </div>
+    {finishedBook && !readingLocked ? (
+      <p class="muted form-note">
+        Finished before: these are its last finished read's. To read it again, or to record a read you stopped, use the
+        book's page.
+      </p>
+    ) : null}
     {readingLocked ? (
       <p class="muted form-note">
         Being read again now: these are its last finished read's, kept as they are. Every read — this one too — is

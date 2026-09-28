@@ -60,6 +60,14 @@ function formReadProblem(existing: Item | null, v: { status: ItemStatus; beganOn
     return v.beganOn || v.completedOn ? 'A book not started has no reading dates: choose a status, or clear the dates.' : null;
   }
   if (v.status === 'in_progress' && v.completedOn) return 'A book in progress has no completion date: clear it, or choose Completed.';
+  // A finished book's status here edits its last finish. "In progress" would reopen that finish and "Abandoned" relabel
+  // it a stop — the old way of saying "reading it again", which now loses a read. Its page has the controls for both.
+  if (existing?.mediaType === 'book' && existing.readCount > 0) {
+    if (v.status === 'in_progress') return 'This book has been finished. To read it again, use Read again on its page.';
+    if (v.status === 'abandoned') {
+      return 'This book has been finished. To record a read you stopped, use its page: Read again, then Stop — or correct a read there.';
+    }
+  }
   if (v.status === 'in_progress' && existing?.rereading) return 'It already has a read in progress: choose Not started to clear its reads.';
   return readDateProblem({ status: v.status, beganOn: v.beganOn, endedOn: v.status === 'in_progress' ? null : v.completedOn });
 }

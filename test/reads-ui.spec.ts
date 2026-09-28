@@ -321,6 +321,58 @@ describe('the edit form', () => {
     expect(html).toContain('value="https://covers.example/x.jpg"');
   });
 
+  it('won’t reopen a finish as "in progress" — the old way of saying "reading it again" — and says to use Read again', async () => {
+    const item = await finished();
+    const res = await request(`/items/${item.id}`, { body: form(item, { status: 'in_progress', completedOn: '', title: 'Renamed', tags: 'kept' }) });
+    expect(res.status).toBe(400);
+    const html = await res.text();
+    expect(html).toContain('use Read again on its page');
+    // the refused form comes back as it was sent
+    expect(html).toContain('value="Renamed"');
+    expect(html).toContain('value="kept"');
+    expect(html).toMatch(/<option value="in_progress" selected/);
+    expect(await rows('SELECT status, began_on, ended_on FROM reads WHERE item_id = ?1', item.id)).toEqual([
+      { status: 'completed', began_on: '2019-03-01', ended_on: '2019-03-20' },
+    ]);
+    expect(await getItem(env.DB, item.id)).toMatchObject({ title: 'The Dispossessed', status: 'completed', completedOn: '2019-03-20', readCount: 1 });
+  });
+
+  it('won’t relabel the latest finish a stop, and says where stopping is done', async () => {
+    const item = await finished();
+    await request(`/items/${item.id}/reads`, { body: { status: 'completed', beganOn: '2010-01-01', endedOn: '2010-02-01' } });
+    const res = await request(`/items/${item.id}`, { body: form(item, { status: 'abandoned' }) });
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain('To record a read you stopped, use its page');
+    expect(await getItem(env.DB, item.id)).toMatchObject({ status: 'completed', readCount: 2 });
+  });
+
+  it('still lets the form finish or stop a first read, correct a finish’s dates, and stop a record — the refusal is only for finished books', async () => {
+    const reading = await book({ status: 'in_progress', beganOn: '2026-09-01' });
+    expect((await request(`/items/${reading.id}`, { body: form(reading, { status: 'abandoned', completedOn: '2026-09-10' }) })).status).toBe(302);
+    expect(await getItem(env.DB, reading.id)).toMatchObject({ status: 'abandoned', completedOn: '2026-09-10' });
+
+    const done = await finished();
+    expect((await request(`/items/${done.id}`, { body: form(done, { completedOn: '2019-03-22' }) })).status).toBe(302);
+    expect(await getItem(env.DB, done.id)).toMatchObject({ status: 'completed', completedOn: '2019-03-22', readCount: 1 });
+
+    const record = await createItem(env.DB, { libraryId: (await createLibrary(env.DB, 'Records')).id, mediaType: 'vinyl', title: 'Blue', status: 'completed', completedOn: '2020-01-01', details: '{}' });
+    const body = { libraryId: String(record.libraryId), title: 'Blue', mediaType: 'vinyl', status: 'abandoned', beganOn: '', completedOn: '2020-01-01' };
+    expect((await request(`/items/${record.id}`, { body })).status).toBe(302); // no Reading section: the form is how
+    expect(await getItem(env.DB, record.id)).toMatchObject({ status: 'abandoned' });
+  });
+
+  it('offers a finished book only Completed, and a book being read the rest', async () => {
+    const done = await finished();
+    const doneForm = await (await request(`/items/${done.id}/edit`)).text();
+    expect(doneForm).toContain('value="completed"');
+    for (const hidden of ['in_progress', 'abandoned', 'not_started']) expect(doneForm).not.toContain(`value="${hidden}"`);
+    expect(doneForm).toContain('Finished before');
+
+    const reading = await book({ status: 'in_progress', beganOn: '2026-09-01' });
+    const readingForm = await (await request(`/items/${reading.id}/edit`)).text();
+    for (const shown of ['in_progress', 'completed', 'abandoned']) expect(readingForm).toContain(`value="${shown}"`);
+  });
+
   it('offers "Not started" only to a book with no reads', async () => {
     const fresh = await book();
     const read = await finished();

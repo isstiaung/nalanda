@@ -991,7 +991,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     stopped or started again here counts as the result a rule looks for. While a book is being
     read again, its edit form's status and dates are shown locked: they describe its last
     finish, and the re-read is managed on its page, so the form can't turn that finish into a
-    stop or overwrite its date. Migration 0023 does the same for what is there already, inside
+    stop or overwrite its date. On any finished book the form offers only Completed, and the
+    route refuses In progress ("use Read again") and Abandoned: either would reopen or
+    relabel the last finish, and "set it back to In progress" was the old way of saying
+    "reading it again". Migration 0023 does the same for what is there already, inside
     the import marker so none of it is news: on production's data (backup of 2026-09-28,
     rehearsed through 0012 → 0023) it made 381 reads, left 20 of 22 tables identical, removed
     only `read_count` from 1,681 details, and changed 8 statuses — 6 books not started that
