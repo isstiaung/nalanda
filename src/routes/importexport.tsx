@@ -177,7 +177,7 @@ importexport.post('/api/import', async (c) => {
   }
 
   const userId = c.get('user').id;
-  const withOwners = mapped.map((m) => ({ item: { ...m.item, libraryId, addedBy: userId }, tags: m.tags }));
+  const withOwners = mapped.map((m) => ({ ...m, item: { ...m.item, libraryId, addedBy: userId } }));
 
   if (body.dryRun) {
     const byType: Record<string, number> = {};
@@ -190,6 +190,7 @@ importexport.post('/api/import', async (c) => {
       byType,
       merged: match?.merged ?? 0,
       fresh: match?.inserted ?? 0,
+      reads: match?.reads ?? mapped.reduce((n, m) => n + (m.reads?.length ?? 0), 0),
       sample: mapped.slice(0, 5).map((m) => ({
         title: m.item.title,
         mediaType: m.item.mediaType,
@@ -200,8 +201,8 @@ importexport.post('/api/import', async (c) => {
   }
 
   if (isGoodreads) {
-    const { inserted, merged } = await mergeImportItems(c.env.DB, withOwners);
-    return c.json({ inserted, merged, skipped });
+    const { inserted, merged, reads } = await mergeImportItems(c.env.DB, withOwners);
+    return c.json({ inserted, merged, reads, skipped });
   }
   const inserted = await importItems(c.env.DB, withOwners);
   return c.json({ inserted, merged: 0, skipped });

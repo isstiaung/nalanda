@@ -3,6 +3,7 @@
 // ever sees pre-parsed JSON rows (10 ms CPU budget, ARCH.md §12).
 import type { Item, ItemStatus, MediaType, NewItem } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
+import { reconcileGoodreads, summarizeReads, type GoodreadsReading, type ReadDraft } from './reads';
 
 export const EXPORT_COLUMNS = [
   'library',
@@ -88,6 +89,11 @@ export type ImportOptions = {
 export type MappedRow = {
   item: Omit<NewItem, 'libraryId' | 'addedBy'>;
   tags: string[];
+  // the row's reads, when the file says more than one status and pair of dates can (§16 #41); otherwise the
+  // importer makes them from the item's status and dates
+  reads?: ReadDraft[];
+  // a Goodreads row's reading, which a merge reconciles with the reads already here
+  goodreads?: GoodreadsReading;
 };
 
 /** Columns we map onto real item fields; everything else lands in `details` (lossless). */
@@ -302,6 +308,9 @@ const KNOWN_GOODREADS = new Set([
   'my_review',
   'private_notes',
   'owned_copies',
+  // reading: read_count and date_started become reads (ARCH.md §16 #41), so they no longer land in details
+  'read_count',
+  'date_started',
 ]);
 
 /** Goodreads' three built-in exclusive shelves — they map to status, not tags. */
@@ -363,6 +372,18 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
   }
   if (r['book_id']) details['goodreads_book_id'] = r['book_id'];
 
+  // Read Count: a whole number, or nothing — "abc" isn't a count of anything
+  const countRaw = (r['read_count'] ?? '').trim();
+  const goodreads: GoodreadsReading = {
+    shelf: goodreadsStatus(exclusive, shelves),
+    dateRead: isoDate(r['date_read']),
+    dateStarted: isoDate(r['date_started']),
+    readCount: /^\d+$/.test(countRaw) ? Number(countRaw) : null,
+  };
+  // a new book's reads come from the same rules a merge applies, starting from none
+  const reads = reconcileGoodreads([], goodreads).map((op) => op.read);
+  const state = summarizeReads(reads);
+
   return {
     item: {
       mediaType: 'book',
@@ -374,15 +395,17 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
       published: r['year_published'] || r['original_publication_year'] || null,
       description: null,
       length: Number.isFinite(pages) && pages > 0 ? pages : null,
-      status: goodreadsStatus(exclusive, shelves),
+      status: state.status,
       rating: Number.isFinite(ratingNum) && ratingNum >= 1 && ratingNum <= 5 ? ratingNum * 2 : null,
       review: r['my_review'] ? r['my_review'].replace(/<br\s*\/?>/gi, '\n') : null,
       notes: r['private_notes'] || null,
       copies: Number.isFinite(ownedNum) && ownedNum > 0 ? ownedNum : 0, // default: reading log, not owned
-      beganOn: null, // Goodreads doesn't export a start date
-      completedOn: isoDate(r['date_read']),
+      beganOn: state.beganOn,
+      completedOn: state.completedOn,
       details: Object.keys(details).length ? JSON.stringify(details) : '{}',
     },
+    reads,
+    goodreads,
     tags: [...tagShelves].filter((sh) => !EXCLUSIVE_SHELVES.has(sh)),
   };
 }

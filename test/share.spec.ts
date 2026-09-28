@@ -30,6 +30,8 @@ const item: Item = {
   copies: 2,
   beganOn: '2026-01-01',
   completedOn: '2026-01-10',
+  readCount: 1,
+  rereading: false,
   details: '{"series":"Earthsea"}',
   addedBy: 3,
   addedAt: '2026-01-01 10:00:00',

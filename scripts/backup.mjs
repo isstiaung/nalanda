@@ -25,7 +25,8 @@ export const TABLES = [
   'shares',
   'site_settings',
   'items',
-  'reading_progress', // after items and users, which it references
+  'reads', // after items, before reading_progress, which references it
+  'reading_progress', // after items, users and reads, which it references
   'tags',
   'item_tags',
   'loans',

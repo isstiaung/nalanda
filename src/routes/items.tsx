@@ -374,7 +374,8 @@ items.post('/items/:id/progress', async (c) => {
   const raw = ((await c.req.parseBody())['page'] ?? '').toString().trim();
   const page = Number(raw);
   const invalid = !/^\d+$/.test(raw) || !Number.isSafeInteger(page) || page < 1 || page > MAX_PROGRESS_PAGE;
-  if (!invalid) await addProgress(c.env.DB, id, page, c.get('user').id);
+  // a finished or stopped book has no open read to record into: reading it again starts with "Read again"
+  const recorded = !invalid && (await addProgress(c.env.DB, id, page, c.get('user').id));
 
   if (!c.req.header('HX-Request')) return c.redirect(`/items/${id}`);
   const [fresh, entries] = await Promise.all([getItem(c.env.DB, id), listProgress(c.env.DB, id)]);
@@ -382,7 +383,13 @@ items.post('/items/:id/progress', async (c) => {
     <ReadingProgressSection
       item={fresh ?? item}
       entries={entries}
-      error={invalid ? 'Give a whole page number, from 1 to 100,000.' : undefined}
+      error={
+        invalid
+          ? 'Give a whole page number, from 1 to 100,000.'
+          : !recorded
+            ? 'This book isn’t being read now. Start a new read first, then record its pages.'
+            : undefined
+      }
     />,
   );
 });
@@ -431,7 +438,8 @@ items.post('/items/:id', async (c) => {
   if (parsed.coverUrl) coverKey = (await storeCover(c.env.COVERS, parsed.coverUrl)) ?? coverKey;
 
   try {
-    await updateItemWithTags(c.env.DB, id, { ...parsed.values, coverKey }, parsed.tags);
+    const { status, beganOn, completedOn } = parsed.values;
+    await updateItemWithTags(c.env.DB, id, { ...parsed.values, coverKey }, parsed.tags, { status: status ?? 'not_started', beganOn: beganOn ?? null, completedOn: completedOn ?? null });
   } catch (err) {
     if (coverKey !== existing.coverKey) c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // the new one: unused
     throw err;

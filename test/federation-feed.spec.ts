@@ -122,7 +122,10 @@ describe('recording activity', () => {
     await setUpA();
     const peer = await makePeer('Riverbank library');
     await connectPeer(peer);
-    expect((await feedOf(peer, second.id, 0)).entries.map((e) => e.item.review)).toEqual(['NEW-TEXT']);
+    // its completion date makes it a finished read too (§16 #41): the review entry is the one that matters here
+    const entries = (await feedOf(peer, second.id, 0)).entries;
+    expect(entries.filter((e) => e.kind === 'reviewed').map((e) => e.item.review)).toEqual(['NEW-TEXT']);
+    expect(entries.map((e) => e.kind).sort()).toEqual(['finished', 'reviewed']);
   });
 });
 

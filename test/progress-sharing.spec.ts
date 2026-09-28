@@ -38,6 +38,8 @@ const reading: Item = {
   copies: 1,
   beganOn: '2026-09-20',
   completedOn: null,
+  readCount: 0,
+  rereading: false,
   details: '{}',
   addedBy: null,
   addedAt: '2026-09-20 10:00:00',

@@ -135,6 +135,7 @@
       append('Rows are added, never merged — importing the same export into this library twice adds everything twice.');
     } else if (data.format === 'goodreads') {
       append(`Goodreads export detected: ${data.merged} match books already here (rating/review/shelves will merge onto them — Goodreads wins), ${data.fresh} are new (added as “Not owned” reading-log entries).`);
+      append(`Reading history: ${data.reads ?? 0} reads to add or date from shelves, Date Read and Read Count — reads already recorded here are never removed, and a second import adds nothing.`);
     } else {
       append(`Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
     }
