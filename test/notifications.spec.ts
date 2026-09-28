@@ -216,6 +216,18 @@ describe('new feed activity', () => {
     expect((await unreadCounts(env.DB, me.id)).feed).toBe(0);
   });
 
+  it('still counts a new entry after the newest one was withdrawn (ids are never reused)', async () => {
+    const me = await person('member');
+    await storeEntries(env.DB, subscriptionId, [entry(1), entry(2)]);
+    answerOutbound(() => json({ view: 7, latest: 0, more: false, entries: [] }));
+    await a.get('/feed', me.cookie); // seen up to the newest stored entry
+    // the owner withdraws that newest entry; a new one arrives
+    await env.DB.prepare('DELETE FROM remote_activities WHERE id = (SELECT max(id) FROM remote_activities)').run();
+    await storeEntries(env.DB, subscriptionId, [entry(3)]);
+
+    expect((await unreadCounts(env.DB, me.id)).feed).toBe(1); // was 0: the new row reused the withdrawn id
+  });
+
   it("leaves unread what the Feed page's own pull brings in after rendering", async () => {
     const me = await person('member');
     await storeEntries(env.DB, subscriptionId, [entry(1)]);

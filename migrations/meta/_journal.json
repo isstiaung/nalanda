@@ -134,6 +134,13 @@
       "when": 1790568688906,
       "tag": "0018_notifications-seen-ids",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1790573813194,
+      "tag": "0019_remote-activities-autoincrement",
+      "breakpoints": true
     }
   ]
 }

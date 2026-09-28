@@ -310,7 +310,9 @@ export const feedSubscriptions = sqliteTable(
 export const remoteActivities = sqliteTable(
   'remote_activities',
   {
-    id: integer('id').primaryKey(),
+    // AUTOINCREMENT (migration 0019): never reused, so a reader's feed_seen_id watermark stays meaningful
+    // after the newest entry is withdrawn (§16 #36).
+    id: integer('id').primaryKey({ autoIncrement: true }),
     subscriptionId: integer('subscription_id')
       .notNull()
       .references(() => feedSubscriptions.id, { onDelete: 'cascade' }),
