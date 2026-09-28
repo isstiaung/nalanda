@@ -8,9 +8,22 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
-## [Unreleased]
+## [1.3.0] - 2026-09-28
+
+Everyone's own reading. Each member of a household now has their own reads, recorded pages, rating and review, and a book's page shows everyone's under their name. A book still has one status on your shelves, and share links and connected households still see one household rating and review, with no names.
+
+### Added
+- **Your own reading.** **Read again**, **Finish**, **Stop** and **Record** act on your own reads. Another member can start their first read of a book you've finished, and two people can read a book at the same time. The edit form's status, dates, rating and review are yours.
+- **Everyone's reading on the book's page**, each person's under their name, with their progress, and everyone's rating and review with their username. A household of one sees the page as before.
+- **A "Read by" filter** on shelves and search: read by me, not read by me, read by a member or by anyone, and being read now. It can't be published: a share link made from a filtered shelf shows it without "Read by".
+- **Admins can move** a read (with its recorded pages) or a review to another member, and change or delete anyone's. Members change only their own. The same works for records and board games, from their page.
+- **Export and import keep each person's history.** Each read in the `reads` column names its reader, and a new `reviews` column holds everyone's rating and review. When an admin imports the file, each read and review goes back to the member of the same name, or to the admin; a member's import is all theirs. The preview says who gets what.
 
 ### Changed
+- **A book's status is the household's:** Completed once anyone has finished it, In progress while anyone is reading it and nobody has finished, and "re-reading" while someone reads a book someone has finished. Its read count counts everyone's finishes, and its last finish is the latest by anyone.
+- **Its rating is the household's average** (rounded to the half-star), and its review is the one written last. That is what shelves, share pages and connections show.
+- **Goodreads and libib imports are the importer's own.** A Goodreads re-import is matched against your reads and your review only, and never touches anyone else's.
+- **Removing a member** keeps their reads and reviews, shown as a former member's. Nothing about a book changes.
 - **A backup that stops partway** now says its folder is incomplete, and to delete it before running the backup again. Otherwise the retry lands beside it as `-2`, and the incomplete folder keeps today's name. The backup runbook says the same.
 
 ### Fixed
@@ -21,6 +34,22 @@ Each release has an **Upgrading** section. Read it for every version between you
 ### Upgrading
 - **If your `SESSION_SECRET` is blank** (only spaces or blank lines), everyone is signed out after this update and nobody can sign in until you set a real one: `npx wrangler secret put SESSION_SECRET`, with a value from `openssl rand -base64 32`. Setup and login say so.
 - **If setup once failed with an error** and you couldn't log in afterwards, your admin account was created before the error. Set `SESSION_SECRET`, then log in with the username and password you chose at setup.
+
+### Upgrading
+- **Back up first** (`npm run backup`). Migrations `0024_per-member` and `0025_per-member-backfill` run when you deploy.
+- **All your existing history goes to your first admin.** Nothing before 1.3.0 recorded who read or rated what, so every existing read, every recorded page, and each book's rating and review are credited to the admin with the lowest id (normally the account made at `/setup`). No book changes on your shelves, share pages or connections. In a household of one there's nothing more to do. Otherwise, an admin moves each misattributed read or review to the right member from the book's page: **Edit** on it, choose the member, **Move**. [runbooks/updating.md](runbooks/updating.md) walks through it. Move rather than have members re-import Goodreads, which would add their reads beside the admin's copies.
+- **What share pages show now:**
+  - the household's average rating;
+  - the review written most recently, with no author;
+  - "Read N times" counting everyone's finishes;
+  - with progress switched on, the latest page anyone reading the book recorded.
+
+  Nothing per person ever appears. With one member, all of this is exactly what they showed before.
+- **Deploy when nobody is editing, and don't roll back past this release.** In the seconds between the migration and the new code, an edit saved by the old code makes a read that belongs to nobody, or a rating with no review behind it, which the average replaces at the book's next review. Older code writes reading and ratings without a person, so to go back, restore the backup instead. A 1.3.0 export doesn't import correctly into an older version.
+- **No new secrets.**
+- **If your `SESSION_SECRET` is blank** (only spaces or blank lines), everyone is signed out after this update and nobody can sign in until you set a real one: `npx wrangler secret put SESSION_SECRET`, with a value from `openssl rand -base64 32`. Setup and login say so.
+- **If setup once failed with an error** and you couldn't log in afterwards, your admin account was created before the error. Set `SESSION_SECRET`, then log in with the username and password you chose at setup.
+- **Connections:** households on older versions keep working with yours. The protocol hasn't changed; they see the household's rating, review and read count as before, and never a member's name.
 
 ## [1.2.1] - 2026-09-28
 
@@ -118,6 +147,7 @@ From an instance deployed before versioning:
 - **BoardGameGeek now needs a token.** BGG made its API registration-only in 2025. Register an application at boardgamegeek.com/applications, then run `npx wrangler secret put BGG_TOKEN`. Without it, board-game search shows a notice instead of results.
 - **Export needs JavaScript for a large catalogue.** The **Export** button fetches the CSV a page at a time. The plain `/export.csv` link still works, in one request, but can hit the free plan's CPU limit on a large catalogue.
 
+[1.3.0]: https://github.com/isstiaung/nalanda/releases/tag/v1.3.0
 [1.2.1]: https://github.com/isstiaung/nalanda/releases/tag/v1.2.1
 [1.2.0]: https://github.com/isstiaung/nalanda/releases/tag/v1.2.0
 [1.1.0]: https://github.com/isstiaung/nalanda/releases/tag/v1.1.0
