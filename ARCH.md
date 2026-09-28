@@ -822,7 +822,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     connection requested, accepted, declined, withdrawn, disconnected; a borrow requested,
     withdrawn, accepted, declined, returned; a comment. Each is recorded behind the check that
     proved the event happened — `markActivitySeen`, `setRequestStatus`'s return, `insertComment`'s
-    conflict — so a message replayed from an outbox notifies once. Names and titles are copied in,
+    conflict — so a message replayed from an outbox notifies once. And each is written in the same
+    batch as its change, on the change's own precondition (`notifyIf`): as two calls, an outbox pull
+    that ran out of budget between them kept the change, and the replay — seeing it made — skipped
+    the message, so its notification never came. Names and titles are copied in,
     so a notification still reads after a disconnect, and render as escaped text; `href` is always
     built here. Connection kinds reach admins only, since only admins can act on them. Feed activity
     is counted, not notified — a notification per progress update would bury everything else.

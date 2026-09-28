@@ -886,9 +886,18 @@ export type NewComment = {
   createdAt: string;
 };
 
-/** Null when a comment with that activity id exists already — including one deleted since. */
-export async function insertComment(d1: D1Database, values: NewComment): Promise<Comment | null> {
-  const [row] = await db(d1).insert(s.comments).values(values).onConflictDoNothing().returning();
+/**
+ * Null when a comment with that activity id exists already — including one deleted since. A `notice` is
+ * recorded with it, in the same batch, only when the comment is new.
+ */
+export async function insertComment(d1: D1Database, values: NewComment, notice?: NewNotification): Promise<Comment | null> {
+  const dbi = db(d1);
+  const insert = dbi.insert(s.comments).values(values).onConflictDoNothing().returning();
+  if (!notice) return (await insert)[0] ?? null;
+  const [, [row]] = await dbi.batch([
+    notifyIf(dbi, notice, sql`NOT EXISTS (SELECT 1 FROM comments WHERE activity_id = ${values.activityId})`),
+    insert,
+  ]);
   return row ?? null;
 }
 
@@ -1205,9 +1214,19 @@ export type NewBorrowRequest = {
   note: string | null;
 };
 
-/** Null when a request with that activity id exists already. */
-export async function insertBorrowRequest(d1: D1Database, values: NewBorrowRequest): Promise<BorrowRequestRow | null> {
-  const [row] = await db(d1).insert(s.borrowRequests).values(values).onConflictDoNothing().returning();
+/** Null when a request with that activity id exists already. A `notice` is recorded with a new one, in one batch. */
+export async function insertBorrowRequest(
+  d1: D1Database,
+  values: NewBorrowRequest,
+  notice?: NewNotification,
+): Promise<BorrowRequestRow | null> {
+  const dbi = db(d1);
+  const insert = dbi.insert(s.borrowRequests).values(values).onConflictDoNothing().returning();
+  if (!notice) return (await insert)[0] ?? null;
+  const [, [row]] = await dbi.batch([
+    notifyIf(dbi, notice, sql`NOT EXISTS (SELECT 1 FROM borrow_requests WHERE activity_id = ${values.activityId})`),
+    insert,
+  ]);
   return row ?? null;
 }
 
@@ -1346,19 +1365,26 @@ export async function countPendingIncoming(d1: D1Database, connectionId: number)
   return row?.n ?? 0;
 }
 
-/** Moves a request to `status` only from one of `from`, so a repeat or a race changes nothing. */
+/**
+ * Moves a request to `status` only from one of `from`, so a repeat or a race changes nothing. A `notice` is
+ * recorded only when it moves, in the same batch.
+ */
 export async function setRequestStatus(
   d1: D1Database,
   id: number,
   status: BorrowStatus,
   from: BorrowStatus[],
-  dueOn: string | null = null,
+  { dueOn = null, notice }: { dueOn?: string | null; notice?: NewNotification } = {},
 ): Promise<boolean> {
-  const rows = await db(d1)
+  const dbi = db(d1);
+  const movable = and(eq(s.borrowRequests.id, id), sql`${s.borrowRequests.status} IN (SELECT value FROM json_each(${JSON.stringify(from)}))`);
+  const update = dbi
     .update(s.borrowRequests)
     .set({ status, dueOn, respondedAt: sql`(datetime('now'))` })
-    .where(and(eq(s.borrowRequests.id, id), sql`${s.borrowRequests.status} IN (SELECT value FROM json_each(${JSON.stringify(from)}))`))
+    .where(movable)
     .returning({ id: s.borrowRequests.id });
+  if (!notice) return (await update).length === 1;
+  const [, rows] = await dbi.batch([notifyIf(dbi, notice, sql`EXISTS (SELECT 1 FROM borrow_requests WHERE ${movable})`), update]);
   return rows.length === 1;
 }
 
@@ -1416,7 +1442,7 @@ export async function lendToConnection(
   dueOn: string | null,
 ): Promise<number | null> {
   if (request.ourItemId === null) return null;
-  if (!(await setRequestStatus(d1, request.id, 'accepted', ['pending'], dueOn))) return null;
+  if (!(await setRequestStatus(d1, request.id, 'accepted', ['pending'], { dueOn }))) return null;
   const reopen = () =>
     db(d1)
       .update(s.borrowRequests)
@@ -1455,11 +1481,17 @@ export async function lendToConnection(
 /**
  * Their yes to one of our requests: the request moves to accepted — from pending, or from withdrawn, since they
  * lent it anyway — and the book goes on the Borrowed page. One batch, so a pull that runs out of queries can't
- * keep the first without the second; the entry goes in first, and only while the request can still move. False
- * when nothing moved: a repeat, or an answer to a declined request.
+ * keep the first without the second; the entry goes in first, and only while the request can still move — as
+ * does a `notice`, ahead of both. False when nothing moved: a repeat, or an answer to a declined request.
  */
-export async function acceptOwnRequest(d1: D1Database, requestId: number, loanedOn: string, dueOn: string | null): Promise<boolean> {
-  const [, moved] = await d1.batch<{ id: number }>([
+export async function acceptOwnRequest(
+  d1: D1Database,
+  requestId: number,
+  loanedOn: string,
+  dueOn: string | null,
+  notice?: NewNotification,
+): Promise<boolean> {
+  const statements = [
     d1
       .prepare(
         `INSERT INTO borrowed_items (connection_id, request_activity_id, their_item_id, title, cover_key, borrowed_on, due_on)
@@ -1475,27 +1507,36 @@ export async function acceptOwnRequest(d1: D1Database, requestId: number, loaned
          RETURNING id`,
       )
       .bind(requestId, dueOn),
-  ]);
-  return moved?.results.length === 1;
+  ];
+  if (notice) {
+    const q = notifyIf(
+      db(d1),
+      notice,
+      sql`EXISTS (SELECT 1 FROM borrow_requests WHERE id = ${requestId} AND incoming = 0 AND status IN ('pending', 'withdrawn'))`,
+    ).toSQL();
+    statements.unshift(d1.prepare(q.sql).bind(...q.params));
+  }
+  const results = await d1.batch<{ id: number }>(statements);
+  return results.at(-1)?.results.length === 1;
 }
 
+/** Marks a borrowed book returned, once. A `notice` is recorded only when it's marked, in the same batch. */
 export async function markBorrowedReturned(
   d1: D1Database,
   connectionId: number,
   requestActivityId: string,
   returnedOn: string,
+  notice?: NewNotification,
 ): Promise<boolean> {
-  const rows = await db(d1)
-    .update(s.borrowedItems)
-    .set({ returnedOn })
-    .where(
-      and(
-        eq(s.borrowedItems.connectionId, connectionId),
-        eq(s.borrowedItems.requestActivityId, requestActivityId),
-        isNull(s.borrowedItems.returnedOn),
-      ),
-    )
-    .returning({ id: s.borrowedItems.id });
+  const dbi = db(d1);
+  const outstanding = and(
+    eq(s.borrowedItems.connectionId, connectionId),
+    eq(s.borrowedItems.requestActivityId, requestActivityId),
+    isNull(s.borrowedItems.returnedOn),
+  );
+  const update = dbi.update(s.borrowedItems).set({ returnedOn }).where(outstanding).returning({ id: s.borrowedItems.id });
+  if (!notice) return (await update).length === 1;
+  const [, rows] = await dbi.batch([notifyIf(dbi, notice, sql`EXISTS (SELECT 1 FROM borrowed_items WHERE ${outstanding})`), update]);
   return rows.length === 1;
 }
 
@@ -1619,19 +1660,34 @@ const MAX_NOTIFICATION_TEXT = 200;
 
 export type NewNotification = { kind: NotificationKind; householdName: string; subject?: string | null; href: string };
 
+const clipped = (n: NewNotification) => ({
+  kind: n.kind,
+  householdName: n.householdName.slice(0, MAX_NOTIFICATION_TEXT),
+  subject: n.subject ? n.subject.slice(0, MAX_NOTIFICATION_TEXT) : null,
+  href: n.href,
+});
+
 /**
  * Records one. Callers do it only once the event has really happened — a repeat of the same message (from a
  * retry or an outbox pull) must not notify twice, so each call sits behind the check that made the change.
  */
 export async function notify(d1: D1Database, n: NewNotification): Promise<void> {
-  await db(d1)
+  await db(d1).insert(s.notifications).values(clipped(n));
+}
+
+/**
+ * `notify`, but inside the batch that makes the change it announces: recorded only while `condition` — the
+ * change's own precondition — holds, and ahead of the change, so the two land together or not at all. As two
+ * calls, a pull that ran out of queries between them kept the change and lost its notification for good: the
+ * replay found the change already made, and notified nothing.
+ */
+function notifyIf(dbi: ReturnType<typeof db>, n: NewNotification, condition: SQL) {
+  const v = clipped(n);
+  // An insert from a select, not raw SQL: Drizzle's D1 batch can't take a raw statement with parameters. It
+  // fills every column in the table's order, so id is NULL (assigned) and `at` repeats the column default.
+  return dbi
     .insert(s.notifications)
-    .values({
-      kind: n.kind,
-      householdName: n.householdName.slice(0, MAX_NOTIFICATION_TEXT),
-      subject: n.subject ? n.subject.slice(0, MAX_NOTIFICATION_TEXT) : null,
-      href: n.href,
-    });
+    .select(sql`SELECT NULL, ${v.kind}, ${v.householdName}, ${v.subject}, ${v.href}, datetime('now') WHERE ${condition}`);
 }
 
 /** Kinds this person is shown: connection requests and changes only reach admins, who can act on them. */

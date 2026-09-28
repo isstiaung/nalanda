@@ -62,7 +62,10 @@ export function budgeted(d1: D1Database, budget: Budget): D1Database {
   };
   const handle = {
     prepare: (query: string) => counted(d1.prepare(query), spend),
-    batch: (statements: D1PreparedStatement[]) => {
+    // async, so a spent budget comes back as a rejected promise, the way a failed batch does, rather than a
+    // throw: Drizzle's batch passes an already-rejected promise up through an async return, and workerd
+    // reported that as an unhandled rejection before the caller's await could claim it
+    batch: async (statements: D1PreparedStatement[]) => {
       spend(1); // one request to D1, however many statements: measured, §16 #37
       return d1.batch(statements.map(unwrap));
     },

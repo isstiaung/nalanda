@@ -8,6 +8,8 @@ import {
   createInvite,
   createSubscription,
   getConnectionByBaseUrl,
+  getFederationSettings,
+  insertBorrowRequest,
   notify,
   storeEntries,
   unreadCounts,
@@ -15,8 +17,19 @@ import {
 } from '../src/db/federation';
 import { createItem, createLibrary, createUser } from '../src/db/queries';
 import type { Bindings } from '../src/env';
+import { budgeted, isBudgetSpent } from '../src/federation/budget';
+import { receiveDirected } from '../src/federation/directed';
 import { itemStamp } from '../src/federation/items';
-import { borrowRequest, commentCreate, connectRequest, inboxMessage } from '../src/federation/messages';
+import {
+  borrowAccept,
+  borrowDecline,
+  borrowRequest,
+  borrowWithdraw,
+  commentCreate,
+  connectRequest,
+  inboxMessage,
+  type DirectedMessage,
+} from '../src/federation/messages';
 import { clearSharedViewsCache } from '../src/federation/routes';
 import { hashToken, newInviteToken } from '../src/federation/tokens';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
@@ -145,6 +158,51 @@ describe('borrowing and comment events', () => {
 
     const rows = (await env.DB.prepare('SELECT kind, subject, href FROM notifications').all()).results;
     expect(rows).toEqual([{ kind: 'comment', subject: 'The Dispossessed', href: `/items/${bookId}` }]);
+  });
+
+  it('records each notification with its change or not at all, wherever a pull runs out of queries', async () => {
+    // An outbox pull applies messages on a budget. Once the change and its notification were two calls, and a
+    // budget spent between them kept the change alone; the next pull saw the change made, skipped the message,
+    // and the notification never came.
+    const settings = (await getFederationSettings(env.DB))!;
+    const connection = (await getConnectionByBaseUrl(env.DB, peer.url))!;
+    for (const activityId of ['urn:uuid:ours-declined', 'urn:uuid:ours-accepted']) {
+      await insertBorrowRequest(env.DB, {
+        activityId, connectionId: connection.id, incoming: false, theirItemId: 5, itemTitle: 'Kindred', requesterName: 'me', note: null,
+      });
+    }
+    const request = borrowRequest(peer.url, bookId, stamp, 'narain', null);
+    const returned = {
+      '@context': 'https://www.w3.org/ns/activitystreams', type: 'Returned', id: `urn:uuid:${crypto.randomUUID()}`,
+      actor: peer.url, request: 'urn:uuid:ours-accepted', returnedOn: '2026-09-20',
+    } as DirectedMessage;
+    const cases: Array<{ message: DirectedMessage; kind: string; applied: string }> = [
+      { message: commentCreate(peer.url, { owner: A.url, item: bookId, stamp }, 'narain', 'Loved this one.'), kind: 'comment', applied: 'SELECT count(*) AS n FROM comments' },
+      { message: request, kind: 'borrow_request', applied: 'SELECT count(*) AS n FROM borrow_requests WHERE incoming = 1' },
+      { message: borrowWithdraw(peer.url, request.id), kind: 'borrow_withdrawn', applied: "SELECT count(*) AS n FROM borrow_requests WHERE status = 'withdrawn'" },
+      { message: borrowDecline(peer.url, 'urn:uuid:ours-declined'), kind: 'borrow_declined', applied: "SELECT count(*) AS n FROM borrow_requests WHERE status = 'declined'" },
+      { message: borrowAccept(peer.url, 'urn:uuid:ours-accepted', '2026-09-15', null), kind: 'borrow_accepted', applied: "SELECT count(*) AS n FROM borrow_requests WHERE status = 'accepted'" },
+      { message: returned, kind: 'returned', applied: 'SELECT count(*) AS n FROM borrowed_items WHERE returned_on IS NOT NULL' },
+    ];
+    const n = async (query: string, ...params: unknown[]) => (await env.DB.prepare(query).bind(...params).first<{ n: number }>())!.n;
+
+    for (const { message, kind, applied } of cases) {
+      for (let left = 0; ; left++) {
+        expect(left, `${kind} never finished`).toBeLessThan(20);
+        const outcome = await receiveDirected(budgeted(env.DB, { left }), settings, connection, message).catch((err) => {
+          if (!isBudgetSpent(err)) throw err;
+          return null;
+        });
+        // wherever it stopped, the change and its notification are both there or both missing
+        const now = { applied: await n(applied), notified: await n('SELECT count(*) AS n FROM notifications WHERE kind = ?1', kind) };
+        expect(now.notified, `${kind}, with room for ${left} queries`).toBe(now.applied);
+        if (outcome) {
+          expect(outcome.status, kind).toBe(200);
+          expect(now, kind).toEqual({ applied: 1, notified: 1 });
+          break;
+        }
+      }
+    }
   });
 });
 
