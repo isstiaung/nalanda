@@ -45,11 +45,12 @@ importexport.get('/import', async (c) => {
           <span class="sub">LIBIB · GOODREADS CSV IN · FULL CSV OUT</span>
         </div>
         <div class="page-actions">
-          <a href="/export.csv" role="button">
+          <a href="/export.csv" role="button" data-export>
             Export everything as CSV
           </a>
         </div>
       </div>
+      <div id="export-status" class="prewrap muted mono" aria-live="polite"></div>
       <p class="muted">
         Export your libib collection or Goodreads library as CSV — or a Nalanda export, to restore or
         move a catalog — and drop it here; the format is auto-detected. The file is parsed in your browser and uploaded in small batches; columns we
@@ -276,18 +277,71 @@ importexport.post('/api/backfill-covers', async (c) => {
   return c.json({ tried, found, byTitle, enriched, lastId, done: !stopped && batch.length < BACKFILL_BATCH });
 });
 
+/**
+ * Items per request when the Export button pages through the catalog (ARCH.md §16 #38). Reading, mapping and
+ * writing a page of 250 measured about 2 ms of CPU warm and 6 ms on a cold isolate, with rows heavier than
+ * production's; the whole 2,000-item catalog in one request measured 12 ms warm and 20 ms cold, past the free
+ * plan's 10 ms.
+ */
+export const EXPORT_PAGE = 250;
+
+/** Items after `afterId` as CSV lines, with their tags and reading logs: three queries. */
+async function exportRows(
+  d1: D1Database,
+  scope: number | undefined,
+  afterId: number,
+  limit: number,
+  libNames: Map<number, string>,
+): Promise<{ csv: string; count: number; lastId: number }> {
+  const items = await pageItems(d1, { libraryId: scope, afterId, limit });
+  if (!items.length) return { csv: '', count: 0, lastId: afterId };
+  const [from, to] = [items[0]!.id, items.at(-1)!.id];
+  const [tagMap, progressMap] = await Promise.all([tagsForIdRange(d1, from, to, scope), progressForIdRange(d1, from, to, scope)]);
+  let csv = '';
+  for (const item of items) {
+    csv += itemToCsvLine(item, libNames.get(item.libraryId) ?? '', tagMap.get(item.id) ?? [], progressMap.get(item.id) ?? []);
+  }
+  return { csv, count: items.length, lastId: to };
+}
+
 importexport.get('/export.csv', async (c) => {
   const libraryId = Number.parseInt(c.req.query('library') ?? '', 10);
   const scope = Number.isInteger(libraryId) ? libraryId : undefined;
+  const after = c.req.query('after');
+  if (after !== undefined && !/^\d{1,15}$/.test(after)) return c.text('after must be an item id', 400);
   const libs = await listLibraries(c.env.DB);
   const libNames = new Map(libs.map((l) => [l.id, l.name]));
+  const today = new Date().toISOString().slice(0, 10);
+  const headers = {
+    'content-type': 'text/csv; charset=utf-8',
+    'content-disposition': `attachment; filename="nalanda-export-${today}.csv"`,
+    'cache-control': 'no-store',
+  };
 
+  if (after !== undefined) {
+    // One page per request, as the Export button asks for it (public/import.js), which joins the pages into
+    // one file. The header row leads the first page only; `x-export-next` names where the next page starts,
+    // and is missing once a page comes back short.
+    const afterId = Number(after);
+    const page = await exportRows(c.env.DB, scope, afterId, EXPORT_PAGE, libNames);
+    return new Response((afterId === 0 ? csvLine([...EXPORT_COLUMNS]) : '') + page.csv, {
+      headers: {
+        ...headers,
+        'x-export-rows': String(page.count),
+        ...(page.count === EXPORT_PAGE ? { 'x-export-next': String(page.lastId) } : {}),
+      },
+    });
+  }
+
+  // Without a cursor, the whole export in one streamed response: what the link does without JavaScript, and
+  // what a script fetching /export.csv gets. Its CPU grows with the catalog, so a large one can be cut off by
+  // the free plan's 10 ms limit, and the download fails rather than completing. Three queries a page
+  // (items, tags, reading progress) against the 50 budgeted per invocation. One page per pull, so a slow
+  // download holds one page in memory rather than all of them. The response is already a 200 by the time a
+  // page is read, so a failure must error the stream — ending it normally hands over a file that just stops,
+  // with nothing to say it is incomplete.
   const encoder = new TextEncoder();
   const d1 = c.env.DB;
-  // Three queries a page (items, tags, reading progress) against the free plan's 50 per invocation: at 2,000
-  // items a page an export can run to about 30,000 items. One page per pull, so a slow download holds one page in memory rather than all of
-  // them. The response is already a 200 by the time a page is read, so a failure must error the stream —
-  // ending it normally hands over a file that just stops, with nothing to say it is incomplete.
   const PAGE = 2000;
   let afterId = 0;
   let headerSent = false;
@@ -299,33 +353,17 @@ importexport.get('/export.csv', async (c) => {
           controller.enqueue(encoder.encode(csvLine([...EXPORT_COLUMNS])));
           return;
         }
-        const items = await pageItems(d1, { libraryId: scope, afterId, limit: PAGE });
-        if (!items.length) return controller.close();
-        const [from, to] = [items[0]!.id, items.at(-1)!.id];
-        const [tagMap, progressMap] = await Promise.all([
-          tagsForIdRange(d1, from, to, scope),
-          progressForIdRange(d1, from, to, scope),
-        ]);
-        let chunk = '';
-        for (const item of items) {
-          chunk += itemToCsvLine(item, libNames.get(item.libraryId) ?? '', tagMap.get(item.id) ?? [], progressMap.get(item.id) ?? []);
-        }
-        controller.enqueue(encoder.encode(chunk));
-        afterId = items.at(-1)!.id;
-        if (items.length < PAGE) controller.close();
+        const page = await exportRows(d1, scope, afterId, PAGE, libNames);
+        if (!page.count) return controller.close();
+        controller.enqueue(encoder.encode(page.csv));
+        afterId = page.lastId;
+        if (page.count < PAGE) controller.close();
       } catch (err) {
         controller.error(err);
       }
     },
   });
-
-  const today = new Date().toISOString().slice(0, 10);
-  return new Response(body, {
-    headers: {
-      'content-type': 'text/csv; charset=utf-8',
-      'content-disposition': `attachment; filename="nalanda-export-${today}.csv"`,
-    },
-  });
+  return new Response(body, { headers });
 });
 
 export default importexport;
