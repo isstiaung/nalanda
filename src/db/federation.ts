@@ -343,11 +343,14 @@ async function recordRecentActivity(d1: D1Database): Promise<void> {
 /**
  * With the last view gone the triggers stop recording, and the log would go stale: an edit made meanwhile
  * never replaces its row, so an old review would still look current. The log is cleared instead, and the
- * next first view starts it again under new ids.
+ * next first view starts it again under new ids. One batch, so a view can't go without the log going too:
+ * a stale log left behind would come back when a view is next shared.
  */
 export async function deleteConnectionView(d1: D1Database, id: number): Promise<void> {
-  await db(d1).delete(s.connectionViews).where(eq(s.connectionViews.id, id));
-  if ((await countConnectionViews(d1)) === 0) await d1.prepare('DELETE FROM activity_log').run();
+  await d1.batch([
+    d1.prepare('DELETE FROM connection_views WHERE id = ?1').bind(id),
+    d1.prepare('DELETE FROM activity_log WHERE NOT EXISTS (SELECT 1 FROM connection_views)'),
+  ]);
 }
 
 export async function countItemsInView(d1: D1Database, view: ConnectionView): Promise<number> {
