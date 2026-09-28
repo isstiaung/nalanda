@@ -9,7 +9,7 @@ import {
   getConnection,
   getFederationSettings,
   holdsReviewEntry,
-  insertComment,
+  postComment,
   sentToday,
   softDeleteComment,
   theyStartedThread,
@@ -22,7 +22,7 @@ import { MAX_COMMENT_CHARS, MAX_SENT_PER_DAY } from '../federation/config';
 import { isStamp, itemStamp } from '../federation/items';
 import { loadIdentity, type Identity } from '../federation/keys';
 import { commentCreate, commentDelete } from '../federation/messages';
-import { sendToConnection } from '../federation/outbox';
+import { pushQueued } from '../federation/outbox';
 
 const comments = new Hono<AppEnv>();
 
@@ -133,17 +133,22 @@ comments.post('/items/:id/comments', async (c) => {
     user.username,
     text,
   );
-  await insertComment(c.env.DB, {
-    activityId: message.id,
-    connectionId: connection.id,
-    ourItemId: item.id,
-    fromUs: true,
-    authorName: message.author,
-    authorId: user.id,
-    body: text,
-    createdAt: message.published,
-  });
-  await sendToConnection(c, ctx.identity, ctx.settings, connection, message);
+  // stored and queued together, so a failure can't leave it here unsent, nor a second Send store it twice
+  await postComment(
+    c.env.DB,
+    {
+      activityId: message.id,
+      connectionId: connection.id,
+      ourItemId: item.id,
+      fromUs: true,
+      authorName: message.author,
+      authorId: user.id,
+      body: text,
+      createdAt: message.published,
+    },
+    message,
+  );
+  pushQueued(c, ctx.identity, ctx.settings, connection, message);
   return c.redirect(back);
 });
 
@@ -166,18 +171,22 @@ comments.post('/feed/comments', async (c) => {
 
   const user = c.get('user');
   const message = commentCreate(ctx.settings.baseUrl, { owner: connection.baseUrl, item: itemId, stamp }, user.username, text);
-  await insertComment(c.env.DB, {
-    activityId: message.id,
-    connectionId: connection.id,
-    theirItemId: itemId,
-    theirItemStamp: stamp,
-    fromUs: true,
-    authorName: message.author,
-    authorId: user.id,
-    body: text,
-    createdAt: message.published,
-  });
-  await sendToConnection(c, ctx.identity, ctx.settings, connection, message);
+  await postComment(
+    c.env.DB,
+    {
+      activityId: message.id,
+      connectionId: connection.id,
+      theirItemId: itemId,
+      theirItemStamp: stamp,
+      fromUs: true,
+      authorName: message.author,
+      authorId: user.id,
+      body: text,
+      createdAt: message.published,
+    },
+    message,
+  );
+  pushQueued(c, ctx.identity, ctx.settings, connection, message);
   return c.redirect(back);
 });
 
@@ -188,10 +197,14 @@ comments.post('/comments/:id/delete', async (c) => {
   const back = safeBack((await c.req.parseBody())['back']);
   const comment = await getComment(c.env.DB, Number(c.req.param('id')));
   if (!comment || comment.deletedAt || (!comment.fromUs && comment.ourItemId === null)) return c.redirect(back);
-  await softDeleteComment(c.env.DB, comment.id);
   const connection = await getConnection(c.env.DB, comment.connectionId);
   if (connection?.status === 'active') {
-    await sendToConnection(c, ctx.identity, ctx.settings, connection, commentDelete(ctx.settings.baseUrl, comment.activityId));
+    // cleared and queued together: never gone here but still showing there
+    const message = commentDelete(ctx.settings.baseUrl, comment.activityId);
+    await softDeleteComment(c.env.DB, comment.id, { connectionId: connection.id, message });
+    pushQueued(c, ctx.identity, ctx.settings, connection, message);
+  } else {
+    await softDeleteComment(c.env.DB, comment.id);
   }
   return c.redirect(back);
 });
