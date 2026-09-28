@@ -760,6 +760,8 @@ button.comment-delete:hover, button.progress-delete:hover { background: none; co
 .request-form button { justify-self: start; }
 .request-actions { display: flex; gap: 0.5rem; align-items: center; justify-content: flex-end; }
 .back-link { margin: 1.25rem 0 0; }
+/* the Account page's release line: which version this instance runs, for whoever maintains it */
+.version-line { margin: 1.25rem 0 0; font-size: 12.5px; }
 /* on a phone the date, Lend and Decline stack, leaving the book and who asked room to read */
 @media (max-width: 880px) {
   .request-actions, .data-table .request-actions .inline-form { flex-wrap: wrap; }
