@@ -617,7 +617,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   border-top: 1px solid var(--line);
 }
 
-.share-shell { max-width: 1020px; margin: 0 auto; padding: 2rem 1.5rem 3rem; }
+.share-shell { max-width: 1020px; margin: 0 auto; padding: 2rem 2rem 3rem; } /* the app's 2rem desktop gutter */
 .share-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--line); padding-bottom: 0.9rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
 .share-head h1 { margin: 0; }
 .share-mark { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-3); }
@@ -655,11 +655,16 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
     z-index: 30;
   }
   .mobile-bar .brand-name { font-size: 14px; }
-  #nav-toggle { font-size: 18px; width: 36px; height: 36px; padding: 0; color: var(--ink); }
+  /* A 36px target, pulled left by its own slack so the ☰ ink sits on the 16px gutter with the page title below
+     (the glyph is ~12px wide: (36 − 12) / 2 = 12px of air on each side). */
+  #nav-toggle { font-size: 18px; width: 36px; height: 36px; padding: 0; margin-left: -12px; color: var(--ink); }
   /* the open drawer dims the page behind it; a tap there closes it (app.js) */
   body.nav-open::after { content: ''; position: fixed; inset: 0; background: rgba(23, 19, 16, 0.35); z-index: 35; }
   .mobile-bar .mobile-unread { margin-left: auto; text-decoration: none; }
   .content { padding: 1.1rem 1rem 3rem; }
+  /* one phone gutter everywhere: public share pages and the login card sit on the same 16px line as the app */
+  .share-shell { padding: 1.25rem 1rem 3rem; }
+  .auth-shell { padding: 1rem; }
   .item-detail { grid-template-columns: 1fr; }
   .item-detail-cover { position: static; max-width: 190px; }
   .data-table .hide-sm { display: none; }
