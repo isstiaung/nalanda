@@ -68,8 +68,10 @@ function formReadProblem(existing: Item | null, v: { status: ItemStatus; beganOn
       return 'This book has been finished. To record a read you stopped, use its page: Read again, then Stop — or correct a read there.';
     }
   }
-  // Not dead code: the guard above is for books. A record or game has no Reading section, but a Nalanda re-import
-  // can leave one with a finish and an open read, and for it this is what stops the form opening a second read.
+  // Not dead code: the guard above is for books. A record or game has no Reading section, but it can hold a finish
+  // and an open read: from a Nalanda re-import, or a re-read book whose type was changed to a record. The database
+  // already refuses a second open read (formReadStatements), so without this the form would answer "saved" and drop
+  // the status change silently. This says why instead.
   if (v.status === 'in_progress' && existing?.rereading) return 'It already has a read in progress: choose Not started to clear its reads.';
   return readDateProblem({ status: v.status, beganOn: v.beganOn, endedOn: v.status === 'in_progress' ? null : v.completedOn });
 }
