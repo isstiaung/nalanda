@@ -3,7 +3,7 @@
 // options. (The package ships a codemod for this, but it only handles the object form —
 // ours builds migrations asynchronously first.)
 import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 export default defineConfig(async () => {
   // relative to project root, where vitest runs
@@ -16,12 +16,22 @@ export default defineConfig(async () => {
           bindings: {
             TEST_MIGRATIONS: migrations,
             SESSION_SECRET: 'test-secret-not-for-production',
+            // Whatever a developer's .dev.vars holds, tests see what CI sees: none of the optional secrets.
+            // A test that wants one passes it itself. (A FEDERATION_PRIVATE_KEY there turned connections
+            // on for every test and failed the ones that expect an instance without them.)
+            FEDERATION_PRIVATE_KEY: '',
+            BGG_TOKEN: '',
+            DISCOGS_TOKEN: '',
+            GOOGLE_BOOKS_KEY: '',
+            HOME_SHARE_TOKEN: '',
           },
         },
       }),
     ],
     test: {
       setupFiles: ['./test/apply-migrations.ts'],
+      // agents' git worktrees live under .claude/ — their copies of the suite test their own code
+      exclude: [...configDefaults.exclude, '.claude/**'],
     },
   };
 });

@@ -12,3 +12,6 @@ goodreads_library_export.csv
 
 # logo exploration — kept locally, not part of the shipped project
 options/
+
+# agents' git worktrees
+.claude/worktrees/
