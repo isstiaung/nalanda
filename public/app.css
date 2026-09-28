@@ -639,10 +639,12 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
     width: min(78vw, var(--sidebar-w));
     z-index: 40;
     transform: translateX(-102%);
-    transition: transform 160ms ease;
+    /* closed, it's out of the tab order and the accessibility tree — hidden only once the slide has finished */
+    visibility: hidden;
+    transition: transform 160ms ease, visibility 0s linear 160ms;
     box-shadow: var(--shadow);
   }
-  body.nav-open .sidebar { transform: translateX(0); }
+  body.nav-open .sidebar { transform: translateX(0); visibility: visible; transition: transform 160ms ease, visibility 0s; }
   .mobile-bar {
     display: flex;
     align-items: center;

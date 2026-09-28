@@ -91,6 +91,7 @@ describe('primary and secondary buttons', () => {
     const loans = await (await plain.get('/loans', cookie)).text();
     expect(loans).toMatch(/<button type="submit" class="btn">\s*Mark returned/);
   });
+
 });
 
 describe('row actions', () => {
@@ -157,6 +158,14 @@ describe('mobile bar', () => {
     const bar = html.slice(html.indexOf('<header class="mobile-bar">'), html.indexOf('</header>'));
     expect(bar).toContain('<div class="mobile-brand"><div class="brand-rule"></div><div class="brand-name">Nalanda</div></div>');
     expect(html.match(/class="brand-rule"/g)).toHaveLength(2); // the sidebar's and the bar's, nowhere else
+  });
+
+  it('starts the menu button collapsed and names the drawer it controls (app.js keeps aria-expanded in step)', async () => {
+    const html = await (await instanceA(env).get('/', await sessionCookie('member'))).text();
+    expect(html).toContain(
+      '<button type="button" id="nav-toggle" class="btn-quiet" aria-label="Menu" aria-controls="sidebar" aria-expanded="false">',
+    );
+    expect(html).toContain('<aside class="sidebar" id="sidebar">');
   });
 });
 

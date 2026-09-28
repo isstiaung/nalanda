@@ -52,17 +52,29 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // The phone drawer. aria-expanded follows it, so a screen reader hears whether the menu is open; while closed,
+  // CSS keeps it out of the tab order and the accessibility tree (visibility: hidden, after the slide).
   const navToggle = document.getElementById('nav-toggle');
   if (navToggle) {
-    navToggle.addEventListener('click', () => document.body.classList.toggle('nav-open'));
+    const isOpen = () => document.body.classList.contains('nav-open');
+    const setOpen = (open) => {
+      document.body.classList.toggle('nav-open', open);
+      navToggle.setAttribute('aria-expanded', String(open));
+    };
+    navToggle.addEventListener('click', () => setOpen(!isOpen()));
     document.getElementById('sidebar')?.addEventListener('click', (e) => {
-      if (e.target.closest('a, button')) document.body.classList.remove('nav-open');
+      if (e.target.closest('a, button')) setOpen(false);
     });
     // A tap on the dimmed page beside the open drawer closes it.
     document.addEventListener('click', (e) => {
-      if (!document.body.classList.contains('nav-open')) return;
-      if (e.target.closest('#sidebar, #nav-toggle')) return;
-      document.body.classList.remove('nav-open');
+      if (!isOpen() || e.target.closest('#sidebar, #nav-toggle')) return;
+      setOpen(false);
+    });
+    // Escape closes it too, handing focus back to the button that opened it.
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape' || !isOpen()) return;
+      setOpen(false);
+      navToggle.focus();
     });
   }
 });
