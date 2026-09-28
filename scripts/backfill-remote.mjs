@@ -264,8 +264,12 @@ function instrumentFetch({ rps }) {
     failures.set(host, n);
     if (n >= FAILURES_BEFORE_STOPPING) health.stopReason ??= `${n} consecutive failures from ${host} (${why})`;
   };
+  // Requests a second per host. Open Library takes --rps; the others follow their own published limits —
+  // Discogs allows 60 a minute, MusicBrainz and its Cover Art Archive one a second, and Google Books
+  // enforces a per-minute limit as well as its daily one.
+  const PACE = { 'www.googleapis.com': 1, 'api.discogs.com': 1, 'musicbrainz.org': 1, 'coverartarchive.org': 1 };
   const waitForSlot = async (host) => {
-    const gap = 1000 / (host === OPEN_LIBRARY ? rps : 4);
+    const gap = 1000 / (host === OPEN_LIBRARY ? rps : (PACE[host] ?? 4));
     const now = Date.now();
     const at = Math.max(now, slots.get(host) ?? 0);
     slots.set(host, at + gap);
@@ -283,7 +287,16 @@ function instrumentFetch({ rps }) {
         await waitForSlot(host);
         const res = await realFetch(input, { ...init, signal: AbortSignal.timeout(25_000) });
         if (res.status === 429 && host === GOOGLE_BOOKS) {
-          if (!health.googleBooksExhausted) console.log('  ! Google Books quota exhausted — skipping it from here on');
+          // Google answers 429 for its per-minute limit too. Only the daily one — its message names
+          // "Queries per day" — means the rest of the day is lost; a per-minute one is waited out once.
+          const message = await res.clone().text().catch(() => '');
+          if (!/per day/i.test(message) && attempt === 0) {
+            bump(host, 'limited');
+            console.log('  … Google Books per-minute limit — waiting a minute');
+            await sleep(60_000);
+            continue;
+          }
+          if (!health.googleBooksExhausted) console.log('  ! Google Books daily quota exhausted — skipping it from here on');
           health.googleBooksExhausted = true;
           bump(host, 'limited');
           return res;
@@ -322,7 +335,11 @@ async function preflight(realFetch, googleBooksKey) {
   const gb = await realFetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:9780141439471&maxResults=1&key=${googleBooksKey}`, {
     signal: AbortSignal.timeout(25_000),
   }).catch(() => null);
-  if (gb?.status === 429) return 'exhausted';
+  if (gb?.status === 429) {
+    // only the daily limit is final; a per-minute one just means the run paces itself
+    const message = await gb.text().catch(() => '');
+    return /per day/i.test(message) ? 'exhausted' : 'available (briefly rate-limited)';
+  }
   return gb?.ok ? 'available' : `unavailable (${gb ? `HTTP ${gb.status}` : 'no answer'})`;
 }
 
