@@ -290,7 +290,7 @@ export async function setItemTags(d1: D1Database, itemId: number, names: string[
   await dbi.batch(
     normalized.map((name) => dbi.insert(s.tags).values({ name }).onConflictDoNothing()) as [never, ...never[]],
   );
-  const tagRows = await dbi.select().from(s.tags).where(inArray(s.tags.name, normalized));
+  const tagRows = await dbi.select().from(s.tags).where(sql`${s.tags.name} IN (SELECT value FROM json_each(${JSON.stringify(normalized)}))`);
   if (tagRows.length) {
     await dbi
       .insert(s.itemTags)
@@ -468,7 +468,9 @@ async function linkTags(dbi: ReturnType<typeof db>, pairs: Array<{ itemId: numbe
   await dbi.batch(
     names.map((name) => dbi.insert(s.tags).values({ name }).onConflictDoNothing()) as [never, ...never[]],
   );
-  const tagRows = await dbi.select().from(s.tags).where(inArray(s.tags.name, names));
+  // one JSON parameter however many names: an import batch can carry more distinct tags than D1's
+  // 100 bound parameters, and the items were already committed when this used to throw
+  const tagRows = await dbi.select().from(s.tags).where(sql`${s.tags.name} IN (SELECT value FROM json_each(${JSON.stringify(names)}))`);
   const idByName = new Map(tagRows.map((t) => [t.name, t.id]));
   const links = pairs
     .map((p) => ({ itemId: p.itemId, tagId: idByName.get(p.tag) }))
