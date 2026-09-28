@@ -27,6 +27,22 @@ const Head: FC<{ title: string }> = ({ title }) => (
           "if(h)document.documentElement.setAttribute('data-hide-cols',h);}catch(e){}",
       }}
     />
+    {/* Confirmation prompts. Their text lives in a data-confirm attribute, never in an inline handler: a name
+        someone typed must stay text, and the browser decodes HTML escapes back into quotes before it runs
+        inline code — a shelf named x'); … would run as script for whoever pressed Delete. Inline here rather
+        than in the deferred app.js, so a quick tap on a destructive button can't beat the listener. */}
+    <script
+      dangerouslySetInnerHTML={{
+        __html:
+          // A refusal also stops the event: htmx submits from its own listener on the form, which ignores a
+          // cancelled default. Capturing at the document runs first, so a stopped event never reaches it.
+          "function no(e){e.preventDefault();e.stopImmediatePropagation();}" +
+          "document.addEventListener('submit',function(e){var f=e.target;" +
+          "if(f&&f.dataset&&f.dataset.confirm&&!confirm(f.dataset.confirm))no(e);},true);" +
+          "document.addEventListener('click',function(e){var b=e.target&&e.target.closest?e.target.closest('button[data-confirm]'):null;" +
+          "if(b&&!confirm(b.dataset.confirm))no(e);},true);",
+      }}
+    />
     <script src="/vendor/htmx.min.js" defer></script>
     <script src="/app.js" defer></script>
   </head>

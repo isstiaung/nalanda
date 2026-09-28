@@ -96,7 +96,7 @@ shares.get('/shares', async (c) => {
                           name="action"
                           value="rotate"
                           class="btn"
-                          onclick={`return confirm('Rotate “${v.name}”? Its current URL stops working — anyone you gave it to needs the new one.')`}
+                          data-confirm={`Rotate “${v.name}”? Its current URL stops working — anyone you gave it to needs the new one.`}
                         >
                           Rotate
                         </button>
@@ -104,7 +104,7 @@ shares.get('/shares', async (c) => {
                           name="action"
                           value="delete"
                           class="btn-danger"
-                          onclick={`return confirm('Remove “${v.name}”? The URL stops working. The items themselves are untouched.')`}
+                          data-confirm={`Remove “${v.name}”? The URL stops working. The items themselves are untouched.`}
                         >
                           Remove
                         </button>
