@@ -179,7 +179,7 @@ async function counts(target) {
 // ---------- export ----------
 
 // Same selection as the in-app backfill (backfillable() in src/db/queries.ts).
-const QUEUE_SQL = `SELECT id, media_type, title, creators, isbn13, isbn10_upc, publisher, published, length, cover_key,
+const QUEUE_SQL = `SELECT id, added_at, media_type, title, creators, isbn13, isbn10_upc, publisher, published, length, cover_key,
   CASE WHEN description IS NULL OR trim(description) = '' THEN 0 ELSE 1 END AS has_description
 FROM items WHERE cover_key IS NULL OR description IS NULL OR description = '' ORDER BY id`;
 
@@ -510,32 +510,38 @@ const stamp = "updated_at = datetime('now')";
 
 function buildStatements(target) {
   const uploaded = new Set(readLines(paths(target).uploaded));
+  // items.id is a plain rowid, which SQLite reuses after the newest row is deleted. A book deleted during a
+  // long enrich could hand its id to the next one added, and the answers found for the first would land on
+  // the second. Each UPDATE therefore also matches the row's added_at, captured at export.
+  const addedAt = new Map(readJson(paths(target).queue, []).map((q) => [Number(q.id), q.added_at]));
   const statements = [];
   const tally = { cover: 0, description: 0, publisher: 0, published: 0, length: 0, coverNotUploaded: 0 };
   for (const r of latestResults(target)) {
     const p = r.patch ?? {};
     const id = Number(r.id);
+    if (!addedAt.get(id)) throw new Error(`#${id} has no added_at in the export — run export again rather than apply this.`);
+    const where = `WHERE id = ${id} AND added_at = ${text(addedAt.get(id))}`;
     if (p.cover_key && !uploaded.has(p.cover_key)) tally.coverNotUploaded++;
     // only ever point at a cover that is actually in the bucket
     if (p.cover_key && uploaded.has(p.cover_key)) {
       if (!/^[0-9a-f-]{36}$/.test(p.cover_key)) throw new Error(`Unexpected cover key for #${id}: ${p.cover_key}`);
-      statements.push(`UPDATE items SET cover_key = '${p.cover_key}', ${stamp} WHERE id = ${id} AND cover_key IS NULL;`);
+      statements.push(`UPDATE items SET cover_key = '${p.cover_key}', ${stamp} ${where} AND cover_key IS NULL;`);
       tally.cover++;
     }
     if (p.description) {
-      statements.push(`UPDATE items SET description = ${text(p.description)}, ${stamp} WHERE id = ${id} AND (description IS NULL OR trim(description) = '');`);
+      statements.push(`UPDATE items SET description = ${text(p.description)}, ${stamp} ${where} AND (description IS NULL OR trim(description) = '');`);
       tally.description++;
     }
     if (p.publisher) {
-      statements.push(`UPDATE items SET publisher = ${text(p.publisher)}, ${stamp} WHERE id = ${id} AND (publisher IS NULL OR trim(publisher) = '');`);
+      statements.push(`UPDATE items SET publisher = ${text(p.publisher)}, ${stamp} ${where} AND (publisher IS NULL OR trim(publisher) = '');`);
       tally.publisher++;
     }
     if (p.published) {
-      statements.push(`UPDATE items SET published = ${text(p.published)}, ${stamp} WHERE id = ${id} AND (published IS NULL OR trim(published) = '');`);
+      statements.push(`UPDATE items SET published = ${text(p.published)}, ${stamp} ${where} AND (published IS NULL OR trim(published) = '');`);
       tally.published++;
     }
     if (p.length && Number.isInteger(Number(p.length))) {
-      statements.push(`UPDATE items SET length = ${Number(p.length)}, ${stamp} WHERE id = ${id} AND length IS NULL;`);
+      statements.push(`UPDATE items SET length = ${Number(p.length)}, ${stamp} ${where} AND length IS NULL;`);
       tally.length++;
     }
   }
@@ -598,7 +604,7 @@ async function apply(target) {
     }
     const results = await d1Json(target, ['--file', file]);
     // a wrangler run can exit cleanly having done nothing, so judge it by what D1 reports
-    const reported = results.every((r) => r?.success !== false && r?.meta);
+    const reported = results.length > 0 && results.every((r) => r?.success !== false && r?.meta);
     if (!reported) throw new Error(`D1 gave no result for ${file}; stopping. Nothing after it was applied.`);
     appendFileSync(p.applied, `${hash}\n`);
     const written = results.map((r) => r.meta.rows_written).filter((n) => typeof n === 'number');
@@ -608,9 +614,13 @@ async function apply(target) {
   const after = await counts(target);
   console.log(`After:  ${describeCounts(after)}`);
   console.log(`Filled: ${before.noCover - after.noCover} covers, ${before.noDescription - after.noDescription} descriptions`);
-  if (!interrupted) {
+  // A cover still waiting to upload keeps the run open: otherwise the next export would archive it
+  // unapplied and look the book up again.
+  if (!interrupted && !tally.coverNotUploaded) {
     const state = readJson(p.state, {});
     writeFileSync(p.state, JSON.stringify({ ...state, appliedThrough: resultLines, appliedAt: new Date().toISOString() }));
+  } else if (tally.coverNotUploaded) {
+    console.log('Not marked applied: run upload, then apply again, to finish the covers still waiting.');
   }
 }
 
@@ -657,8 +667,12 @@ const REHEARSAL_BOOKS = [
   { id: 4, title: 'A Room with a View', creators: 'E. M. Forster', cover: 'rehearsal-cover-already-set' },
   { id: 5, title: 'Avani Sundari Katha Sara', creators: 'Dandin' },
   { id: 6, title: 'The Time Machine', creators: 'H.G. Wells' },
+  { id: 7, title: 'Kindred', creators: 'Octavia E. Butler' },
 ];
 const EDITED_ID = 6;
+// Deleted after the export, its id then taken by a different book: what was found for it must not land there.
+const REUSED_ID = 7;
+const NEWCOMER = 'A different book that took the same id';
 const HAND_WRITTEN = 'Written by hand after the export, so the backfill must leave it alone.';
 const sqlString = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
@@ -690,6 +704,14 @@ async function rehearse() {
 
   console.log('\n— someone edits a book after the export');
   await query(target, `UPDATE items SET description = ${sqlString(HAND_WRITTEN)} WHERE id = ${EDITED_ID}`);
+
+  console.log('— and deletes another, whose id a different book then takes');
+  await query(target, `DELETE FROM items WHERE id = ${REUSED_ID}`);
+  await query(
+    target,
+    `INSERT INTO items (id, library_id, media_type, title, status, copies, details, added_at) ` +
+      `VALUES (${REUSED_ID}, 1, 'book', ${sqlString(NEWCOMER)}, 'not_started', 1, '{}', '2099-01-01 00:00:00')`,
+  );
 
   console.log('\n— upload');
   await upload(target, {});
@@ -746,10 +768,21 @@ async function rehearse() {
   const exact = found.every((res) => {
     const row = rows.find((r) => r.id === res.id);
     const coverOk = !uploaded.has(res.patch.cover_key) || row.cover_key === res.patch.cover_key;
+    if (res.id === REUSED_ID) return true; // checked on its own below
     const descOk = !res.patch.description || res.id === EDITED_ID || row.description === res.patch.description;
     return coverOk && descOk;
   });
   check(exact, `Every uploaded cover and every description found is in the database exactly as found (${found.length} items)`);
+
+  const reused = rows.find((r) => r.id === REUSED_ID);
+  if (hasPatch(results.get(REUSED_ID) ?? {})) {
+    check(
+      reused?.title === NEWCOMER && reused.cover_key === null && reused.description === null,
+      'A book that took a deleted book\'s id got nothing meant for the deleted one',
+    );
+  } else {
+    console.log('  – Reused-id check not exercised: nothing was found for that book this time');
+  }
 
   // Every statement re-checks its blank, so running the same SQL again must change nothing — not even
   // updated_at, which any matching UPDATE would bump. The pause makes a bump visible at second resolution.
