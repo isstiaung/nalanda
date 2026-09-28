@@ -236,6 +236,18 @@ describe('regressions', () => {
     expect(entry?.addedBy).toBeNull();
   });
 
+  it('lets a member who both added an item and recorded progress be deleted', async () => {
+    // pins the merge of two fixes: each cleared one of the two references to users, and either alone fails here
+    const member = await createUser(env.DB, { username: 'both', passwordHash: 'pbkdf2$1$x$y', role: 'member', mustChangePassword: false });
+    const book = await seedBook({ addedBy: member.id });
+    await addProgress(env.DB, book.id, 36, member.id);
+
+    await deleteUser(env.DB, member.id);
+
+    expect((await getItem(env.DB, book.id))?.addedBy).toBeNull();
+    expect((await listProgress(env.DB, book.id))[0]?.addedBy).toBeNull();
+  });
+
   it('never stamps a start date after a finish', async () => {
     // a Goodreads "read" import: finished, no start date recorded
     const book = await seedBook({ status: 'completed', completedOn: '2019-05-01' });

@@ -419,6 +419,7 @@ items.post('/items/:id', async (c) => {
   if (!existing) return c.notFound();
   const parsed = parseItemForm(await c.req.parseBody());
   if (!parsed) return c.text('Title and shelf are required.', 400);
+  if (!(await getLibrary(c.env.DB, parsed.values.libraryId))) return c.text('No such shelf.', 400);
 
   let coverKey = existing.coverKey;
   if (parsed.removeCover) {

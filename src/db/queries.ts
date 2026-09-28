@@ -37,9 +37,12 @@ export async function listUsers(d1: D1Database): Promise<User[]> {
 }
 
 export async function deleteUser(d1: D1Database, id: number): Promise<void> {
-  // reading_progress.added_by references users without ON DELETE SET NULL (and 0012 is applied, so it
-  // stays that way): keep the member's reading log, unattributed, rather than refuse the delete
+  // Two references to users have no ON DELETE action (migrations 0000 and 0012, both applied): items.added_by
+  // and reading_progress.added_by. Either would stop a member being removed — and a member who both added an
+  // item and recorded a page hits both — so both are cleared in the same batch. Their items and reading log
+  // stay, just unattributed.
   await d1.batch([
+    d1.prepare('UPDATE items SET added_by = NULL WHERE added_by = ?1').bind(id),
     d1.prepare('UPDATE reading_progress SET added_by = NULL WHERE added_by = ?1').bind(id),
     d1.prepare('DELETE FROM users WHERE id = ?1').bind(id),
   ]);
@@ -289,7 +292,7 @@ export async function setItemTags(d1: D1Database, itemId: number, names: string[
   await dbi.batch(
     normalized.map((name) => dbi.insert(s.tags).values({ name }).onConflictDoNothing()) as [never, ...never[]],
   );
-  const tagRows = await dbi.select().from(s.tags).where(inArray(s.tags.name, normalized));
+  const tagRows = await dbi.select().from(s.tags).where(sql`${s.tags.name} IN (SELECT value FROM json_each(${JSON.stringify(normalized)}))`);
   if (tagRows.length) {
     await dbi
       .insert(s.itemTags)
@@ -638,7 +641,9 @@ async function linkTags(dbi: ReturnType<typeof db>, pairs: Array<{ itemId: numbe
   await dbi.batch(
     names.map((name) => dbi.insert(s.tags).values({ name }).onConflictDoNothing()) as [never, ...never[]],
   );
-  const tagRows = await dbi.select().from(s.tags).where(inArray(s.tags.name, names));
+  // one JSON parameter however many names: an import batch can carry more distinct tags than D1's
+  // 100 bound parameters, and the items were already committed when this used to throw
+  const tagRows = await dbi.select().from(s.tags).where(sql`${s.tags.name} IN (SELECT value FROM json_each(${JSON.stringify(names)}))`);
   const idByName = new Map(tagRows.map((t) => [t.name, t.id]));
   const links = pairs
     .map((p) => ({ itemId: p.itemId, tagId: idByName.get(p.tag) }))
