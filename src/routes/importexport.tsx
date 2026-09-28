@@ -3,6 +3,7 @@ import type { MediaType, NewItem } from '../db/schema';
 import { MEDIA_TYPES } from '../db/schema';
 import {
   countBackfillable,
+  getLibrary,
   importItems,
   listLibraries,
   mergeImportItems,
@@ -141,12 +142,15 @@ importexport.post('/api/import', async (c) => {
   } catch {
     return c.json({ error: 'Invalid JSON body.' }, 400);
   }
-  const rows = Array.isArray(body.rows) ? body.rows : [];
-  if (rows.length > MAX_ROWS_PER_REQUEST) {
+  // anything but a plain object is skipped by the mappers' own checks rather than crashing them
+  const sent = Array.isArray(body.rows) ? body.rows : [];
+  const rows = sent.filter((r) => r !== null && typeof r === 'object' && !Array.isArray(r));
+  if (sent.length > MAX_ROWS_PER_REQUEST) {
     return c.json({ error: `Send at most ${MAX_ROWS_PER_REQUEST} rows per request.` }, 400);
   }
   const libraryId = Number(body.libraryId);
   if (!Number.isInteger(libraryId)) return c.json({ error: 'libraryId required.' }, 400);
+  if (!(await getLibrary(c.env.DB, libraryId))) return c.json({ error: 'No such shelf.' }, 400);
 
   const opts: ImportOptions = {
     defaultType: (MEDIA_TYPES as readonly string[]).includes(body.defaultType ?? '')
@@ -158,7 +162,7 @@ importexport.post('/api/import', async (c) => {
   const isGoodreads = rows.length > 0 && looksLikeGoodreads(Object.keys(rows[0]!));
 
   const mapped = [];
-  let skipped = 0;
+  let skipped = sent.length - rows.length;
   for (const row of rows) {
     const m = isGoodreads ? mapGoodreadsRow(row) : mapLibibRow(row, opts);
     if (m) mapped.push(m);

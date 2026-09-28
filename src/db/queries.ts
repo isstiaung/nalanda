@@ -37,7 +37,13 @@ export async function listUsers(d1: D1Database): Promise<User[]> {
 }
 
 export async function deleteUser(d1: D1Database, id: number): Promise<void> {
-  await db(d1).delete(s.users).where(eq(s.users.id, id));
+  // items.added_by references users with no ON DELETE action (migration 0000, already applied), so a
+  // member who ever added something couldn't be removed. Their items stay, just unattributed — the item
+  // page already shows nothing for a missing added_by.
+  await d1.batch([
+    d1.prepare('UPDATE items SET added_by = NULL WHERE added_by = ?1').bind(id),
+    d1.prepare('DELETE FROM users WHERE id = ?1').bind(id),
+  ]);
 }
 
 export async function setPassword(
@@ -284,7 +290,7 @@ export async function setItemTags(d1: D1Database, itemId: number, names: string[
   await dbi.batch(
     normalized.map((name) => dbi.insert(s.tags).values({ name }).onConflictDoNothing()) as [never, ...never[]],
   );
-  const tagRows = await dbi.select().from(s.tags).where(inArray(s.tags.name, normalized));
+  const tagRows = await dbi.select().from(s.tags).where(sql`${s.tags.name} IN (SELECT value FROM json_each(${JSON.stringify(normalized)}))`);
   if (tagRows.length) {
     await dbi
       .insert(s.itemTags)
@@ -462,7 +468,9 @@ async function linkTags(dbi: ReturnType<typeof db>, pairs: Array<{ itemId: numbe
   await dbi.batch(
     names.map((name) => dbi.insert(s.tags).values({ name }).onConflictDoNothing()) as [never, ...never[]],
   );
-  const tagRows = await dbi.select().from(s.tags).where(inArray(s.tags.name, names));
+  // one JSON parameter however many names: an import batch can carry more distinct tags than D1's
+  // 100 bound parameters, and the items were already committed when this used to throw
+  const tagRows = await dbi.select().from(s.tags).where(sql`${s.tags.name} IN (SELECT value FROM json_each(${JSON.stringify(names)}))`);
   const idByName = new Map(tagRows.map((t) => [t.name, t.id]));
   const links = pairs
     .map((p) => ({ itemId: p.itemId, tagId: idByName.get(p.tag) }))

@@ -132,7 +132,9 @@ loans.post('/items/:id/loan', async (c) => {
 loans.post('/loans/:id/return', async (c) => {
   await returnLoan(c.env.DB, Number(c.req.param('id')));
   const referer = c.req.header('referer');
-  return c.redirect(referer && new URL(referer).origin === new URL(c.req.url).origin ? referer : '/loans');
+  // back where the return was pressed — only on this origin, and a Referer that isn't a URL just means /loans
+  const back = referer && URL.canParse(referer) && new URL(referer).origin === new URL(c.req.url).origin ? referer : '/loans';
+  return c.redirect(back);
 });
 
 export default loans;
