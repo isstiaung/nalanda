@@ -4,9 +4,10 @@
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSubscription, storeEntries } from '../src/db/federation';
-import { createItem, createLibrary, createShare } from '../src/db/queries';
+import { createItem, createLibrary, createLoan, createShare } from '../src/db/queries';
 import type { MediaType } from '../src/db/schema';
 import app from '../src/index';
+import { CommentForm } from '../src/routes/comments';
 import { CandidateCard } from '../src/views/components';
 import { newShareToken } from '../src/lib/share';
 import type { Bindings } from '../src/env';
@@ -70,6 +71,26 @@ async function followWithEntries(
   await storeEntries(env.DB, sub!.id, entries);
   return sub!;
 }
+
+describe('primary and secondary buttons', () => {
+  const plain = instanceA(env);
+
+  it('keeps a form’s own action primary — Lend, Look up, a comment — and row actions secondary', async () => {
+    const shelf = await createLibrary(env.DB, 'Books');
+    const free = await createItem(env.DB, { libraryId: shelf.id, title: 'On the shelf', copies: 2 });
+    await createLoan(env.DB, { itemId: free.id, borrower: 'Meera' });
+    const cookie = await sessionCookie('member');
+    const item = await (await plain.get(`/items/${free.id}`, cookie)).text();
+    expect(item).toContain('<button type="submit">Lend</button>');
+    expect(item).toMatch(/<button type="submit" class="btn">\s*Mark returned/);
+    expect(await (await plain.get('/add', cookie)).text()).toContain('<button type="submit">Look up</button>');
+    expect(String(await CommentForm({ action: '/feed/comments', fields: {}, label: 'Send' }))).toContain(
+      '<button type="submit">Send</button>',
+    );
+    const loans = await (await plain.get('/loans', cookie)).text();
+    expect(loans).toMatch(/<button type="submit" class="btn">\s*Mark returned/);
+  });
+});
 
 describe('row actions', () => {
   it('draws Purge as a danger action, like Unfollow beside it', async () => {

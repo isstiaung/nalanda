@@ -312,9 +312,7 @@ items.get('/items/:id', async (c) => {
               <input name="borrower" placeholder="Borrower" required />
               <input name="contact" placeholder="Contact (optional)" />
               <input type="date" name="dueOn" aria-label="Due date" />
-              <button type="submit" class="btn">
-                Lend
-              </button>
+              <button type="submit">Lend</button>
             </form>
           ) : null}
         </div>

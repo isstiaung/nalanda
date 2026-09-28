@@ -697,9 +697,7 @@ export async function loanRequestsSection(c: Context<AppEnv>): Promise<Child | n
                     {free.get(r.item.id) ? (
                       <form method="post" action={`/borrow-requests/${r.id}/accept`} class="inline-form">
                         <input type="date" name="dueOn" aria-label="Due date" />
-                        <button type="submit" class="btn">
-                          Lend
-                        </button>
+                        <button type="submit">Lend</button>
                       </form>
                     ) : (
                       <small class="muted">No copy free</small>

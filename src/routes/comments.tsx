@@ -66,9 +66,7 @@ export const CommentForm: FC<{ action: string; fields: Record<string, string>; l
       <input type="hidden" name={name} value={value} />
     ))}
     <textarea name="body" rows={2} maxlength={MAX_COMMENT_CHARS} required aria-label={label}></textarea>
-    <button type="submit" class="btn">
-      {label}
-    </button>
+    <button type="submit">{label}</button>
   </form>
 );
 

@@ -250,9 +250,7 @@ libraries.get('/libraries/:id', async (c) => {
               {owned !== undefined ? <input type="hidden" name="owned" value={owned ? '1' : '0'} /> : null}
               <input type="hidden" name="sort" value={sort} />
               <input name="name" placeholder="Link name (shown as the public page title)" required />
-              <button type="submit" class="btn">
-                Publish current view
-              </button>
+              <button type="submit">Publish current view</button>
             </form>
             <small class="muted">
               "Current view" captures the filters applied above
