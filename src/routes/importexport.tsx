@@ -18,8 +18,10 @@ import {
   EXPORT_COLUMNS,
   itemToCsvLine,
   looksLikeGoodreads,
+  looksLikeNalandaExport,
   mapGoodreadsRow,
   mapLibibRow,
+  mapNalandaRow,
   type ImportOptions,
 } from '../lib/csv';
 import { findCover, findDescription } from '../metadata';
@@ -47,8 +49,8 @@ importexport.get('/import', async (c) => {
         </div>
       </div>
       <p class="muted">
-        Export your libib collection or Goodreads library as CSV, drop it here — the format is
-        auto-detected. The file is parsed in your browser and uploaded in small batches; columns we
+        Export your libib collection or Goodreads library as CSV — or a Nalanda export, to restore or
+        move a catalog — and drop it here; the format is auto-detected. The file is parsed in your browser and uploaded in small batches; columns we
         don't recognize are kept losslessly in each item's details. Goodreads rows that match a book
         already on your shelves (by ISBN, then title + author) merge their rating, review, shelves,
         and read date onto it — Goodreads wins. The rest are added as “Not owned” reading-log
@@ -155,12 +157,15 @@ importexport.post('/api/import', async (c) => {
     musicAsVinyl: body.musicAsVinyl !== false,
   };
 
-  const isGoodreads = rows.length > 0 && looksLikeGoodreads(Object.keys(rows[0]!));
+  const headers = rows.length > 0 ? Object.keys(rows[0]!) : [];
+  // our own export first: its columns are specific enough that it can't be mistaken for either of the others
+  const format = looksLikeNalandaExport(headers) ? 'nalanda' : looksLikeGoodreads(headers) ? 'goodreads' : 'libib';
+  const isGoodreads = format === 'goodreads';
 
   const mapped = [];
   let skipped = 0;
   for (const row of rows) {
-    const m = isGoodreads ? mapGoodreadsRow(row) : mapLibibRow(row, opts);
+    const m = format === 'nalanda' ? mapNalandaRow(row) : isGoodreads ? mapGoodreadsRow(row) : mapLibibRow(row, opts);
     if (m) mapped.push(m);
     else skipped++;
   }
@@ -173,7 +178,7 @@ importexport.post('/api/import', async (c) => {
     for (const m of mapped) byType[m.item.mediaType ?? 'book'] = (byType[m.item.mediaType ?? 'book'] ?? 0) + 1;
     const match = isGoodreads ? await mergeImportItems(c.env.DB, withOwners, true) : null;
     return c.json({
-      format: isGoodreads ? 'goodreads' : 'libib',
+      format,
       mapped: mapped.length,
       skipped,
       byType,
