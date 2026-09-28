@@ -8,6 +8,37 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [1.2.0] - 2026-09-28
+
+Re-reading. Every read of a book is kept, so reading it again no longer overwrites the first read, and Nalanda knows how many times you've read it.
+
+### Added
+- **Read again.** A finished book has a **Read again** button that starts a new read, and the book shows a **Re-reading** marker until you finish it. It stays **Completed** meanwhile, so nothing moves between shelves, filters or shared views.
+- **Your reads on the book's page:** each read with its dates, and the pages you recorded during it. You can finish a read, stop it, correct its dates, add a past read, or delete one made by mistake.
+- **How often you've read a book:**
+  - shown as "×2" beside its finished date on a shelf;
+  - as "Read 2 times" on share pages (only for books read twice or more; never the dates);
+  - to connected households on 1.2.0, who see "re-reading" and "finished again".
+- **Export and import carry every read**, including which read each recorded page belongs to. Older exports still import.
+- **Goodreads' Read Count** becomes that many finished reads, and a Goodreads re-import adds reads without ever removing one.
+
+### Changed
+- **The edit form's status and dates** now edit the current read. It won't turn a finished book back to "In progress" or "Stopped": use **Read again** on its page. While a book is being re-read, those fields are locked.
+- **A Goodreads re-import that changes nothing** now leaves every book's "updated" time alone.
+- **The import preview** counts the reads a libib file will create.
+
+### Upgrading
+- **Back up first** (`npm run backup`). Migrations `0022_reads` and `0023_reads-backfill` turn every book's status and dates into reads when you deploy. Most books come out exactly as they were. A few shapes change, by the same rules imports use:
+  - a not-started book with a start date becomes **In progress**, and one with a completion date becomes **Completed**;
+  - a stopped book with a Goodreads Read Count becomes **Completed**, with that many finished reads beside the stopped one;
+  - a Read Count becomes finished reads (at most 100) and leaves the book's details. A count that isn't a whole number stays in details.
+
+  [runbooks/deploy.md](runbooks/deploy.md) lists these under "What 0023 does to your data".
+- **Deploy when nobody is editing.** For a few seconds the migration has run while the old code still serves, and an edit saved in that window doesn't become a read.
+- **Don't roll the code back past this release.** Older code writes reading status without reads. It won't crash, but reading state drifts until each book's next change. To go back, restore the backup instead.
+- **No new secrets.**
+- **Connections:** households on 1.1.0 or earlier keep working with yours. They simply don't see read counts or the "re-reading" label.
+
 ## [1.1.0] - 2026-09-28
 
 A polish pass over every page, in light and dark mode, on desktop and phone, and the first release with version numbers and notes. Nothing changes how Nalanda works; things just look right where they used to slip.
@@ -57,5 +88,6 @@ From an instance deployed before versioning:
 - **BoardGameGeek now needs a token.** BGG made its API registration-only in 2025. Register an application at boardgamegeek.com/applications, then run `npx wrangler secret put BGG_TOKEN`. Without it, board-game search shows a notice instead of results.
 - **Export needs JavaScript for a large catalogue.** The **Export** button fetches the CSV a page at a time. The plain `/export.csv` link still works, in one request, but can hit the free plan's CPU limit on a large catalogue.
 
+[1.2.0]: https://github.com/isstiaung/nalanda/releases/tag/v1.2.0
 [1.1.0]: https://github.com/isstiaung/nalanda/releases/tag/v1.1.0
 [1.0.0]: https://github.com/isstiaung/nalanda/releases/tag/v1.0.0

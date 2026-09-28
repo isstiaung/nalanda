@@ -11,6 +11,7 @@ import {
   deleteUser,
   getItem,
   listProgress,
+  startRead,
   progressForIdRange,
 } from '../src/db/queries';
 import { EXPORT_COLUMNS, mapLibibRow, progressHistoryCell } from '../src/lib/csv';
@@ -73,14 +74,23 @@ describe('recording progress', () => {
     expect(log[0]!.addedBy).toBe(user.id);
   });
 
-  it('leaves a status and a begin date that were set deliberately', async () => {
-    const book = await seedBook({ status: 'completed', beganOn: '2020-01-01' });
-    await addProgress(env.DB, book.id, 120, null); // a re-read
+  it('records nothing on a finished book until it is read again, then records into the re-read (§16 #41)', async () => {
+    const book = await seedBook({ status: 'completed', beganOn: '2020-01-01', completedOn: '2020-02-01' });
+    expect(await addProgress(env.DB, book.id, 120, null)).toBe(false);
 
-    const after = await getItem(env.DB, book.id);
-    expect(after?.status).toBe('completed');
-    expect(after?.beganOn).toBe('2020-01-01');
-    expect(after?.progressPage).toBe(120);
+    expect(await getItem(env.DB, book.id)).toMatchObject({ status: 'completed', beganOn: '2020-01-01', progressPage: null, rereading: false });
+    expect(await listProgress(env.DB, book.id)).toEqual([]);
+
+    // "Read again" opens a read; the page goes to it, and the book stays Completed, re-reading
+    expect(await startRead(env.DB, book.id, '2026-09-01')).toBe(true);
+    expect(await addProgress(env.DB, book.id, 120, null)).toBe(true);
+    expect(await getItem(env.DB, book.id)).toMatchObject({
+      status: 'completed',
+      beganOn: '2020-01-01',
+      completedOn: '2020-02-01',
+      rereading: true,
+      progressPage: 120,
+    });
   });
 
   it('keeps the whole log in order, newest page on the item', async () => {

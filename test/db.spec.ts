@@ -258,7 +258,7 @@ describe('goodreads match-and-merge import', () => {
         tags: [],
       },
     ]);
-    expect(result).toEqual({ merged: 1, inserted: 1 });
+    expect(result).toEqual({ merged: 1, inserted: 1, reads: 2 }); // a finished read for each
 
     const after = await getItem(env.DB, owned.id);
     expect(after!.rating).toBe(10); // goodreads wins
@@ -300,7 +300,7 @@ describe('goodreads match-and-merge import', () => {
         tags: [],
       },
     ]);
-    expect(result).toEqual({ merged: 1, inserted: 0 });
+    expect(result).toEqual({ merged: 1, inserted: 0, reads: 1 });
     const after = await getItem(env.DB, owned.id);
     expect(after!.rating).toBe(8);
     expect(after!.review).toBe('My old review.'); // goodreads had none — not blanked
@@ -324,8 +324,8 @@ describe('goodreads match-and-merge import', () => {
         tags: ['fantasy'],
       },
     ];
-    expect(await mergeImportItems(env.DB, rows)).toEqual({ merged: 0, inserted: 1 });
-    expect(await mergeImportItems(env.DB, rows)).toEqual({ merged: 1, inserted: 0 });
+    expect(await mergeImportItems(env.DB, rows)).toEqual({ merged: 0, inserted: 1, reads: 1 });
+    expect(await mergeImportItems(env.DB, rows)).toEqual({ merged: 1, inserted: 0, reads: 0 }); // its read is already here
     const { total } = await listItems(env.DB, lib.id, {});
     expect(total).toBe(1);
   });

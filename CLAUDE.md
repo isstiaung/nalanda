@@ -74,11 +74,13 @@ shape from this file.
 - `/share/:token` pages render a **field whitelist** via `toPublicItem()` in
   `src/lib/share.ts` — never add fields there without checking ARCH.md §9.
 - **Never** render on share pages: private `notes`, loans/borrowers, the `copies` count,
-  `added_by`, usernames, or links into the authenticated app. (The derived boolean
-  `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge.)
+  `added_by`, usernames, reads or their dates, or links into the authenticated app. (The
+  derived boolean `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned"
+  badge. So is `readCount`, only from two finishes on — "Read N times", ARCH.md §16 #41.)
   Reading progress appears only when an admin turns on `site_settings.progress_on_shares`
-  (off by default), and then only for a book marked in progress — `toPublicItem(item,
-  { progress })` omits the key otherwise. Share pages get `noindex`.
+  (off by default), and then only for a book being read now — in progress, or finished and
+  being read again (`rereading`) — `toPublicItem(item, { progress })` omits the key otherwise.
+  Share pages get `noindex`.
 - Share tokens are random 128-bit, **one per published view** (`shares` table — filters, or a
   tag, captured at publish time; `itemMatchesShare()` guards the public item route, and its
   query-side twin `shareFilters()` must stay in step with it).
@@ -91,7 +93,8 @@ shape from this file.
   enumerable or derived from item data.
 - Connections see only `toConnectionItem()` fields (`src/federation/items.ts`, built on
   `toPublicItem()`), and only for items inside a connection view. Availability is a derived
-  boolean — never a borrower, due date or copies count. Triggers on `items` record
+  boolean — never a borrower, due date or copies count; reading history is a count
+  (`readCount`), never the reads or their dates. Triggers on `items` record
   activity only while a connection view exists (migration 0007), dated by when it happened —
   an import's batch brackets itself with `import_in_progress` so old reads aren't news
   (migration 0021, ARCH.md §16 #40).
@@ -140,7 +143,8 @@ src/db/            schema.ts (Drizzle) + queries.ts — the ONLY code touching D
 src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googlebooks, bgg,
                    discogs, itunes, musicbrainz — nothing else calls external APIs
 src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist), csv.ts
-                   (export + libib mapping), covers.ts (only R2 code)
+                   (export + libib mapping), covers.ts (only R2 code), reads.ts (each read:
+                   how reads decide status, the legacy mapping, the export cell, Goodreads)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments and borrowing (comments.ts,
@@ -196,6 +200,11 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
 - Barcode routing lives in `src/metadata/index.ts`: EAN-13 starting `978`/`979` → book
   providers (Open Library + Google Books merged); any other EAN/UPC → Discogs.
 - Tags are normalized lowercase at write time; uniqueness is by exact string.
+- Reading state lives in `reads`, one row per read (ARCH.md §16 #41). `items.status`,
+  `began_on`, `completed_on`, `read_count`, `rereading` and `progress_page` are its cache:
+  write reads and `refreshReadState()` in one batch, never those columns directly. A re-read
+  keeps the book Completed (`rereading` marks it), so nothing moves between status-filtered
+  views; a finished book takes no page until "Read again" opens a read.
 - `copies = 0` = "in the catalog, not in the physical collection" (reading-log entries,
   e.g. Goodreads imports). Not lendable; badged "Not owned" everywhere incl. share pages
   (ARCH.md §16 #13). The Holding toggle spans **only 0 and 1** — an item held in 2+ copies

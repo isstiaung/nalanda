@@ -417,8 +417,19 @@ export async function countItemsInView(d1: D1Database, view: ConnectionView): Pr
   return row?.n ?? 0;
 }
 
-/** progressPage: the page that update recorded, on a progress entry; null on every other kind. */
-export type SharedActivity = { id: number; kind: ActivityKind; at: string; item: Item; progressPage: number | null };
+/**
+ * progressPage: the page that update recorded, on a progress entry; null on every other kind. readsBefore, on a
+ * progress entry: how many finished reads came before the one its page belongs to (§16 #41) — the book's other
+ * finished reads that ended by the day of the page, an undated one counting as earlier, as reads are listed.
+ */
+export type SharedActivity = {
+  id: number;
+  kind: ActivityKind;
+  at: string;
+  item: Item;
+  progressPage: number | null;
+  readsBefore: number;
+};
 
 /**
  * Activity in a view after a cursor, oldest first, so a busy stretch arrives over several pulls instead
@@ -446,6 +457,11 @@ export async function activityInView(
       at: s.activityLog.at,
       item: s.items,
       progressPage: s.readingProgress.page,
+      readsBefore: sql`CASE WHEN ${s.readingProgress.id} IS NULL THEN 0 ELSE (
+        SELECT count(*) FROM reads r2 WHERE r2.item_id = ${s.readingProgress.itemId} AND r2.status = 'completed'
+          AND r2.id IS NOT ${s.readingProgress.readId}
+          AND (r2.ended_on IS NULL OR r2.ended_on <= date(${s.readingProgress.at}))
+      ) END`.mapWith(Number),
     })
     .from(s.activityLog)
     .innerJoin(s.items, eq(s.activityLog.itemId, s.items.id))

@@ -7,6 +7,10 @@ export type MediaType = (typeof MEDIA_TYPES)[number];
 export const ITEM_STATUSES = ['not_started', 'in_progress', 'completed', 'abandoned'] as const;
 export type ItemStatus = (typeof ITEM_STATUSES)[number];
 
+/** How one read of an item stands. A book never started simply has no reads. */
+export const READ_STATUSES = ['in_progress', 'completed', 'abandoned'] as const;
+export type ReadStatus = (typeof READ_STATUSES)[number];
+
 const now = sql`(datetime('now'))`;
 
 export const users = sqliteTable('users', {
@@ -51,6 +55,10 @@ export const items = sqliteTable(
     // never needs a subquery for it (50 D1 queries per invocation). NULL = nothing recorded yet.
     progressPage: integer('progress_page'),
     coverKey: text('cover_key'),
+    // status, began_on, completed_on, read_count and rereading are worked out from `reads` (ARCH.md §16 #41) and
+    // kept here so a shelf, a filter or a share view never needs a subquery. Only refreshReadState() writes them
+    // once an item has reads: status, began_on and completed_on describe its last finished read, or else its open
+    // one, or else its last abandoned one.
     status: text('status', { enum: ITEM_STATUSES }).notNull().default('not_started'),
     rating: integer('rating'),
     review: text('review'),
@@ -58,6 +66,8 @@ export const items = sqliteTable(
     copies: integer('copies').notNull().default(1),
     beganOn: text('began_on'),
     completedOn: text('completed_on'),
+    readCount: integer('read_count').notNull().default(0), // finished reads
+    rereading: integer('rereading', { mode: 'boolean' }).notNull().default(false), // finished before, and read again now
     details: text('details').notNull().default('{}'),
     addedBy: integer('added_by').references(() => users.id),
     addedAt: text('added_at').notNull().default(now),
@@ -231,6 +241,31 @@ export const connectionViews = sqliteTable('connection_views', {
 });
 
 /**
+ * Each time an item was read — started, finished, stopped — the source of truth for its reading state
+ * (ARCH.md §16 #41). items.status and the columns beside it are derived from these rows by
+ * refreshReadState(), in the same batch as any write here. At most one read is open at a time.
+ */
+export const reads = sqliteTable(
+  'reads',
+  {
+    // AUTOINCREMENT: a read's id is in its routes and in reading_progress.read_id, so it never names another read
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    status: text('status', { enum: READ_STATUSES }).notNull(),
+    beganOn: text('began_on'), // YYYY-MM-DD; NULL = not known
+    endedOn: text('ended_on'), // when it was finished or stopped; NULL while open, or not known
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (t) => [
+    index('idx_reads_item').on(t.itemId),
+    // a second "Read again" while one is open makes nothing rather than a second open read
+    uniqueIndex('reads_one_open').on(t.itemId).where(sql`${t.status} = 'in_progress'`),
+  ],
+);
+
+/**
  * One row per "I'm on page N" update, oldest to newest — the reading log Goodreads calls progress
  * updates. items.progress_page holds the latest for cheap reads; this table is the history, and
  * deleting a row recomputes it.
@@ -247,8 +282,11 @@ export const readingProgress = sqliteTable(
     page: integer('page').notNull(),
     at: text('at').notNull().default(now),
     addedBy: integer('added_by').references(() => users.id),
+    // Which read the page belongs to. NULL only for a page recorded before reads existed on an item that has
+    // none. No ON DELETE action — drizzle-kit drops it on ALTER TABLE — so deleteRead() removes the pages first.
+    readId: integer('read_id').references(() => reads.id),
   },
-  (t) => [index('idx_reading_progress_item').on(t.itemId, t.at)],
+  (t) => [index('idx_reading_progress_item').on(t.itemId, t.at), index('idx_reading_progress_read').on(t.readId)],
 );
 
 export const ACTIVITY_KINDS = ['reviewed', 'rated', 'finished', 'progress'] as const;
@@ -511,6 +549,7 @@ export type Connection = typeof connections.$inferSelect;
 export type ConnectionView = typeof connectionViews.$inferSelect;
 export type FeedSubscription = typeof feedSubscriptions.$inferSelect;
 export type ReadingProgress = typeof readingProgress.$inferSelect;
+export type Read = typeof reads.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type RemoteActivity = typeof remoteActivities.$inferSelect;
 export type Comment = typeof comments.$inferSelect;

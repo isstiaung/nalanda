@@ -2,6 +2,7 @@ import type { FC } from 'hono/jsx';
 import type { Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import { progressPercent } from '../lib/progress';
+import { ordinal, type ReadDraft, type ReadRow } from '../lib/reads';
 import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
 
@@ -85,24 +86,109 @@ export const StatusPill: FC<{ status: ItemStatus }> = ({ status }) => (
 /** copies = 0: in the ledger, not on the shelf — a reading-log entry. */
 export const NotOwnedPill: FC = () => <span class="pill ghost">Not owned</span>;
 
-/** Same as NotOwnedPill but clickable — one tap sets copies to 1 in place (htmx),
- *  swapping itself for a MarkNotOwnedButton. No edit form. Authenticated views
- *  only; share pages keep the plain NotOwnedPill. */
 /**
- * Reading progress for a book: where you are, the log of how you got there, and one field to add to
- * it. Swaps itself on every change (hx-target on the section), so the bar, the figures and the log
- * stay in step without a page load. Books only — pages mean nothing for a record or a board game.
+ * A book finished before and being read again (§16 #41). It keeps its Completed status — nothing moves between
+ * views — and this marks the open read wherever status shows.
  */
-export const ReadingProgressSection: FC<{ item: Item; entries: { id: number; page: number; at: string }[]; error?: string }> = ({
+export const RereadingPill: FC = () => <span class="pill rereading">Re-reading</span>;
+
+/** The status pill, and the re-reading marker beside it when there is one. */
+export const StatusPills: FC<{ item: Pick<Item, 'status' | 'rereading'> }> = ({ item }) => (
+  <>
+    <StatusPill status={item.status} />
+    {item.rereading ? (
+      <>
+        {' '}
+        <RereadingPill />
+      </>
+    ) : null}
+  </>
+);
+
+/**
+ * The item page's status, in a span htmx can replace out of band: starting, finishing or stopping a read changes
+ * it from inside the Reading section. `oob` renders it for that swap.
+ */
+export const ItemStatusPills: FC<{ item: Pick<Item, 'status' | 'rereading'>; oob?: boolean }> = ({ item, oob }) => (
+  <span id="item-status" class="status-pills" hx-swap-oob={oob ? 'true' : undefined}>
+    <StatusPills item={item} />
+  </span>
+);
+
+type ReadingRead = ReadRow & { createdAt?: string };
+type ReadingPage = { id: number; page: number; at: string; readId: number | null };
+
+const htmxTo = (url: string) => ({ 'hx-post': url, 'hx-target': '#reading', 'hx-swap': 'outerHTML' });
+
+/** A read's dates as a span: "2019-03-01 → 2019-03-20", with what isn't known left as "?". */
+const readSpan = (r: ReadDraft) =>
+  r.beganOn === null && r.endedOn === null && r.status !== 'in_progress'
+    ? 'dates not known'
+    : `${r.beganOn ?? '?'} → ${r.status === 'in_progress' ? 'now' : (r.endedOn ?? '?')}`;
+
+function outcome(r: ReadDraft, rereading: boolean, lastPage: number | null): string {
+  if (r.status === 'completed') return 'finished';
+  if (r.status === 'abandoned') return lastPage ? `stopped at p. ${lastPage}` : 'stopped';
+  return rereading ? 're-reading' : 'reading';
+}
+
+const PageLog: FC<{ item: Item; entries: ReadingPage[]; removable: boolean }> = ({ item, entries, removable }) =>
+  entries.length ? (
+    <ol class="progress-log">
+      {entries.map((e) => (
+        <li>
+          <span class="mono">p. {e.page}</span>
+          <span class="mono muted">{e.at.slice(0, 10)}</span>
+          {removable ? (
+            <form method="post" action={`/items/${item.id}/progress/${e.id}/delete`} {...htmxTo(`/items/${item.id}/progress/${e.id}/delete`)}>
+              <button type="submit" class="progress-delete" aria-label={`Remove page ${e.page}, ${e.at.slice(0, 10)}`}>
+                Remove
+              </button>
+            </form>
+          ) : null}
+        </li>
+      ))}
+    </ol>
+  ) : null;
+
+/**
+ * A book's reading: where the current read has got to, the controls to start, finish or stop one, and every read
+ * so far with its pages (§16 #41). Swaps itself on every change (hx-target on the section), and the status pill
+ * above it out of band, so nothing on the page goes stale. Books only — pages mean nothing for a record or a
+ * board game, whose single read the edit form keeps.
+ */
+export const ReadingSection: FC<{ item: Item; reads: ReadingRead[]; entries: ReadingPage[]; today: string; error?: string }> = ({
   item,
+  reads,
   entries,
+  today,
   error,
 }) => {
-  const percent = progressPercent(item.progressPage, item.length);
+  const open = reads.find((r) => r.status === 'in_progress') ?? null;
+  // pages of the open read, or — on a book with no reads at all — pages recorded before reads existed
+  const current = open ? entries.filter((e) => e.readId === open.id) : reads.length ? [] : entries.filter((e) => e.readId === null);
+  const percent = open ? progressPercent(item.progressPage, item.length) : null;
+  const pagesOf = (r: ReadingRead) => entries.filter((e) => e.readId === r.id);
+  const base = `/items/${item.id}`;
+
+  let summary: string;
+  if (open) {
+    const since = open.beganOn ? `since ${open.beganOn}` : 'start date not known';
+    summary = item.rereading ? `Re-reading, ${since} · finished ${item.readCount === 1 ? 'once' : `${item.readCount} times`} before` : `Reading, ${since}`;
+  } else if (item.readCount > 0) {
+    summary = `Finished${item.completedOn ? ` ${item.completedOn}` : ', date not known'}${item.readCount > 1 ? ` · read ${item.readCount} times` : ''}`;
+  } else if (reads.length) {
+    summary = `Stopped${item.completedOn ? ` ${item.completedOn}` : ''}`;
+  } else {
+    summary = 'Not started.';
+  }
+
   return (
-    <div class="detail-section" id="reading-progress">
-      <p class="eyebrow">Reading progress</p>
-      {item.progressPage ? (
+    <div class="detail-section" id="reading">
+      <p class="eyebrow">Reading</p>
+      <p class={reads.length ? 'reading-summary' : 'reading-summary muted'}>{summary}</p>
+
+      {open && item.progressPage ? (
         <>
           <p>
             <span class="mono">p. {item.progressPage}</span>
@@ -125,58 +211,111 @@ export const ReadingProgressSection: FC<{ item: Item; entries: { id: number; pag
             </div>
           ) : null}
         </>
-      ) : (
-        <p class="muted">Nothing recorded yet.</p>
-      )}
+      ) : null}
 
-      <form
-        method="post"
-        action={`/items/${item.id}/progress`}
-        class="inline-form"
-        hx-post={`/items/${item.id}/progress`}
-        hx-target="#reading-progress"
-        hx-swap="outerHTML"
-      >
-        <input
-          name="page"
-          inputmode="numeric"
-          pattern="[0-9]+"
-          class="mono"
-          size={6}
-          placeholder="Page"
-          aria-label="Page reached"
-          required
-        />
-        {item.length ? <span class="muted">of {item.length}</span> : null}
-        <button type="submit">Record</button>
-      </form>
+      {/* pages go to an open read; recording one on a book never started starts it (§16 #34) */}
+      {open || !reads.length ? (
+        <form method="post" action={`${base}/progress`} class="inline-form" {...htmxTo(`${base}/progress`)}>
+          <input name="page" inputmode="numeric" pattern="[0-9]+" class="mono" size={6} placeholder="Page" aria-label="Page reached" required />
+          {item.length ? <span class="muted">of {item.length}</span> : null}
+          {/* each form's own action is primary (a plain submit); Stop is secondary (.btn), Delete a danger action */}
+          <button type="submit">Record</button>
+        </form>
+      ) : null}
+
       {error ? <p class="error">{error}</p> : null}
 
-      {entries.length ? (
-        <ol class="progress-log">
-          {entries.map((e) => (
-            <li>
-              <span class="mono">p. {e.page}</span>
-              <span class="mono muted">{e.at.slice(0, 10)}</span>
-              <form
-                method="post"
-                action={`/items/${item.id}/progress/${e.id}/delete`}
-                hx-post={`/items/${item.id}/progress/${e.id}/delete`}
-                hx-target="#reading-progress"
-                hx-swap="outerHTML"
-              >
-                <button type="submit" class="progress-delete" aria-label={`Remove page ${e.page}, ${e.at.slice(0, 10)}`}>
-                  Remove
-                </button>
-              </form>
-            </li>
-          ))}
-        </ol>
+      <PageLog item={item} entries={current} removable={true} />
+
+      <div class="read-actions">
+        {open ? (
+          <>
+            <form method="post" action={`${base}/reads/${open.id}/finish`} class="inline-form" {...htmxTo(`${base}/reads/${open.id}/finish`)}>
+              <input type="date" name="date" value={today} aria-label="Finished on" class="mono" />
+              <button type="submit">Finish</button>
+            </form>
+            <form method="post" action={`${base}/reads/${open.id}/stop`} class="inline-form" {...htmxTo(`${base}/reads/${open.id}/stop`)}>
+              <button type="submit" class="btn">
+                {item.rereading ? 'Stop re-reading' : 'Stop reading'}
+              </button>
+            </form>
+          </>
+        ) : (
+          <form method="post" action={`${base}/reads/start`} class="inline-form" {...htmxTo(`${base}/reads/start`)}>
+            <button type="submit">{item.readCount > 0 ? 'Read again' : reads.length ? 'Start again' : 'Start reading'}</button>
+          </form>
+        )}
+      </div>
+
+      {reads.length ? (
+        <>
+          <p class="eyebrow read-history-head">Reads</p>
+          <ol class="read-history">
+            {reads.map((r, i) => {
+              const pages = pagesOf(r);
+              return (
+                <li>
+                  <span class="mono">{ordinal(i + 1)}</span>
+                  <span class="mono">{readSpan(r)}</span>
+                  <span>{outcome(r, item.rereading, pages.at(-1)?.page ?? null)}</span>
+                  {pages.length ? <span class="muted">{pages.length === 1 ? '1 page logged' : `${pages.length} pages logged`}</span> : null}
+                  <details class="read-edit">
+                    <summary>Edit</summary>
+                    <form method="post" action={`${base}/reads/${r.id}`} class="inline-form" {...htmxTo(`${base}/reads/${r.id}`)}>
+                      <select name="status" aria-label="Outcome">
+                        <option value="completed" selected={r.status === 'completed'}>
+                          Finished
+                        </option>
+                        <option value="abandoned" selected={r.status === 'abandoned'}>
+                          Stopped
+                        </option>
+                        <option value="in_progress" selected={r.status === 'in_progress'}>
+                          Reading now
+                        </option>
+                      </select>
+                      <input type="date" name="beganOn" value={r.beganOn ?? ''} aria-label="Began" class="mono" />
+                      <input type="date" name="endedOn" value={r.endedOn ?? ''} aria-label="Ended" class="mono" />
+                      <button type="submit">Save</button>
+                    </form>
+                    <form
+                      method="post"
+                      action={`${base}/reads/${r.id}/delete`}
+                      class="inline-form"
+                      {...htmxTo(`${base}/reads/${r.id}/delete`)}
+                      hx-confirm="Delete this read and the pages logged in it?"
+                    >
+                      <button type="submit" class="btn-danger">
+                        Delete this read{pages.length ? ' and its pages' : ''}
+                      </button>
+                    </form>
+                    {r.status !== 'in_progress' ? <PageLog item={item} entries={pages} removable={false} /> : null}
+                  </details>
+                </li>
+              );
+            })}
+          </ol>
+        </>
       ) : null}
+
+      <details class="read-edit read-add">
+        <summary>Add a past read</summary>
+        <form method="post" action={`${base}/reads`} class="inline-form" {...htmxTo(`${base}/reads`)}>
+          <select name="status" aria-label="Outcome">
+            <option value="completed">Finished</option>
+            <option value="abandoned">Stopped</option>
+          </select>
+          <input type="date" name="beganOn" aria-label="Began" class="mono" />
+          <input type="date" name="endedOn" aria-label="Ended" class="mono" />
+          <button type="submit">Add</button>
+        </form>
+      </details>
     </div>
   );
 };
 
+/** Same as NotOwnedPill but clickable — one tap sets copies to 1 in place (htmx),
+ *  swapping itself for a MarkNotOwnedButton. No edit form. Authenticated views
+ *  only; share pages keep the plain NotOwnedPill. */
 export const MarkOwnedButton: FC<{ id: number }> = ({ id }) => (
   <button
     type="button"
@@ -253,6 +392,7 @@ export const ItemCard: FC<{ item: Item; onLoan?: boolean; href?: string }> = ({ 
       <span class="mline">
         <small class="acc-no">{accNo(item.id)}</small>
         {item.rating ? <span class="rating">{stars(item.rating)}</span> : null}
+        {item.rereading ? <RereadingPill /> : null}
         {item.copies === 0 ? <NotOwnedPill /> : null}
         {onLoan ? <span class="pill lent">Lent</span> : null}
       </span>
@@ -353,10 +493,14 @@ export const ItemTable: FC<{
             <td class="num col-type">{MEDIA_LABEL[item.mediaType]}</td>
             {libraryNames ? <td class="num hide-sm col-shelf">{libraryNames.get(item.libraryId) ?? ''}</td> : null}
             <td class="num hide-sm col-year">{yearOf(item.published)}</td>
-            <td class="date hide-sm col-completed">{item.completedOn ?? <span class="muted">—</span>}</td>
+            <td class="date hide-sm col-completed">
+              {item.completedOn ?? <span class="muted">—</span>}
+              {/* the last finish, and how many there have been once there's more than one (§16 #41) */}
+              {item.readCount > 1 ? <span class="muted read-count" title={`Finished ${item.readCount} times`}> ×{item.readCount}</span> : null}
+            </td>
             <td class="col-rating">{item.rating ? <span class="rating">{stars(item.rating)}</span> : <span class="muted">—</span>}</td>
             <td class="col-status">
-              <StatusPill status={item.status} />{' '}
+              <StatusPills item={item} />{' '}
               {onLoanIds?.has(item.id) ? <span class="pill lent">Lent</span> : null}
             </td>
             <td class="col-holding">
@@ -415,13 +559,27 @@ export const ItemForm: FC<{
   item?: Item | null;
   tags?: string[];
   selectedLibraryId?: number;
-}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId }) => {
+  error?: string;
+  // what a refused form sends back, so nothing typed is lost
+  coverUrl?: string;
+  removeCover?: boolean;
+}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverUrl, removeCover }) => {
+  // a book being read again: status and dates describe its last finish, and the re-read is managed on its page
+  const readingLocked = item?.mediaType === 'book' && !!item?.rereading;
+  // A book finished before: the form edits that finish, so it offers Completed only — reading it again, or a stop, is
+  // done on its page (the route refuses the rest). A book with reads can't be made not started from here either. The
+  // status the form was sent with is always offered, so a refused form shows what was chosen.
+  const shown = item?.status ?? 'not_started';
+  const finishedBook = item?.mediaType === 'book' && (item?.readCount ?? 0) > 0;
+  const offered = (st: ItemStatus) =>
+    st === shown || (finishedBook ? st === 'completed' : st !== 'not_started' || shown === 'not_started' || item?.mediaType !== 'book');
   // reviewed_in gets its own field; the advanced JSON box shows everything else
   const details = parseDetails(item?.details);
   const reviewedIn = Array.isArray(details['reviewed_in']) ? (details['reviewed_in'] as string[]) : [];
   delete details['reviewed_in'];
   return (
   <form method="post" action={action} class="form-card">
+    {error ? <p class="error">{error}</p> : null}
     <div class="grid">
       <label>
         Shelf
@@ -485,8 +643,9 @@ export const ItemForm: FC<{
     <div class="grid">
       <label>
         Status
-        <select name="status">
-          {ITEM_STATUSES.map((st) => (
+        <select name="status" disabled={readingLocked}>
+          {/* only what a read can become from here (`offered`, §16 #41) */}
+          {ITEM_STATUSES.filter(offered).map((st) => (
             <option value={st} selected={(item?.status ?? 'not_started') === st}>
               {STATUS_LABEL[st]}
             </option>
@@ -505,13 +664,26 @@ export const ItemForm: FC<{
     <div class="grid">
       <label>
         Began
-        <input type="date" name="beganOn" value={item?.beganOn ?? ''} />
+        <input type="date" name="beganOn" value={item?.beganOn ?? ''} disabled={readingLocked} />
       </label>
       <label>
         Completed
-        <input type="date" name="completedOn" value={item?.completedOn ?? ''} />
+        {/* an open read has no end: the date shown for a book in progress is always blank */}
+        <input type="date" name="completedOn" value={item?.status === 'in_progress' ? '' : (item?.completedOn ?? '')} disabled={readingLocked} />
       </label>
     </div>
+    {finishedBook && !readingLocked ? (
+      <p class="muted form-note">
+        Finished before: these are its last finished read's. To read it again, or to record a read you stopped, use the
+        book's page.
+      </p>
+    ) : null}
+    {readingLocked ? (
+      <p class="muted form-note">
+        Being read again now: these are its last finished read's, kept as they are. Every read — this one too — is
+        started, finished, stopped and corrected on the book's page.
+      </p>
+    ) : null}
     <label>
       Tags <small>(comma-separated)</small>
       <input name="tags" value={tags?.join(', ') ?? ''} />
@@ -536,11 +708,11 @@ export const ItemForm: FC<{
     </label>
     <label>
       Cover image URL <small>(fetched once into storage on save)</small>
-      <input name="coverUrl" placeholder="https://…" />
+      <input name="coverUrl" placeholder="https://…" value={coverUrl ?? ''} />
     </label>
     {item?.coverKey ? (
       <label>
-        <input type="checkbox" name="removeCover" value="1" /> Remove current cover
+        <input type="checkbox" name="removeCover" value="1" checked={!!removeCover} /> Remove current cover
       </label>
     ) : null}
     <details>

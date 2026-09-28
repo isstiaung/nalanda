@@ -17,8 +17,9 @@ link appears on the same page when it's ready. One CSV covers everything.
    the "default type" and "music as vinyl" options don't apply and are ignored.)
    The destination only affects **new** entries; matched books stay on their shelf.
 3. **Preview (dry run, optional)** — shows, for the first 200 rows, how many map
-   cleanly, how many **match books already in Nalanda** (their reviews will merge), and
-   how many are **new** (added as "Not owned"). Nothing is written yet.
+   cleanly, how many **match books already in Nalanda** (their reviews will merge), how
+   many are **new** (added as "Not owned"), and how many **reads** it would add or date.
+   Nothing is written yet.
 4. **Import** — uploads in batches of 200 with live progress. Works directly without a
    preview.
 
@@ -32,8 +33,27 @@ A row is matched to an existing item by, in order: **ISBN-13 → ISBN-10 → nor
 title + first-author surname** (series suffixes like "(The Broken Earth, #1)",
 subtitles after ":", and initials spacing are ignored). On a match:
 
-- **Goodreads wins** for rating, review, reading status, date read, and private notes —
-  but a field Goodreads has no value for never blanks what's already in Nalanda.
+- **Goodreads wins** for rating, review, and private notes — but a field Goodreads has no
+  value for never blanks what's already in Nalanda.
+- **Reading arrives as reads, which are added and never removed** (ARCH.md §16 #41). Each
+  rule checks for its own result first, and reading you did here since an earlier import
+  counts as that result. So importing the same file again adds nothing, even after you
+  finished, stopped or started a book again here:
+  - `Date Read` is a finish. Nothing happens if a finished read already ends that day. On
+    the read shelf it closes an open read that began by then. Otherwise it dates an undated
+    finished read, or adds one.
+  - On the read shelf with no finished read, the open read closes, or an undated finish is
+    added.
+  - Currently-reading makes sure a read is open, starting on `Date Started` when the file
+    has it (the standard export doesn't). Its `Date Read` is the *previous* finish, so a
+    currently-reading book that was finished before arrives as Completed and re-reading. If
+    a read here began since, or ended after that previous finish, that read was this one,
+    and nothing is reopened.
+  - A DNF shelf stops an open read that began by the DNF's date. Otherwise it records a
+    stopped read, and a read started here since stays open. Once a stopped read is here, it
+    does nothing.
+  - `Read Count` tops the finished reads up with undated ones, capped at 100 a book.
+  - A to-read shelf over there never removes a read recorded here.
 - **Copies, title, and bibliographic metadata are never touched** — Nalanda's
   provider-sourced metadata is better than Goodreads CSV metadata.
 - Custom bookshelves are **added** as tags (existing tags kept).
@@ -45,15 +65,17 @@ subtitles after ":", and initials spacing are ignored). On a match:
 | `Title`, `Author` + `Additional Authors`, `Publisher` | title, creators, publisher |
 | `ISBN13` / `ISBN` (Excel guard `="…"` stripped) | `isbn13` / `isbn10_upc` |
 | `My Rating` (0–5 whole stars, 0 = unrated) | half-star rating (×2) |
-| `Exclusive Shelf` | status: read → completed, currently-reading → in progress, to-read → not started; a dnf/abandoned shelf → abandoned |
+| `Exclusive Shelf` | reads, and so status: read → a finished read, currently-reading → an open read, a dnf/abandoned shelf → a stopped read, to-read → none |
 | `My Review` (`<br/>` → line breaks) | review |
 | `Private Notes` | private notes |
-| `Date Read` | completed date |
+| `Date Read` | the finished read's date, and so the completed date |
+| `Date Started` (if present) | the start of the read it belongs to |
+| `Read Count` | that many finished reads, undated beyond the one `Date Read` dates — "Read N times" on share pages from two |
 | `Number of Pages`, `Year Published` | length, published |
 | `Bookshelves` + any custom exclusive shelf (e.g. `to-re-read`) | tags — only the three built-ins (`read`, `currently-reading`, `to-read`) are dropped, since status captures them |
 | `Owned Copies` | copies — 0 (the Goodreads default) = "Not owned" reading-log entry |
 | `Book Id` | `goodreads_book_id` in details |
-| anything else (`Average Rating`, `Binding`, `Read Count`, …) | kept losslessly in the item's details JSON |
+| anything else (`Average Rating`, `Binding`, `Date Added`, …) | kept losslessly in the item's details JSON |
 
 Rows without a title are skipped and counted; nothing is silently dropped.
 
@@ -63,6 +85,11 @@ Finished a book that isn't in the catalog? **/add** → scan its ISBN or search 
 **Log — not owned** on the result card. It creates the entry with `copies = 0` and drops
 you straight into the edit form to set rating, review, status, and read date. If you own
 the book, use **Add to shelf** as usual and add the review from its Edit page.
+
+Reading one again? Its page has **Read again**: the book stays Completed, marked
+re-reading, while you record pages; **Finish** or **Stop re-reading** closes that read.
+Every read, earlier ones included, is listed on the book's page — correct, delete, or add
+a past one there.
 
 ## After the import
 

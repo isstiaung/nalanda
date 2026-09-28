@@ -121,9 +121,9 @@ shares.get('/shares', async (c) => {
             </table>
           </div>
           <p class="muted">
-            Public pages show only whitelisted fields — never private notes, loans and borrowers, or
-            copy counts, and never a link back into this app. Reading progress stays off them unless you
-            turn it on below. Rotating a link issues a new token and kills the old URL; an already-cached
+            Public pages show only whitelisted fields — never private notes, loans and borrowers, copy
+            counts, or when you read a book, and never a link back into this app. A book finished more
+            than once says how many times. Reading progress stays off them unless you turn it on below. Rotating a link issues a new token and kills the old URL; an already-cached
             page can survive up to an hour.
           </p>
         </>
@@ -139,8 +139,9 @@ shares.get('/shares', async (c) => {
           <button type="submit">Save</button>
         </form>
         <p class="muted">
-          Off by default. When on, a book marked <em>In progress</em> shows its current page and a progress bar on its
-          share page; finished and unstarted books never do. This applies to public share links only. A page someone
+          Off by default. When on, a book being read now — marked <em>In progress</em>, or finished before and being
+          read again — shows its current page and a progress bar on its share page; finished and unstarted books never
+          do. This applies to public share links only. A page someone
           already loaded can take up to an hour to catch up.
         </p>
       </section>

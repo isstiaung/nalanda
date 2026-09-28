@@ -286,6 +286,12 @@ borrowing.get('/households/:id/views/:viewId/items/:itemId', async (c) => {
               </dd>
             </>
           ) : null}
+          {item.readCount !== null && item.readCount >= 2 ? (
+            <>
+              <dt>Read</dt>
+              <dd class="mono">{item.readCount} times</dd>
+            </>
+          ) : null}
           {item.published ? (
             <>
               <dt>Published</dt>

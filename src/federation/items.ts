@@ -9,11 +9,15 @@ import { MAX_PROGRESS_PAGE, progressPercent } from '../lib/progress';
 import { toPublicItem, type PublicItem } from '../lib/share';
 import { MAX_DETAIL_TEXT_CHARS, MAX_FEED_REVIEW_CHARS, MAX_FEED_TEXT_CHARS } from './config';
 
-/** Share-page fields, plus what connections need on top: when it was finished and last changed. */
-export type ConnectionItem = PublicItem & { completedOn: string | null; updatedAt: string };
+/**
+ * Share-page fields, plus what connections need on top: when it was last finished and changed, and how many
+ * times it has been finished (§16 #41) — the count only, never the reads or their dates. A household on an older
+ * version ignores the field.
+ */
+export type ConnectionItem = PublicItem & { completedOn: string | null; updatedAt: string; readCount: number };
 
 export function toConnectionItem(item: Item): ConnectionItem {
-  return { ...toPublicItem(item), completedOn: item.completedOn, updatedAt: item.updatedAt };
+  return { ...toPublicItem(item), completedOn: item.completedOn, updatedAt: item.updatedAt, readCount: item.readCount };
 }
 
 /** The page one progress update recorded, and how far through the book that is when its length is known. */
@@ -23,14 +27,28 @@ export type FeedProgress = { page: number; percent: number | null };
 export type FeedItem = Pick<
   ConnectionItem,
   'id' | 'mediaType' | 'title' | 'creators' | 'published' | 'coverKey' | 'rating' | 'review' | 'inCollection' | 'completedOn'
-> & { reviewTruncated: boolean; stamp: string; progress: FeedProgress | null };
+> & {
+  reviewTruncated: boolean;
+  stamp: string;
+  progress: FeedProgress | null;
+  // §16 #41, null from a household on an older version. On a `finished` entry, how many times the book has been
+  // finished ("finished again" from two). On a `progress` entry, how many finished reads came before the one the
+  // page belongs to — one or more is a re-read, whenever the entry is served.
+  readCount: number | null;
+};
 
 /**
  * A feed entry's item, carrying only what its kind shows: the review only on a `reviewed` entry, the
  * rating only on a `rated` one, the page only on a `progress` one — that entry's own page, not wherever
  * the book has got to since. Withdrawing a review then leaves no copy of it in the entries that remain.
  */
-export function toFeedItem(item: Item, kind: ActivityKind, stamp: string, progressPage: number | null = null): FeedItem {
+export function toFeedItem(
+  item: Item,
+  kind: ActivityKind,
+  stamp: string,
+  progressPage: number | null = null,
+  readsBefore = 0,
+): FeedItem {
   const c = toConnectionItem(item);
   const long = c.review !== null && c.review.length > MAX_FEED_REVIEW_CHARS;
   return keepForKind(
@@ -48,6 +66,8 @@ export function toFeedItem(item: Item, kind: ActivityKind, stamp: string, progre
       completedOn: c.completedOn?.slice(0, MAX_SHORT_TEXT) ?? null,
       stamp,
       progress: progressPage ? { page: progressPage, percent: progressPercent(progressPage, item.length) } : null,
+      // a page: the finished reads before its own read; anything else: all of them
+      readCount: kind === 'progress' ? readsBefore : c.readCount,
     },
     kind,
   );
@@ -61,6 +81,7 @@ export function keepForKind(item: FeedItem, kind: ActivityKind): FeedItem {
     reviewTruncated: kind === 'reviewed' && item.reviewTruncated,
     rating: kind === 'rated' ? item.rating : null,
     progress: kind === 'progress' ? item.progress : null,
+    readCount: kind === 'finished' || kind === 'progress' ? item.readCount : null,
   };
 }
 
@@ -109,6 +130,11 @@ export function parseFeedItem(value: unknown): FeedItem | null {
   if (typeof v.reviewTruncated !== 'boolean' || typeof v.inCollection !== 'boolean' || !isStamp(v.stamp)) return null;
   const progress = parseFeedProgress(v.progress);
   if (progress === undefined) return null;
+  // absent from a household on an older version, which must not cost it the entry; malformed rejects it
+  const readCount = v.readCount === undefined || v.readCount === null ? null : v.readCount;
+  if (readCount !== null && !(Number.isSafeInteger(readCount) && (readCount as number) >= 0 && (readCount as number) <= MAX_FEED_READ_COUNT)) {
+    return null;
+  }
   return {
     id: v.id,
     mediaType: v.mediaType as MediaType,
@@ -123,6 +149,7 @@ export function parseFeedItem(value: unknown): FeedItem | null {
     completedOn: v.completedOn,
     stamp: v.stamp,
     progress,
+    readCount: readCount as number | null,
   };
 }
 
@@ -131,6 +158,9 @@ export function parseFeedItem(value: unknown): FeedItem | null {
  * item page enforces when a page is recorded, so nothing is kept here that every connection would drop.
  */
 export const MAX_FEED_PAGE = MAX_PROGRESS_PAGE;
+
+/** The most finished reads an entry can claim: well past the 100 reads an item holds (MAX_READS_PER_ITEM). */
+export const MAX_FEED_READ_COUNT = 1_000;
 
 /**
  * A progress field from a connection: null when absent — a household on an older version sends none, and
@@ -195,8 +225,9 @@ export function toShelfItem(item: Item, available: boolean, stamp: string): Shel
 }
 
 /** One item in full, for its page on a connection's instance: the share-page fields, availability and tags. */
-export type ItemDetail = Omit<ConnectionItem, 'details'> & {
+export type ItemDetail = Omit<ConnectionItem, 'details' | 'readCount'> & {
   details: Record<string, string | number | boolean>;
+  readCount: number | null; // null from a household on an older version
   available: boolean;
   tags: string[];
   stamp: string;
@@ -272,6 +303,10 @@ export function parseItemDetail(value: unknown): ItemDetail | null {
   if (!(v.length === null || (Number.isSafeInteger(v.length) && (v.length as number) >= 0))) return null;
   const details = asRecord(v.details);
   if (!details || !Array.isArray(v.tags) || v.tags.length > 50) return null;
+  const readCount = v.readCount === undefined || v.readCount === null ? null : v.readCount;
+  if (readCount !== null && !(Number.isSafeInteger(readCount) && (readCount as number) >= 0 && (readCount as number) <= MAX_FEED_READ_COUNT)) {
+    return null;
+  }
   if (!v.tags.every((t) => typeof t === 'string' && t.length <= 50)) return null;
   return {
     ...base,
@@ -283,6 +318,7 @@ export function parseItemDetail(value: unknown): ItemDetail | null {
     updatedAt: v.updatedAt,
     details: plainDetails(details),
     tags: v.tags as string[],
+    readCount: readCount as number | null,
   };
 }
 

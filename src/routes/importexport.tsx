@@ -10,6 +10,7 @@ import {
   nextBackfillable,
   pageItems,
   progressForIdRange,
+  readsForIdRange,
   tagsForIdRange,
   updateItem,
 } from '../db/queries';
@@ -26,6 +27,7 @@ import {
   mapNalandaRow,
   type ImportOptions,
 } from '../lib/csv';
+import { readsFromColumns } from '../lib/reads';
 import { findCover, findDescription } from '../metadata';
 import { MEDIA_LABEL } from '../views/components';
 import { page } from '../views/layout';
@@ -177,7 +179,7 @@ importexport.post('/api/import', async (c) => {
   }
 
   const userId = c.get('user').id;
-  const withOwners = mapped.map((m) => ({ item: { ...m.item, libraryId, addedBy: userId }, tags: m.tags }));
+  const withOwners = mapped.map((m) => ({ ...m, item: { ...m.item, libraryId, addedBy: userId } }));
 
   if (body.dryRun) {
     const byType: Record<string, number> = {};
@@ -190,6 +192,13 @@ importexport.post('/api/import', async (c) => {
       byType,
       merged: match?.merged ?? 0,
       fresh: match?.inserted ?? 0,
+      // a libib row carries no reads of its own: count what importItems will derive from its status and dates
+      reads:
+        match?.reads ??
+        mapped.reduce(
+          (n, m) => n + (m.reads ?? readsFromColumns(m.item.status ?? 'not_started', m.item.beganOn, m.item.completedOn)).length,
+          0,
+        ),
       sample: mapped.slice(0, 5).map((m) => ({
         title: m.item.title,
         mediaType: m.item.mediaType,
@@ -200,8 +209,8 @@ importexport.post('/api/import', async (c) => {
   }
 
   if (isGoodreads) {
-    const { inserted, merged } = await mergeImportItems(c.env.DB, withOwners);
-    return c.json({ inserted, merged, skipped });
+    const { inserted, merged, reads } = await mergeImportItems(c.env.DB, withOwners);
+    return c.json({ inserted, merged, reads, skipped });
   }
   const inserted = await importItems(c.env.DB, withOwners);
   return c.json({ inserted, merged: 0, skipped });
@@ -285,7 +294,7 @@ importexport.post('/api/backfill-covers', async (c) => {
  */
 export const EXPORT_PAGE = 250;
 
-/** Items after `afterId` as CSV lines, with their tags and reading logs: three queries. */
+/** Items after `afterId` as CSV lines, with their tags, reads and reading logs: four queries. */
 async function exportRows(
   d1: D1Database,
   scope: number | undefined,
@@ -296,10 +305,20 @@ async function exportRows(
   const items = await pageItems(d1, { libraryId: scope, afterId, limit });
   if (!items.length) return { csv: '', count: 0, lastId: afterId };
   const [from, to] = [items[0]!.id, items.at(-1)!.id];
-  const [tagMap, progressMap] = await Promise.all([tagsForIdRange(d1, from, to, scope), progressForIdRange(d1, from, to, scope)]);
+  const [tagMap, progressMap, readMap] = await Promise.all([
+    tagsForIdRange(d1, from, to, scope),
+    progressForIdRange(d1, from, to, scope),
+    readsForIdRange(d1, from, to, scope),
+  ]);
   let csv = '';
   for (const item of items) {
-    csv += itemToCsvLine(item, libNames.get(item.libraryId) ?? '', tagMap.get(item.id) ?? [], progressMap.get(item.id) ?? []);
+    csv += itemToCsvLine(
+      item,
+      libNames.get(item.libraryId) ?? '',
+      tagMap.get(item.id) ?? [],
+      progressMap.get(item.id) ?? [],
+      readMap.get(item.id) ?? [],
+    );
   }
   return { csv, count: items.length, lastId: to };
 }
@@ -335,8 +354,8 @@ importexport.get('/export.csv', async (c) => {
 
   // Without a cursor, the whole export in one streamed response: what the link does without JavaScript, and
   // what a script fetching /export.csv gets. Its CPU grows with the catalog, so a large one can be cut off by
-  // the free plan's 10 ms limit, and the download fails rather than completing. Three queries a page
-  // (items, tags, reading progress) against the 50 budgeted per invocation. One page per pull, so a slow
+  // the free plan's 10 ms limit, and the download fails rather than completing. Four queries a page
+  // (items, tags, reads, reading progress) against the 50 budgeted per invocation. One page per pull, so a slow
   // download holds one page in memory rather than all of them. The response is already a 200 by the time a
   // page is read, so a failure must error the stream — ending it normally hands over a file that just stops,
   // with nothing to say it is incomplete.

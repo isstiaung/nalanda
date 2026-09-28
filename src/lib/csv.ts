@@ -3,6 +3,18 @@
 // ever sees pre-parsed JSON rows (10 ms CPU budget, ARCH.md §12).
 import type { Item, ItemStatus, MediaType, NewItem } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
+import {
+  formatReadsCell,
+  inDisplayOrder,
+  parseReadsCell,
+  readsFromColumns,
+  reconcileGoodreads,
+  summarizeReads,
+  topUpReads,
+  type GoodreadsReading,
+  type ReadDraft,
+  type ReadRow,
+} from './reads';
 
 export const EXPORT_COLUMNS = [
   'library',
@@ -24,6 +36,8 @@ export const EXPORT_COLUMNS = [
   'copies',
   'began_on',
   'completed_on',
+  'read_count',
+  'reads',
   'added_at',
   'progress_history',
   'details',
@@ -39,19 +53,31 @@ export function csvLine(values: unknown[]): string {
 }
 
 /**
- * The reading log in one cell: `page@timestamp`, oldest first, semicolon-separated. Nothing here
- * needs CSV quoting, and the whole history leaves with the export rather than only the latest page.
+ * The reading log in one cell: `page@timestamp`, oldest first, semicolon-separated, each followed by `#n` naming
+ * its read by position in the `reads` cell (§16 #41) — none for a page from before reads, on a book with none.
+ * Nothing here needs CSV quoting, and the whole history leaves with the export rather than only the latest page.
  */
-export function progressHistoryCell(entries: { page: number; at: string }[]): string {
-  return entries.map((e) => `${e.page}@${e.at}`).join(';');
+export function progressHistoryCell(
+  entries: { page: number; at: string; readId?: number | null }[],
+  readPosition: Map<number, number> = new Map(),
+): string {
+  return entries
+    .map((e) => {
+      const n = e.readId !== null && e.readId !== undefined ? readPosition.get(e.readId) : undefined;
+      return `${e.page}@${e.at}${n ? `#${n}` : ''}`;
+    })
+    .join(';');
 }
 
 export function itemToCsvLine(
   item: Item,
   libraryName: string,
   tags: string[],
-  progress: { page: number; at: string }[] = [],
+  progress: { page: number; at: string; readId?: number | null }[] = [],
+  reads: ReadRow[] = [],
 ): string {
+  const ordered = inDisplayOrder(reads);
+  const position = new Map(ordered.map((r, i) => [r.id, i + 1]));
   return csvLine([
     libraryName,
     item.mediaType,
@@ -72,8 +98,10 @@ export function itemToCsvLine(
     item.copies,
     item.beganOn,
     item.completedOn,
+    item.readCount,
+    formatReadsCell(ordered),
     item.addedAt,
-    progressHistoryCell(progress),
+    progressHistoryCell(progress, position),
     item.details === '{}' ? '' : item.details,
   ]);
 }
@@ -88,6 +116,11 @@ export type ImportOptions = {
 export type MappedRow = {
   item: Omit<NewItem, 'libraryId' | 'addedBy'>;
   tags: string[];
+  // the row's reads, when the file says more than one status and pair of dates can (§16 #41); otherwise the
+  // importer makes them from the item's status and dates
+  reads?: ReadDraft[];
+  // a Goodreads row's reading, which a merge reconciles with the reads already here
+  goodreads?: GoodreadsReading;
 };
 
 /** Columns we map onto real item fields; everything else lands in `details` (lossless). */
@@ -96,6 +129,9 @@ const KNOWN_COLUMNS = new Set([
   // which share pages and connections render. Re-importing a Nalanda export doesn't restore it.
   'progress_page',
   'progress_history',
+  // and each read, with its dates, is as private as the dates columns (§16 #41)
+  'read_count',
+  'reads',
   'item_type',
   'type',
   'ean_isbn13',
@@ -239,16 +275,36 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
     return Number.isSafeInteger(n) && n <= max ? n : null;
   };
   const date = (raw: string | undefined) => (/^\d{4}-\d{2}-\d{2}$/.test(raw ?? '') ? raw! : null);
+  const status = (ITEM_STATUSES as readonly string[]).includes(r['status'] ?? '') ? (r['status'] as ItemStatus) : 'not_started';
   const rating = int(r['rating'], 10);
   const length = int(r['length'], 100_000);
   const copies = int(r['copies'], 9_999);
-  let details = '{}';
+  let detailsObj: Record<string, unknown> = {};
   try {
     const parsed: unknown = JSON.parse(r['details'] || '{}');
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) details = JSON.stringify(parsed);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) detailsObj = parsed as Record<string, unknown>;
   } catch {
     // not our JSON — keep none rather than guess
   }
+  // An export from before reads carries Goodreads' Read Count in details, as the import once kept it: it becomes
+  // reads and leaves details, as migration 0023 did to the catalog — details are public on share pages.
+  let count = int(r['read_count'], Number.MAX_SAFE_INTEGER); // capped at MAX_READS_PER_ITEM by topUpReads
+  if (!('reads' in r)) {
+    const legacy = int(String(detailsObj['read_count'] ?? '').trim(), Number.MAX_SAFE_INTEGER);
+    if (legacy !== null) {
+      count = Math.max(count ?? 0, legacy);
+      delete detailsObj['read_count'];
+    }
+  }
+  const details = JSON.stringify(detailsObj);
+  // The reads column is the whole history (§16 #41); status and the two dates are only its summary, so they speak
+  // only for an export from before reads, or a row whose reads cell was emptied. A read count higher than the
+  // finished reads — someone edited the spreadsheet — tops them up with undated ones.
+  const reads = topUpReads(
+    (r['reads'] ?? '').trim() ? parseReadsCell(r['reads']) : readsFromColumns(status, date(r['began_on']), date(r['completed_on'])),
+    count,
+  );
+  const state = summarizeReads(reads);
   return {
     item: {
       mediaType: (MEDIA_TYPES as readonly string[]).includes(r['media_type'] ?? '') ? (r['media_type'] as MediaType) : 'book',
@@ -260,16 +316,17 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
       published: r['published'] || null,
       description: r['description'] || null,
       length: length && length > 0 ? length : null,
-      status: (ITEM_STATUSES as readonly string[]).includes(r['status'] ?? '') ? (r['status'] as ItemStatus) : 'not_started',
+      status: state.status,
       rating: rating && rating >= 1 && rating <= 10 ? rating : null,
       review: r['review'] || null,
       notes: r['notes'] || null,
       copies: copies ?? 1,
-      beganOn: date(r['began_on']),
-      completedOn: date(r['completed_on']),
+      beganOn: state.beganOn,
+      completedOn: state.completedOn,
       ...(SQL_DATETIME.test(r['added_at'] ?? '') ? { addedAt: r['added_at'] } : {}),
       details,
     },
+    reads,
     tags: (r['tags'] ?? '')
       .split(',')
       .map((t) => t.trim())
@@ -302,6 +359,9 @@ const KNOWN_GOODREADS = new Set([
   'my_review',
   'private_notes',
   'owned_copies',
+  // reading: read_count and date_started become reads (ARCH.md §16 #41), so they no longer land in details
+  'read_count',
+  'date_started',
 ]);
 
 /** Goodreads' three built-in exclusive shelves — they map to status, not tags. */
@@ -363,6 +423,18 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
   }
   if (r['book_id']) details['goodreads_book_id'] = r['book_id'];
 
+  // Read Count: a whole number, or nothing — "abc" isn't a count of anything
+  const countRaw = (r['read_count'] ?? '').trim();
+  const goodreads: GoodreadsReading = {
+    shelf: goodreadsStatus(exclusive, shelves),
+    dateRead: isoDate(r['date_read']),
+    dateStarted: isoDate(r['date_started']),
+    readCount: /^\d+$/.test(countRaw) ? Number(countRaw) : null,
+  };
+  // a new book's reads come from the same rules a merge applies, starting from none
+  const reads = reconcileGoodreads([], goodreads).map((op) => op.read);
+  const state = summarizeReads(reads);
+
   return {
     item: {
       mediaType: 'book',
@@ -374,15 +446,17 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
       published: r['year_published'] || r['original_publication_year'] || null,
       description: null,
       length: Number.isFinite(pages) && pages > 0 ? pages : null,
-      status: goodreadsStatus(exclusive, shelves),
+      status: state.status,
       rating: Number.isFinite(ratingNum) && ratingNum >= 1 && ratingNum <= 5 ? ratingNum * 2 : null,
       review: r['my_review'] ? r['my_review'].replace(/<br\s*\/?>/gi, '\n') : null,
       notes: r['private_notes'] || null,
       copies: Number.isFinite(ownedNum) && ownedNum > 0 ? ownedNum : 0, // default: reading log, not owned
-      beganOn: null, // Goodreads doesn't export a start date
-      completedOn: isoDate(r['date_read']),
+      beganOn: state.beganOn,
+      completedOn: state.completedOn,
       details: Object.keys(details).length ? JSON.stringify(details) : '{}',
     },
+    reads,
+    goodreads,
     tags: [...tagShelves].filter((sh) => !EXCLUSIVE_SHELVES.has(sh)),
   };
 }

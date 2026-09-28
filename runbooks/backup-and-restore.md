@@ -42,9 +42,10 @@ FTS index rebuilt to match.
 - Keep an off-machine copy occasionally — `backups/` is gitignored on purpose.
 - A second, app-agnostic layer: log in → `/import` → *Export everything as CSV*. It imports
   back faithfully: `/import` recognizes its own export and restores every column — type,
-  identifiers, dates, rating, tags, copies, details — into the shelf you pick on the form. It
-  doesn't recreate shelves (a whole-catalog export lands on one shelf) and doesn't restore reading
-  progress, so the per-table backup above is still the full restore.
+  identifiers, dates, every read (the `reads` column), rating, tags, copies, details — into the
+  shelf you pick on the form. It doesn't recreate shelves (a whole-catalog export lands on one
+  shelf) and doesn't restore the pages of reading progress, so the per-table backup above is
+  still the full restore.
 
 ## Restore
 
@@ -67,11 +68,25 @@ Restore assumes **empty tables** (a fresh database, or one you've deliberately w
 # 1. schema — includes the FTS index and its sync triggers
 npm run db:migrate:remote
 
-# 2. data, in FK-safe order (the files set defer_foreign_keys themselves)
-for t in users libraries shares items tags item_tags loans; do
+# 2. data, in FK-safe order — the order `npm run backup` prints, TABLES in scripts/backup.mjs
+#    (the files set defer_foreign_keys themselves; a table with no rows is an empty file)
+for t in users libraries shares site_settings items reads reading_progress tags item_tags loans \
+         federation_settings connection_invites connections connection_views activity_log \
+         feed_subscriptions remote_activities comments outbox borrow_requests connection_loans \
+         borrowed_items notifications; do
   npm run wrangler:remote -- d1 execute nalanda --remote --file=backups/remote-<date>/$t.sql
 done
 ```
+
+**A backup older than a data migration** restores at its own level. One taken before 0023,
+which turned each book's status and dates into reads (ARCH.md §16 #41), has no `reads.sql`.
+Restored into the latest schema, it would give Completed books no reads. So:
+
+1. Apply the migrations up to the one it was taken at (`d1_migrations` of the time).
+2. Restore it, skipping tables that didn't exist yet.
+3. Apply the rest, so the data migrations run over it.
+
+This is the order the 0023 rehearsal used on the backup of 2026-09-28.
 
 The search index repopulates automatically as the items insert (trigger-driven). Cover
 keys ride along in the data: if the R2 bucket is intact, images work immediately; if the

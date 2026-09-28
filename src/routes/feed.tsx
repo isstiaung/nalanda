@@ -48,6 +48,10 @@ type Card = {
   rating: number | null;
   // every progress update for the book in this page of the feed, newest first
   progress: { page: number; percent: number | null; published: string }[];
+  // §16 #41: when its finish was, and how many finished reads each side says there are — null from an older sender
+  finishedAt: string | null;
+  finishedReadCount: number | null;
+  progressReadCount: number | null; // on the newest progress entry
 };
 
 /**
@@ -82,6 +86,9 @@ function toCards(entries: StoredEntry[]): Card[] {
         reviewTruncated: false,
         rating: null,
         progress: [],
+        finishedAt: null,
+        finishedReadCount: null,
+        progressReadCount: null,
       };
       cards.set(key, card);
     }
@@ -91,7 +98,14 @@ function toCards(entries: StoredEntry[]): Card[] {
       card.reviewTruncated = item.reviewTruncated;
     }
     if (e.kind === 'rated' && card.rating === null) card.rating = item.rating;
-    if (e.kind === 'progress' && item.progress) card.progress.push({ ...item.progress, published: e.publishedAt });
+    if (e.kind === 'finished' && card.finishedAt === null) {
+      card.finishedAt = e.publishedAt;
+      card.finishedReadCount = item.readCount;
+    }
+    if (e.kind === 'progress' && item.progress) {
+      if (!card.progress.length) card.progressReadCount = item.readCount;
+      card.progress.push({ ...item.progress, published: e.publishedAt });
+    }
   }
   return [...cards.values()];
 }
@@ -121,9 +135,25 @@ function runs(cards: Card[]): Card[][] {
 const VERB_ORDER: ActivityKind[] = ['progress', 'finished', 'rated', 'reviewed'];
 const VERB: Record<ActivityKind, string> = { progress: 'reading', finished: 'finished', rated: 'rated', reviewed: 'reviewed' };
 
-function verbs(kinds: Set<ActivityKind>): string {
-  // once a book is finished its progress is the story of how, not what's happening now
-  const list = VERB_ORDER.filter((k) => kinds.has(k) && !(k === 'progress' && kinds.has('finished'))).map((k) => VERB[k]);
+/**
+ * A book finished before and being read again (§16 #41): its newest page belongs to a read with a finished one
+ * before it, and no finish has come since. Its earlier finish stays shared all the while — the book is still
+ * Completed there — so without this the finish would hide the re-read.
+ */
+function rereading(card: Card): boolean {
+  const newest = card.progress[0];
+  return !!newest && (card.progressReadCount ?? 0) >= 1 && (card.finishedAt === null || newest.published > card.finishedAt);
+}
+
+function verbs(card: Card): string {
+  const again = rereading(card);
+  const list = VERB_ORDER.filter((k) => card.kinds.has(k))
+    // once a book is finished its progress is the story of how, not what's happening now — unless it's a re-read,
+    // when the earlier finish is the old news
+    .filter((k) => !(k === 'progress' && card.kinds.has('finished') && !again) && !(k === 'finished' && again))
+    .map((k) =>
+      k === 'progress' && again ? 're-reading' : k === 'finished' && (card.finishedReadCount ?? 0) >= 2 ? 'finished again' : VERB[k],
+    );
   return list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}` : (list[0] ?? '');
 }
 
@@ -132,6 +162,9 @@ const PROGRESS_SHOWN = 5;
 const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] }> = ({ card, showHousehold, thread }) => {
   const { item } = card;
   const cover = coverUrl(card.baseUrl, item.coverKey);
+  const again = rereading(card);
+  // a re-read's timeline is its own pages, not the earlier read's
+  const timeline = again && card.finishedAt ? card.progress.filter((p) => p.published > card.finishedAt!) : card.progress;
   return (
     <article class="feed-card">
       <div class="feed-cover">
@@ -156,28 +189,29 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] }> = 
           {card.published.slice(0, 10)}
         </p>
         <p class="feed-line">
-          <span class="muted">{verbs(card.kinds)}</span> <strong>{item.title}</strong>
+          <span class="muted">{verbs(card)}</span> <strong>{item.title}</strong>
           {item.creators ? <small> · {item.creators}</small> : null}
         </p>
         {card.rating ? <span class="rating">{stars(card.rating)}</span> : null}
-        {card.progress.length ? (
+        {timeline.length ? (
           <>
-            {/* the bar says how far through a book they are — a finished book isn't partway through anything */}
-            {card.progress[0]!.percent !== null && !card.kinds.has('finished') ? (
-              <div class="progress-track" role="img" aria-label={`${card.progress[0]!.percent}% read`}>
-                <div class="progress-fill" style={`width:${card.progress[0]!.percent}%`} />
+            {/* the bar says how far through a book they are — a finished book isn't partway through anything,
+                but one being read again is */}
+            {timeline[0]!.percent !== null && (!card.kinds.has('finished') || again) ? (
+              <div class="progress-track" role="img" aria-label={`${timeline[0]!.percent}% read`}>
+                <div class="progress-fill" style={`width:${timeline[0]!.percent}%`} />
               </div>
             ) : null}
             <ol class="progress-log feed-progress">
-              {card.progress.slice(0, PROGRESS_SHOWN).map((p) => (
+              {timeline.slice(0, PROGRESS_SHOWN).map((p) => (
                 <li>
                   <span class="mono">{p.percent !== null ? `${p.percent}%` : '—'}</span>
                   <span class="mono">p. {p.page}</span>
                   <span class="mono muted">{p.published.slice(0, 10)}</span>
                 </li>
               ))}
-              {card.progress.length > PROGRESS_SHOWN ? (
-                <li class="muted">+{card.progress.length - PROGRESS_SHOWN} earlier</li>
+              {timeline.length > PROGRESS_SHOWN ? (
+                <li class="muted">+{timeline.length - PROGRESS_SHOWN} earlier</li>
               ) : null}
             </ol>
           </>

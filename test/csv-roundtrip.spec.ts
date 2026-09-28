@@ -3,7 +3,20 @@
 // public on share pages), and a rating of 7 returned as 10 through libib's 0–5 scale.
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
-import { createItem, createLibrary, createUser, getItem, setItemTags, tagsForItem } from '../src/db/queries';
+import {
+  addPastRead,
+  addProgress,
+  closeRead,
+  createItem,
+  createLibrary,
+  createUser,
+  getItem,
+  setItemTags,
+  startRead,
+  tagsForItem,
+} from '../src/db/queries';
+import { mapLibibRow, mapNalandaRow } from '../src/lib/csv';
+import { parseReadsCell } from '../src/lib/reads';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import app from '../src/index';
 
@@ -56,7 +69,7 @@ async function call(path: string, cookie: string, json?: unknown) {
 
 const FIELDS = [
   'mediaType', 'title', 'creators', 'isbn13', 'isbn10Upc', 'publisher', 'published', 'description', 'length',
-  'status', 'rating', 'review', 'notes', 'copies', 'beganOn', 'completedOn', 'addedAt', 'details',
+  'status', 'rating', 'review', 'notes', 'copies', 'beganOn', 'completedOn', 'readCount', 'rereading', 'addedAt', 'details',
 ] as const;
 
 describe('a Nalanda export, imported again', () => {
@@ -121,11 +134,16 @@ describe('a Nalanda export, imported again', () => {
     const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
     const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000))}`;
     const shelf = await createLibrary(env.DB, 'Main');
-    const libib = [{ item_type: 'book', title: 'Dune', creators: 'Frank Herbert', rating: '4.5', ean_isbn13: '9780441013593' }];
+    const libib = [
+      { item_type: 'book', title: 'Dune', creators: 'Frank Herbert', rating: '4.5', ean_isbn13: '9780441013593' },
+      { item_type: 'book', title: 'Kindred', creators: 'Octavia Butler', status: 'completed', completed: '2024-05-01' },
+    ];
 
     const preview = JSON.parse((await call('/api/import', cookie, { libraryId: shelf.id, rows: libib, dryRun: true })).text);
 
     expect(preview.format).toBe('libib');
+    // a libib row carries no reads; the preview counts the one its status and date will make (it said 0)
+    expect(preview.reads).toBe(1);
     await call('/api/import', cookie, { libraryId: shelf.id, rows: libib });
     const row = await env.DB.prepare('SELECT rating FROM items WHERE title = ?1').bind('Dune').first<{ rating: number }>();
     expect(row?.rating).toBe(9); // libib's 4.5 of 5 is 9 of 10 here
@@ -141,5 +159,120 @@ describe('a Nalanda export, imported again', () => {
     expect(row({ length: '1e5' }).length).toBeNull();
     expect(row({ rating: '11' }).rating).toBeNull();
     expect(row({ began_on: 'not a date', completed_on: '2026-09-28' })).toMatchObject({ beganOn: null, completedOn: '2026-09-28' });
+  });
+});
+
+// ---------- each read (ARCH.md §16 #41) ----------
+
+const readsOf = async (itemId: number) =>
+  (
+    await env.DB.prepare(
+      `SELECT status, began_on AS beganOn, ended_on AS endedOn FROM reads WHERE item_id = ?1
+       ORDER BY status = 'in_progress', coalesce(ended_on, began_on) IS NOT NULL, coalesce(ended_on, began_on), id`,
+    )
+      .bind(itemId)
+      .all()
+  ).results;
+
+async function signedIn() {
+  const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
+  return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000))}`;
+}
+
+describe('reads through the export and back', () => {
+  it('carries every read, in order, with its pages named by read', async () => {
+    const cookie = await signedIn();
+    const shelf = await createLibrary(env.DB, 'Fiction');
+    const book = await createItem(env.DB, { libraryId: shelf.id, title: 'The Dispossessed', length: 387, status: 'completed', beganOn: '2019-03-01', completedOn: '2019-03-20', details: '{}' });
+    await addPastRead(env.DB, book.id, { status: 'completed', beganOn: null, endedOn: null });
+    await addPastRead(env.DB, book.id, { status: 'abandoned', beganOn: '2023-02-01', endedOn: '2023-02-10' });
+    await startRead(env.DB, book.id, '2026-09-01');
+    await addProgress(env.DB, book.id, 142, null);
+
+    const csv = parseCsv((await call('/export.csv', cookie)).text);
+    expect(csv[0]).toMatchObject({
+      status: 'completed',
+      began_on: '2019-03-01',
+      completed_on: '2019-03-20',
+      read_count: '2',
+      reads: 'completed:..;completed:2019-03-01..2019-03-20;abandoned:2023-02-01..2023-02-10;in_progress:2026-09-01..',
+    });
+    expect(csv[0]!.progress_history).toMatch(/^142@\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}#4$/); // the 4th read, the open one
+
+    const target = await createLibrary(env.DB, 'Restored');
+    expect(JSON.parse((await call('/api/import', cookie, { libraryId: target.id, rows: csv })).text)).toMatchObject({ inserted: 1 });
+    const copy = (await env.DB.prepare('SELECT id FROM items WHERE library_id = ?1').bind(target.id).first<{ id: number }>())!.id;
+    expect(await readsOf(copy)).toEqual(await readsOf(book.id));
+    expect(await getItem(env.DB, copy)).toMatchObject({ status: 'completed', readCount: 2, rereading: true, completedOn: '2019-03-20' });
+  });
+
+  it('still imports an export from before reads, from its status and dates', async () => {
+    const cookie = await signedIn();
+    const shelf = await createLibrary(env.DB, 'Old');
+    const base = { library: 'x', media_type: 'book', isbn10_upc: '', added_at: '', details: '', progress_history: '' };
+    const rows = [
+      { ...base, title: 'Finished', status: 'completed', began_on: '2020-01-01', completed_on: '2020-02-01' },
+      { ...base, title: 'Reading again', status: 'in_progress', began_on: '2026-09-01', completed_on: '2020-02-01' },
+      { ...base, title: 'Unread', status: 'not_started', began_on: '', completed_on: '' },
+    ];
+    const preview = JSON.parse((await call('/api/import', cookie, { libraryId: shelf.id, rows, dryRun: true })).text);
+    expect(preview.format).toBe('nalanda');
+    await call('/api/import', cookie, { libraryId: shelf.id, rows });
+    const byTitle = async (title: string) => (await env.DB.prepare('SELECT * FROM items WHERE title = ?1').bind(title).first<{ id: number; status: string; rereading: number }>())!;
+    expect(await readsOf((await byTitle('Finished')).id)).toEqual([{ status: 'completed', beganOn: '2020-01-01', endedOn: '2020-02-01' }]);
+    expect(await readsOf((await byTitle('Reading again')).id)).toEqual([
+      { status: 'completed', beganOn: null, endedOn: '2020-02-01' },
+      { status: 'in_progress', beganOn: '2026-09-01', endedOn: null },
+    ]);
+    expect(await byTitle('Reading again')).toMatchObject({ status: 'completed', rereading: 1 });
+    expect(await readsOf((await byTitle('Unread')).id)).toEqual([]);
+  });
+
+  it('keeps the summary columns an older version reads: status, and the last finish', async () => {
+    const cookie = await signedIn();
+    const shelf = await createLibrary(env.DB, 'Shelf');
+    const book = await createItem(env.DB, { libraryId: shelf.id, title: 'Kindred', status: 'completed', completedOn: '2020-01-01', details: '{}' });
+    await startRead(env.DB, book.id, '2026-09-01');
+    const open = (await env.DB.prepare("SELECT id FROM reads WHERE status = 'in_progress'").first<{ id: number }>())!.id;
+    await closeRead(env.DB, book.id, open, 'completed', '2026-09-20');
+    const [row] = parseCsv((await call('/export.csv', cookie)).text);
+    // an older Nalanda drops the columns it doesn't know and keeps these: one finished read, the latest
+    expect(row).toMatchObject({ status: 'completed', began_on: '2026-09-01', completed_on: '2026-09-20' });
+    const { reads: _r, read_count: _n, ...older } = row!;
+    expect(mapNalandaRow(older)!.reads).toEqual([{ status: 'completed', beganOn: '2026-09-01', endedOn: '2026-09-20' }]);
+  });
+
+  it('reads a cell back leniently: bad parts dropped, unknown dates kept as unknown, one open read, at most 100', () => {
+    expect(parseReadsCell('completed:2020-01-01..2020-02-01;garbage;abandoned:..;in_progress:2026-09-01..;in_progress:2026-09-02..')).toEqual([
+      { status: 'completed', beganOn: '2020-01-01', endedOn: '2020-02-01' },
+      { status: 'abandoned', beganOn: null, endedOn: null },
+      { status: 'in_progress', beganOn: '2026-09-01', endedOn: null },
+    ]);
+    expect(parseReadsCell('completed:spring 2019..2019-13-01')).toEqual([{ status: 'completed', beganOn: null, endedOn: null }]);
+    expect(parseReadsCell(Array.from({ length: 500 }, () => 'completed:..').join(';'))).toHaveLength(100);
+    expect(parseReadsCell('')).toEqual([]);
+  });
+
+  it('tops up a read count raised by hand, and caps it', () => {
+    const row = (over: Record<string, string>) =>
+      mapNalandaRow({ title: 'T', media_type: 'book', isbn10_upc: '', began_on: '', completed_on: '', added_at: '', details: '', ...over })!;
+    expect(row({ reads: 'completed:..2020-01-01', read_count: '3' }).reads).toHaveLength(3);
+    expect(row({ reads: 'completed:..2020-01-01', read_count: '3' }).item).toMatchObject({ status: 'completed', completedOn: '2020-01-01' });
+    expect(row({ status: 'not_started', read_count: '999999' }).reads).toHaveLength(100);
+  });
+
+  it('turns the Goodreads count an export from before reads kept in details into reads, and out of details', () => {
+    const old = { title: 'T', media_type: 'book', isbn10_upc: '', began_on: '', completed_on: '2020-01-01', status: 'completed', added_at: '' };
+    const m = mapNalandaRow({ ...old, details: '{"read_count":"3","binding":"Paperback"}' })!;
+    expect(m.reads).toHaveLength(3);
+    expect(JSON.parse(m.item.details as string)).toEqual({ binding: 'Paperback' });
+    // an export with a reads column is its own record: details are left as they are
+    const fresh = mapNalandaRow({ ...old, reads: 'completed:..2020-01-01', read_count: '1', details: '{"read_count":"3"}' })!;
+    expect(fresh.reads).toHaveLength(1);
+  });
+
+  it('never lets reads fall into details, where share pages would show their dates', () => {
+    const m = mapLibibRow({ title: 'A Nalanda export missing a column', reads: 'completed:2020-01-01..2020-02-01', read_count: '1' }, { defaultType: 'book', musicAsVinyl: true })!;
+    expect(JSON.parse(m.item.details as string)).toEqual({});
   });
 });

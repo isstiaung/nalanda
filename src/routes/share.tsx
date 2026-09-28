@@ -105,6 +105,7 @@ const PublicCard: FC<{ item: PublicItem; token: string }> = ({ item, token }) =>
       <span class="mline">
         <small class="muted">{MEDIA_LABEL[item.mediaType]}</small>
         {item.rating ? <span class="rating">{stars(item.rating)}</span> : null}
+        {item.readCount ? <small class="mono muted">read {item.readCount}×</small> : null}
         {!item.inCollection ? <NotOwnedPill /> : null}
       </span>
     </div>
@@ -240,6 +241,12 @@ share.get('/:token/items/:id', async (c) => {
               <dd>
                 <span class="rating">{stars(pub.rating)}</span>
               </dd>
+            </>
+          ) : null}
+          {pub.readCount ? (
+            <>
+              <dt>Read</dt>
+              <dd class="mono">{pub.readCount} times</dd>
             </>
           ) : null}
           {pub.published ? (

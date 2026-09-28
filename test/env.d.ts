@@ -11,3 +11,9 @@ declare namespace Cloudflare {
     TEST_MIGRATIONS: import('cloudflare:test').D1Migration[];
   }
 }
+
+// Vite's `?raw` suffix: a file's text, for tests that check a script without running it (backup.mjs's TABLES).
+declare module '*?raw' {
+  const text: string;
+  export default text;
+}

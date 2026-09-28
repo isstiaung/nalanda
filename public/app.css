@@ -774,3 +774,29 @@ button.comment-delete:hover, button.progress-delete:hover { background: none; co
 .notifications li a:hover { text-decoration: underline; }
 .notifications li.unread a::before { content: ''; position: absolute; left: 0; top: 0.55em; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .notifications li .mono { flex-shrink: 0; font-size: 11.5px; }
+
+/* ── reading again (ARCH.md §16 #41) ─────────────────────────────────────────
+   A book's reads: the current one's controls, and every read so far. Existing tokens
+   only — the re-reading marker is the indigo working accent, dashed because the book's
+   own status (Completed) still stands beside it. */
+.pill.rereading { border-color: var(--accent); border-style: dashed; color: var(--accent); }
+.status-pills { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+.reading-summary { margin: 0 0 0.4rem; font-size: 13.5px; }
+.read-actions { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; margin: 0.6rem 0 0; }
+.read-actions .inline-form input[type="date"] { font-size: 12px; }
+.read-history-head { margin-top: 1rem; }
+.read-history { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.3rem; font-size: 13px; border-top: 1px solid var(--line); }
+.read-history > li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem 0.8rem; padding: 0.4rem 0 0; }
+.read-history > li > .mono:first-child { min-width: 2.2rem; color: var(--ink-3); }
+/* a read's Edit is a quiet link on its own line of the history, opening the form beneath it */
+details.read-edit { border: none; background: none; padding: 0; margin: 0; }
+details.read-edit::after { content: none; }
+details.read-edit > summary { list-style: none; font-size: 11.5px; font-weight: 400; color: var(--ink-3); text-decoration: underline; text-underline-offset: 2px; }
+details.read-edit > summary::-webkit-details-marker { display: none; }
+details.read-edit > summary:hover { color: var(--accent); }
+details.read-edit[open] { flex-basis: 100%; padding: 0.3rem 0 0.5rem; }
+details.read-edit[open] > summary { margin-bottom: 0.45rem; }
+details.read-edit .inline-form + .inline-form { margin-top: 0.4rem; }
+details.read-add { margin-top: 0.7rem; }
+.form-note { margin: -0.25rem 0 0.75rem; font-size: 12.5px; }
+.read-count { font-size: 11px; }

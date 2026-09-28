@@ -30,6 +30,8 @@ const item: Item = {
   copies: 2,
   beganOn: '2026-01-01',
   completedOn: '2026-01-10',
+  readCount: 1,
+  rereading: false,
   details: '{"series":"Earthsea"}',
   addedBy: 3,
   addedAt: '2026-01-01 10:00:00',
@@ -71,10 +73,17 @@ describe('share whitelist', () => {
 
   it('never leaks private fields, even as keys', () => {
     const pub = toPublicItem(item) as unknown as Record<string, unknown>;
-    for (const forbidden of ['notes', 'copies', 'addedBy', 'addedAt', 'isbn13', 'status', 'libraryId']) {
+    for (const forbidden of ['notes', 'copies', 'addedBy', 'addedAt', 'isbn13', 'status', 'libraryId', 'beganOn', 'completedOn', 'rereading']) {
       expect(pub).not.toHaveProperty(forbidden);
     }
     expect(JSON.stringify(pub)).not.toContain('SECRET');
+  });
+
+  it('adds how often a book was read from twice on, and nothing else about its reads (§16 #41)', () => {
+    expect(toPublicItem({ ...item, readCount: 1 })).not.toHaveProperty('readCount'); // one read is what "finished" says
+    const twice = toPublicItem({ ...item, readCount: 3, rereading: true }) as unknown as Record<string, unknown>;
+    expect(twice).toEqual({ ...toPublicItem(item), readCount: 3 });
+    for (const forbidden of ['rereading', 'reads', 'beganOn', 'completedOn', 'status']) expect(twice).not.toHaveProperty(forbidden);
   });
 
   it('tolerates broken details JSON', () => {
