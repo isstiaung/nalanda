@@ -10,7 +10,7 @@ import {
   storeEntries,
   type NewRemoteActivity,
 } from '../src/db/federation';
-import { createItem, createLibrary, createLoan, deleteItem, updateItem } from '../src/db/queries';
+import { addProgress, createItem, createLibrary, createLoan, deleteItem, importItems, mergeImportItems, updateItem } from '../src/db/queries';
 import type { Bindings } from '../src/env';
 import { budgeted } from '../src/federation/budget';
 import { FEED_READS_PER_WINDOW } from '../src/federation/config';
@@ -49,6 +49,9 @@ afterEach(() => {
 const rows = async <T = Record<string, unknown>>(query: string, ...binds: unknown[]) =>
   (await env.DB.prepare(query).bind(...binds).all<T>()).results;
 
+/** A YYYY-MM-DD date `days` ago, as completed_on holds it. */
+const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+
 const shareView = (overrides: Partial<Parameters<typeof createConnectionView>[1]> = {}) =>
   createConnectionView(env.DB, { name: 'Shared', libraryId: null, mediaType: null, status: null, owned: null, ...overrides });
 
@@ -66,7 +69,7 @@ const feedOf = async (peer: Peer, viewId: number, since: number) =>
 describe('recording activity', () => {
   it('records nothing until a view is shared, then one row per item and kind', async () => {
     const shelf = await createLibrary(env.DB, 'Main');
-    await createItem(env.DB, { libraryId: shelf.id, title: 'Before', review: 'Great', rating: 8, status: 'completed' });
+    await createItem(env.DB, { libraryId: shelf.id, title: 'Before', review: 'Great', rating: 8, status: 'completed', completedOn: daysAgo(3) });
     expect(await rows('SELECT * FROM activity_log')).toHaveLength(0);
 
     // Sharing the first view starts the log with recent activity.
@@ -101,7 +104,7 @@ describe('recording activity', () => {
   it('starts afresh after the last view goes: a cleared log, new view ids, and no stale reviews', async () => {
     const shelf = await createLibrary(env.DB, 'Main');
     const first = await shareView();
-    const item = await createItem(env.DB, { libraryId: shelf.id, title: 'Book', review: 'OLD-TEXT' });
+    const item = await createItem(env.DB, { libraryId: shelf.id, title: 'Book', review: 'OLD-TEXT', completedOn: daysAgo(3) });
     await deleteConnectionView(env.DB, first.id);
     expect(await rows('SELECT * FROM activity_log')).toHaveLength(0);
 
@@ -113,6 +116,130 @@ describe('recording activity', () => {
     const peer = await makePeer('Riverbank library');
     await connectPeer(peer);
     expect((await feedOf(peer, second.id, 0)).entries.map((e) => e.item.review)).toEqual(['NEW-TEXT']);
+  });
+});
+
+// ---------- when activity happened (ARCH.md §16 #38) ----------
+
+describe('dating activity by when it happened', () => {
+  type Entry = { title: string; kind: string; at: string };
+  const log = async () =>
+    rows<Entry>('SELECT i.title, a.kind, a.at FROM activity_log a JOIN items i ON i.id = a.item_id ORDER BY i.title, a.kind');
+  const sqlTime = (ms: number) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19);
+  /** An `at` written within the last minute: dated now, not backdated. */
+  const recent = (at: string) => at >= sqlTime(Date.now() - 60_000) && at <= sqlTime(Date.now());
+
+  it("starts a first view's log from completed_on, never from updated_at", async () => {
+    // Every one of these was just written, so updated_at is today on all of them — as an import, or a
+    // metadata backfill, leaves a whole catalog. Only what happened in the window may be offered as recent.
+    const shelf = await createLibrary(env.DB, 'Main');
+    const done = daysAgo(10);
+    await createItem(env.DB, { libraryId: shelf.id, title: 'A recent read', review: 'Good', rating: 8, status: 'completed', completedOn: done });
+    await createItem(env.DB, { libraryId: shelf.id, title: 'B read in 2019', review: 'Old', rating: 6, status: 'completed', completedOn: '2019-03-09' });
+    await createItem(env.DB, { libraryId: shelf.id, title: 'C undated read', review: 'Undated', rating: 4, status: 'completed' });
+    await createItem(env.DB, { libraryId: shelf.id, title: 'D garbled date', rating: 4, status: 'completed', completedOn: 'last spring' });
+    const reading = await createItem(env.DB, { libraryId: shelf.id, title: 'E in progress', length: 300 });
+    await addProgress(env.DB, reading.id, 40, null);
+
+    await shareView();
+
+    const entries = await log();
+    expect(entries.filter((e) => e.kind !== 'progress')).toEqual([
+      { title: 'A recent read', kind: 'finished', at: `${done} 00:00:00` },
+      { title: 'A recent read', kind: 'rated', at: `${done} 00:00:00` },
+      { title: 'A recent read', kind: 'reviewed', at: `${done} 00:00:00` },
+    ]);
+    expect(entries.filter((e) => e.kind === 'progress').map((e) => e.title)).toEqual(['E in progress']);
+  });
+
+  it('dates a finish by completed_on when that is past, and a rating or review by when it was given', async () => {
+    const shelf = await createLibrary(env.DB, 'Main');
+    await shareView();
+    const old = await createItem(env.DB, { libraryId: shelf.id, title: 'An old read' });
+    const today = await createItem(env.DB, { libraryId: shelf.id, title: 'Finished today' });
+    const undated = await createItem(env.DB, { libraryId: shelf.id, title: 'Finished, no date' });
+
+    await updateItem(env.DB, old.id, { status: 'completed', completedOn: '2019-03-09' });
+    await updateItem(env.DB, old.id, { rating: 9, review: 'Better than I remembered' }); // news today, of a 2019 read
+    await updateItem(env.DB, today.id, { status: 'completed', completedOn: daysAgo(0) });
+    await updateItem(env.DB, undated.id, { status: 'completed' });
+
+    const entries = await log();
+    expect(entries).toHaveLength(5);
+    const oldFinish = (e: Entry) => e.title === 'An old read' && e.kind === 'finished';
+    expect(entries.find(oldFinish)!.at).toBe('2019-03-09 00:00:00');
+    for (const e of entries.filter((e) => !oldFinish(e))) {
+      // now, not today's midnight: a finish marked this evening sorts after what came this morning
+      expect(recent(e.at), `${e.title} ${e.kind} at ${e.at}`).toBe(true);
+    }
+  });
+
+  it("dates an import's reads by completed_on, leaves undated ones out, and never leaves the marker behind", async () => {
+    const shelf = await createLibrary(env.DB, 'Main');
+    await shareView();
+    const existing = await createItem(env.DB, { libraryId: shelf.id, title: 'Already here', creators: 'Ursula K. Le Guin' });
+    const lastWeek = daysAgo(5);
+
+    // a libib or Nalanda import inserts; a Goodreads import merges onto what matches and inserts the rest
+    await importItems(env.DB, [
+      { item: { libraryId: shelf.id, title: 'Read in 2019', rating: 8, review: 'Loved it', status: 'completed', completedOn: '2019-03-09' }, tags: [] },
+      { item: { libraryId: shelf.id, title: 'Read, no date', rating: 6, review: 'Fine', status: 'completed' }, tags: [] },
+      { item: { libraryId: shelf.id, title: 'Read last week', rating: 10, status: 'completed', completedOn: lastWeek }, tags: [] },
+    ]);
+    await mergeImportItems(env.DB, [
+      { item: { libraryId: shelf.id, title: 'Already here', creators: 'Ursula K. Le Guin', rating: 6, status: 'completed', completedOn: '2018-11-02' }, tags: [] },
+    ]);
+
+    expect(await log()).toEqual([
+      { title: 'Already here', kind: 'finished', at: '2018-11-02 00:00:00' },
+      { title: 'Already here', kind: 'rated', at: '2018-11-02 00:00:00' },
+      { title: 'Read in 2019', kind: 'finished', at: '2019-03-09 00:00:00' },
+      { title: 'Read in 2019', kind: 'rated', at: '2019-03-09 00:00:00' },
+      { title: 'Read in 2019', kind: 'reviewed', at: '2019-03-09 00:00:00' },
+      { title: 'Read last week', kind: 'finished', at: `${lastWeek} 00:00:00` },
+      { title: 'Read last week', kind: 'rated', at: `${lastWeek} 00:00:00` },
+    ]);
+    expect(await rows('SELECT * FROM import_in_progress')).toHaveLength(0);
+
+    // Out of the import again, a rating given now is dated now.
+    await updateItem(env.DB, existing.id, { rating: 10 });
+    const rated = (await log()).find((e) => e.title === 'Already here' && e.kind === 'rated')!;
+    expect(recent(rated.at), rated.at).toBe(true);
+  });
+
+  it('rolls the marker back with an import that fails, so later edits are dated as edits', async () => {
+    const shelf = await createLibrary(env.DB, 'Main');
+    await shareView();
+    const item = await createItem(env.DB, { libraryId: shelf.id, title: 'Kindred', status: 'completed', completedOn: '2019-03-09' });
+
+    // no such shelf: the second insert breaks its foreign key, and the whole batch goes
+    await expect(
+      importItems(env.DB, [
+        { item: { libraryId: shelf.id, title: 'Fine', rating: 8, completedOn: '2019-01-01' }, tags: [] },
+        { item: { libraryId: 999_999, title: 'Broken', rating: 8 }, tags: [] },
+      ]),
+    ).rejects.toThrow();
+    expect(await rows('SELECT * FROM import_in_progress')).toHaveLength(0);
+    expect(await rows("SELECT * FROM items WHERE title = 'Fine'")).toHaveLength(0);
+
+    await updateItem(env.DB, item.id, { rating: 7 });
+    const rated = (await log()).find((e) => e.kind === 'rated')!;
+    expect(recent(rated.at), rated.at).toBe(true);
+  });
+
+  it('never backfills a progress update twice, even over a log left behind', async () => {
+    const shelf = await createLibrary(env.DB, 'Main');
+    const reading = await createItem(env.DB, { libraryId: shelf.id, title: 'Piranesi', length: 272 });
+    await addProgress(env.DB, reading.id, 40, null);
+    await addProgress(env.DB, reading.id, 90, null);
+    await shareView();
+    expect(await rows("SELECT * FROM activity_log WHERE kind = 'progress'")).toHaveLength(2);
+
+    // the view goes some way that leaves the log (a restore, a hand-run delete), then a view is shared again
+    await env.DB.prepare('DELETE FROM connection_views').run();
+    await shareView();
+
+    expect(await rows("SELECT * FROM activity_log WHERE kind = 'progress'")).toHaveLength(2);
   });
 });
 

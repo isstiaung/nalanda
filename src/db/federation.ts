@@ -305,25 +305,33 @@ export async function createConnectionView(
  * The triggers only record while a view exists, so a household sharing its first view would have nothing
  * for connections to follow. This starts the log with recent activity — the last VOLUME_WINDOW_DAYS, newest
  * BACKFILL_ENTRIES — in time order, so ids follow time. Only for a first view: later ones share the log.
+ *
+ * Every entry is dated by when it happened, never by updated_at: imports and metadata backfills rewrite
+ * updated_at on each item they touch, so a first view once offered connections hundreds of old reads as
+ * new (ARCH.md §16 #38). A finish is dated by its completed_on. A rating or a review has no date of its own,
+ * so it takes its book's completed_on, and one without is left out — from here on the triggers date them
+ * as they're given. A progress update carries its own time, and one already in the log isn't added twice.
  */
 async function recordRecentActivity(d1: D1Database): Promise<void> {
   await d1
     .prepare(
       `INSERT OR IGNORE INTO activity_log (item_id, kind, at, progress_id)
        SELECT item_id, kind, at, progress_id FROM (
-         SELECT id AS item_id, 'reviewed' AS kind, datetime(updated_at) AS at, NULL AS progress_id FROM items
+         SELECT id AS item_id, 'reviewed' AS kind, min(datetime(completed_on), datetime('now')) AS at, NULL AS progress_id
+           FROM items
            WHERE trim(replace(coalesce(review, ''), char(13), ''), ' ' || char(9) || char(10)) <> ''
-             AND datetime(updated_at) > datetime('now', ?1)
+             AND date(completed_on) > date('now', ?1)
          UNION ALL
-         SELECT id, 'rated', datetime(updated_at), NULL FROM items
-           WHERE coalesce(rating, 0) > 0 AND datetime(updated_at) > datetime('now', ?1)
+         SELECT id, 'rated', min(datetime(completed_on), datetime('now')), NULL FROM items
+           WHERE coalesce(rating, 0) > 0 AND date(completed_on) > date('now', ?1)
          UNION ALL
-         SELECT id, 'finished', datetime(updated_at), NULL FROM items
-           WHERE status = 'completed' AND datetime(updated_at) > datetime('now', ?1)
+         SELECT id, 'finished', min(datetime(completed_on), datetime('now')), NULL FROM items
+           WHERE status = 'completed' AND date(completed_on) > date('now', ?1)
          UNION ALL
          -- each progress update is its own entry, as migration 0015's trigger records them from here on
          SELECT item_id, 'progress', datetime(at), id FROM reading_progress
            WHERE datetime(at) > datetime('now', ?1)
+             AND NOT EXISTS (SELECT 1 FROM activity_log WHERE progress_id = reading_progress.id)
              AND coalesce((SELECT progress_to_connections FROM site_settings WHERE id = 1), 1) = 1
          ORDER BY at DESC LIMIT ?2
        ) ORDER BY at ASC`,

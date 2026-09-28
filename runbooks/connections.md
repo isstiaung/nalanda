@@ -74,6 +74,15 @@ you do.
   finished it. Never notes, loans, borrowers or how many copies you have.
 - What reaches them is activity: a book reviewed, rated or finished, and each page you record
   as you read. Sharing your first view includes the last 90 days of it.
+- Each entry is dated by when it happened. A finish carries its **completed** date, so marking a
+  book you read in 2019 as finished doesn't appear at the top of anyone's feed. A rating or review
+  is dated the day you give it. When you share your first view, only books with a **completed**
+  date in the last 90 days bring their finish, rating and review along. Earlier activity without
+  a date isn't sent, because nothing says when it happened.
+- **Importing** (Goodreads, libib, or a Nalanda export) while a view is shared sends nothing as
+  new. Each imported read is dated by its completed date. A read without one isn't sent at all.
+  A household following you sees last week's reads in last week's place. Older ones fall outside
+  what they keep.
 - **Share reading progress**, in the same section, is on by default. Turn it off and nothing new
   is sent; entries already sent are withdrawn the next time each household checks. It's
   separate from showing progress on public share links (**Shared links**), which is off by

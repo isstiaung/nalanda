@@ -283,6 +283,15 @@ export const activityLog = sqliteTable(
   ],
 );
 
+/**
+ * Holds a row only inside an import's batch — its first statement inserts it, its last deletes it — so the
+ * activity triggers (migration 0021) can tell an import from someone's own edit. An import's finishes,
+ * ratings and reviews are dated by the book's completed_on, or not recorded at all (ARCH.md §16 #38).
+ */
+export const importInProgress = sqliteTable('import_in_progress', {
+  id: integer('id').primaryKey(),
+});
+
 /** A view of a connection's that this household follows, with the limits it chose. */
 export const feedSubscriptions = sqliteTable(
   'feed_subscriptions',

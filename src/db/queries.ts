@@ -568,8 +568,8 @@ export async function addProgress(d1: D1Database, itemId: number, page: number, 
     d1.prepare('INSERT INTO reading_progress (item_id, page, added_by) VALUES (?1, ?2, ?3)').bind(itemId, page, userId),
     d1
       .prepare(
-        // updated_at is deliberately untouched: connections see it, and the first-view backfill dates
-        // reviews and finishes by it, so a page recorded on a re-read would re-date an old review.
+        // updated_at is deliberately untouched: connections see it, and a page is its own entry, not an
+        // edit of the book. (The first-view backfill no longer dates anything by it — §16 #38.)
         // began_on is filled only for a book being started — never after a finish (SET sees the old status).
         `UPDATE items SET progress_page = ?2,
            status = CASE WHEN status = 'not_started' THEN 'in_progress' ELSE status END,
@@ -699,13 +699,27 @@ async function linkTags(dbi: ReturnType<typeof db>, pairs: Array<{ itemId: numbe
   }
 }
 
+/**
+ * An import's item writes, between the statements that set and clear the marker the activity triggers look
+ * for (migration 0021): an imported read is dated by its completed_on, or left out of the feed, rather than
+ * reaching connections as today's news. One batch, so the marker can't outlast the import or miss a row of it.
+ */
+function asImport(dbi: ReturnType<typeof db>, writes: unknown[]): [never, ...never[]] {
+  return [
+    dbi.insert(s.importInProgress).values({ id: 1 }).onConflictDoNothing(),
+    ...writes,
+    dbi.delete(s.importInProgress),
+  ] as unknown as [never, ...never[]];
+}
+
 /** Batched insert used by /api/import. One network round trip per batch of rows. */
 export async function importItems(d1: D1Database, rows: Array<{ item: NewItem; tags: string[] }>): Promise<number> {
   if (!rows.length) return 0;
   const dbi = db(d1);
-  const inserted = (await dbi.batch(
-    rows.map((r) => dbi.insert(s.items).values(r.item).returning({ id: s.items.id })) as [never, ...never[]],
-  )) as Array<Array<{ id: number }>>;
+  const results = (await dbi.batch(
+    asImport(dbi, rows.map((r) => dbi.insert(s.items).values(r.item).returning({ id: s.items.id }))),
+  )) as unknown[];
+  const inserted = results.slice(1, -1) as Array<Array<{ id: number }>>;
 
   const pairs: Array<{ itemId: number; tag: string }> = [];
   rows.forEach((r, i) => {
@@ -797,12 +811,15 @@ export async function mergeImportItems(
   if (!dryRun) {
     if (merges.length) {
       await dbi.batch(
-        merges.map((m) =>
-          dbi
-            .update(s.items)
-            .set({ ...m.set, updatedAt: sql`(datetime('now'))` })
-            .where(eq(s.items.id, m.id)),
-        ) as [never, ...never[]],
+        asImport(
+          dbi,
+          merges.map((m) =>
+            dbi
+              .update(s.items)
+              .set({ ...m.set, updatedAt: sql`(datetime('now'))` })
+              .where(eq(s.items.id, m.id)),
+          ),
+        ),
       );
       const pairs: Array<{ itemId: number; tag: string }> = [];
       for (const m of merges) for (const tag of normalizeTags(m.tags)) pairs.push({ itemId: m.id, tag });
