@@ -87,5 +87,5 @@ the book, use **Add to shelf** as usual and add the review from its Edit page.
   per-media-type breakdown under each (e.g. "94 books").
 - Spot-check one merged book (rating/review updated, copies and cover untouched) and one
   new entry (has the "Not owned" pill, lending disabled).
-- `/export.csv` round-trips everything, including `copies = 0` — a good post-import
-  backup.
+- The CSV export (**/import → Export everything as CSV**) round-trips everything, including
+  `copies = 0` — a good post-import backup.

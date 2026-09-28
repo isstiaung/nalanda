@@ -2,6 +2,7 @@
 // module so queries.ts stays untouched, while src/db/ remains the only code touching D1.
 import { and, asc, count, desc, eq, gt, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
+import { SQLiteAsyncDialect } from 'drizzle-orm/sqlite-core';
 import { listItems } from './queries';
 import * as s from './schema';
 import { ADMIN_NOTIFICATIONS } from './schema';
@@ -34,6 +35,16 @@ import type {
 } from './schema';
 
 const db = (d1: D1Database) => drizzle(d1);
+const dialect = new SQLiteAsyncDialect();
+
+/**
+ * A statement for a hand-built D1 batch, from Drizzle's sql template or a query builder — values bound, never
+ * spliced. Drizzle's own batch can't take raw SQL with parameters, and some batches here need both.
+ */
+function statement(d1: D1Database, query: SQL | { toSQL(): { sql: string; params: unknown[] } }): D1PreparedStatement {
+  const q = 'toSQL' in query ? query.toSQL() : dialect.sqlToQuery(query);
+  return d1.prepare(q.sql).bind(...q.params);
+}
 
 // ---------- settings: a singleton row, id 1 ----------
 
@@ -115,10 +126,24 @@ export async function redeemInvite(
   inviteId: number,
   peer: { baseUrl: string; householdName: string; publicKey: string },
   maxConnections: number,
+  notice?: NewNotification,
 ): Promise<Redemption> {
   let inserted: unknown[];
   try {
-    const [insert] = await d1.batch([
+    // The notice goes in too, on the insert's own condition. Recorded after the batch, a failure between
+    // the two left a pending request no admin was told about, and their retry found the invitation used.
+    const notification = notice
+      ? [
+          notifyIfStatement(
+            d1,
+            notice,
+            sql`EXISTS (SELECT 1 FROM connection_invites WHERE id = ${inviteId} AND used_at IS NULL AND expires_at > datetime('now'))
+                AND (SELECT count(*) FROM connections) < ${maxConnections}`,
+          ),
+        ]
+      : [];
+    const results = await d1.batch([
+      ...notification, // first: after the batch's update the invitation no longer reads as redeemable
       d1
         .prepare(
           `INSERT INTO connections (base_url, household_name, public_key, status, invite_id)
@@ -136,7 +161,7 @@ export async function redeemInvite(
         )
         .bind(inviteId),
     ]);
-    inserted = insert?.results ?? [];
+    inserted = results[notification.length]?.results ?? [];
   } catch (err) {
     // Their address is unique: they redeemed another invitation from us meanwhile. Nothing was committed.
     if (String(err).includes('UNIQUE')) return 'already connected';
@@ -198,16 +223,46 @@ export async function deleteConnection(d1: D1Database, id: number): Promise<void
 // ---------- replay protection ----------
 
 /**
- * True the first time an activity id arrives; false on a replay. Each new id also prunes a few entries
- * older than an hour, through the index, so the table stays small without a scan per message.
+ * A connection message from them — ConnectAccept (`activate`), ConnectDecline or Disconnect (`delete`) —
+ * applied with its notification and its replay marker in one batch. The marker used to go in first, alone,
+ * so a failure after it turned every retry away as "already processed" with nothing done: a connection left
+ * waiting on an acceptance that had arrived, or never removed. Now the effect and the notice run only while
+ * the id is unseen, and the marker lands with them or not at all. False when the id was seen already.
+ * Each new id also prunes a few entries older than an hour, through the index, so the table stays small
+ * without a scan per message.
  */
-export async function markActivitySeen(d1: D1Database, activityId: string): Promise<boolean> {
-  const rows = await db(d1)
+export async function applyConnectionMessage(
+  d1: D1Database,
+  activityId: string,
+  connectionId: number,
+  change: 'activate' | 'delete',
+  notice: NewNotification,
+): Promise<boolean> {
+  const dbi = db(d1);
+  const unseen = sql`NOT EXISTS (SELECT 1 FROM federation_seen WHERE activity_id = ${activityId})`;
+  // activation only from waiting on them, so a repeat notifies nothing
+  const target =
+    change === 'activate'
+      ? and(eq(s.connections.id, connectionId), eq(s.connections.status, 'awaiting_them'))
+      : eq(s.connections.id, connectionId);
+  const notification = notifyIf(dbi, notice, sql`${unseen} AND EXISTS (SELECT 1 FROM connections WHERE ${target})`);
+  const marker = dbi
     .insert(s.federationSeen)
     .values({ activityId })
     .onConflictDoNothing()
     .returning({ activityId: s.federationSeen.activityId });
-  if (rows.length !== 1) return false;
+  const [, , marked] =
+    change === 'activate'
+      ? await dbi.batch([
+          notification,
+          dbi
+            .update(s.connections)
+            .set({ status: 'active', confirmedAt: sql`(datetime('now'))` })
+            .where(and(target, unseen)),
+          marker,
+        ])
+      : await dbi.batch([notification, dbi.delete(s.connections).where(and(target, unseen)), marker]);
+  if (marked.length !== 1) return false;
   await d1
     .prepare(
       `DELETE FROM federation_seen WHERE activity_id IN (
@@ -294,10 +349,11 @@ export async function createConnectionView(
     owned: boolean | null;
   },
 ): Promise<ConnectionView> {
-  const first = (await countConnectionViews(d1)) === 0;
-  const [row] = await db(d1).insert(s.connectionViews).values(values).returning();
+  const dbi = db(d1);
+  // The view and, for a first one, the log's opening entries, in one batch. Apart, a failed backfill shared a
+  // first view with an empty log that nothing would ever fill, since the next view isn't a first.
+  const [[row]] = await dbi.batch([dbi.insert(s.connectionViews).values(values).returning(), dbi.run(recentActivity)]);
   if (!row) throw new Error('failed to create connection view');
-  if (first) await recordRecentActivity(d1);
   return row;
 }
 
@@ -305,45 +361,59 @@ export async function createConnectionView(
  * The triggers only record while a view exists, so a household sharing its first view would have nothing
  * for connections to follow. This starts the log with recent activity — the last VOLUME_WINDOW_DAYS, newest
  * BACKFILL_ENTRIES — in time order, so ids follow time. Only for a first view: later ones share the log.
+ *
+ * Every entry is dated by when it happened, never by updated_at: imports and metadata backfills rewrite
+ * updated_at on each item they touch, so a first view once offered connections hundreds of old reads as
+ * new (ARCH.md §16 #40). A finish is dated by its completed_on. A rating or a review has no date of its own,
+ * so it takes its book's completed_on, and one without is left out — from here on the triggers date them
+ * as they're given. A progress update carries its own time, and one already in the log isn't added twice.
+ *
+ * It runs in the batch that inserts a view, and records only when that view is the only one. Its figures are
+ * constants, not parameters, because Drizzle's batch can't take raw SQL with parameters.
  */
-async function recordRecentActivity(d1: D1Database): Promise<void> {
-  await d1
-    .prepare(
-      `INSERT OR IGNORE INTO activity_log (item_id, kind, at, progress_id)
+const recentActivity = sql.raw(
+  `INSERT OR IGNORE INTO activity_log (item_id, kind, at, progress_id)
        SELECT item_id, kind, at, progress_id FROM (
-         SELECT id AS item_id, 'reviewed' AS kind, datetime(updated_at) AS at, NULL AS progress_id FROM items
+         SELECT id AS item_id, 'reviewed' AS kind, min(datetime(completed_on), datetime('now')) AS at, NULL AS progress_id
+           FROM items
            WHERE trim(replace(coalesce(review, ''), char(13), ''), ' ' || char(9) || char(10)) <> ''
-             AND datetime(updated_at) > datetime('now', ?1)
+             AND date(completed_on) > date('now', '-${VOLUME_WINDOW_DAYS} days')
          UNION ALL
-         SELECT id, 'rated', datetime(updated_at), NULL FROM items
-           WHERE coalesce(rating, 0) > 0 AND datetime(updated_at) > datetime('now', ?1)
+         SELECT id, 'rated', min(datetime(completed_on), datetime('now')), NULL FROM items
+           WHERE coalesce(rating, 0) > 0 AND date(completed_on) > date('now', '-${VOLUME_WINDOW_DAYS} days')
          UNION ALL
-         SELECT id, 'finished', datetime(updated_at), NULL FROM items
-           WHERE status = 'completed' AND datetime(updated_at) > datetime('now', ?1)
+         SELECT id, 'finished', min(datetime(completed_on), datetime('now')), NULL FROM items
+           WHERE status = 'completed' AND date(completed_on) > date('now', '-${VOLUME_WINDOW_DAYS} days')
          UNION ALL
          -- each progress update is its own entry, as migration 0015's trigger records them from here on
          SELECT item_id, 'progress', datetime(at), id FROM reading_progress
-           WHERE datetime(at) > datetime('now', ?1)
+           WHERE datetime(at) > datetime('now', '-${VOLUME_WINDOW_DAYS} days')
+             AND NOT EXISTS (SELECT 1 FROM activity_log WHERE progress_id = reading_progress.id)
              AND coalesce((SELECT progress_to_connections FROM site_settings WHERE id = 1), 1) = 1
-         ORDER BY at DESC LIMIT ?2
-       ) ORDER BY at ASC`,
-    )
-    .bind(`-${VOLUME_WINDOW_DAYS} days`, BACKFILL_ENTRIES)
-    .run();
-}
+         ORDER BY at DESC LIMIT ${BACKFILL_ENTRIES}
+       )
+       WHERE (SELECT count(*) FROM connection_views) = 1 -- in the view's own batch: it's the first
+       ORDER BY at ASC`,
+);
 
 /**
  * With the last view gone the triggers stop recording, and the log would go stale: an edit made meanwhile
  * never replaces its row, so an old review would still look current. The log is cleared instead, and the
- * next first view starts it again under new ids.
+ * next first view starts it again under new ids. One batch, so a view can't go without the log going too:
+ * a stale log left behind would come back when a view is next shared.
  */
 export async function deleteConnectionView(d1: D1Database, id: number): Promise<void> {
-  await db(d1).delete(s.connectionViews).where(eq(s.connectionViews.id, id));
-  if ((await countConnectionViews(d1)) === 0) await d1.prepare('DELETE FROM activity_log').run();
+  await d1.batch([
+    d1.prepare('DELETE FROM connection_views WHERE id = ?1').bind(id),
+    d1.prepare('DELETE FROM activity_log WHERE NOT EXISTS (SELECT 1 FROM connection_views)'),
+  ]);
 }
 
+const itemsInViewQuery = (dbi: ReturnType<typeof db>, view: ConnectionView) =>
+  dbi.select({ n: count() }).from(s.items).where(inView(view));
+
 export async function countItemsInView(d1: D1Database, view: ConnectionView): Promise<number> {
-  const [row] = await db(d1).select({ n: count() }).from(s.items).where(inView(view));
+  const [row] = await itemsInViewQuery(db(d1), view);
   return row?.n ?? 0;
 }
 
@@ -352,8 +422,10 @@ export type SharedActivity = { id: number; kind: ActivityKind; at: string; item:
 
 /**
  * Activity in a view after a cursor, oldest first, so a busy stretch arrives over several pulls instead
- * of being cut. With no cursor — a new subscriber — the newest come first instead: a feed starts from the
- * present rather than replaying the past. `fromStart` says which the caller got.
+ * of being cut. With no cursor — a new subscriber — the newest by date come first instead: a feed starts
+ * from the present rather than replaying the past. By date, not id: an import records old reads under new
+ * ids, dated when they happened (§16 #40), and by id those filled a new follower's first page and pushed
+ * out what was genuinely recent. `fromStart` says which the caller got.
  */
 export async function activityInView(
   d1: D1Database,
@@ -379,7 +451,7 @@ export async function activityInView(
     .innerJoin(s.items, eq(s.activityLog.itemId, s.items.id))
     .leftJoin(s.readingProgress, eq(s.activityLog.progressId, s.readingProgress.id))
     .where(and(gt(s.activityLog.id, from), inView(view), stillShows))
-    .orderBy(from === 0 ? desc(s.activityLog.id) : asc(s.activityLog.id))
+    .orderBy(...(from === 0 ? [desc(s.activityLog.at), desc(s.activityLog.id)] : [asc(s.activityLog.id)]))
     .limit(limit);
   return { fromStart: from === 0, rows };
 }
@@ -403,7 +475,32 @@ export async function viewVolume(
   view: ConnectionView,
   days: number,
 ): Promise<{ activities: number; bytes: number }> {
-  const [row] = await db(d1)
+  const [row] = await volumeQuery(db(d1), view, days);
+  return { activities: row?.activities ?? 0, bytes: row?.bytes ?? 0 };
+}
+
+/**
+ * Every view's size and recent volume in one batch — one D1 call however many views, where asking view by view
+ * cost two each: 43 calls at the 20-view cap, on a route any connection may call.
+ */
+export async function describeViews(
+  d1: D1Database,
+  views: ConnectionView[],
+  days: number,
+): Promise<Array<{ itemCount: number; activities: number; bytes: number }>> {
+  if (!views.length) return [];
+  const dbi = db(d1);
+  const [first, ...rest] = views.flatMap((view) => [itemsInViewQuery(dbi, view), volumeQuery(dbi, view, days)]);
+  const results = (await dbi.batch([first!, ...rest])) as unknown as Array<Array<{ n?: number; activities?: number; bytes?: number }>>;
+  return views.map((_, i) => ({
+    itemCount: results[2 * i]?.[0]?.n ?? 0,
+    activities: results[2 * i + 1]?.[0]?.activities ?? 0,
+    bytes: results[2 * i + 1]?.[0]?.bytes ?? 0,
+  }));
+}
+
+function volumeQuery(dbi: ReturnType<typeof db>, view: ConnectionView, days: number) {
+  return dbi
     .select({
       activities: count(),
       // an entry is its JSON: ~360 bytes of keys and short fields, plus title, creators and review
@@ -414,7 +511,6 @@ export async function viewVolume(
     .from(s.activityLog)
     .innerJoin(s.items, eq(s.activityLog.itemId, s.items.id))
     .where(and(sql`${s.activityLog.at} > datetime('now', ${`-${days} days`})`, inView(view), stillShows));
-  return { activities: row?.activities ?? 0, bytes: row?.bytes ?? 0 };
 }
 
 // ---------- subscriptions: what this household follows (phase 2) ----------
@@ -548,9 +644,15 @@ export async function claimSubscription(d1: D1Database, id: number, lastPulledAt
 export async function recordPull(
   d1: D1Database,
   sub: Pick<FeedSubscription, 'id' | 'intervalMinutes'>,
-  result: { cursor?: number; error: string | null; again?: boolean },
+  result: PullResult,
 ): Promise<void> {
-  await db(d1)
+  await recordPullQuery(d1, sub, result);
+}
+
+type PullResult = { cursor?: number; error: string | null; again?: boolean };
+
+const recordPullQuery = (d1: D1Database, sub: Pick<FeedSubscription, 'id' | 'intervalMinutes'>, result: PullResult) =>
+  db(d1)
     .update(s.feedSubscriptions)
     .set({
       lastError: result.error,
@@ -558,21 +660,44 @@ export async function recordPull(
       ...(result.again ? { lastPulledAt: sql`(datetime('now', ${`-${sub.intervalMinutes} minutes`}))` } : {}),
     })
     .where(eq(s.feedSubscriptions.id, sub.id));
+
+/**
+ * A pulled page of their feed: the day's allowance charged for the entries kept, the entries stored and the
+ * pull recorded, in one batch. The charge went first as a call of its own, so a failed store spent up to a
+ * page of the connection's daily allowance on nothing; and a record that failed after the store pulled — and
+ * charged — the same page again.
+ */
+export async function storePulledPage(d1: D1Database, sub: DueSubscription, entries: NewRemoteActivity[], result: PullResult): Promise<void> {
+  const charge = entries.length
+    ? [
+        d1
+          .prepare(
+            `INSERT INTO connection_push_counts (connection_id, day, pushes, feed_entries) VALUES (?1, date('now'), 0, ?2)
+             ON CONFLICT (connection_id, day) DO UPDATE SET feed_entries = feed_entries + ?2`,
+          )
+          .bind(sub.connectionId, entries.length),
+        storeEntriesStatement(d1, sub.id, entries),
+      ]
+    : [];
+  await d1.batch([...charge, statement(d1, recordPullQuery(d1, sub, result))]);
 }
 
-/** They stopped sharing the view: everything stored from it goes, and the Feed page says how much. */
+/**
+ * They stopped sharing the view: everything stored from it goes, and the Feed page says how much. Counted,
+ * then deleted, in one batch: as two calls, a failure after the delete lost the count, and the next pull —
+ * with nothing left to delete — marked the view gone with none of its entries ever mentioned.
+ */
 export async function markSubscriptionGone(d1: D1Database, id: number): Promise<void> {
-  const removed = await db(d1)
-    .delete(s.remoteActivities)
-    .where(eq(s.remoteActivities.subscriptionId, id))
-    .returning({ id: s.remoteActivities.id });
-  await d1
-    .prepare(
-      `UPDATE feed_subscriptions SET gone_at = datetime('now'), last_error = NULL,
-         removed_unseen = removed_unseen + ?1 WHERE id = ?2`,
-    )
-    .bind(removed.length, id)
-    .run();
+  await d1.batch([
+    d1
+      .prepare(
+        `UPDATE feed_subscriptions SET gone_at = datetime('now'), last_error = NULL,
+           removed_unseen = removed_unseen + (SELECT count(*) FROM remote_activities WHERE subscription_id = ?1)
+         WHERE id = ?1`,
+      )
+      .bind(id),
+    d1.prepare('DELETE FROM remote_activities WHERE subscription_id = ?1').bind(id),
+  ]);
 }
 
 // ---------- stored feed entries (phase 2) ----------
@@ -593,7 +718,11 @@ export type NewRemoteActivity = {
  */
 export async function storeEntries(d1: D1Database, subscriptionId: number, entries: NewRemoteActivity[]): Promise<void> {
   if (!entries.length) return;
-  await d1
+  await storeEntriesStatement(d1, subscriptionId, entries).run();
+}
+
+function storeEntriesStatement(d1: D1Database, subscriptionId: number, entries: NewRemoteActivity[]): D1PreparedStatement {
+  return d1
     .prepare(
       `INSERT OR IGNORE INTO remote_activities
          (subscription_id, remote_id, item_remote_id, item_stamp, kind, published_at, item, bytes)
@@ -603,31 +732,21 @@ export async function storeEntries(d1: D1Database, subscriptionId: number, entri
               json_extract(value, '$.bytes')
        FROM json_each(?2)`,
     )
-    .bind(subscriptionId, JSON.stringify(entries))
-    .run();
+    .bind(subscriptionId, JSON.stringify(entries));
 }
 
 /**
- * How many of `wanted` new feed entries a connection may still store today — counted as taken. Honest
- * households stay far below the limit; it caps the D1 writes a flood from a modified one could cause.
+ * How many of `wanted` new feed entries a connection may still store today; `storePulledPage` charges them as
+ * it stores them. Honest households stay far below the limit; it caps the D1 writes a flood from a modified
+ * one could cause.
  */
-export async function takeFeedAllowance(d1: D1Database, connectionId: number, wanted: number, limit: number): Promise<number> {
+export async function feedAllowance(d1: D1Database, connectionId: number, wanted: number, limit: number): Promise<number> {
   if (wanted <= 0) return 0;
   const today = await d1
     .prepare(`SELECT feed_entries FROM connection_push_counts WHERE connection_id = ?1 AND day = date('now')`)
     .bind(connectionId)
     .first<{ feed_entries: number }>();
-  const allowed = Math.max(0, Math.min(wanted, limit - (today?.feed_entries ?? 0)));
-  if (allowed > 0) {
-    await d1
-      .prepare(
-        `INSERT INTO connection_push_counts (connection_id, day, pushes, feed_entries) VALUES (?1, date('now'), 0, ?2)
-         ON CONFLICT (connection_id, day) DO UPDATE SET feed_entries = feed_entries + ?2`,
-      )
-      .bind(connectionId, allowed)
-      .run();
-  }
-  return allowed;
+  return Math.max(0, Math.min(wanted, limit - (today?.feed_entries ?? 0)));
 }
 
 export async function storedRemoteIds(d1: D1Database, subscriptionId: number): Promise<number[]> {
@@ -638,25 +757,23 @@ export async function storedRemoteIds(d1: D1Database, subscriptionId: number): P
   return rows.map((r) => r.remoteId);
 }
 
-/** Deletes entries their owner no longer shares, and counts them for the Feed page's notice. */
+/**
+ * Deletes entries their owner no longer shares, and counts them for the Feed page's notice — counted first,
+ * in the same batch, so the count can't be lost to a failure after the delete.
+ */
 export async function removeEntries(d1: D1Database, subscriptionId: number, remoteIds: number[]): Promise<number> {
   if (!remoteIds.length) return 0;
-  const removed = await db(d1)
-    .delete(s.remoteActivities)
-    .where(
-      and(
-        eq(s.remoteActivities.subscriptionId, subscriptionId),
-        sql`${s.remoteActivities.remoteId} IN (SELECT value FROM json_each(${JSON.stringify(remoteIds)}))`,
-      ),
-    )
-    .returning({ id: s.remoteActivities.id });
-  if (removed.length) {
-    await d1
-      .prepare('UPDATE feed_subscriptions SET removed_unseen = removed_unseen + ?1 WHERE id = ?2')
-      .bind(removed.length, subscriptionId)
-      .run();
-  }
-  return removed.length;
+  const withdrawn = `subscription_id = ?1 AND remote_id IN (SELECT value FROM json_each(?2))`;
+  const [, removed] = await d1.batch([
+    d1
+      .prepare(
+        `UPDATE feed_subscriptions SET removed_unseen = removed_unseen + (SELECT count(*) FROM remote_activities WHERE ${withdrawn})
+         WHERE id = ?1`,
+      )
+      .bind(subscriptionId, JSON.stringify(remoteIds)),
+    d1.prepare(`DELETE FROM remote_activities WHERE ${withdrawn} RETURNING id`).bind(subscriptionId, JSON.stringify(remoteIds)),
+  ]);
+  return removed?.results.length ?? 0;
 }
 
 /**
@@ -886,18 +1003,42 @@ export type NewComment = {
   createdAt: string;
 };
 
-/** Null when a comment with that activity id exists already — including one deleted since. */
-export async function insertComment(d1: D1Database, values: NewComment): Promise<Comment | null> {
-  const [row] = await db(d1).insert(s.comments).values(values).onConflictDoNothing().returning();
+/**
+ * Null when a comment with that activity id exists already — including one deleted since. A `notice` is
+ * recorded with it, in the same batch, only when the comment is new.
+ */
+export async function insertComment(d1: D1Database, values: NewComment, notice?: NewNotification): Promise<Comment | null> {
+  const dbi = db(d1);
+  const insert = dbi.insert(s.comments).values(values).onConflictDoNothing().returning();
+  if (!notice) return (await insert)[0] ?? null;
+  const [, [row]] = await dbi.batch([
+    notifyIf(dbi, notice, sql`NOT EXISTS (SELECT 1 FROM comments WHERE activity_id = ${values.activityId})`),
+    insert,
+  ]);
   return row ?? null;
 }
 
-/** Deleting keeps the row with its body cleared, so a copy still waiting in an outbox can't bring it back. */
-export async function softDeleteComment(d1: D1Database, id: number): Promise<void> {
-  await db(d1)
-    .update(s.comments)
-    .set({ body: null, deletedAt: sql`(datetime('now'))` })
-    .where(eq(s.comments.id, id));
+/**
+ * Deleting keeps the row with its body cleared, so a copy still waiting in an outbox can't bring it back. A
+ * message to `send` — the deletion, for the connection — is queued in the same batch, only while the comment
+ * is still there to delete.
+ */
+export async function softDeleteComment(
+  d1: D1Database,
+  id: number,
+  send?: { connectionId: number; message: { id: string } },
+): Promise<void> {
+  const clear = (also?: SQL) =>
+    db(d1)
+      .update(s.comments)
+      .set({ body: null, deletedAt: sql`(datetime('now'))` })
+      .where(and(eq(s.comments.id, id), also));
+  if (!send) {
+    await clear();
+    return;
+  }
+  const present = sql`EXISTS (SELECT 1 FROM comments WHERE id = ${id} AND deleted_at IS NULL)`;
+  await queueWith(d1, send.connectionId, send.message, [statement(d1, clear(queued(send.message)))], present);
 }
 
 /** A deletion that arrived before its comment: kept as an empty, deleted row, so the comment never appears. */
@@ -1025,28 +1166,43 @@ export async function sentToday(d1: D1Database, connectionId: number): Promise<n
 // ---------- the outbox (phase 3) ----------
 
 /**
- * Queues a message for a connection under that connection's next sequence number, pruning what has waited
- * longer than any pull would.
+ * The statements that queue a message for a connection under its next sequence number — the counter, then
+ * the row — only while `condition` holds. Batched ahead of the change the message reports, on that change's
+ * own precondition, with the change itself made only once the message is queued (`queued`), a message goes
+ * out exactly when its change is made. Queued afterwards, as it was, a failure between the two left a change
+ * the other household was never told about, or a comment stored here, never sent, and doubled when the
+ * person pressed Send again.
  */
-export async function enqueueOutbox(d1: D1Database, connectionId: number, message: { id: string }): Promise<OutboxRow> {
-  const counter = await d1
-    .prepare('UPDATE connections SET outbox_seq = outbox_seq + 1 WHERE id = ?1 RETURNING outbox_seq AS seq')
-    .bind(connectionId)
-    .first<{ seq: number }>();
-  if (!counter) throw new Error('no such connection to queue a message for');
-  const dbi = db(d1);
-  const [row] = await dbi
-    .insert(s.outbox)
-    .values({
-      connectionId,
-      seq: counter.seq,
-      activityId: message.id,
-      message: JSON.stringify(message),
-      attemptedAt: sql`(datetime('now'))`,
-    })
-    .returning();
-  if (!row) throw new Error('failed to queue message');
-  await dbi
+function queueStatements(d1: D1Database, connectionId: number, message: { id: string }, condition: SQL = sql`1`) {
+  return [
+    statement(d1, sql`UPDATE connections SET outbox_seq = outbox_seq + 1 WHERE id = ${connectionId} AND ${condition}`),
+    statement(
+      d1,
+      sql`INSERT INTO outbox (connection_id, seq, activity_id, message, attempted_at)
+          SELECT id, outbox_seq, ${message.id}, ${JSON.stringify(message)}, datetime('now') FROM connections
+          WHERE id = ${connectionId} AND ${condition}
+          RETURNING id`,
+    ),
+  ];
+}
+
+/** Whether `message` is in the outbox — true inside a batch only once its queue statements went through. */
+const queued = (message: { id: string }) => sql`EXISTS (SELECT 1 FROM outbox WHERE activity_id = ${message.id})`;
+
+/**
+ * Queues `message`, and runs `change` in the same batch after it. Returns the results of the change's
+ * statements, or null when `condition` kept the message from being queued. What has waited longer than any
+ * pull would is pruned in the same batch: as a call of its own after it, a failure there answered 500 for a
+ * change already made, and the person's second try made it twice.
+ */
+async function queueWith(
+  d1: D1Database,
+  connectionId: number,
+  message: { id: string },
+  change: D1PreparedStatement[],
+  condition?: SQL,
+): Promise<D1Result[] | null> {
+  const prune = db(d1)
     .delete(s.outbox)
     .where(
       and(
@@ -1054,7 +1210,44 @@ export async function enqueueOutbox(d1: D1Database, connectionId: number, messag
         sql`${s.outbox.createdAt} < datetime('now', ${`-${OUTBOX_RETENTION_DAYS} days`})`,
       ),
     );
-  return row;
+  const results = await d1.batch([...queueStatements(d1, connectionId, message, condition), ...change, statement(d1, prune)]);
+  if (!results[1]?.results.length) return null;
+  return results.slice(2, 2 + change.length);
+}
+
+/** Queues a message for a connection under that connection's next sequence number. */
+export async function enqueueOutbox(d1: D1Database, connectionId: number, message: { id: string }): Promise<void> {
+  if (!(await queueWith(d1, connectionId, message, []))) throw new Error('no such connection to queue a message for');
+}
+
+/** A comment of ours, stored and queued for its connection in one batch. */
+export async function postComment(d1: D1Database, values: NewComment, message: { id: string }): Promise<void> {
+  const change = [statement(d1, db(d1).insert(s.comments).values(values))];
+  if (!(await queueWith(d1, values.connectionId, message, change))) throw new Error('no such connection to queue a message for');
+}
+
+/**
+ * A borrow request of ours, stored and queued for its connection in one batch — only while no request of ours
+ * for that book is still waiting, decided inside the batch, so a double submit makes one request, not a second
+ * they'd refuse. Returns the request's id, or null when one was already waiting.
+ */
+export async function requestToBorrow(
+  d1: D1Database,
+  values: NewBorrowRequest & { theirItemId: number; theirItemStamp: string },
+  message: { id: string },
+): Promise<number | null> {
+  const waiting = sql`EXISTS (SELECT 1 FROM borrow_requests WHERE connection_id = ${values.connectionId} AND incoming = 0
+    AND their_item_id = ${values.theirItemId} AND their_item_stamp = ${values.theirItemStamp} AND status = 'pending')`;
+  const insert = sql`INSERT INTO borrow_requests (activity_id, connection_id, incoming, their_item_id, their_item_stamp,
+      their_view_id, item_title, cover_key, requester_name, requester_id, note)
+    SELECT ${values.activityId}, ${values.connectionId}, 0, ${values.theirItemId}, ${values.theirItemStamp},
+      ${values.theirViewId ?? null}, ${values.itemTitle}, ${values.coverKey ?? null}, ${values.requesterName},
+      ${values.requesterId ?? null}, ${values.note}
+    WHERE ${queued(message)}
+    RETURNING id`;
+  const results = await queueWith(d1, values.connectionId, message, [statement(d1, insert)], sql`NOT ${waiting}`);
+  const row = results?.[0]?.results[0] as { id: number } | undefined;
+  return row?.id ?? null;
 }
 
 /** The last sequence number queued for a connection. */
@@ -1063,11 +1256,11 @@ export async function outboxHead(d1: D1Database, connectionId: number): Promise<
   return row?.seq ?? 0;
 }
 
-export async function markDelivered(d1: D1Database, id: number): Promise<void> {
+export async function markDelivered(d1: D1Database, activityId: string): Promise<void> {
   await db(d1)
     .update(s.outbox)
     .set({ deliveredAt: sql`(datetime('now'))` })
-    .where(eq(s.outbox.id, id));
+    .where(eq(s.outbox.activityId, activityId));
 }
 
 /** A connection's queued messages after a cursor in its own sequence, oldest first. */
@@ -1126,8 +1319,23 @@ export async function recordOutboxPull(d1: D1Database, connectionId: number, res
 }
 
 /** A message the other household refused outright: nothing is left to deliver. */
-export async function dropOutbox(d1: D1Database, id: number): Promise<void> {
-  await db(d1).delete(s.outbox).where(eq(s.outbox.id, id));
+export async function dropOutbox(d1: D1Database, activityId: string): Promise<void> {
+  await db(d1).delete(s.outbox).where(eq(s.outbox.activityId, activityId));
+}
+
+/**
+ * A message they refused for good leaves the outbox — and a refused request of ours is declined in the same
+ * batch. Dropped first and alone, a failure before the decline left the request pending for good, since the
+ * outbox row is what brings it back on a later page load.
+ */
+export async function dropRefused(d1: D1Database, message: { id: string; type: string }): Promise<void> {
+  const dbi = db(d1);
+  const drop = dbi.delete(s.outbox).where(eq(s.outbox.activityId, message.id));
+  if (message.type !== 'BorrowRequest') {
+    await drop;
+    return;
+  }
+  await dbi.batch([declineOwn(dbi, message.id), drop]);
 }
 
 export type PendingPush = OutboxRow & { connection: Connection };
@@ -1205,9 +1413,19 @@ export type NewBorrowRequest = {
   note: string | null;
 };
 
-/** Null when a request with that activity id exists already. */
-export async function insertBorrowRequest(d1: D1Database, values: NewBorrowRequest): Promise<BorrowRequestRow | null> {
-  const [row] = await db(d1).insert(s.borrowRequests).values(values).onConflictDoNothing().returning();
+/** Null when a request with that activity id exists already. A `notice` is recorded with a new one, in one batch. */
+export async function insertBorrowRequest(
+  d1: D1Database,
+  values: NewBorrowRequest,
+  notice?: NewNotification,
+): Promise<BorrowRequestRow | null> {
+  const dbi = db(d1);
+  const insert = dbi.insert(s.borrowRequests).values(values).onConflictDoNothing().returning();
+  if (!notice) return (await insert)[0] ?? null;
+  const [, [row]] = await dbi.batch([
+    notifyIf(dbi, notice, sql`NOT EXISTS (SELECT 1 FROM borrow_requests WHERE activity_id = ${values.activityId})`),
+    insert,
+  ]);
   return row ?? null;
 }
 
@@ -1304,12 +1522,11 @@ export async function hasPendingOutgoing(d1: D1Database, connectionId: number, t
 }
 
 /** Declines a request of ours that they refused outright — so it doesn't sit waiting forever. */
-export async function declineOwnRequest(d1: D1Database, activityId: string): Promise<void> {
-  await db(d1)
+const declineOwn = (dbi: ReturnType<typeof db>, activityId: string) =>
+  dbi
     .update(s.borrowRequests)
     .set({ status: 'declined', respondedAt: sql`(datetime('now'))` })
     .where(and(eq(s.borrowRequests.activityId, activityId), eq(s.borrowRequests.incoming, false), eq(s.borrowRequests.status, 'pending')));
-}
 
 /**
  * One of our items, only if it is inside a connection view — one query, so an unknown item and an unshared one
@@ -1346,19 +1563,38 @@ export async function countPendingIncoming(d1: D1Database, connectionId: number)
   return row?.n ?? 0;
 }
 
-/** Moves a request to `status` only from one of `from`, so a repeat or a race changes nothing. */
+/**
+ * Moves a request to `status` only from one of `from`, so a repeat or a race changes nothing. A `notice` is
+ * recorded only when it moves, in the same batch; so is a message to `send` to the connection, queued only
+ * when it moves.
+ */
 export async function setRequestStatus(
   d1: D1Database,
   id: number,
   status: BorrowStatus,
   from: BorrowStatus[],
-  dueOn: string | null = null,
+  {
+    dueOn = null,
+    notice,
+    send,
+  }: { dueOn?: string | null; notice?: NewNotification; send?: { connectionId: number; message: { id: string } } } = {},
 ): Promise<boolean> {
-  const rows = await db(d1)
-    .update(s.borrowRequests)
-    .set({ status, dueOn, respondedAt: sql`(datetime('now'))` })
-    .where(and(eq(s.borrowRequests.id, id), sql`${s.borrowRequests.status} IN (SELECT value FROM json_each(${JSON.stringify(from)}))`))
-    .returning({ id: s.borrowRequests.id });
+  const dbi = db(d1);
+  const movable = and(eq(s.borrowRequests.id, id), sql`${s.borrowRequests.status} IN (SELECT value FROM json_each(${JSON.stringify(from)}))`);
+  const moveWhere = (also?: SQL) =>
+    dbi
+      .update(s.borrowRequests)
+      .set({ status, dueOn, respondedAt: sql`(datetime('now'))` })
+      .where(and(movable, also))
+      .returning({ id: s.borrowRequests.id });
+  if (send) {
+    const change = [statement(d1, moveWhere(queued(send.message)))];
+    const stillMovable = sql`EXISTS (SELECT 1 FROM borrow_requests WHERE ${movable})`;
+    return (await queueWith(d1, send.connectionId, send.message, change, stillMovable)) !== null;
+  }
+  const update = moveWhere();
+  if (!notice) return (await update).length === 1;
+  const [, rows] = await dbi.batch([notifyIf(dbi, notice, sql`EXISTS (SELECT 1 FROM borrow_requests WHERE ${movable})`), update]);
   return rows.length === 1;
 }
 
@@ -1404,62 +1640,65 @@ export async function recentOutgoing(d1: D1Database, limit: number): Promise<Out
 
 /**
  * Accepting a request lends the book with an ordinary loan — so the Loans page, overdue logic and return button
- * all apply unchanged — linked to the connection and the request. The status moves first, and only from pending,
- * so one request is lent at most once. The loan is inserted only while a copy is free, decided inside that one
- * statement, so two members lending the last copy to different households at once make one loan, not two.
- * Null when nothing was lent; a failure leaves no loan behind and the request pending again.
+ * all apply unchanged — linked to the connection and the request, with their `message` queued: one batch, all
+ * or nothing, and only while the request is still pending and a copy is free, decided inside it. So one request
+ * is lent at most once, two members lending the last copy to different households at once make one loan, not
+ * two, and the lend can't happen without the message that tells them. (It was four steps with a compensation
+ * path, and a failure inside the compensation left the request accepted with no loan and nothing sent.) Null
+ * when nothing was lent.
  */
 export async function lendToConnection(
   d1: D1Database,
   request: BorrowRequestRow,
   borrower: string,
   dueOn: string | null,
+  message: { id: string },
 ): Promise<number | null> {
-  if (request.ourItemId === null) return null;
-  if (!(await setRequestStatus(d1, request.id, 'accepted', ['pending'], dueOn))) return null;
-  const reopen = () =>
-    db(d1)
-      .update(s.borrowRequests)
-      .set({ status: 'pending', dueOn: null, respondedAt: null })
-      .where(and(eq(s.borrowRequests.id, request.id), eq(s.borrowRequests.status, 'accepted')));
-  let loanId: number | null = null;
-  try {
-    const loan = await d1
-      .prepare(
-        `INSERT INTO loans (item_id, borrower, due_on)
-         SELECT id, ?2, ?3 FROM items
-         WHERE id = ?1 AND copies > (SELECT count(*) FROM loans WHERE item_id = ?1 AND returned_on IS NULL)
-         RETURNING id`,
-      )
-      .bind(request.ourItemId, borrower, dueOn)
-      .first<{ id: number }>();
-    if (!loan) {
-      await reopen(); // no copy free after all
-      return null;
-    }
-    loanId = loan.id;
-    await db(d1).insert(s.connectionLoans).values({
-      loanId: loan.id,
-      connectionId: request.connectionId,
-      requestId: request.id,
-      requestActivityId: request.activityId,
-    });
-    return loan.id;
-  } catch (err) {
-    if (loanId !== null) await db(d1).delete(s.loans).where(eq(s.loans.id, loanId));
-    await reopen();
-    throw err;
-  }
+  const itemId = request.ourItemId;
+  if (itemId === null) return null;
+  const lendable = sql`EXISTS (SELECT 1 FROM borrow_requests WHERE id = ${request.id} AND incoming = 1 AND status = 'pending')
+    AND (SELECT copies FROM items WHERE id = ${itemId}) > (SELECT count(*) FROM loans WHERE item_id = ${itemId} AND returned_on IS NULL)`;
+  const go = queued(message); // decided once, by the queue statements, before the loan changes what "free" means
+  const results = await queueWith(
+    d1,
+    request.connectionId,
+    message,
+    [
+      statement(d1, sql`INSERT INTO loans (item_id, borrower, due_on) SELECT ${itemId}, ${borrower}, ${dueOn} WHERE ${go} RETURNING id`),
+      // the loan just made is the newest: rowids only grow, and nothing else writes inside this batch
+      statement(
+        d1,
+        sql`INSERT INTO connection_loans (loan_id, connection_id, request_id, request_activity_id)
+            SELECT (SELECT max(id) FROM loans), ${request.connectionId}, ${request.id}, ${request.activityId} WHERE ${go}`,
+      ),
+      statement(
+        d1,
+        db(d1)
+          .update(s.borrowRequests)
+          .set({ status: 'accepted', dueOn, respondedAt: sql`(datetime('now'))` })
+          .where(and(eq(s.borrowRequests.id, request.id), go)),
+      ),
+    ],
+    lendable,
+  );
+  const loan = results?.[0]?.results[0] as { id: number } | undefined;
+  return loan?.id ?? null;
 }
 
 /**
  * Their yes to one of our requests: the request moves to accepted — from pending, or from withdrawn, since they
  * lent it anyway — and the book goes on the Borrowed page. One batch, so a pull that runs out of queries can't
- * keep the first without the second; the entry goes in first, and only while the request can still move. False
- * when nothing moved: a repeat, or an answer to a declined request.
+ * keep the first without the second; the entry goes in first, and only while the request can still move — as
+ * does a `notice`, ahead of both. False when nothing moved: a repeat, or an answer to a declined request.
  */
-export async function acceptOwnRequest(d1: D1Database, requestId: number, loanedOn: string, dueOn: string | null): Promise<boolean> {
-  const [, moved] = await d1.batch<{ id: number }>([
+export async function acceptOwnRequest(
+  d1: D1Database,
+  requestId: number,
+  loanedOn: string,
+  dueOn: string | null,
+  notice?: NewNotification,
+): Promise<boolean> {
+  const statements = [
     d1
       .prepare(
         `INSERT INTO borrowed_items (connection_id, request_activity_id, their_item_id, title, cover_key, borrowed_on, due_on)
@@ -1475,27 +1714,37 @@ export async function acceptOwnRequest(d1: D1Database, requestId: number, loaned
          RETURNING id`,
       )
       .bind(requestId, dueOn),
-  ]);
-  return moved?.results.length === 1;
+  ];
+  if (notice) {
+    statements.unshift(
+      notifyIfStatement(
+        d1,
+        notice,
+        sql`EXISTS (SELECT 1 FROM borrow_requests WHERE id = ${requestId} AND incoming = 0 AND status IN ('pending', 'withdrawn'))`,
+      ),
+    );
+  }
+  const results = await d1.batch<{ id: number }>(statements);
+  return results.at(-1)?.results.length === 1;
 }
 
+/** Marks a borrowed book returned, once. A `notice` is recorded only when it's marked, in the same batch. */
 export async function markBorrowedReturned(
   d1: D1Database,
   connectionId: number,
   requestActivityId: string,
   returnedOn: string,
+  notice?: NewNotification,
 ): Promise<boolean> {
-  const rows = await db(d1)
-    .update(s.borrowedItems)
-    .set({ returnedOn })
-    .where(
-      and(
-        eq(s.borrowedItems.connectionId, connectionId),
-        eq(s.borrowedItems.requestActivityId, requestActivityId),
-        isNull(s.borrowedItems.returnedOn),
-      ),
-    )
-    .returning({ id: s.borrowedItems.id });
+  const dbi = db(d1);
+  const outstanding = and(
+    eq(s.borrowedItems.connectionId, connectionId),
+    eq(s.borrowedItems.requestActivityId, requestActivityId),
+    isNull(s.borrowedItems.returnedOn),
+  );
+  const update = dbi.update(s.borrowedItems).set({ returnedOn }).where(outstanding).returning({ id: s.borrowedItems.id });
+  if (!notice) return (await update).length === 1;
+  const [, rows] = await dbi.batch([notifyIf(dbi, notice, sql`EXISTS (SELECT 1 FROM borrowed_items WHERE ${outstanding})`), update]);
   return rows.length === 1;
 }
 
@@ -1619,19 +1868,40 @@ const MAX_NOTIFICATION_TEXT = 200;
 
 export type NewNotification = { kind: NotificationKind; householdName: string; subject?: string | null; href: string };
 
+const clipped = (n: NewNotification) => ({
+  kind: n.kind,
+  householdName: n.householdName.slice(0, MAX_NOTIFICATION_TEXT),
+  subject: n.subject ? n.subject.slice(0, MAX_NOTIFICATION_TEXT) : null,
+  href: n.href,
+});
+
 /**
  * Records one. Callers do it only once the event has really happened — a repeat of the same message (from a
  * retry or an outbox pull) must not notify twice, so each call sits behind the check that made the change.
  */
 export async function notify(d1: D1Database, n: NewNotification): Promise<void> {
-  await db(d1)
+  await db(d1).insert(s.notifications).values(clipped(n));
+}
+
+/**
+ * `notify`, but inside the batch that makes the change it announces: recorded only while `condition` — the
+ * change's own precondition — holds, and ahead of the change, so the two land together or not at all. As two
+ * calls, a pull that ran out of queries between them kept the change and lost its notification for good: the
+ * replay found the change already made, and notified nothing.
+ */
+/** `notifyIf` as a plain D1 statement, for a batch of hand-written SQL. */
+function notifyIfStatement(d1: D1Database, n: NewNotification, condition: SQL): D1PreparedStatement {
+  const q = notifyIf(db(d1), n, condition).toSQL();
+  return d1.prepare(q.sql).bind(...q.params);
+}
+
+function notifyIf(dbi: ReturnType<typeof db>, n: NewNotification, condition: SQL) {
+  const v = clipped(n);
+  // An insert from a select, not raw SQL: Drizzle's D1 batch can't take a raw statement with parameters. It
+  // fills every column in the table's order, so id is NULL (assigned) and `at` repeats the column default.
+  return dbi
     .insert(s.notifications)
-    .values({
-      kind: n.kind,
-      householdName: n.householdName.slice(0, MAX_NOTIFICATION_TEXT),
-      subject: n.subject ? n.subject.slice(0, MAX_NOTIFICATION_TEXT) : null,
-      href: n.href,
-    });
+    .select(sql`SELECT NULL, ${v.kind}, ${v.householdName}, ${v.subject}, ${v.href}, datetime('now') WHERE ${condition}`);
 }
 
 /** Kinds this person is shown: connection requests and changes only reach admins, who can act on them. */

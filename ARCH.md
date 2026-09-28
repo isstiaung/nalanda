@@ -67,7 +67,7 @@ Family browsers (phone/laptop)          Share-link visitors (read-only)
         ▼                                         ▼
 Cloudflare Worker — one Hono app (auth'd routes | public share routes)
   • pages & htmx partials (hono/jsx)   • /api/lookup, /api/import (JSON)
-  • session middleware, roles          • CSV export streaming
+  • session middleware, roles          • CSV export, a page a request
         │                  │                        │
         ▼                  ▼                        ▼
        D1 (SQLite)        R2 (cover art)      Metadata APIs (outbound fetch,
@@ -235,7 +235,9 @@ a field it has no value for, and never touches copies or bibliographic metadata)
 unmatched rows insert with `copies = 0` (reading-log entries, §16 #13) unless Goodreads'
 Owned Copies says otherwise. Re-runs are idempotent: previously inserted rows match on
 the next run. A dry-run preview shows mapping + match counts before anything is written.
-Export is the inverse: `GET /export.csv` streams every field back out.
+Export is the inverse: `GET /export.csv` writes every field back out. The Export button
+fetches it a page at a time and joins the pages in the browser, so no request builds more than
+250 items (§16 #38); without a cursor the same route streams everything in one response.
 
 ## 7. Metadata providers
 
@@ -340,7 +342,8 @@ GET  /loans                    out + overdue + history
 GET  /search                   ?q= — FTS5 across title/creators/description/notes
 GET  /tags · GET /tags/:id     browse by tag
 GET  /import                   POST /api/import (JSON batches from client-parsed CSV)
-GET  /export.csv               everything, streaming; ?library=:id to scope
+GET  /export.csv               everything; ?library=:id to scope; ?after=:id for one page of 250
+                               (x-export-next names the next page) — the Export button's way
 GET  /covers/:key              cover art from R2 (public, unguessable, immutable cache)
 
 GET  /settings/users           admin: create/remove members, reissue temp passwords
@@ -433,7 +436,8 @@ Every authenticated page route returns a full document normally and a partial wh
 | External APIs | OL keyless · BGG and Discogs free tokens (Discogs 60/min) · Google free quota | add-time only, single-digit calls |
 
 The **10 ms CPU ceiling** is the one real constraint, and the design bends around it in
-three places: CSV parsing happens in the browser (server just validates JSON batches);
+four places: CSV parsing happens in the browser (server just validates JSON batches);
+CSV export is fetched a page at a time and joined in the browser (§16 #38);
 cover images are stored as-fetched, never resized server-side; password hashing uses
 WebCrypto (native) rather than a JS hashing library. Parsing one BGG XML response with
 `fast-xml-parser` is sub-millisecond — fine. Everything else is I/O. Escape hatch if we
@@ -821,8 +825,16 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     notifications cover the discrete events someone may need to act on or would want to know:
     connection requested, accepted, declined, withdrawn, disconnected; a borrow requested,
     withdrawn, accepted, declined, returned; a comment. Each is recorded behind the check that
-    proved the event happened — `markActivitySeen`, `setRequestStatus`'s return, `insertComment`'s
-    conflict — so a message replayed from an outbox notifies once. Names and titles are copied in,
+    proved the event happened — the `federation_seen` replay marker, `setRequestStatus`'s return,
+    `insertComment`'s conflict — so a message replayed from an outbox notifies once. And each is
+    written in the same batch as its change, on the change's own precondition (`notifyIf`): as two
+    calls, an outbox pull that ran out of budget between them kept the change, and the replay —
+    seeing it made — skipped the message, so its notification never came. The same failure hit
+    whatever went before its effect: a connection message's replay marker was written first and
+    alone, so a failure after it turned the retry away as "already processed" with nothing done,
+    and a redeemed invitation that failed to notify left a request no admin was told about. The
+    marker, the effect and the notice are now one batch (`applyConnectionMessage`, `redeemInvite`).
+    Names and titles are copied in,
     so a notification still reads after a disconnect, and render as escaped text; `href` is always
     built here. Connection kinds reach admins only, since only admins can act on them. Feed activity
     is counted, not notified — a notification per progress update would bury everything else.
@@ -850,6 +862,61 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     probe was deleted afterwards and never touched Nalanda's data. Designs keep 50 as their
     budget — conservative, and possibly what binds on another account — but a batch is no
     longer counted per statement.
+38. **CSV export is fetched a page at a time, and the browser joins the pages.** The export
+    streamed the whole catalog from one request, and a stream's work all counts against that one
+    invocation's 10 ms of CPU. The pre-deploy review estimated 15–20 ms for production's 1,998
+    items; timing the real `pageItems` and `itemToCsvLine` in V8, on rows heavier than production's,
+    gave 12 ms warm and 20 ms on a cold isolate for 2,000 items, 1.8 and 6 ms for 250. So the
+    Export button asks for `/export.csv?after=<id>`: one page of 250 items a request, the header row
+    on the first page only, and `x-export-next` naming where the next starts until a page comes
+    back short. `public/import.js` joins the pages into one Blob and saves it under the filename
+    the first page names. A page that fails fails the export, and nothing is saved, and a lapsed
+    session can't slip the login page into the file (`redirect: 'error'`, and each page must be
+    `text/csv`). Imports already worked this way round, in 200-row batches. The route without a
+    cursor still streams everything in one response: what the link does without JavaScript, and
+    what a script fetching the URL gets. On a large catalog the runtime can cut that off, and the
+    download then fails rather than stopping short. Workers Paid's 30 s would have made the stream
+    enough on its own, but this app stays on the free plan.
+39. **A change and whatever it owes — a message, a notification, a replay marker — are one
+    batch.** Two pre-deploy reviews proved the same failure in a dozen places: a write, then a
+    second write that depends on it, as separate D1 calls. A failure between them — a transient
+    D1 error, an exceeded CPU limit, or an outbox pull out of budget — kept the first alone, and
+    the path's own idempotency check then treated the job as done: a comment stored here, never
+    sent, and doubled on a second Send; a lend or a decline the other household was never told
+    about; a notification that never came; a connection message whose replay marker turned every
+    retry away. Now the message is queued in the same batch as its change (`queueWith`), only
+    while the change's own precondition holds, and the change runs only once the message is in
+    the outbox — a fresh activity id makes that exact, and lets lending pick up its new loan's
+    id inside the batch. A borrow request is queued only while none for that book is waiting, so
+    a double submit makes one request. Notifications ride along the same way (`notifyIf`), and so do replay
+    markers (`applyConnectionMessage`). Anything after the batch — the push, a prune — must be
+    unable to fail the request, or the person's retry repeats a change already made. Drizzle's
+    batch can't take raw SQL with parameters, so batches that need both are built as plain D1
+    statements (`statement()`).
+40. **Feed activity is dated by when it happened, and an import isn't news.** The first-view
+    backfill dated entries by `items.updated_at`, and a Goodreads import (all 1,998 items on one
+    day) and two metadata backfills had rewritten that on every item within the 90-day window, so
+    sharing a first view would have offered followers the newest 300 of years of reviews, ratings
+    and finishes as if they were new. The triggers had the same flaw from the other side: `at` was
+    always now, so a 2019 read imported while a view was shared reached followers as today's
+    finish. Receivers sort by the entry's date and keep only their retention window, so the fix is
+    the date itself. The backfill takes only activity with a date of its own: a finish by its
+    `completed_on`; a rating or review, which has no timestamp, by its book's `completed_on` —
+    and one without is left out, since nothing else says when it was given (`added_at` doesn't:
+    Goodreads' "Date Added" lands in `details`, so imported items are added the day of the
+    import). Progress keeps its own time, and an update already in the log isn't added again.
+    The triggers (migration 0021) date a finish by `completed_on` when that's before today, and a
+    rating or review by now: re-rating a book read years ago is news the day it happens. Only an
+    import can't be told from that by the data, so an import says so: its batch inserts a row in
+    `import_in_progress` first and deletes it last, and while the row exists all three kinds are
+    dated by `completed_on`, clamped to now, and a read with no usable date records nothing. One
+    batch, so the marker can't outlive the import or miss a row of it; a failed import rolls it
+    back with everything else. Considered and set aside: dating ratings by `completed_on` always
+    (buries genuine re-ratings), and suppressing everything during imports (loses a read finished
+    last week and imported today, which is news). A new follower's first page is the newest by
+    date, not by id, since an import's old reads now carry new ids and old dates; its cursor is the
+    highest id it sent. The first view and its opening entries are one batch. Deleting the last view clears the log in the
+    same batch, so a stale log can't survive to the next first view.
 
 The honest comparison, since it was asked:
 

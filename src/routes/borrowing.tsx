@@ -14,15 +14,15 @@ import {
   getConnection,
   getFederationSettings,
   hasPendingOutgoing,
-  insertBorrowRequest,
   lendToConnection,
   listBorrowed,
   listConnections,
   pendingIncoming,
   recentOutgoing,
+  requestToBorrow,
   setRequestStatus,
 } from '../db/federation';
-import type { BorrowStatus, Connection, FederationSettings } from '../db/schema';
+import type { BorrowRequestRow, BorrowStatus, Connection, FederationSettings } from '../db/schema';
 import type { AppEnv } from '../env';
 import { refreshInBackground } from '../federation/background';
 import { MAX_BORROW_NOTE_CHARS, SHELF_CACHE_ENTRIES, SHELF_CACHE_MS } from '../federation/config';
@@ -30,8 +30,8 @@ import { parseSharedViews } from '../federation/feed';
 import { getSigned } from '../federation/http';
 import { coverUrl, isId, parseItemDetail, parseShelfItem, type ShelfItem } from '../federation/items';
 import { loadIdentity, type Identity } from '../federation/keys';
-import { borrowAccept, borrowDecline, borrowRequest, borrowWithdraw } from '../federation/messages';
-import { sendNow, sendToConnection } from '../federation/outbox';
+import { borrowAccept, borrowDecline, borrowRequest, borrowWithdraw, type DirectedMessage } from '../federation/messages';
+import { pushNow, pushQueued } from '../federation/outbox';
 import { DetailsList, MEDIA_ICON, MEDIA_LABEL, Pagination, stars } from '../views/components';
 import { page } from '../views/layout';
 
@@ -354,22 +354,28 @@ borrowing.post('/households/:id/requests', async (c) => {
 
   const user = c.get('user');
   const message = borrowRequest(ctx.settings.baseUrl, item.id, item.stamp, user.username, rawNote || null);
-  const row = await insertBorrowRequest(c.env.DB, {
-    activityId: message.id,
-    connectionId: connection.id,
-    incoming: false,
-    theirItemId: item.id,
-    theirItemStamp: item.stamp,
-    theirViewId: viewId,
-    itemTitle: item.title,
-    coverKey: item.coverKey,
-    requesterName: message.requester,
-    requesterId: user.id,
-    note: message.note,
-  });
-  const status = await sendNow(c.env.DB, ctx.identity, ctx.settings, connection, message);
-  if (row && status !== null && status >= 400 && status < 500 && status !== 429) {
-    await setRequestStatus(c.env.DB, row.id, 'declined', ['pending']);
+  // stored and queued together, unless one for this book is already waiting (a double submit); a refusal
+  // declines it and takes it out of the outbox, also together
+  const requestId = await requestToBorrow(
+    c.env.DB,
+    {
+      activityId: message.id,
+      connectionId: connection.id,
+      incoming: false,
+      theirItemId: item.id,
+      theirItemStamp: item.stamp,
+      theirViewId: viewId,
+      itemTitle: item.title,
+      coverKey: item.coverKey,
+      requesterName: message.requester,
+      requesterId: user.id,
+      note: message.note,
+    },
+    message,
+  );
+  if (requestId === null) return c.redirect('/borrowed');
+  const status = await pushNow(c.env.DB, ctx.identity, ctx.settings, connection, message);
+  if (status !== null && status >= 400 && status < 500 && status !== 429) {
     return renderBorrowed(c, ctx, { error: `${connection.householdName} couldn’t take that request: the book isn’t available any more.` });
   }
   return c.redirect('/borrowed');
@@ -381,9 +387,7 @@ borrowing.post('/borrow-requests/:id/withdraw', async (c) => {
   const request = await getBorrowRequest(c.env.DB, Number(c.req.param('id')));
   if (!request || request.incoming) return c.redirect('/borrowed');
   const connection = await getConnection(c.env.DB, request.connectionId);
-  if ((await setRequestStatus(c.env.DB, request.id, 'withdrawn', ['pending'])) && connection?.status === 'active') {
-    await sendToConnection(c, ctx.identity, ctx.settings, connection, borrowWithdraw(ctx.settings.baseUrl, request.activityId));
-  }
+  await moveAndTell(c, ctx, request, 'withdrawn', connection, borrowWithdraw(ctx.settings.baseUrl, request.activityId));
   return c.redirect('/borrowed');
 });
 
@@ -397,10 +401,9 @@ borrowing.post('/borrow-requests/:id/accept', async (c) => {
 
   const form = await c.req.parseBody();
   const dueOn = typeof form['dueOn'] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(form['dueOn']) ? form['dueOn'] : null;
-  const loanId = await lendToConnection(c.env.DB, request, `${request.requesterName} (${connection.householdName})`, dueOn);
-  if (loanId) {
-    await sendToConnection(c, ctx.identity, ctx.settings, connection, borrowAccept(ctx.settings.baseUrl, request.activityId, today(), dueOn));
-  }
+  const message = borrowAccept(ctx.settings.baseUrl, request.activityId, today(), dueOn);
+  const loanId = await lendToConnection(c.env.DB, request, `${request.requesterName} (${connection.householdName})`, dueOn, message);
+  if (loanId) pushQueued(c, ctx.identity, ctx.settings, connection, message);
   return c.redirect('/loans');
 });
 
@@ -410,11 +413,30 @@ borrowing.post('/borrow-requests/:id/decline', async (c) => {
   const request = await getBorrowRequest(c.env.DB, Number(c.req.param('id')));
   if (!request?.incoming) return c.redirect('/loans');
   const connection = await getConnection(c.env.DB, request.connectionId);
-  if ((await setRequestStatus(c.env.DB, request.id, 'declined', ['pending'])) && connection?.status === 'active') {
-    await sendToConnection(c, ctx.identity, ctx.settings, connection, borrowDecline(ctx.settings.baseUrl, request.activityId));
-  }
+  await moveAndTell(c, ctx, request, 'declined', connection, borrowDecline(ctx.settings.baseUrl, request.activityId));
   return c.redirect('/loans');
 });
+
+/**
+ * Moves a pending request on and, while the connection is active, tells them — queued in the same batch as
+ * the change, so it can't be made here and never sent there.
+ */
+async function moveAndTell(
+  c: Context<AppEnv>,
+  ctx: Enabled,
+  request: BorrowRequestRow,
+  status: 'withdrawn' | 'declined',
+  connection: Connection | null,
+  message: DirectedMessage,
+): Promise<void> {
+  if (connection?.status !== 'active') {
+    await setRequestStatus(c.env.DB, request.id, status, ['pending']);
+    return;
+  }
+  if (await setRequestStatus(c.env.DB, request.id, status, ['pending'], { send: { connectionId: connection.id, message } })) {
+    pushQueued(c, ctx.identity, ctx.settings, connection, message);
+  }
+}
 
 // ---------- the Borrowed page ----------
 

@@ -4,30 +4,26 @@
 // a household name to have been saved.
 import { Hono, type Context } from 'hono';
 import {
-  activateConnection,
-  notify,
   activityInView,
+  applyConnectionMessage,
   availability,
   countConnections,
-  countItemsInView,
   countPush,
-  deleteConnection,
+  describeViews,
   findRedeemableInvite,
   getConnectionByBaseUrl,
   getConnectionView,
   getFederationSettings,
   itemMatchesView,
   listConnectionViews,
-  markActivitySeen,
   outboxAfter,
   outboxHead,
   redeemInvite,
   shelfPage,
   stillShared,
-  viewVolume,
 } from '../db/federation';
 import { getItem, tagsForItem } from '../db/queries';
-import type { Connection } from '../db/schema';
+import type { Connection, NotificationKind } from '../db/schema';
 import type { AppEnv } from '../env';
 import { page } from '../views/layout';
 import {
@@ -151,11 +147,11 @@ federation.post('/federation/connect', async (c) => {
     invite.id,
     { baseUrl: request.actor, householdName: descriptor.name, publicKey: JSON.stringify(descriptor.publicKey) },
     MAX_ACTIVE_CONNECTIONS,
+    // the one that needs someone here to act: they're waiting on a confirmation from us
+    { kind: 'connection_request', householdName: descriptor.name, href: '/connections' },
   );
   switch (outcome) {
     case 'pending':
-      // the one that needs someone here to act: they're waiting on a confirmation from us
-      await notify(c.env.DB, { kind: 'connection_request', householdName: descriptor.name, href: '/connections' });
       return c.json({ status: 'pending' }, 202);
     case 'invitation gone':
       return c.json({ error: 'invitation not found' }, 404);
@@ -207,7 +203,7 @@ async function fromActiveConnection(c: Context<AppEnv>, maxBodyBytes: number): P
 
 const digits = (raw: string | undefined): number | null => (raw !== undefined && /^\d{1,15}$/.test(raw) ? Number(raw) : null);
 
-// The shared views, with counts and volume, cost two queries per view; one isolate reuses them briefly.
+// The shared views with their counts and volume: a handful of queries, reused briefly by one isolate.
 let sharedViews: { json: string; expires: number } | null = null;
 
 /** Called when a view is added or removed, so this isolate serves the change at once. */
@@ -223,14 +219,13 @@ federation.get('/federation/views', async (c) => {
   if (!(await getFederationSettings(c.env.DB))) return c.notFound();
   if (!sharedViews || sharedViews.expires <= Date.now()) {
     const views = await listConnectionViews(c.env.DB);
-    const described = await Promise.all(
-      views.map(async (view) => ({
-        id: view.id,
-        name: view.name,
-        itemCount: await countItemsInView(c.env.DB, view),
-        recent: { days: VOLUME_WINDOW_DAYS, ...(await viewVolume(c.env.DB, view, VOLUME_WINDOW_DAYS)) },
-      })),
-    );
+    const sizes = await describeViews(c.env.DB, views, VOLUME_WINDOW_DAYS);
+    const described = views.map((view, i) => ({
+      id: view.id,
+      name: view.name,
+      itemCount: sizes[i]!.itemCount,
+      recent: { days: VOLUME_WINDOW_DAYS, activities: sizes[i]!.activities, bytes: sizes[i]!.bytes },
+    }));
     sharedViews = { json: JSON.stringify({ views: described }), expires: Date.now() + SHARED_VIEWS_CACHE_MS };
   }
   return c.body(sharedViews.json, 200, { 'content-type': 'application/json' });
@@ -270,9 +265,8 @@ federation.get('/federation/feed', async (c) => {
     entries.push(entry);
     bytes += size;
   }
-  const newest = entries[0];
-  const last = entries[entries.length - 1];
-  const latest = fromStart ? (newest?.id ?? 0) : (last?.id ?? since);
+  // A first page runs newest by date, so its highest id can be anywhere in it; later pages run by id.
+  const latest = fromStart ? Math.max(0, ...entries.map((e) => e.id)) : (entries[entries.length - 1]?.id ?? since);
   return c.json({ view: view.id, latest, more: !fromStart && rows.length > entries.length, entries });
 });
 
@@ -421,36 +415,31 @@ federation.post('/federation/inbox', async (c) => {
     const outcome = await receiveDirected(c.env.DB, settings, connection, message);
     return c.json(outcome.body, outcome.status);
   }
-  if (!(await markActivitySeen(c.env.DB, message.id))) return c.json({ status: 'already processed' });
-
   forgetPeer(connection.baseUrl);
-  // markActivitySeen above has already turned away a repeat of this message, so each notifies once.
+  // The effect, its notification and the replay marker land together, so a repeat of this message changes
+  // nothing and notifies nothing, and a failure part way leaves the message new for their retry.
   const who = connection.householdName;
+  const apply = (change: 'activate' | 'delete', kind: NotificationKind) =>
+    applyConnectionMessage(c.env.DB, message.id, connection.id, change, { kind, householdName: who, href: '/connections' });
   switch (message.type) {
     case 'ConnectAccept':
-      if (await activateConnection(c.env.DB, connection.id, 'awaiting_them')) {
-        await notify(c.env.DB, { kind: 'connection_accepted', householdName: who, href: '/connections' });
-      }
+      if (!(await apply('activate', 'connection_accepted'))) return c.json({ status: 'already processed' });
       return c.json({ status: 'active' });
     case 'ConnectDecline':
-      await deleteConnection(c.env.DB, connection.id);
-      await notify(c.env.DB, { kind: 'connection_declined', householdName: who, href: '/connections' });
+      if (!(await apply('delete', 'connection_declined'))) return c.json({ status: 'already processed' });
       return c.json({ status: 'declined' });
-    case 'Disconnect':
-      await deleteConnection(c.env.DB, connection.id);
+    case 'Disconnect': {
       // What a Disconnect means depends on where it found us: a household still waiting on us takes back its
       // request; one we asked, that never confirmed, has in effect declined; only an active one disconnects.
-      await notify(c.env.DB, {
-        kind:
-          connection.status === 'awaiting_us'
-            ? 'connection_withdrawn'
-            : connection.status === 'awaiting_them'
-              ? 'connection_declined'
-              : 'disconnected',
-        householdName: who,
-        href: '/connections',
-      });
+      const kind =
+        connection.status === 'awaiting_us'
+          ? 'connection_withdrawn'
+          : connection.status === 'awaiting_them'
+            ? 'connection_declined'
+            : 'disconnected';
+      if (!(await apply('delete', kind))) return c.json({ status: 'already processed' });
       return c.json({ status: 'disconnected' });
+    }
   }
 });
 

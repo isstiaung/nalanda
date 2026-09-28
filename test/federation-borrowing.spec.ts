@@ -2,14 +2,26 @@
 // with an ordinary loan, return notices, the Borrowed page (docs/proposals/connections.md §7, §10).
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createConnectionView, getConnection } from '../src/db/federation';
+import { createConnectionView, getConnection, getFederationSettings, postComment, requestToBorrow } from '../src/db/federation';
 import { createItem, createLibrary, createLoan, deleteItem, setItemTags } from '../src/db/queries';
 import type { Item } from '../src/db/schema';
 import type { Bindings } from '../src/env';
 import { receiveBorrowing } from '../src/federation/borrowing';
 import { BudgetSpent, budgeted } from '../src/federation/budget';
 import { itemStamp } from '../src/federation/items';
-import { borrowAccept, borrowDecline, borrowRequest, borrowWithdraw, inboxMessage, parseInboxMessage } from '../src/federation/messages';
+import { loadIdentity } from '../src/federation/keys';
+import {
+  borrowAccept,
+  borrowDecline,
+  borrowRequest,
+  borrowWithdraw,
+  commentCreate,
+  commentDelete,
+  inboxMessage,
+  parseInboxMessage,
+} from '../src/federation/messages';
+import { refreshOutboxes } from '../src/federation/outbox';
+import { expectOnlyBudgetErrors } from './console';
 import {
   A,
   answerOutbound,
@@ -496,5 +508,213 @@ describe('without a federation key', () => {
     expect((await disabled.get(`/households/${connectionId}`, member)).status).toBe(404);
     expect((await disabled.get('/federation/export.json', await sessionCookie('admin'))).status).toBe(404);
     expect(await (await disabled.get('/', member)).text()).not.toContain('href="/borrowed"');
+  });
+});
+
+describe('a change here and the message that tells them: both or neither', () => {
+  // Every action that changes something a connection must hear about queues its message in the same batch as
+  // the change. Queued afterwards, a failure between the two left a change they were never told about — a
+  // comment stored here, never sent, and doubled when the person pressed Send again. Each case fails the action
+  // at every point in turn, checks the change and the message agree, then retries it with room to spare.
+  const withBudget = (left: number) =>
+    instanceA({ ...env, DB: budgeted(env.DB, { left }), FEDERATION_PRIVATE_KEY: keysA.secret } as Bindings);
+  const queuedOf = async (type: string) =>
+    (await rows<{ n: number }>('SELECT count(*) AS n FROM outbox WHERE message LIKE ?1', `%"type":"${type}"%`))[0]!.n;
+  const clear = (...tables: string[]) => env.DB.batch(tables.map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
+
+  async function atEveryFailurePoint(
+    label: string,
+    type: string,
+    reset: () => Promise<void>,
+    act: (app: ReturnType<typeof instanceA>) => Promise<Response>,
+    changed: () => Promise<boolean>,
+  ) {
+    expectOnlyBudgetErrors();
+    for (let left = 0; ; left++) {
+      expect(left, `${label} never finished`).toBeLessThan(60);
+      await reset();
+      const res = await act(withBudget(left));
+      const state = { changed: await changed(), queued: await queuedOf(type) };
+      expect(state.queued, `${label}, with room for ${left} queries: ${JSON.stringify(state)}`).toBe(state.changed ? 1 : 0);
+      if (res.status < 500) {
+        expect(state, label).toEqual({ changed: true, queued: 1 });
+        return;
+      }
+      await act(a); // the person tries again
+      expect({ changed: await changed(), queued: await queuedOf(type) }, `${label}, retried after ${left}`).toEqual({ changed: true, queued: 1 });
+    }
+  }
+
+  let member: string;
+  beforeEach(async () => {
+    member = await sessionCookie('member');
+    answerOutbound((req) => (new URL(req.url).pathname === '/federation/inbox' ? json({ status: 'received' }) : json({}, 404)));
+  });
+
+  const incomingRequest = async () => {
+    await clear('connection_loans', 'outbox', 'borrow_requests');
+    await env.DB.prepare('DELETE FROM loans WHERE item_id = ?1').bind(lendable.id).run();
+    expect((await ask(lendable)).status).toBe(200);
+    await clear('outbox');
+  };
+  const requestId = async () => (await rows<{ id: number }>('SELECT id FROM borrow_requests'))[0]!.id;
+  const status = async () => (await rows<{ status: string }>('SELECT status FROM borrow_requests'))[0]?.status;
+
+  it('lends a book with its acceptance queued, or neither', async () => {
+    await atEveryFailurePoint(
+      'lend',
+      'BorrowAccept',
+      incomingRequest,
+      async (app) => app.postForm(`/borrow-requests/${await requestId()}/accept`, { dueOn: '' }, member),
+      async () => {
+        const accepted = (await status()) === 'accepted';
+        const loans = await rows('SELECT id FROM loans WHERE item_id = ?1', lendable.id);
+        const links = await rows('SELECT loan_id FROM connection_loans');
+        expect({ loans: loans.length, links: links.length }).toEqual(accepted ? { loans: 1, links: 1 } : { loans: 0, links: 0 });
+        if (accepted) expect(links[0]!.loan_id).toBe(loans[0]!.id);
+        return accepted;
+      },
+    );
+  });
+
+  it('declines a request with the decline queued, or neither', async () => {
+    await atEveryFailurePoint(
+      'decline',
+      'BorrowDecline',
+      incomingRequest,
+      async (app) => app.postForm(`/borrow-requests/${await requestId()}/decline`, {}, member),
+      async () => (await status()) === 'declined',
+    );
+  });
+
+  it('withdraws a request of ours with the withdrawal queued, or neither', async () => {
+    await atEveryFailurePoint(
+      'withdraw',
+      'BorrowWithdraw',
+      async () => {
+        await clear('outbox', 'borrow_requests');
+        const message = borrowRequest(A.url, 70, THEIRS, 'me', null);
+        await requestToBorrow(
+          env.DB,
+          { activityId: message.id, connectionId, incoming: false, theirItemId: 70, theirItemStamp: THEIRS, theirViewId: 7, itemTitle: 'Free one', requesterName: 'me', note: null },
+          message,
+        );
+        await clear('outbox');
+      },
+      async (app) => app.postForm(`/borrow-requests/${await requestId()}/withdraw`, {}, member),
+      async () => (await status()) === 'withdrawn',
+    );
+  });
+
+  it('asks to borrow with the request queued, or neither', async () => {
+    const detail = { id: 70, mediaType: 'book', title: 'Free one', creators: null, publisher: null, published: null, description: null, length: null, coverKey: null, rating: null, review: null, inCollection: true, details: {}, completedOn: null, updatedAt: '2026-09-01 10:00:00', available: true, tags: [], stamp: THEIRS };
+    answerOutbound((req) => {
+      const { pathname } = new URL(req.url);
+      if (pathname === '/federation/item') return json(detail);
+      return pathname === '/federation/inbox' ? json({ status: 'received' }) : json({}, 404);
+    });
+    await atEveryFailurePoint(
+      'request',
+      'BorrowRequest',
+      () => clear('outbox', 'borrow_requests').then(() => undefined),
+      (app) => app.postForm(`/households/${connectionId}/requests`, { viewId: '7', itemId: '70', note: '' }, member),
+      async () => (await rows('SELECT id FROM borrow_requests')).length === 1,
+    );
+  });
+
+  it('makes one request for a book however often it is submitted', async () => {
+    // The check for a request already waiting was a read of its own, so two quick submits could both pass it,
+    // and the second came back refused as "not available any more".
+    const values = (message: { id: string }) => ({
+      activityId: message.id, connectionId, incoming: false, theirItemId: 70, theirItemStamp: THEIRS, theirViewId: 7, itemTitle: 'Free one', requesterName: 'me', note: null,
+    });
+    const first = borrowRequest(A.url, 70, THEIRS, 'me', null);
+    const again = borrowRequest(A.url, 70, THEIRS, 'me', null);
+    expect(await requestToBorrow(env.DB, values(first), first)).toEqual(expect.any(Number));
+    expect(await requestToBorrow(env.DB, values(again), again)).toBeNull();
+    expect(await rows('SELECT activity_id FROM borrow_requests')).toEqual([{ activity_id: first.id }]);
+    expect(await queuedOf('BorrowRequest')).toBe(1);
+
+    // and through the page: two submits at once
+    await env.DB.batch([env.DB.prepare('DELETE FROM outbox'), env.DB.prepare('DELETE FROM borrow_requests')]);
+    const detail = { id: 70, mediaType: 'book', title: 'Free one', creators: null, publisher: null, published: null, description: null, length: null, coverKey: null, rating: null, review: null, inCollection: true, details: {}, completedOn: null, updatedAt: '2026-09-01 10:00:00', available: true, tags: [], stamp: THEIRS };
+    answerOutbound((req) => {
+      const { pathname } = new URL(req.url);
+      if (pathname === '/federation/item') return json(detail);
+      return pathname === '/federation/inbox' ? json({ status: 'received' }) : json({}, 404);
+    });
+    const submit = () => a.postForm(`/households/${connectionId}/requests`, { viewId: '7', itemId: '70', note: '' }, member);
+    await Promise.all([submit(), submit()]);
+    expect(await rows('SELECT status FROM borrow_requests')).toEqual([{ status: 'pending' }]);
+    expect(await queuedOf('BorrowRequest')).toBe(1);
+  });
+
+  it('posts and deletes a comment with its message queued, or neither', async () => {
+    const book = await createItem(env.DB, { libraryId: shelfId, title: 'Reviewed', review: 'A review.' });
+    // a thread they started, so a reply is allowed
+    const theirs = commentCreate(peer.url, { owner: A.url, item: book.id, stamp: await itemStamp(book) }, 'them', 'Hi');
+    await env.DB.prepare(
+      `INSERT INTO comments (activity_id, connection_id, our_item_id, from_us, author_name, body, created_at)
+       VALUES (?1, ?2, ?3, 0, 'them', 'Hi', '2026-09-01 00:00:00')`,
+    ).bind(theirs.id, connectionId, book.id).run();
+    const ours = () => rows<{ id: number; deleted_at: string | null }>('SELECT id, deleted_at FROM comments WHERE from_us = 1');
+
+    await atEveryFailurePoint(
+      'comment',
+      'CommentCreate',
+      () => env.DB.batch([env.DB.prepare('DELETE FROM comments WHERE from_us = 1'), env.DB.prepare('DELETE FROM outbox')]).then(() => undefined),
+      (app) => app.postForm(`/items/${book.id}/comments`, { connectionId: String(connectionId), body: 'My reply' }, member),
+      async () => {
+        const mine = await ours();
+        expect(mine.length, 'stored once, however often Send was pressed').toBeLessThanOrEqual(1);
+        return mine.length === 1;
+      },
+    );
+
+    await atEveryFailurePoint(
+      'comment deletion',
+      'CommentDelete',
+      async () => {
+        await env.DB.batch([env.DB.prepare('DELETE FROM comments WHERE from_us = 1'), env.DB.prepare('DELETE FROM outbox')]);
+        const message = commentCreate(A.url, { owner: A.url, item: book.id, stamp: await itemStamp(book) }, 'me', 'Mine');
+        await postComment(
+          env.DB,
+          { activityId: message.id, connectionId, ourItemId: book.id, fromUs: true, authorName: 'me', body: 'Mine', createdAt: message.published },
+          message,
+        );
+        await clear('outbox');
+      },
+      async (app) => app.postForm(`/comments/${(await ours())[0]!.id}/delete`, { back: '/feed' }, member),
+      async () => (await ours())[0]!.deleted_at !== null,
+    );
+  });
+
+  it('declines a refused request of ours as it lets go of it, wherever the retry runs out', async () => {
+    // Dropped from the outbox first, a failure before the decline left the request pending for good: the
+    // outbox row is what brings it back on a later page load.
+    const identity = (await loadIdentity(keysA.secret))!;
+    const settings = (await getFederationSettings(env.DB))!;
+    answerOutbound((req) => json({ error: 'not available' }, new URL(req.url).pathname === '/federation/inbox' ? 409 : 404));
+    for (let left = 0; ; left++) {
+      expect(left, 'never finished').toBeLessThan(30);
+      await clear('outbox', 'borrow_requests');
+      await env.DB.prepare("UPDATE connections SET outbox_pulled_at = datetime('now')").run(); // only the retry runs
+      const message = borrowRequest(settings.baseUrl, 70, THEIRS, 'me', null);
+      await requestToBorrow(
+        env.DB,
+        { activityId: message.id, connectionId, incoming: false, theirItemId: 70, theirItemStamp: THEIRS, theirViewId: 7, itemTitle: 'Free one', requesterName: 'me', note: null },
+        message,
+      );
+      await env.DB.prepare('UPDATE outbox SET attempted_at = NULL').run(); // due for a retry now
+
+      await refreshOutboxes(env.DB, identity, settings, { left });
+
+      const state = { status: await status(), queued: await queuedOf('BorrowRequest') };
+      expect(state, `with room for ${left} queries`).not.toEqual({ status: 'pending', queued: 0 });
+      if (state.status === 'declined') {
+        expect(state.queued).toBe(0);
+        return;
+      }
+    }
   });
 });

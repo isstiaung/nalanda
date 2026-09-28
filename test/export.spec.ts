@@ -7,6 +7,7 @@ import { activeLoanItemIds, createItem, createLibrary, createUser, setItemTags, 
 import { budgeted } from '../src/federation/budget';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import app from '../src/index';
+import { EXPORT_PAGE } from '../src/routes/importexport';
 
 const COUNT = 230; // more than two chunks' worth, well past the 100-parameter cap
 
@@ -133,6 +134,105 @@ describe('an export that fails partway', () => {
     }
     expect(failed).toBe(true);
     await waitOnExecutionContext(ctx);
+  });
+});
+
+describe('an export in pages, as the Export button fetches it', () => {
+  async function adminCookie() {
+    const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
+    return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000))}`;
+  }
+
+  async function get(path: string, cookie: string, budget = { left: 50 }) {
+    const ctx = createExecutionContext();
+    const res = await app.fetch(new Request(`http://nalanda.test${path}`, { headers: { cookie } }), { ...env, DB: budgeted(env.DB, budget) }, ctx);
+    const body = await res.text();
+    await waitOnExecutionContext(ctx);
+    return { res, body, queries: 50 - budget.left };
+  }
+
+  /** Follows x-export-next the way public/import.js does, checking every page on the way. */
+  async function paged(query: string, cookie: string) {
+    const pages: string[] = [];
+    let after = '0';
+    for (;;) {
+      const { res, body, queries } = await get(`/export.csv?${query}${query ? '&' : ''}after=${after}`, cookie);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toMatch(/^text\/csv/);
+      expect(queries, `page after ${after}`).toBeLessThan(10); // one bounded slice per request
+      const rows = Number(res.headers.get('x-export-rows'));
+      expect(rows).toBeLessThanOrEqual(EXPORT_PAGE);
+      expect(body.split('\r\n').filter(Boolean).length).toBe(rows + (after === '0' ? 1 : 0)); // the header leads page one only
+      pages.push(body);
+      const next = res.headers.get('x-export-next');
+      if (!next) break;
+      after = next;
+    }
+    return pages;
+  }
+
+  it('joins into exactly the file the one-request export streams', async () => {
+    const TOTAL = EXPORT_PAGE * 4 + 17; // a short last page
+    const lib = await createLibrary(env.DB, 'Everything');
+    await env.DB.prepare(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${TOTAL})
+       INSERT INTO items (library_id, media_type, title, status, copies, details)
+       SELECT ?1, 'book', 'Book ' || i, 'not_started', 1, '{}' FROM n`,
+    ).bind(lib.id).run();
+    await env.DB.prepare("INSERT INTO tags (name) VALUES ('alpha'), ('beta'), ('gamma')").run();
+    await env.DB.prepare('INSERT INTO item_tags (item_id, tag_id) SELECT id, (id % 3) + 1 FROM items').run();
+    await env.DB.prepare("INSERT INTO reading_progress (item_id, page, at) SELECT id, 40, '2026-09-01 09:00:00' FROM items WHERE id % 10 = 0").run();
+    const cookie = await adminCookie();
+
+    const pages = await paged('', cookie);
+    const whole = (await get('/export.csv', cookie)).body;
+
+    expect(pages).toHaveLength(5);
+    expect(pages.join('')).toBe(whole);
+    expect(whole.trim().split('\r\n')).toHaveLength(TOTAL + 1);
+  });
+
+  it('asks once more after a page that came back exactly full, and gets the header alone for an empty catalog', async () => {
+    const lib = await createLibrary(env.DB, 'Exact');
+    await env.DB.prepare(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${EXPORT_PAGE})
+       INSERT INTO items (library_id, media_type, title, status, copies, details)
+       SELECT ?1, 'book', 'Book ' || i, 'not_started', 1, '{}' FROM n`,
+    ).bind(lib.id).run();
+    const cookie = await adminCookie();
+
+    const pages = await paged('', cookie);
+    expect(pages).toHaveLength(2);
+    expect(pages[1]).toBe('');
+    expect(pages.join('')).toBe((await get('/export.csv', cookie)).body);
+
+    await env.DB.prepare('DELETE FROM items').run();
+    expect(await paged('', cookie)).toEqual([(await get('/export.csv', cookie)).body]); // the header row, nothing else
+  });
+
+  it('keeps to one shelf across pages when shelves interleave', async () => {
+    const [a, b] = [await createLibrary(env.DB, 'A'), await createLibrary(env.DB, 'B')];
+    await env.DB.prepare(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${EXPORT_PAGE * 3})
+       INSERT INTO items (library_id, media_type, title, status, copies, details)
+       SELECT CASE WHEN i % 2 THEN ?2 ELSE ?1 END, 'book', 'Book ' || i, 'not_started', 1, '{}' FROM n`,
+    ).bind(a.id, b.id).run();
+    const cookie = await adminCookie();
+
+    const pages = await paged(`library=${a.id}`, cookie);
+    const rows = pages.join('').trim().split('\r\n').slice(1);
+
+    expect(pages.length).toBeGreaterThan(1);
+    expect(rows).toHaveLength((EXPORT_PAGE * 3) / 2);
+    expect(rows.every((r) => r.startsWith('A,'))).toBe(true);
+    expect(pages.join('')).toBe((await get(`/export.csv?library=${a.id}`, cookie)).body);
+  });
+
+  it('refuses a cursor that is not an item id', async () => {
+    const cookie = await adminCookie();
+    for (const after of ['-1', 'abc', '1.5', '9999999999999999999']) {
+      expect((await get(`/export.csv?after=${after}`, cookie)).res.status, after).toBe(400);
+    }
   });
 });
 

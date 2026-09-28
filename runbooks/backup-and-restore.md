@@ -32,7 +32,8 @@ index rebuilds itself from triggers during restore.
 
 Left out on purpose: `login_attempts` (login throttling, stale within minutes),
 `federation_seen` and `connection_push_counts` (replay and rate bookkeeping, stale within a
-day), and `d1_migrations` (recreated when migrations are applied). The federation private key
+day), `import_in_progress` (holds a row only inside an import's own batch, so it's always
+empty), and `d1_migrations` (recreated when migrations are applied). The federation private key
 isn't in the database at all — it's a secret, so keep your own copy of it.
 This procedure is rehearsed: a 315-item backup restored with every row present and the
 FTS index rebuilt to match.

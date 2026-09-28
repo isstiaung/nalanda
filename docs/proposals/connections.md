@@ -261,6 +261,12 @@ Nalanda has no event history today — items only have current state and `update
 - **Not logged in v1: "added to catalog."** A 2,000-book Goodreads import would bury every
   connection's feed. Bulk changes can still happen (an import that sets reviews), so the Feed
   page groups a household's events within a short window ("reviewed 40 books").
+- **Entries are dated by when things happened** (ARCH.md §16 #40). A finish carries its
+  `completed_on`; a rating or review is dated when given. The first-view backfill takes only
+  activity with a date of its own — `updated_at` is rewritten by imports and backfills, so
+  it says nothing about when a book was read. An import marks its own batch, and while it
+  runs every kind is dated by `completed_on` or not recorded, so importing years of reading
+  never lands on top of a follower's feed.
 
 ### Subscriptions — the receiving household decides
 
@@ -437,8 +443,9 @@ The reviewer's household is authoritative for the thread.
   §9 draws for share pages. The one inference this allows is intended: a connection can
   see a book become unavailable.
 - A connection may have 20 requests waiting at once. A request is lent at most once, and the
-  loan is inserted only while a copy is free — decided inside that one statement — so two
-  members lending the last copy to different households at once make one loan.
+  loan is inserted only while a copy is free — decided inside the one batch that lends it and
+  queues the acceptance (ARCH.md §16 #39) — so two members lending the last copy to different
+  households at once make one loan, and a lend is never made without the message saying so.
 - Lending activities are Nalanda-specific types (`BorrowRequest`, `BorrowAccept`,
   `BorrowDecline`, `BorrowWithdraw`, `Returned`) in an ActivityStreams envelope. No interop is needed, so they
   are named for what they mean.

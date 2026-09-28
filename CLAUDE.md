@@ -53,7 +53,9 @@ shape from this file.
 - Free plans only: Workers, D1, R2. Never introduce paid CF features (Images, Queues, paid
   Durable Objects) or any AWS service.
 - **10 ms CPU per request**: no server-side image processing; no server-side bulk parsing —
-  CSV imports are parsed in the browser and posted as JSON batches; CSV export streams.
+  CSV imports are parsed in the browser and posted as JSON batches; the Export button fetches
+  `/export.csv` 250 items a request (`?after=<id>`) and joins the pages in the browser — the
+  whole catalog in one request measured past 10 ms (ARCH.md §16 #38).
 - **D1 calls per Worker invocation — design to 50, the real cap is 1,000** (ARCH.md §16 #37).
   D1's limits page says 50 on the free plan, but measured on this account the runtime allowed
   exactly 1,000 D1 calls per invocation, and a `batch()` counted as **one** call however many
@@ -90,7 +92,9 @@ shape from this file.
 - Connections see only `toConnectionItem()` fields (`src/federation/items.ts`, built on
   `toPublicItem()`), and only for items inside a connection view. Availability is a derived
   boolean — never a borrower, due date or copies count. Triggers on `items` record
-  activity only while a connection view exists (migration 0007).
+  activity only while a connection view exists (migration 0007), dated by when it happened —
+  an import's batch brackets itself with `import_in_progress` so old reads aren't news
+  (migration 0021, ARCH.md §16 #40).
 - Strings from another instance — household names, view names, feed entries, comments —
   render only as escaped text. A comment thread is only ever shown to the two households in it. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:
   the browser decodes HTML escapes back into quotes before it runs the script.
@@ -148,8 +152,9 @@ src/federation/    connections between instances (docs/proposals/connections.md)
 public/            app.css, scanner.js, import.js, app.js + vendor/ (htmx, zxing, eczar fonts)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;
-                   apply-migrations.ts resets + re-migrates D1 before EVERY test, and
-                   fetch-mock.ts stubs outbound fetch (see §16 #25)
+                   apply-migrations.ts resets + re-migrates D1 before EVERY test and fails
+                   any test that logs an error it didn't capture and check (console.ts),
+                   and fetch-mock.ts stubs outbound fetch (see §16 #25)
 scripts/           vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp config),
                    backup.mjs, wrangler-remote.mjs + remote-config.mjs (real db id → temp
                    config), seed-demo.mjs, hash-password.mjs, federation-keygen.mjs,
@@ -169,6 +174,10 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
 - Handlers render a full page normally, a partial when the `HX-Request` header is present —
   one handler, two renders.
 - Mutations are POSTs; CSRF = `SameSite=Lax` session cookie + Origin-check middleware.
+- A write and whatever depends on it are **one batch**: a change and the message it queues for a
+  connection, the notification it records, its replay marker, an item and its tags (ARCH.md §16 #39).
+  As separate calls, a failure between them leaves half a change that the path's own idempotency
+  check then treats as done. Nothing after the batch may be able to fail the request.
   Cookies set `Secure` only on https so local dev login works.
 - Auth model (ARCH.md §8): admin creates member accounts with one-time temp passwords
   (`must_change_password`); roles are just `admin`/`member` — no permission matrix.

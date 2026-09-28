@@ -69,4 +69,5 @@ Google's fuzzy ISBN matching can't attach a stranger's artwork.
 - Library page shows the expected item count.
 - Spot-check a few items, including one with tags and one that had odd columns (check its
   *details* section).
-- `/export.csv` gives you a Nalanda-format export — a good post-import backup.
+- **/import → Export everything as CSV** gives you a Nalanda-format export — a good post-import
+  backup.

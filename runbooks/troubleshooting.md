@@ -59,10 +59,15 @@ Local dev prints to the `npm run dev` terminal.
 
 ## Free-tier limits
 
-- **Worker CPU (10 ms)**: the app is designed under it (CSV parsing in browser, no image
-  processing, native crypto). If you somehow hit `exceeded CPU` in `wrangler tail`,
+- **Worker CPU (10 ms)**: the app is designed under it (CSV parsing in browser, CSV export a
+  page at a time, no image processing, native crypto). If you somehow hit `exceeded CPU` in `wrangler tail`,
   Workers Paid ($5/mo) raises it to 30 s with zero code change — but investigate first;
   it's probably a bug, not a limit.
+- **"Export failed partway, so nothing was saved"**: one page of the export didn't come back
+  as CSV — a server error (look in `wrangler tail`), a dropped connection, or a session that
+  expired mid-export. Nothing partial is saved, so just press Export again (after logging in
+  again, if that was it). The plain `/export.csv` link, as used without JavaScript, builds the
+  whole file in one request, and on a large catalog it can run past the CPU limit and fail.
 - **Request/read quotas**: 100k requests/day, 5M D1 row-reads/day. A household cannot
   realistically hit these; check the Cloudflare dashboard graphs if curious.
 

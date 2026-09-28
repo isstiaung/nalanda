@@ -9,7 +9,6 @@ import {
   commentByActivity,
   holdsReviewEntry,
   insertComment,
-  notify,
   theirItemTitle,
   recordDeletionFirst,
   sharedReviewedItem,
@@ -51,9 +50,12 @@ async function receiveCreate(
     // earlier book whose id has since been reused all answer alike — nothing is revealed.
     const item = await sharedReviewedItem(d1, itemId);
     if (!item || (await itemStamp(item)) !== stamp) return { status: 404, body: { error: 'no such review' } };
-    const row = await insertComment(d1, { ...values, ourItemId: item.id });
-    // only a comment stored for the first time notifies; a repeat of the same message finds it there
-    if (row) await notify(d1, { kind: 'comment', householdName: connection.householdName, subject: item.title, href: `/items/${item.id}` });
+    // only a comment stored for the first time notifies, in the same batch; a repeat of the message finds it there
+    const row = await insertComment(
+      d1,
+      { ...values, ourItemId: item.id },
+      { kind: 'comment', householdName: connection.householdName, subject: item.title, href: `/items/${item.id}` },
+    );
     return { status: 200, body: { status: row ? 'received' : 'already received' } };
   }
 
@@ -62,15 +64,16 @@ async function receiveCreate(
     if (!(await holdsReviewEntry(d1, connection.id, itemId, stamp)) || !(await weCommented(d1, connection.id, itemId, stamp))) {
       return { status: 200, body: { status: 'not kept' } };
     }
-    const row = await insertComment(d1, { ...values, theirItemId: itemId, theirItemStamp: stamp });
-    if (row) {
-      await notify(d1, {
+    const row = await insertComment(
+      d1,
+      { ...values, theirItemId: itemId, theirItemStamp: stamp },
+      {
         kind: 'comment',
         householdName: connection.householdName,
         subject: await theirItemTitle(d1, connection.id, itemId, stamp),
         href: `/feed#thread-${connection.id}-${itemId}`,
-      });
-    }
+      },
+    );
     return { status: 200, body: { status: row ? 'received' : 'already received' } };
   }
 

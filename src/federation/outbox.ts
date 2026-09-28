@@ -8,8 +8,8 @@ import {
   claimPushAttempt,
   commentStates,
   countPush,
-  declineOwnRequest,
   dropOutbox,
+  dropRefused,
   dueOutboxes,
   enqueueOutbox,
   markDelivered,
@@ -44,6 +44,26 @@ const delivered = (status: number) => status >= 200 && status < 300;
 /** An answer that won't change on a retry: the message is refused for good. */
 const refused = (status: number) => status >= 400 && status < 500 && status !== 429;
 
+/**
+ * Pushes a message already queued after the response — queued, where it reports a change, in one batch with
+ * that change (src/db/federation.ts). The outbox keeps it for their pull if the push doesn't land.
+ */
+export function pushQueued(
+  c: Context<AppEnv>,
+  identity: Identity,
+  settings: FederationSettings,
+  connection: Connection,
+  message: DirectedMessage,
+): void {
+  c.executionCtx.waitUntil(
+    postSigned(identity, settings.baseUrl, connection.baseUrl, '/federation/inbox', message)
+      .then(async (res) => {
+        if (res && delivered(res.status)) await markDelivered(c.env.DB, message.id);
+      })
+      .catch((err) => console.error('outbox push failed', err)),
+  );
+}
+
 /** Queues a message for a connection, then pushes it after the response. */
 export async function sendToConnection(
   c: Context<AppEnv>,
@@ -52,33 +72,26 @@ export async function sendToConnection(
   connection: Connection,
   message: DirectedMessage,
 ): Promise<void> {
-  const row = await enqueueOutbox(c.env.DB, connection.id, message);
-  c.executionCtx.waitUntil(
-    postSigned(identity, settings.baseUrl, connection.baseUrl, '/federation/inbox', message)
-      .then(async (res) => {
-        if (res && delivered(res.status)) await markDelivered(c.env.DB, row.id);
-      })
-      .catch((err) => console.error('outbox push failed', err)),
-  );
+  await enqueueOutbox(c.env.DB, connection.id, message);
+  pushQueued(c, identity, settings, connection, message);
 }
 
 /**
- * Queues a message and pushes it now, waiting for the answer — for a request whose sender needs to know at
+ * Pushes a message already queued, now, waiting for the answer — for a request whose sender needs to know at
  * once. Returns their status, or null when they couldn't be reached (the outbox keeps it then). A refusal
- * leaves nothing to deliver, so it leaves the outbox too.
+ * leaves nothing to deliver, so it leaves the outbox, and a refused request of ours is declined with it.
  */
-export async function sendNow(
+export async function pushNow(
   d1: D1Database,
   identity: Identity,
   settings: FederationSettings,
   connection: Connection,
   message: DirectedMessage,
 ): Promise<number | null> {
-  const row = await enqueueOutbox(d1, connection.id, message);
   const res = await postSigned(identity, settings.baseUrl, connection.baseUrl, '/federation/inbox', message);
   if (!res) return null;
-  if (delivered(res.status)) await markDelivered(d1, row.id);
-  else if (refused(res.status)) await dropOutbox(d1, row.id);
+  if (delivered(res.status)) await markDelivered(d1, message.id);
+  else if (refused(res.status)) await dropRefused(d1, message);
   return res.status;
 }
 
@@ -193,16 +206,15 @@ async function retryPushes(db: D1Database, identity: Identity, settings: Federat
     if (!(await claimPushAttempt(db, row.id, row.attemptedAt))) continue;
     const message = parseInboxMessage(JSON.parse(row.message));
     if (message?.type === 'BorrowRequest' && (await requestStatus(db, message.id)) !== 'pending') {
-      await dropOutbox(db, row.id);
+      await dropOutbox(db, row.activityId);
       continue;
     }
     const res = await postSigned(identity, settings.baseUrl, row.connection.baseUrl, '/federation/inbox', JSON.parse(row.message));
     if (!res) continue;
     if (delivered(res.status)) {
-      await markDelivered(db, row.id);
+      await markDelivered(db, row.activityId);
     } else if (refused(res.status)) {
-      await dropOutbox(db, row.id);
-      if (message?.type === 'BorrowRequest') await declineOwnRequest(db, message.id);
+      await dropRefused(db, { id: row.activityId, type: message?.type ?? 'unreadable' });
     }
   }
 }

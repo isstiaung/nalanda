@@ -8,6 +8,8 @@ import {
   createInvite,
   createSubscription,
   getConnectionByBaseUrl,
+  getFederationSettings,
+  insertBorrowRequest,
   notify,
   storeEntries,
   unreadCounts,
@@ -15,8 +17,19 @@ import {
 } from '../src/db/federation';
 import { createItem, createLibrary, createUser } from '../src/db/queries';
 import type { Bindings } from '../src/env';
+import { budgeted, isBudgetSpent } from '../src/federation/budget';
+import { receiveDirected } from '../src/federation/directed';
 import { itemStamp } from '../src/federation/items';
-import { borrowRequest, commentCreate, connectRequest, inboxMessage } from '../src/federation/messages';
+import {
+  borrowAccept,
+  borrowDecline,
+  borrowRequest,
+  borrowWithdraw,
+  commentCreate,
+  connectRequest,
+  inboxMessage,
+  type DirectedMessage,
+} from '../src/federation/messages';
 import { clearSharedViewsCache } from '../src/federation/routes';
 import { hashToken, newInviteToken } from '../src/federation/tokens';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
@@ -33,6 +46,7 @@ import {
   type Keys,
   type Peer,
 } from './federation-helpers';
+import { expectOnlyBudgetErrors } from './console';
 
 let keysA: Keys;
 let a: ReturnType<typeof instanceA>;
@@ -60,6 +74,12 @@ const kinds = async () =>
   (await env.DB.prepare('SELECT kind FROM notifications ORDER BY id').all<{ kind: string }>()).results.map((r) => r.kind);
 
 const inbox = (message: unknown, from: Peer = peer) => a.signedPost('/federation/inbox', from, message);
+
+const count = async (query: string, ...params: unknown[]) => (await env.DB.prepare(query).bind(...params).first<{ n: number }>())!.n;
+
+/** Instance A with room for only `left` D1 calls, so a request fails at a chosen point. */
+const withBudget = (left: number) =>
+  instanceA({ ...env, DB: budgeted(env.DB, { left }), FEDERATION_PRIVATE_KEY: keysA.secret } as Bindings);
 
 // ---------- connections ----------
 
@@ -108,6 +128,73 @@ describe('connection events', () => {
 
     expect(await kinds()).toEqual(['connection_withdrawn', 'connection_declined', 'disconnected']);
   });
+
+  it('applies a connection message whole or not at all wherever it fails, so their retry still lands', async () => {
+    expectOnlyBudgetErrors();
+    // The replay marker once went in first and alone: a failure after it turned every retry away as
+    // "already processed", leaving a connection waiting on an acceptance that had arrived, or never removed.
+    const cases = [
+      { type: 'ConnectAccept', from: 'awaiting_them', done: async () => (await getConnectionByBaseUrl(env.DB, peer.url))?.status === 'active' },
+      { type: 'ConnectDecline', from: 'awaiting_them', done: async () => !(await getConnectionByBaseUrl(env.DB, peer.url)) },
+      { type: 'Disconnect', from: 'active', done: async () => !(await getConnectionByBaseUrl(env.DB, peer.url)) },
+    ] as const;
+    for (const { type, from, done } of cases) {
+      for (let left = 0; ; left++) {
+        expect(left, `${type} never finished`).toBeLessThan(20);
+        await env.DB.batch(['connections', 'federation_seen', 'notifications'].map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
+        await connectPeer(peer, from);
+        const message = inboxMessage(type, peer.url);
+
+        const res = await withBudget(left).signedPost('/federation/inbox', peer, message);
+
+        const seen = await count('SELECT count(*) AS n FROM federation_seen WHERE activity_id = ?1', message.id);
+        const state = { seen, applied: (await done()) ? 1 : 0, notified: await count('SELECT count(*) AS n FROM notifications') };
+        expect(state, `${type}, with room for ${left} queries`).toEqual({ seen, applied: seen, notified: seen });
+        if (res.status === 200) {
+          expect(state, type).toEqual({ seen: 1, applied: 1, notified: 1 });
+          break;
+        }
+        expect(res.status).toBe(500);
+        const retry = await inbox(message);
+        expect(await retry.json(), `${type} retried after failing with room for ${left}`).not.toEqual({ status: 'already processed' });
+        expect(await done()).toBe(true);
+        expect(await count('SELECT count(*) AS n FROM notifications')).toBe(1);
+      }
+    }
+  });
+
+  it('records a redeemed invitation and its notice together, so a retry after a failure gets through', async () => {
+    expectOnlyBudgetErrors();
+    // Notified after the redemption, a failure between the two left a request no admin was told about, and
+    // their retry was refused because the invitation was already used.
+    const admin = await person('admin');
+    answerOutbound((req) =>
+      req.url === `${peer.url}/.well-known/nalanda`
+        ? json({ protocol: 'nalanda-connections', version: 1, name: peer.name, url: peer.url, publicKey: peer.publicJwk })
+        : new Response('not found', { status: 404 }),
+    );
+    for (let left = 0; ; left++) {
+      expect(left, 'never finished').toBeLessThan(20);
+      await env.DB.batch(['connections', 'connection_invites', 'notifications'].map((t) => env.DB.prepare(`DELETE FROM ${t}`)));
+      const token = newInviteToken();
+      await createInvite(env.DB, { tokenHash: await hashToken(token), createdBy: admin.id, ttlDays: 7 });
+      const request = connectRequest(peer.url, peer.name, peer.publicJwk, token);
+
+      const res = await withBudget(left).signedPost('/federation/connect', peer, request);
+
+      const pending = await count("SELECT count(*) AS n FROM connections WHERE status = 'awaiting_us'");
+      const used = await count('SELECT count(*) AS n FROM connection_invites WHERE used_at IS NOT NULL');
+      const notified = await count('SELECT count(*) AS n FROM notifications');
+      expect({ used, notified }, `with room for ${left} queries`).toEqual({ used: pending, notified: pending });
+      if (res.status === 202) {
+        expect(pending).toBe(1);
+        break;
+      }
+      expect(res.status).toBe(500);
+      expect((await a.signedPost('/federation/connect', peer, request)).status, `retried after failing with room for ${left}`).toBe(202);
+      expect(await kinds()).toEqual(['connection_request']);
+    }
+  });
 });
 
 // ---------- borrowing and comments ----------
@@ -145,6 +232,49 @@ describe('borrowing and comment events', () => {
 
     const rows = (await env.DB.prepare('SELECT kind, subject, href FROM notifications').all()).results;
     expect(rows).toEqual([{ kind: 'comment', subject: 'The Dispossessed', href: `/items/${bookId}` }]);
+  });
+
+  it('records each notification with its change or not at all, wherever a pull runs out of queries', async () => {
+    // An outbox pull applies messages on a budget. Once the change and its notification were two calls, and a
+    // budget spent between them kept the change alone; the next pull saw the change made, skipped the message,
+    // and the notification never came.
+    const settings = (await getFederationSettings(env.DB))!;
+    const connection = (await getConnectionByBaseUrl(env.DB, peer.url))!;
+    for (const activityId of ['urn:uuid:ours-declined', 'urn:uuid:ours-accepted']) {
+      await insertBorrowRequest(env.DB, {
+        activityId, connectionId: connection.id, incoming: false, theirItemId: 5, itemTitle: 'Kindred', requesterName: 'me', note: null,
+      });
+    }
+    const request = borrowRequest(peer.url, bookId, stamp, 'narain', null);
+    const returned = {
+      '@context': 'https://www.w3.org/ns/activitystreams', type: 'Returned', id: `urn:uuid:${crypto.randomUUID()}`,
+      actor: peer.url, request: 'urn:uuid:ours-accepted', returnedOn: '2026-09-20',
+    } as DirectedMessage;
+    const cases: Array<{ message: DirectedMessage; kind: string; applied: string }> = [
+      { message: commentCreate(peer.url, { owner: A.url, item: bookId, stamp }, 'narain', 'Loved this one.'), kind: 'comment', applied: 'SELECT count(*) AS n FROM comments' },
+      { message: request, kind: 'borrow_request', applied: 'SELECT count(*) AS n FROM borrow_requests WHERE incoming = 1' },
+      { message: borrowWithdraw(peer.url, request.id), kind: 'borrow_withdrawn', applied: "SELECT count(*) AS n FROM borrow_requests WHERE status = 'withdrawn'" },
+      { message: borrowDecline(peer.url, 'urn:uuid:ours-declined'), kind: 'borrow_declined', applied: "SELECT count(*) AS n FROM borrow_requests WHERE status = 'declined'" },
+      { message: borrowAccept(peer.url, 'urn:uuid:ours-accepted', '2026-09-15', null), kind: 'borrow_accepted', applied: "SELECT count(*) AS n FROM borrow_requests WHERE status = 'accepted'" },
+      { message: returned, kind: 'returned', applied: 'SELECT count(*) AS n FROM borrowed_items WHERE returned_on IS NOT NULL' },
+    ];
+    for (const { message, kind, applied } of cases) {
+      for (let left = 0; ; left++) {
+        expect(left, `${kind} never finished`).toBeLessThan(20);
+        const outcome = await receiveDirected(budgeted(env.DB, { left }), settings, connection, message).catch((err) => {
+          if (!isBudgetSpent(err)) throw err;
+          return null;
+        });
+        // wherever it stopped, the change and its notification are both there or both missing
+        const now = { applied: await count(applied), notified: await count('SELECT count(*) AS n FROM notifications WHERE kind = ?1', kind) };
+        expect(now.notified, `${kind}, with room for ${left} queries`).toBe(now.applied);
+        if (outcome) {
+          expect(outcome.status, kind).toBe(200);
+          expect(now, kind).toEqual({ applied: 1, notified: 1 });
+          break;
+        }
+      }
+    }
   });
 });
 

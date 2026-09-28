@@ -5,13 +5,13 @@ import {
   applyLifecycle,
   claimSubscription,
   dueSubscriptions,
+  feedAllowance,
   markSubscriptionGone,
   pruneOrphanThreads,
   recordPull,
   removeEntries,
   storedRemoteIds,
-  storeEntries,
-  takeFeedAllowance,
+  storePulledPage,
   type DueSubscription,
 } from '../db/federation';
 import type { Connection, FederationSettings } from '../db/schema';
@@ -144,24 +144,25 @@ export async function refreshSubscription(
     const page = parseFeedPage(res.body);
     if (!page) return await recordPull(db, sub, { error: 'They sent a feed this library couldn’t read.' });
 
-    const allowed = await takeFeedAllowance(db, connection.id, page.entries.length, MAX_FEED_ENTRIES_PER_DAY);
-    await storeEntries(
+    const allowed = await feedAllowance(db, connection.id, page.entries.length, MAX_FEED_ENTRIES_PER_DAY);
+    const dropped = allowed < page.entries.length;
+    partial = page.more || dropped;
+    // charged, stored and recorded together, so no failure can charge for nothing or pull the page twice
+    await storePulledPage(
       db,
-      sub.id,
+      sub,
       page.entries.slice(0, allowed).map((e) => {
         const { json, bytes } = jsonBytes(keepForKind(e.item, e.kind));
         return { remoteId: e.id, itemRemoteId: e.item.id, itemStamp: e.item.stamp, kind: e.kind, publishedAt: e.published, item: json, bytes };
       }),
+      {
+        cursor: page.latest,
+        error: dropped ? 'Some entries were dropped: they sent more than a day’s allowance.' : null,
+        // More waiting, and this pull got somewhere: due again on a later page load. A connection that keeps
+        // saying "more" without moving its cursor waits its interval like everyone else.
+        again: page.more && !dropped && page.latest !== sub.cursor,
+      },
     );
-    const dropped = allowed < page.entries.length;
-    partial = page.more || dropped;
-    await recordPull(db, sub, {
-      cursor: page.latest,
-      error: dropped ? 'Some entries were dropped: they sent more than a day’s allowance.' : null,
-      // More waiting, and this pull got somewhere: due again on a later page load. A connection that keeps
-      // saying "more" without moving its cursor waits its interval like everyone else.
-      again: page.more && !dropped && page.latest !== sub.cursor,
-    });
     await checkRemovals(db, identity, settings, sub);
   } finally {
     await applyLifecycle(db, sub);

@@ -8,7 +8,6 @@ import {
   hasPendingIncoming,
   insertBorrowRequest,
   markBorrowedReturned,
-  notify,
   requestByActivity,
   requestStatus,
   setRequestStatus,
@@ -29,10 +28,11 @@ export async function receiveBorrowing(d1: D1Database, connection: Connection, m
       // Only a request they sent us, and only while it waits.
       const request = await requestByActivity(d1, connection.id, message.request, true);
       if (!request) return { status: 404, body: { error: 'no such request' } };
-      // each notification waits on the change actually happening, so a repeated message notifies once
-      if (await setRequestStatus(d1, request.id, 'withdrawn', ['pending'])) {
-        await notify(d1, { kind: 'borrow_withdrawn', householdName: connection.householdName, subject: request.itemTitle, href: '/loans' });
-      }
+      // each notification is recorded with its change, and only when the change happens: a repeated message
+      // notifies once, and a pull that runs short between the two can't keep one without the other
+      await setRequestStatus(d1, request.id, 'withdrawn', ['pending'], {
+        notice: { kind: 'borrow_withdrawn', householdName: connection.householdName, subject: request.itemTitle, href: '/loans' },
+      });
       return { status: 200, body: { status: 'withdrawn' } };
     }
 
@@ -42,29 +42,34 @@ export async function receiveBorrowing(d1: D1Database, connection: Connection, m
       if (!request || request.theirItemId === null) return { status: 404, body: { error: 'no such request' } };
       // Accepted even if we withdrew meanwhile: they have lent it, so it belongs on the Borrowed page. Only when
       // the status actually moves, though — a repeat, or an answer to a declined request, records nothing.
-      if (!(await acceptOwnRequest(d1, request.id, message.loanedOn, message.dueOn))) {
-        return { status: 200, body: { status: 'already answered' } };
-      }
-      await notify(d1, { kind: 'borrow_accepted', householdName: connection.householdName, subject: request.itemTitle, href: '/borrowed' });
+      const accepted = await acceptOwnRequest(d1, request.id, message.loanedOn, message.dueOn, {
+        kind: 'borrow_accepted',
+        householdName: connection.householdName,
+        subject: request.itemTitle,
+        href: '/borrowed',
+      });
+      if (!accepted) return { status: 200, body: { status: 'already answered' } };
       return { status: 200, body: { status: 'accepted' } };
     }
 
     case 'BorrowDecline': {
       const request = await requestByActivity(d1, connection.id, message.request, false);
       if (!request) return { status: 404, body: { error: 'no such request' } };
-      if (await setRequestStatus(d1, request.id, 'declined', ['pending'])) {
-        await notify(d1, { kind: 'borrow_declined', householdName: connection.householdName, subject: request.itemTitle, href: '/borrowed' });
-      }
+      await setRequestStatus(d1, request.id, 'declined', ['pending'], {
+        notice: { kind: 'borrow_declined', householdName: connection.householdName, subject: request.itemTitle, href: '/borrowed' },
+      });
       return { status: 200, body: { status: 'declined' } };
     }
 
     case 'Returned': {
       const request = await requestByActivity(d1, connection.id, message.request, false);
       if (!request) return { status: 404, body: { error: 'no such request' } };
-      const marked = await markBorrowedReturned(d1, connection.id, message.request, message.returnedOn);
-      if (marked) {
-        await notify(d1, { kind: 'returned', householdName: connection.householdName, subject: request.itemTitle, href: '/borrowed' });
-      }
+      const marked = await markBorrowedReturned(d1, connection.id, message.request, message.returnedOn, {
+        kind: 'returned',
+        householdName: connection.householdName,
+        subject: request.itemTitle,
+        href: '/borrowed',
+      });
       return { status: 200, body: { status: marked ? 'returned' : 'already returned' } };
     }
   }
@@ -86,16 +91,19 @@ async function receiveRequest(d1: D1Database, connection: Connection, m: BorrowR
   if ((await countPendingIncoming(d1, connection.id)) >= MAX_PENDING_REQUESTS_PER_CONNECTION) {
     return { status: 409, body: { error: 'too many requests waiting' } };
   }
-  const row = await insertBorrowRequest(d1, {
-    activityId: m.id,
-    connectionId: connection.id,
-    incoming: true,
-    ourItemId: item.id,
-    itemTitle: item.title,
-    coverKey: item.coverKey,
-    requesterName: m.requester,
-    note: m.note,
-  });
-  if (row) await notify(d1, { kind: 'borrow_request', householdName: connection.householdName, subject: item.title, href: '/loans' });
+  const row = await insertBorrowRequest(
+    d1,
+    {
+      activityId: m.id,
+      connectionId: connection.id,
+      incoming: true,
+      ourItemId: item.id,
+      itemTitle: item.title,
+      coverKey: item.coverKey,
+      requesterName: m.requester,
+      note: m.note,
+    },
+    { kind: 'borrow_request', householdName: connection.householdName, subject: item.title, href: '/loans' },
+  );
   return { status: 200, body: { status: row ? 'received' : 'already received' } };
 }
