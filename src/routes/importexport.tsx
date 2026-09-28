@@ -9,7 +9,7 @@ import {
   mergeImportItems,
   nextBackfillable,
   pageItems,
-  tagsForItems,
+  tagsForIdRange,
   updateItem,
 } from '../db/queries';
 import type { AppEnv } from '../env';
@@ -282,34 +282,40 @@ importexport.get('/export.csv', async (c) => {
   const libNames = new Map(libs.map((l) => [l.id, l.name]));
 
   const encoder = new TextEncoder();
-  const { readable, writable } = new TransformStream<Uint8Array>();
   const d1 = c.env.DB;
-
-  c.executionCtx.waitUntil(
-    (async () => {
-      const writer = writable.getWriter();
+  // Two queries a page against the free plan's 50 per invocation: at 2,000 items a page an export can run to
+  // about 40,000 items. One page per pull, so a slow download holds one page in memory rather than all of
+  // them. The response is already a 200 by the time a page is read, so a failure must error the stream —
+  // ending it normally hands over a file that just stops, with nothing to say it is incomplete.
+  const PAGE = 2000;
+  let afterId = 0;
+  let headerSent = false;
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
       try {
-        await writer.write(encoder.encode(csvLine([...EXPORT_COLUMNS])));
-        const PAGE = 500;
-        for (let offset = 0; ; offset += PAGE) {
-          const items = await pageItems(d1, { libraryId: scope, offset, limit: PAGE });
-          if (!items.length) break;
-          const tagMap = await tagsForItems(d1, items.map((i) => i.id));
-          let chunk = '';
-          for (const item of items) {
-            chunk += itemToCsvLine(item, libNames.get(item.libraryId) ?? '', tagMap.get(item.id) ?? []);
-          }
-          await writer.write(encoder.encode(chunk));
-          if (items.length < PAGE) break;
+        if (!headerSent) {
+          headerSent = true;
+          controller.enqueue(encoder.encode(csvLine([...EXPORT_COLUMNS])));
+          return;
         }
-      } finally {
-        await writer.close().catch(() => {});
+        const items = await pageItems(d1, { libraryId: scope, afterId, limit: PAGE });
+        if (!items.length) return controller.close();
+        const tagMap = await tagsForIdRange(d1, items[0]!.id, items.at(-1)!.id, scope);
+        let chunk = '';
+        for (const item of items) {
+          chunk += itemToCsvLine(item, libNames.get(item.libraryId) ?? '', tagMap.get(item.id) ?? []);
+        }
+        controller.enqueue(encoder.encode(chunk));
+        afterId = items.at(-1)!.id;
+        if (items.length < PAGE) controller.close();
+      } catch (err) {
+        controller.error(err);
       }
-    })(),
-  );
+    },
+  });
 
   const today = new Date().toISOString().slice(0, 10);
-  return new Response(readable, {
+  return new Response(body, {
     headers: {
       'content-type': 'text/csv; charset=utf-8',
       'content-disposition': `attachment; filename="nalanda-export-${today}.csv"`,

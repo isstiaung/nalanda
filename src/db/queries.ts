@@ -1,5 +1,5 @@
 // All D1 access lives here (plus src/lib/covers.ts for R2) — ARCH.md §13.
-import { and, asc, count, desc, eq, gt, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import * as s from './schema';
 import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, Share, User } from './schema';
@@ -309,14 +309,32 @@ export async function tagsForItem(d1: D1Database, itemId: number): Promise<strin
   return rows.map((r) => r.name);
 }
 
+/**
+ * D1 binds at most 100 parameters per statement, and an `IN (…)` over a long id list is a statement
+ * with one parameter per id. Unchunked, the export's 500-id pages threw "too many SQL variables"
+ * inside waitUntil and the download came back as a header row and nothing else.
+ */
+const MAX_IDS_PER_STATEMENT = 90;
+function chunked<T>(list: T[]): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += MAX_IDS_PER_STATEMENT) out.push(list.slice(i, i + MAX_IDS_PER_STATEMENT));
+  return out;
+}
+
 export async function tagsForItems(d1: D1Database, itemIds: number[]): Promise<Map<number, string[]>> {
   const result = new Map<number, string[]>();
   if (!itemIds.length) return result;
-  const rows = await db(d1)
-    .select({ itemId: s.itemTags.itemId, name: s.tags.name })
-    .from(s.itemTags)
-    .innerJoin(s.tags, eq(s.itemTags.tagId, s.tags.id))
-    .where(inArray(s.itemTags.itemId, itemIds));
+  const rows = (
+    await Promise.all(
+      chunked(itemIds).map((ids) =>
+        db(d1)
+          .select({ itemId: s.itemTags.itemId, name: s.tags.name })
+          .from(s.itemTags)
+          .innerJoin(s.tags, eq(s.itemTags.tagId, s.tags.id))
+          .where(inArray(s.itemTags.itemId, ids)),
+      ),
+    )
+  ).flat();
   for (const r of rows) {
     const list = result.get(r.itemId) ?? [];
     list.push(r.name);
@@ -404,10 +422,16 @@ export async function lendIfFree(
 
 export async function activeLoanItemIds(d1: D1Database, itemIds: number[]): Promise<Set<number>> {
   if (!itemIds.length) return new Set();
-  const rows = await db(d1)
-    .select({ itemId: s.loans.itemId })
-    .from(s.loans)
-    .where(and(inArray(s.loans.itemId, itemIds), isNull(s.loans.returnedOn)));
+  const rows = (
+    await Promise.all(
+      chunked(itemIds).map((ids) =>
+        db(d1)
+          .select({ itemId: s.loans.itemId })
+          .from(s.loans)
+          .where(and(inArray(s.loans.itemId, ids), isNull(s.loans.returnedOn))),
+      ),
+    )
+  ).flat();
   return new Set(rows.map((r) => r.itemId));
 }
 
@@ -433,19 +457,55 @@ export async function searchItems(d1: D1Database, query: string, limit = 50): Pr
   return rows.sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0));
 }
 
-/** Stable id-ordered paging over items — used by the streaming CSV export. */
+/**
+ * Id-ordered paging over items for the streaming CSV export, by keyset: the next page starts after the last
+ * id seen. OFFSET would read every skipped row again on each page, and D1 bills rows read.
+ */
 export async function pageItems(
   d1: D1Database,
-  opts: { libraryId?: number; offset: number; limit: number },
+  opts: { libraryId?: number; afterId: number; limit: number },
 ): Promise<Item[]> {
   const dbi = db(d1);
   return dbi
     .select()
     .from(s.items)
-    .where(opts.libraryId ? eq(s.items.libraryId, opts.libraryId) : undefined)
+    .where(and(gt(s.items.id, opts.afterId), opts.libraryId ? eq(s.items.libraryId, opts.libraryId) : undefined))
     .orderBy(asc(s.items.id))
-    .limit(opts.limit)
-    .offset(opts.offset);
+    .limit(opts.limit);
+}
+
+/**
+ * Tags for every item whose id lies in [fromId, toId]. The export pages through items in id order,
+ * so a page is one contiguous id range: one query with two parameters, however large the page,
+ * where an IN list would need one parameter per id and, chunked, one query per 90 ids against
+ * the 50-query budget. Items outside the page's library filter can come back too; callers look up
+ * the ids they have, so those are simply never read.
+ */
+export async function tagsForIdRange(
+  d1: D1Database,
+  fromId: number,
+  toId: number,
+  libraryId?: number,
+): Promise<Map<number, string[]>> {
+  const result = new Map<number, string[]>();
+  const rows = await db(d1)
+    .select({ itemId: s.itemTags.itemId, name: s.tags.name })
+    .from(s.itemTags)
+    .innerJoin(s.tags, eq(s.itemTags.tagId, s.tags.id))
+    .where(
+      and(
+        gte(s.itemTags.itemId, fromId),
+        lte(s.itemTags.itemId, toId),
+        // scoped to one shelf, a page's id range can span every other shelf's rows too — skip them in SQL
+        libraryId ? sql`${s.itemTags.itemId} IN (SELECT id FROM items WHERE library_id = ${libraryId})` : undefined,
+      ),
+    );
+  for (const r of rows) {
+    const list = result.get(r.itemId) ?? [];
+    list.push(r.name);
+    result.set(r.itemId, list);
+  }
+  return result;
 }
 
 // ---------- cover backfill ----------
