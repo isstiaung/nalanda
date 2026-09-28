@@ -279,8 +279,8 @@ importexport.get('/export.csv', async (c) => {
   c.executionCtx.waitUntil(
     (async () => {
       const writer = writable.getWriter();
-      // Two queries a page against the free plan's 50 per invocation: at 2,000 items a page an export can
-      // run to about 40,000 items. The response is already a 200 by the time a page is read, so a failure
+      // Three queries a page (items, tags, reading progress) against the free plan's 50 per invocation: at
+      // 2,000 items a page an export can run to about 30,000 items. The response is already a 200 by the time a page is read, so a failure
       // must abort the stream — closing it normally hands over a file that just stops, with nothing to say
       // it is incomplete.
       const PAGE = 2000;

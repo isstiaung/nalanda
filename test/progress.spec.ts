@@ -148,7 +148,7 @@ describe('POST /items/:id/progress', () => {
     const book = await seedBook();
     const user = await admin();
 
-    for (const page of ['0', '-4', 'twelve', '12.5', '']) {
+    for (const page of ['0', '-4', 'twelve', '12.5', '', '100001', '1500000']) {
       const res = await post(`/items/${book.id}/progress`, user.id, { page });
       expect(res.status).toBe(200);
       expect(await res.text()).toContain('whole page number');
