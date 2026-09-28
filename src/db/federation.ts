@@ -349,10 +349,11 @@ export async function createConnectionView(
     owned: boolean | null;
   },
 ): Promise<ConnectionView> {
-  const first = (await countConnectionViews(d1)) === 0;
-  const [row] = await db(d1).insert(s.connectionViews).values(values).returning();
+  const dbi = db(d1);
+  // The view and, for a first one, the log's opening entries, in one batch. Apart, a failed backfill shared a
+  // first view with an empty log that nothing would ever fill, since the next view isn't a first.
+  const [[row]] = await dbi.batch([dbi.insert(s.connectionViews).values(values).returning(), dbi.run(recentActivity)]);
   if (!row) throw new Error('failed to create connection view');
-  if (first) await recordRecentActivity(d1);
   return row;
 }
 
@@ -366,34 +367,34 @@ export async function createConnectionView(
  * new (ARCH.md §16 #40). A finish is dated by its completed_on. A rating or a review has no date of its own,
  * so it takes its book's completed_on, and one without is left out — from here on the triggers date them
  * as they're given. A progress update carries its own time, and one already in the log isn't added twice.
+ *
+ * It runs in the batch that inserts a view, and records only when that view is the only one. Its figures are
+ * constants, not parameters, because Drizzle's batch can't take raw SQL with parameters.
  */
-async function recordRecentActivity(d1: D1Database): Promise<void> {
-  await d1
-    .prepare(
-      `INSERT OR IGNORE INTO activity_log (item_id, kind, at, progress_id)
+const recentActivity = sql.raw(
+  `INSERT OR IGNORE INTO activity_log (item_id, kind, at, progress_id)
        SELECT item_id, kind, at, progress_id FROM (
          SELECT id AS item_id, 'reviewed' AS kind, min(datetime(completed_on), datetime('now')) AS at, NULL AS progress_id
            FROM items
            WHERE trim(replace(coalesce(review, ''), char(13), ''), ' ' || char(9) || char(10)) <> ''
-             AND date(completed_on) > date('now', ?1)
+             AND date(completed_on) > date('now', '-${VOLUME_WINDOW_DAYS} days')
          UNION ALL
          SELECT id, 'rated', min(datetime(completed_on), datetime('now')), NULL FROM items
-           WHERE coalesce(rating, 0) > 0 AND date(completed_on) > date('now', ?1)
+           WHERE coalesce(rating, 0) > 0 AND date(completed_on) > date('now', '-${VOLUME_WINDOW_DAYS} days')
          UNION ALL
          SELECT id, 'finished', min(datetime(completed_on), datetime('now')), NULL FROM items
-           WHERE status = 'completed' AND date(completed_on) > date('now', ?1)
+           WHERE status = 'completed' AND date(completed_on) > date('now', '-${VOLUME_WINDOW_DAYS} days')
          UNION ALL
          -- each progress update is its own entry, as migration 0015's trigger records them from here on
          SELECT item_id, 'progress', datetime(at), id FROM reading_progress
-           WHERE datetime(at) > datetime('now', ?1)
+           WHERE datetime(at) > datetime('now', '-${VOLUME_WINDOW_DAYS} days')
              AND NOT EXISTS (SELECT 1 FROM activity_log WHERE progress_id = reading_progress.id)
              AND coalesce((SELECT progress_to_connections FROM site_settings WHERE id = 1), 1) = 1
-         ORDER BY at DESC LIMIT ?2
-       ) ORDER BY at ASC`,
-    )
-    .bind(`-${VOLUME_WINDOW_DAYS} days`, BACKFILL_ENTRIES)
-    .run();
-}
+         ORDER BY at DESC LIMIT ${BACKFILL_ENTRIES}
+       )
+       WHERE (SELECT count(*) FROM connection_views) = 1 -- in the view's own batch: it's the first
+       ORDER BY at ASC`,
+);
 
 /**
  * With the last view gone the triggers stop recording, and the log would go stale: an edit made meanwhile

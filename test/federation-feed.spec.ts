@@ -136,6 +136,29 @@ describe('dating activity by when it happened', () => {
   /** An `at` written within the last minute: dated now, not backdated. */
   const recent = (at: string) => at >= sqlTime(Date.now() - 60_000) && at <= sqlTime(Date.now());
 
+  it('shares a first view together with its opening entries, or neither, and a later view adds none', async () => {
+    // The view and its backfill were separate calls: a failure between them shared a first view with an empty
+    // log that nothing would fill, since the next view isn't a first.
+    const shelf = await createLibrary(env.DB, 'Main');
+    await createItem(env.DB, { libraryId: shelf.id, title: 'A recent read', rating: 8, status: 'completed', completedOn: daysAgo(3) });
+    const view = { name: 'Everything', libraryId: null, mediaType: null, status: null, owned: null };
+    for (let left = 0; ; left++) {
+      expect(left, 'never shared').toBeLessThan(10);
+      const shared = await createConnectionView(budgeted(env.DB, { left }), view).then(
+        () => true,
+        (err) => {
+          if (!isBudgetSpent(err)) throw err;
+          return false;
+        },
+      );
+      const state = { views: (await rows('SELECT id FROM connection_views')).length, entries: (await log()).length };
+      expect(state, `with room for ${left} queries`).toEqual(shared ? { views: 1, entries: 2 } : { views: 0, entries: 0 });
+      if (shared) break;
+    }
+    await createConnectionView(env.DB, { ...view, name: 'Second' });
+    expect(await log()).toHaveLength(2);
+  });
+
   it("starts a first view's log from completed_on, never from updated_at", async () => {
     // Every one of these was just written, so updated_at is today on all of them — as an import, or a
     // metadata backfill, leaves a whole catalog. Only what happened in the window may be offered as recent.
