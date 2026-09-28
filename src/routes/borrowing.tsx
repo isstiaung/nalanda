@@ -551,11 +551,13 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
                     </td>
                     <td class="actions-cell">
                       {r.status === 'pending' ? (
-                        <form method="post" action={`/borrow-requests/${r.id}/withdraw`} class="inline">
-                          <button type="submit" class="btn">
-                            Withdraw
-                          </button>
-                        </form>
+                        <div class="inline-form">
+                          <form method="post" action={`/borrow-requests/${r.id}/withdraw`} class="inline">
+                            <button type="submit" class="btn">
+                              Withdraw
+                            </button>
+                          </form>
+                        </div>
                       ) : null}
                     </td>
                   </tr>
@@ -603,11 +605,13 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
                     <td>{b.householdName}</td>
                     <td class="date">{b.returnedOn}</td>
                     <td class="actions-cell">
-                      <form method="post" action={`/borrowed/${b.id}/remove`} class="inline">
-                        <button type="submit" class="btn">
-                          Remove
-                        </button>
-                      </form>
+                      <div class="inline-form">
+                        <form method="post" action={`/borrowed/${b.id}/remove`} class="inline">
+                          <button type="submit" class="btn">
+                            Remove
+                          </button>
+                        </form>
+                      </div>
                     </td>
                   </tr>
                 ))}

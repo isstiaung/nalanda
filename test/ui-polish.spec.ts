@@ -143,6 +143,25 @@ describe('row actions', () => {
   });
 });
 
+describe('Borrowed on a phone', () => {
+  it('sets Withdraw and Remove in the .inline-form row the phone rule stacks, like every other row action', async () => {
+    const { a, connectionId } = await connected();
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO borrow_requests (activity_id, connection_id, incoming, their_item_id, their_item_stamp, their_view_id, item_title, requester_name, status)
+         VALUES ('urn:uuid:ui-polish-1', ?1, 0, 70, 'aaaaaaaaaaaaa070', 7, 'Gilead', 'me', 'pending')`,
+      ).bind(connectionId),
+      env.DB.prepare(
+        `INSERT INTO borrowed_items (connection_id, request_activity_id, their_item_id, title, borrowed_on, returned_on)
+         VALUES (?1, 'urn:uuid:ui-polish-2', 71, 'Beloved', '2026-07-01', '2026-07-29')`,
+      ).bind(connectionId),
+    ]);
+    const html = await (await a.get('/borrowed', await sessionCookie('member'))).text();
+    expect(html).toMatch(/<td class="actions-cell"><div class="inline-form"><form method="post" action="\/borrow-requests\/\d+\/withdraw"/);
+    expect(html).toMatch(/<td class="actions-cell"><div class="inline-form"><form method="post" action="\/borrowed\/\d+\/remove"/);
+  });
+});
+
 describe('connections rhythm', () => {
   it('sets each row’s actions in one flex row, not word-spaced inline forms', async () => {
     const { a } = await connected();
