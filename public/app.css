@@ -439,6 +439,7 @@ html[data-hide-cols~="acc"] .col-acc { display: none; }
   padding: 0.12rem 0.55rem;
   margin: 0 0.3rem 0.3rem 0;
   text-decoration: none;
+  white-space: nowrap; /* a two-word tag is one chip, never two lines inside one */
 }
 a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
 .tag-cloud { line-height: 2.1; }
