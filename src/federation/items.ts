@@ -5,6 +5,7 @@
 // The parse functions are the other direction: everything a connection sends is untrusted, checked
 // field by field before it is stored or rendered.
 import { ACTIVITY_KINDS, MEDIA_TYPES, type ActivityKind, type Item, type MediaType } from '../db/schema';
+import { MAX_PROGRESS_PAGE, progressPercent } from '../lib/progress';
 import { toPublicItem, type PublicItem } from '../lib/share';
 import { MAX_DETAIL_TEXT_CHARS, MAX_FEED_REVIEW_CHARS, MAX_FEED_TEXT_CHARS } from './config';
 
@@ -15,17 +16,21 @@ export function toConnectionItem(item: Item): ConnectionItem {
   return { ...toPublicItem(item), completedOn: item.completedOn, updatedAt: item.updatedAt };
 }
 
+/** The page one progress update recorded, and how far through the book that is when its length is known. */
+export type FeedProgress = { page: number; percent: number | null };
+
 /** The part of a connection item a feed entry carries: enough to show the activity, small enough to keep. */
 export type FeedItem = Pick<
   ConnectionItem,
   'id' | 'mediaType' | 'title' | 'creators' | 'published' | 'coverKey' | 'rating' | 'review' | 'inCollection' | 'completedOn'
-> & { reviewTruncated: boolean; stamp: string };
+> & { reviewTruncated: boolean; stamp: string; progress: FeedProgress | null };
 
 /**
  * A feed entry's item, carrying only what its kind shows: the review only on a `reviewed` entry, the
- * rating only on a `rated` one. Withdrawing a review then leaves no copy of it in the entries that remain.
+ * rating only on a `rated` one, the page only on a `progress` one — that entry's own page, not wherever
+ * the book has got to since. Withdrawing a review then leaves no copy of it in the entries that remain.
  */
-export function toFeedItem(item: Item, kind: ActivityKind, stamp: string): FeedItem {
+export function toFeedItem(item: Item, kind: ActivityKind, stamp: string, progressPage: number | null = null): FeedItem {
   const c = toConnectionItem(item);
   const long = c.review !== null && c.review.length > MAX_FEED_REVIEW_CHARS;
   return keepForKind(
@@ -42,6 +47,7 @@ export function toFeedItem(item: Item, kind: ActivityKind, stamp: string): FeedI
       inCollection: c.inCollection,
       completedOn: c.completedOn?.slice(0, MAX_SHORT_TEXT) ?? null,
       stamp,
+      progress: progressPage ? { page: progressPage, percent: progressPercent(progressPage, item.length) } : null,
     },
     kind,
   );
@@ -54,6 +60,7 @@ export function keepForKind(item: FeedItem, kind: ActivityKind): FeedItem {
     review: kind === 'reviewed' ? item.review : null,
     reviewTruncated: kind === 'reviewed' && item.reviewTruncated,
     rating: kind === 'rated' ? item.rating : null,
+    progress: kind === 'progress' ? item.progress : null,
   };
 }
 
@@ -100,6 +107,8 @@ export function parseFeedItem(value: unknown): FeedItem | null {
   }
   if (!isText(v.review, MAX_FEED_REVIEW_CHARS)) return null;
   if (typeof v.reviewTruncated !== 'boolean' || typeof v.inCollection !== 'boolean' || !isStamp(v.stamp)) return null;
+  const progress = parseFeedProgress(v.progress);
+  if (progress === undefined) return null;
   return {
     id: v.id,
     mediaType: v.mediaType as MediaType,
@@ -113,7 +122,30 @@ export function parseFeedItem(value: unknown): FeedItem | null {
     inCollection: v.inCollection,
     completedOn: v.completedOn,
     stamp: v.stamp,
+    progress,
   };
+}
+
+/**
+ * Beyond any printed book: a larger page is a broken or hostile sender, not a long read. The same bound the
+ * item page enforces when a page is recorded, so nothing is kept here that every connection would drop.
+ */
+export const MAX_FEED_PAGE = MAX_PROGRESS_PAGE;
+
+/**
+ * A progress field from a connection: null when absent — a household on an older version sends none, and
+ * that must not cost it its other entries — or when explicitly none; undefined when present but malformed,
+ * which rejects the entry the way any other malformed field does.
+ */
+function parseFeedProgress(value: unknown): FeedProgress | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const p = value as Record<string, unknown>;
+  if (!Number.isSafeInteger(p.page) || (p.page as number) < 1 || (p.page as number) > MAX_FEED_PAGE) return undefined;
+  if (!(p.percent === null || (Number.isInteger(p.percent) && (p.percent as number) >= 0 && (p.percent as number) <= 100))) {
+    return undefined;
+  }
+  return { page: p.page as number, percent: p.percent as number | null };
 }
 
 export function parseFeedEntry(value: unknown): FeedEntry | null {
@@ -122,7 +154,10 @@ export function parseFeedEntry(value: unknown): FeedEntry | null {
   if (!isId(v.id) || !(ACTIVITY_KINDS as readonly unknown[]).includes(v.kind)) return null;
   if (typeof v.published !== 'string' || !SQL_DATETIME.test(v.published)) return null;
   const item = parseFeedItem(v.item);
-  return item ? { id: v.id, kind: v.kind as ActivityKind, published: v.published, item } : null;
+  if (!item) return null;
+  // a progress entry is its page; without one there is nothing to show
+  if (v.kind === 'progress' && !item.progress) return null;
+  return { id: v.id, kind: v.kind as ActivityKind, published: v.published, item };
 }
 
 /** A cover on a connection's instance, or null. Only `<their origin>/covers/<uuid>`, ever. */

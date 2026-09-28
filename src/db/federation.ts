@@ -4,6 +4,7 @@ import { and, asc, count, desc, eq, gt, isNotNull, isNull, sql, type SQL } from 
 import { drizzle } from 'drizzle-orm/d1';
 import { listItems } from './queries';
 import * as s from './schema';
+import { ADMIN_NOTIFICATIONS } from './schema';
 import {
   BACKFILL_ENTRIES,
   MAX_FEED_REVIEW_CHARS,
@@ -27,6 +28,8 @@ import type {
   Item,
   ItemStatus,
   MediaType,
+  Notification,
+  NotificationKind,
   OutboxRow,
 } from './schema';
 
@@ -253,11 +256,18 @@ function inView(view: ConnectionView): SQL | undefined {
  */
 const hasReview = sql`trim(replace(coalesce(${s.items.review}, ''), char(13), ''), ' ' || char(9) || char(10)) <> ''`;
 
-/** An activity is shared only while its item still shows it: a review entry needs its review. */
+/**
+ * An activity is shared only while its item still shows it: a review entry needs its review. A progress
+ * entry needs its update to exist and the household to be sharing progress — so switching progress off
+ * withdraws every entry already sent, through the same removal check that withdraws a deleted review.
+ */
 const stillShows = sql`(
   (${s.activityLog.kind} = 'reviewed' AND ${hasReview})
   OR (${s.activityLog.kind} = 'rated' AND coalesce(${s.items.rating}, 0) > 0)
   OR (${s.activityLog.kind} = 'finished' AND ${s.items.status} = 'completed')
+  OR (${s.activityLog.kind} = 'progress'
+      AND EXISTS (SELECT 1 FROM ${s.readingProgress} WHERE ${s.readingProgress.id} = ${s.activityLog.progressId})
+      AND coalesce((SELECT ${s.siteSettings.progressToConnections} FROM ${s.siteSettings} WHERE ${s.siteSettings.id} = 1), 1) = 1)
 )`;
 
 export async function listConnectionViews(d1: D1Database): Promise<ConnectionView[]> {
@@ -299,17 +309,22 @@ export async function createConnectionView(
 async function recordRecentActivity(d1: D1Database): Promise<void> {
   await d1
     .prepare(
-      `INSERT OR IGNORE INTO activity_log (item_id, kind, at)
-       SELECT item_id, kind, at FROM (
-         SELECT id AS item_id, 'reviewed' AS kind, datetime(updated_at) AS at FROM items
+      `INSERT OR IGNORE INTO activity_log (item_id, kind, at, progress_id)
+       SELECT item_id, kind, at, progress_id FROM (
+         SELECT id AS item_id, 'reviewed' AS kind, datetime(updated_at) AS at, NULL AS progress_id FROM items
            WHERE trim(replace(coalesce(review, ''), char(13), ''), ' ' || char(9) || char(10)) <> ''
              AND datetime(updated_at) > datetime('now', ?1)
          UNION ALL
-         SELECT id, 'rated', datetime(updated_at) FROM items
+         SELECT id, 'rated', datetime(updated_at), NULL FROM items
            WHERE coalesce(rating, 0) > 0 AND datetime(updated_at) > datetime('now', ?1)
          UNION ALL
-         SELECT id, 'finished', datetime(updated_at) FROM items
+         SELECT id, 'finished', datetime(updated_at), NULL FROM items
            WHERE status = 'completed' AND datetime(updated_at) > datetime('now', ?1)
+         UNION ALL
+         -- each progress update is its own entry, as migration 0015's trigger records them from here on
+         SELECT item_id, 'progress', datetime(at), id FROM reading_progress
+           WHERE datetime(at) > datetime('now', ?1)
+             AND coalesce((SELECT progress_to_connections FROM site_settings WHERE id = 1), 1) = 1
          ORDER BY at DESC LIMIT ?2
        ) ORDER BY at ASC`,
     )
@@ -332,7 +347,8 @@ export async function countItemsInView(d1: D1Database, view: ConnectionView): Pr
   return row?.n ?? 0;
 }
 
-export type SharedActivity = { id: number; kind: ActivityKind; at: string; item: Item };
+/** progressPage: the page that update recorded, on a progress entry; null on every other kind. */
+export type SharedActivity = { id: number; kind: ActivityKind; at: string; item: Item; progressPage: number | null };
 
 /**
  * Activity in a view after a cursor, oldest first, so a busy stretch arrives over several pulls instead
@@ -352,9 +368,16 @@ export async function activityInView(
   // A cursor past the end came from before a restore: start again rather than wait forever.
   const from = since > (top?.latest ?? 0) ? 0 : since;
   const rows = await dbi
-    .select({ id: s.activityLog.id, kind: s.activityLog.kind, at: s.activityLog.at, item: s.items })
+    .select({
+      id: s.activityLog.id,
+      kind: s.activityLog.kind,
+      at: s.activityLog.at,
+      item: s.items,
+      progressPage: s.readingProgress.page,
+    })
     .from(s.activityLog)
     .innerJoin(s.items, eq(s.activityLog.itemId, s.items.id))
+    .leftJoin(s.readingProgress, eq(s.activityLog.progressId, s.readingProgress.id))
     .where(and(gt(s.activityLog.id, from), inView(view), stillShows))
     .orderBy(from === 0 ? desc(s.activityLog.id) : asc(s.activityLog.id))
     .limit(limit);
@@ -1590,3 +1613,100 @@ export async function federationExport(d1: D1Database): Promise<Record<string, u
   };
 }
 
+// ---------- notifications (§16 #36) ----------
+
+const MAX_NOTIFICATION_TEXT = 200;
+
+export type NewNotification = { kind: NotificationKind; householdName: string; subject?: string | null; href: string };
+
+/**
+ * Records one. Callers do it only once the event has really happened — a repeat of the same message (from a
+ * retry or an outbox pull) must not notify twice, so each call sits behind the check that made the change.
+ */
+export async function notify(d1: D1Database, n: NewNotification): Promise<void> {
+  await db(d1)
+    .insert(s.notifications)
+    .values({
+      kind: n.kind,
+      householdName: n.householdName.slice(0, MAX_NOTIFICATION_TEXT),
+      subject: n.subject ? n.subject.slice(0, MAX_NOTIFICATION_TEXT) : null,
+      href: n.href,
+    });
+}
+
+/** Kinds this person is shown: connection requests and changes only reach admins, who can act on them. */
+const visibleTo = (userId: number) =>
+  sql`((SELECT role FROM users WHERE id = ${userId}) = 'admin'
+       OR ${s.notifications.kind} NOT IN (SELECT value FROM json_each(${JSON.stringify(ADMIN_NOTIFICATIONS)})))`;
+
+/**
+ * Unread notifications and feed entries for one person, in a single query — it runs on every page an
+ * instance with connections renders. Both compare ids against the person's watermarks, so each count is an
+ * index range, not a scan.
+ */
+export async function unreadCounts(d1: D1Database, userId: number): Promise<{ notifications: number; feed: number }> {
+  const row = await d1
+    .prepare(
+      `SELECT
+         (SELECT count(*) FROM notifications n
+            WHERE n.id > coalesce((SELECT notifications_seen_id FROM users WHERE id = ?1), 0)
+              AND ((SELECT role FROM users WHERE id = ?1) = 'admin'
+                   OR n.kind NOT IN (SELECT value FROM json_each(?2)))) AS notifications,
+         (SELECT count(*) FROM remote_activities
+            WHERE id > coalesce((SELECT feed_seen_id FROM users WHERE id = ?1), 0)) AS feed`,
+    )
+    .bind(userId, JSON.stringify(ADMIN_NOTIFICATIONS))
+    .first<{ notifications: number; feed: number }>();
+  return { notifications: row?.notifications ?? 0, feed: row?.feed ?? 0 };
+}
+
+export async function listNotifications(d1: D1Database, userId: number, limit = 100): Promise<Notification[]> {
+  return db(d1).select().from(s.notifications).where(visibleTo(userId)).orderBy(desc(s.notifications.id)).limit(limit);
+}
+
+/** Up to the newest one this person was shown — not "now", so anything that lands meanwhile stays unread. */
+export async function markNotificationsSeen(d1: D1Database, userId: number, upToId: number): Promise<void> {
+  await d1
+    .prepare('UPDATE users SET notifications_seen_id = max(coalesce(notifications_seen_id, 0), ?2) WHERE id = ?1')
+    .bind(userId, upToId)
+    .run();
+}
+
+/**
+ * Marks the feed seen up to the newest entry stored right now, in one statement. The Feed page calls it before
+ * starting its own pull, so entries that pull brings in land above the mark and stay unread until shown.
+ */
+export async function markFeedSeen(d1: D1Database, userId: number): Promise<void> {
+  await d1
+    .prepare(
+      `UPDATE users SET feed_seen_id = max(coalesce(feed_seen_id, 0), (SELECT coalesce(max(id), 0) FROM remote_activities))
+       WHERE id = ?1`,
+    )
+    .bind(userId)
+    .run();
+}
+
+/** Where this person's notifications were read up to, so the page can tell the new ones from the rest. */
+export async function notificationsWatermark(d1: D1Database, userId: number): Promise<number> {
+  const row = await d1.prepare('SELECT coalesce(notifications_seen_id, 0) AS id FROM users WHERE id = ?1').bind(userId).first<{ id: number }>();
+  return row?.id ?? 0;
+}
+
+/** Kept for half a year; they're a prompt to look, not a record — the record is the connection, loan or thread. */
+export async function pruneNotifications(d1: D1Database): Promise<void> {
+  await d1.prepare("DELETE FROM notifications WHERE at < datetime('now', '-180 days')").run();
+}
+
+/** One of their books' titles, as last stored from their feed — what a notification about a thread names. */
+export async function theirItemTitle(d1: D1Database, connectionId: number, itemRemoteId: number, stamp: string): Promise<string | null> {
+  const row = await d1
+    .prepare(
+      `SELECT json_extract(ra.item, '$.title') AS title FROM remote_activities ra
+       JOIN feed_subscriptions fs ON fs.id = ra.subscription_id
+       WHERE fs.connection_id = ?1 AND ra.item_remote_id = ?2 AND ra.item_stamp = ?3
+       ORDER BY ra.id DESC LIMIT 1`,
+    )
+    .bind(connectionId, itemRemoteId, stamp)
+    .first<{ title: string | null }>();
+  return row?.title ?? null;
+}

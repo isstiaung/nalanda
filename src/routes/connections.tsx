@@ -34,7 +34,7 @@ import {
   type SubscriptionSettings,
   type SubscriptionWithUsage,
 } from '../db/federation';
-import { getLibrary, listLibraries } from '../db/queries';
+import { getLibrary, getSiteSettings, listLibraries, updateSiteSettings } from '../db/queries';
 import {
   ITEM_STATUSES,
   MEDIA_TYPES,
@@ -110,6 +110,7 @@ type PageProps = Flash & {
   views: Array<ConnectionView & { itemCount: number }>;
   libraries: Library[];
   storage: Map<number, { entries: number; bytes: number }>;
+  progressToConnections: boolean;
 };
 
 // Peer household names come from the peer's own server. They are only ever rendered as text,
@@ -162,15 +163,33 @@ function scopeLabel(v: ConnectionView): string {
   return parts.length ? parts.join(' · ') : 'Everything';
 }
 
-const SharedViews: FC<{ views: PageProps['views']; libraries: Library[] }> = ({ views, libraries }) => {
+const SharedViews: FC<{ views: PageProps['views']; libraries: Library[]; progressToConnections: boolean }> = ({
+  views,
+  libraries,
+  progressToConnections,
+}) => {
   const shelfName = new Map(libraries.map((l) => [l.id, l.name]));
   return (
     <section class="fed-section" style="margin-top:1.5rem">
       <p class="eyebrow">Shared with connections</p>
       <p class="muted">
         Connected households see nothing until you share a view here, and every view is shared with every connection. For
-        the books in it they see the title, creators, cover, rating, review and when you finished it — never notes, loans or
-        how many copies you have.
+        the books in it they see the title, creators, cover, rating, review and when you finished it
+        {progressToConnections ? ', and each page you record as you read' : ''} — never notes, loans or how many copies you
+        have.
+      </p>
+      <form method="post" action="/connections/progress-sharing" class="inline-form">
+        <label>
+          <input type="checkbox" name="progressToConnections" value="on" checked={progressToConnections} /> Share reading
+          progress
+        </label>
+        <button type="submit" class="btn">
+          Save
+        </button>
+      </form>
+      <p class="muted">
+        On by default. Each page you record becomes its own entry in their feed. Turning it off stops new entries and
+        withdraws the ones already sent, the next time each connection checks.
       </p>
       {views.length ? (
         <div class="data-table">
@@ -422,7 +441,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
           );
         }}
       />
-      {p.settings ? <SharedViews views={p.views} libraries={p.libraries} /> : null}
+      {p.settings ? <SharedViews views={p.views} libraries={p.libraries} progressToConnections={p.progressToConnections} /> : null}
     </>
   );
 };
@@ -430,13 +449,14 @@ const ConnectionsPage: FC<PageProps> = (p) => {
 async function render(c: Context<AppEnv>, flash: Flash = {}) {
   const identity = await loadIdentity(c.env.FEDERATION_PRIVATE_KEY);
   if (!identity) return c.notFound(); // the gate already checked; kept for the type
-  const [settings, invites, rows, views, libraries, storage] = await Promise.all([
+  const [settings, invites, rows, views, libraries, storage, site] = await Promise.all([
     getFederationSettings(c.env.DB),
     listInvites(c.env.DB),
     listConnections(c.env.DB),
     listConnectionViews(c.env.DB),
     listLibraries(c.env.DB),
     storageByConnection(c.env.DB),
+    getSiteSettings(c.env.DB),
   ]);
   const counts = await Promise.all(views.map((v) => countItemsInView(c.env.DB, v)));
   return page(
@@ -451,6 +471,7 @@ async function render(c: Context<AppEnv>, flash: Flash = {}) {
       views={views.map((v, i) => ({ ...v, itemCount: counts[i] ?? 0 }))}
       libraries={libraries}
       storage={storage}
+      progressToConnections={site.progressToConnections}
       {...flash}
     />,
   );
@@ -467,6 +488,13 @@ function notifyPeer(c: Context<AppEnv>, identity: Identity, settings: Federation
 }
 
 connections.get('/connections', (c) => render(c));
+
+connections.post('/connections/progress-sharing', async (c) => {
+  const body = await c.req.parseBody();
+  // an unchecked checkbox sends nothing, so absence means off; the gate has already checked for an admin
+  await updateSiteSettings(c.env.DB, { progressToConnections: body['progressToConnections'] === 'on' });
+  return c.redirect('/connections');
+});
 
 connections.post('/connections/settings', async (c) => {
   const body = await c.req.parseBody();

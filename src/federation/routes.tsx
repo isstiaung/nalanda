@@ -5,6 +5,7 @@
 import { Hono, type Context } from 'hono';
 import {
   activateConnection,
+  notify,
   activityInView,
   availability,
   countConnections,
@@ -153,6 +154,8 @@ federation.post('/federation/connect', async (c) => {
   );
   switch (outcome) {
     case 'pending':
+      // the one that needs someone here to act: they're waiting on a confirmation from us
+      await notify(c.env.DB, { kind: 'connection_request', householdName: descriptor.name, href: '/connections' });
       return c.json({ status: 'pending' }, 202);
     case 'invitation gone':
       return c.json({ error: 'invitation not found' }, 404);
@@ -260,7 +263,7 @@ federation.get('/federation/feed', async (c) => {
       id: row.id,
       kind: row.kind,
       published: row.at,
-      item: toFeedItem(row.item, row.kind, stamps.get(row.item.id)!),
+      item: toFeedItem(row.item, row.kind, stamps.get(row.item.id)!, row.progressPage),
     };
     const size = jsonBytes(entry).bytes;
     if (entries.length > 0 && bytes + size > FEED_RESPONSE_BUDGET_BYTES) break;
@@ -421,15 +424,32 @@ federation.post('/federation/inbox', async (c) => {
   if (!(await markActivitySeen(c.env.DB, message.id))) return c.json({ status: 'already processed' });
 
   forgetPeer(connection.baseUrl);
+  // markActivitySeen above has already turned away a repeat of this message, so each notifies once.
+  const who = connection.householdName;
   switch (message.type) {
     case 'ConnectAccept':
-      await activateConnection(c.env.DB, connection.id, 'awaiting_them');
+      if (await activateConnection(c.env.DB, connection.id, 'awaiting_them')) {
+        await notify(c.env.DB, { kind: 'connection_accepted', householdName: who, href: '/connections' });
+      }
       return c.json({ status: 'active' });
     case 'ConnectDecline':
       await deleteConnection(c.env.DB, connection.id);
+      await notify(c.env.DB, { kind: 'connection_declined', householdName: who, href: '/connections' });
       return c.json({ status: 'declined' });
     case 'Disconnect':
       await deleteConnection(c.env.DB, connection.id);
+      // What a Disconnect means depends on where it found us: a household still waiting on us takes back its
+      // request; one we asked, that never confirmed, has in effect declined; only an active one disconnects.
+      await notify(c.env.DB, {
+        kind:
+          connection.status === 'awaiting_us'
+            ? 'connection_withdrawn'
+            : connection.status === 'awaiting_them'
+              ? 'connection_declined'
+              : 'disconnected',
+        householdName: who,
+        href: '/connections',
+      });
       return c.json({ status: 'disconnected' });
   }
 });

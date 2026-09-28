@@ -16,6 +16,11 @@ export const users = sqliteTable('users', {
   role: text('role', { enum: ['admin', 'member'] }).notNull().default('member'),
   mustChangePassword: integer('must_change_password', { mode: 'boolean' }).notNull().default(false),
   createdAt: text('created_at').notNull().default(now),
+  // Each person's own read state (§16 #36): the newest notification and feed entry they were shown. Ids, not
+  // times — a feed visit pulls new entries after responding, usually within the same second, and a time
+  // marker would count those as seen. NULL means never looked, so everything counts.
+  notificationsSeenId: integer('notifications_seen_id'),
+  feedSeenId: integer('feed_seen_id'),
 });
 
 export const libraries = sqliteTable('libraries', {
@@ -138,6 +143,8 @@ export const siteSettings = sqliteTable('site_settings', {
   id: integer('id').primaryKey(),
   // Share pages show a book's reading progress only when this is on (ARCH.md §9, §16 #34).
   progressOnShares: integer('progress_on_shares', { mode: 'boolean' }).notNull().default(false),
+  // Progress updates reach connections' feeds unless this is turned off (§16 #35).
+  progressToConnections: integer('progress_to_connections', { mode: 'boolean' }).notNull().default(true),
   updatedAt: text('updated_at').notNull().default(now),
 });
 
@@ -244,13 +251,15 @@ export const readingProgress = sqliteTable(
   (t) => [index('idx_reading_progress_item').on(t.itemId, t.at)],
 );
 
-export const ACTIVITY_KINDS = ['reviewed', 'rated', 'finished'] as const;
+export const ACTIVITY_KINDS = ['reviewed', 'rated', 'finished', 'progress'] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 /**
- * Written only by triggers on `items` (migration 0007), and only while a connection view exists.
- * One row per item and kind: a repeat replaces the row under a new id, so the id doubles as the
- * feed cursor and a replaced id tells a connection its stored copy is out of date.
+ * Written only by triggers (migration 0007 on `items`, 0015 on `reading_progress`), and only while a
+ * connection view exists. One row per item and kind: a repeat replaces the row under a new id, so the
+ * id doubles as the feed cursor and a replaced id tells a connection its stored copy is out of date.
+ * Progress is the exception — every update is its own entry, pointing at its reading_progress row,
+ * and goes when that row does (§16 #35).
  */
 export const activityLog = sqliteTable(
   'activity_log',
@@ -261,8 +270,17 @@ export const activityLog = sqliteTable(
       .references(() => items.id, { onDelete: 'cascade' }),
     kind: text('kind', { enum: ACTIVITY_KINDS }).notNull(),
     at: text('at').notNull().default(now),
+    // Set only on a progress entry: which update it is, so it carries that page. No ON DELETE CASCADE:
+    // SQLite can't add one through ALTER TABLE, so deleteProgress() removes this row itself, first.
+    progressId: integer('progress_id').references(() => readingProgress.id),
   },
-  (t) => [uniqueIndex('activity_log_item_kind').on(t.itemId, t.kind), index('idx_activity_log_at').on(t.at)],
+  (t) => [
+    // partial: the INSERT OR REPLACE in 0007's triggers still collapses reviews, ratings and finishes,
+    // while progress entries accumulate
+    uniqueIndex('activity_log_item_kind').on(t.itemId, t.kind).where(sql`${t.kind} <> 'progress'`),
+    index('idx_activity_log_at').on(t.at),
+    index('idx_activity_log_progress').on(t.progressId),
+  ],
 );
 
 /** A view of a connection's that this household follows, with the limits it chose. */
@@ -292,7 +310,9 @@ export const feedSubscriptions = sqliteTable(
 export const remoteActivities = sqliteTable(
   'remote_activities',
   {
-    id: integer('id').primaryKey(),
+    // AUTOINCREMENT (migration 0019): never reused, so a reader's feed_seen_id watermark stays meaningful
+    // after the newest entry is withdrawn (§16 #36).
+    id: integer('id').primaryKey({ autoIncrement: true }),
     subscriptionId: integer('subscription_id')
       .notNull()
       .references(() => feedSubscriptions.id, { onDelete: 'cascade' }),
@@ -310,6 +330,50 @@ export const remoteActivities = sqliteTable(
     index('idx_remote_activities_published').on(t.publishedAt),
     index('idx_remote_activities_item').on(t.itemRemoteId),
   ],
+);
+
+/**
+ * Things that happened with connections that someone here should know about (§16 #36). The kinds that need
+ * an admin to act — a household asking to connect — are shown only to admins.
+ */
+export const NOTIFICATION_KINDS = [
+  'connection_request', // they redeemed our invitation: confirm or decline on Connections
+  'connection_accepted', // they confirmed ours
+  'connection_declined',
+  'connection_withdrawn', // they took back a request still waiting on us
+  'disconnected',
+  'borrow_request',
+  'borrow_withdrawn',
+  'borrow_accepted',
+  'borrow_declined',
+  'returned', // the lender recorded our return
+  'comment',
+] as const;
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+export const ADMIN_NOTIFICATIONS: readonly NotificationKind[] = [
+  'connection_request',
+  'connection_accepted',
+  'connection_declined',
+  'connection_withdrawn',
+  'disconnected',
+];
+
+/**
+ * Household-wide, read per person through users.notifications_seen_at. Names and titles are copied in when
+ * the event happens, so a notification still reads right after the connection or book is gone. They come
+ * from another instance and render only as escaped text (CLAUDE.md); `href` is always built here.
+ */
+export const notifications = sqliteTable(
+  'notifications',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    kind: text('kind', { enum: NOTIFICATION_KINDS }).notNull(),
+    householdName: text('household_name').notNull(),
+    subject: text('subject'), // a book title, when the event is about one
+    href: text('href').notNull(),
+    at: text('at').notNull().default(now),
+  },
+  (t) => [index('idx_notifications_at').on(t.at)],
 );
 
 // Phase 3: comments on reviews, and the outbox behind every message addressed to one connection.
@@ -438,6 +502,7 @@ export type Connection = typeof connections.$inferSelect;
 export type ConnectionView = typeof connectionViews.$inferSelect;
 export type FeedSubscription = typeof feedSubscriptions.$inferSelect;
 export type ReadingProgress = typeof readingProgress.$inferSelect;
+export type Notification = typeof notifications.$inferSelect;
 export type RemoteActivity = typeof remoteActivities.$inferSelect;
 export type Comment = typeof comments.$inferSelect;
 export type OutboxRow = typeof outbox.$inferSelect;

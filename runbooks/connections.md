@@ -72,10 +72,29 @@ you do.
 - Every connected household sees every view.
 - For the books in a view they see the title, creators, cover, rating, review and when you
   finished it. Never notes, loans, borrowers or how many copies you have.
-- What reaches them is activity: a book reviewed, rated or finished. Sharing your first view
-  includes the last 90 days of it.
+- What reaches them is activity: a book reviewed, rated or finished, and each page you record
+  as you read. Sharing your first view includes the last 90 days of it.
+- **Share reading progress**, in the same section, is on by default. Turn it off and nothing new
+  is sent; entries already sent are withdrawn the next time each household checks. It's
+  separate from showing progress on public share links (**Shared links**), which is off by
+  default.
+- A household still on an older version of Nalanda won't see your reading progress, and won't
+  get the entries it missed after it updates. Everything else reaches it as normal.
 - **Stop sharing** removes a view. The next time a household pulls, whatever they stored from
   it is deleted.
+
+## Notifications
+
+**Notifications** in the sidebar lists what happened with your connections: a household asking to
+connect (waiting on your confirmation), accepting or declining yours, disconnecting; someone asking
+to borrow a book, withdrawing, lending you one, declining, or recording a return; a comment on a
+review. The number beside it is how many you haven't seen. Each person in the household has their
+own, and requests to connect only reach admins, who are the ones who can confirm them.
+
+New entries in the feed of a household you follow aren't notified one by one. **Feed** shows how
+many arrived since you last looked instead. On a phone the badge sits in the top bar.
+
+Nothing is sent anywhere: no email, no push. It's a count you see the next time you open Nalanda.
 
 ## Follow a household's feed
 

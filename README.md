@@ -28,11 +28,14 @@ manuscripts.
   self-hosts Nalanda — follow each other's reading in a feed, comment on each other's
   reviews, and borrow each other's books with the loan tracked on both sides. One-to-one
   and invite-only, never a network or the fediverse; off unless you give the instance a key.
+  **Notifications** count connection requests, borrowing and comments, and Feed counts what's
+  new, per person in the household.
 - **Tags, half-star ratings, full-text search** across the collection, plus a quick
   title/author filter inside every shelf and sorting by newest, title, rating, or date
   finished.
 - **Reading progress**: record the page you're on, keep the log of how you got there, and
-  see how far through a book you are. Off share links unless you choose to show it.
+  see how far through a book you are. Connections follow it in their feed, page by page;
+  it stays off public share links unless you choose to show it there.
 - **Own your data**: every field round-trips through CSV export; plain-SQLite backups.
 - **The manuscript ledger**: a hand-written design system grounded in Nalanda's Pala-era
   scriptorium — palm-leaf paper, indigo and vermilion, Devanagari-first display type,

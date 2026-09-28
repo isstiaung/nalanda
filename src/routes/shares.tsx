@@ -3,7 +3,7 @@
 // its own rather than a <details> tucked inside each shelf's settings.
 import { Hono } from 'hono';
 import {
-  countMatchingItems,
+  countMatchingItemsMany,
   createShare,
   deleteShare,
   getLibrary,
@@ -29,9 +29,12 @@ shares.get('/shares', async (c) => {
   const shelfName = new Map(libraries.map((l) => [l.id, l.name]));
   const origin = new URL(c.req.url).origin;
 
-  // One count per link — the same filters the public page applies, so the number
-  // is exactly how many items that URL exposes.
-  const counts = await Promise.all(views.map((v) => countMatchingItems(c.env.DB, v.libraryId, shareFilters(v))));
+  // One count per link — the same filters the public page applies, so the number is exactly how many items
+  // that URL exposes — all in one batched D1 call, however many links there are.
+  const counts = await countMatchingItemsMany(
+    c.env.DB,
+    views.map((v) => ({ libraryId: v.libraryId, filters: shareFilters(v) })),
+  );
   const exposed = views.reduce((n, _v, i) => n + (counts[i] ?? 0), 0);
 
   return page(

@@ -183,6 +183,8 @@ table { border-collapse: collapse; }
 .nav-link:hover { background: var(--surface-2); color: var(--ink); text-decoration: none; }
 .nav-link.active { background: var(--accent-tint); color: var(--accent-strong); font-weight: 600; }
 .nav-count { font-family: var(--mono); font-size: 10.5px; color: var(--ink-3); }
+/* Unread: indigo, a working signal — vermilion stays for circulation and danger. */
+.nav-unread { margin-left: auto; min-width: 1.35rem; padding: 0 0.35rem; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-family: var(--mono); font-size: 10.5px; line-height: 1.35rem; text-align: center; }
 .nav-link.active .nav-count { color: var(--accent-strong); }
 
 .sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 1px; padding-top: 0.9rem; border-top: 1px solid var(--line); }
@@ -541,6 +543,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .progress-log li .mono:first-child { min-width: 4.5rem; }
 /* In a props row (share pages) the bar takes its own line under the figures instead of shrinking to nothing. */
 .props dd .progress-track { flex-basis: 100%; margin: 0.2rem 0 0; }
+.feed-progress { margin-top: 0.3rem; font-size: 12px; }
+.feed-progress li .mono:first-child { min-width: 2.8rem; }
 
 .circulation { border: 1px solid var(--line); border-left: 3px solid var(--stamp); border-radius: var(--radius); padding: 0.8rem 1rem; margin-top: 1.4rem; background: var(--surface); }
 .circulation.free { border-left-color: var(--line-strong); }
@@ -625,6 +629,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
     z-index: 30;
   }
   .mobile-bar .brand-name { font-size: 14px; }
+  .mobile-bar .mobile-unread { margin-left: auto; text-decoration: none; }
   .content { padding: 1.1rem 1rem 3rem; }
   .item-detail { grid-template-columns: 1fr; }
   .item-detail-cover { position: static; max-width: 190px; }
@@ -698,3 +703,10 @@ button.comment-delete:hover, button.progress-delete:hover { background: none; co
   .request-actions, .data-table .request-actions .inline-form { flex-wrap: wrap; }
 }
 
+/* ── notifications ───────────────────────────────────────────────────────── */
+.notifications { list-style: none; padding: 0; margin: 0 0 1.25rem; display: grid; gap: 0; border-top: 1px solid var(--line); }
+.notifications li { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: 0.6rem 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.notifications li a { color: var(--ink); text-decoration: none; }
+.notifications li a:hover { text-decoration: underline; }
+.notifications li.unread a::before { content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 0.5rem; border-radius: 50%; background: var(--accent); vertical-align: 1px; }
+.notifications li .mono { flex-shrink: 0; font-size: 11.5px; }

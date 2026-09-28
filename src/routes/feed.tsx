@@ -12,6 +12,7 @@ import {
   countSubscriptions,
   feedPage,
   getFederationSettings,
+  markFeedSeen,
   recentCommentsOnOurReviews,
   takeRemovedCount,
   type FeedCursor,
@@ -45,12 +46,15 @@ type Card = {
   review: string | null;
   reviewTruncated: boolean;
   rating: number | null;
+  // every progress update for the book in this page of the feed, newest first
+  progress: { page: number; percent: number | null; published: string }[];
 };
 
 /**
  * One card per book per household, newest first: "finished and reviewed" rather than two cards. Each
  * entry carries only its own kind's field, so the review comes from the `reviewed` entry and the rating
- * from the `rated` one.
+ * from the `rated` one. Progress entries stay separate entries, but gather in their book's card as a
+ * timeline rather than each taking a card of its own.
  */
 function toCards(entries: StoredEntry[]): Card[] {
   const cards = new Map<string, Card>();
@@ -77,6 +81,7 @@ function toCards(entries: StoredEntry[]): Card[] {
         review: null,
         reviewTruncated: false,
         rating: null,
+        progress: [],
       };
       cards.set(key, card);
     }
@@ -86,6 +91,7 @@ function toCards(entries: StoredEntry[]): Card[] {
       card.reviewTruncated = item.reviewTruncated;
     }
     if (e.kind === 'rated' && card.rating === null) card.rating = item.rating;
+    if (e.kind === 'progress' && item.progress) card.progress.push({ ...item.progress, published: e.publishedAt });
   }
   return [...cards.values()];
 }
@@ -112,12 +118,16 @@ function runs(cards: Card[]): Card[][] {
   return out;
 }
 
-const VERB_ORDER: ActivityKind[] = ['finished', 'rated', 'reviewed'];
+const VERB_ORDER: ActivityKind[] = ['progress', 'finished', 'rated', 'reviewed'];
+const VERB: Record<ActivityKind, string> = { progress: 'reading', finished: 'finished', rated: 'rated', reviewed: 'reviewed' };
 
 function verbs(kinds: Set<ActivityKind>): string {
-  const list = VERB_ORDER.filter((k) => kinds.has(k));
+  // once a book is finished its progress is the story of how, not what's happening now
+  const list = VERB_ORDER.filter((k) => kinds.has(k) && !(k === 'progress' && kinds.has('finished'))).map((k) => VERB[k]);
   return list.length > 1 ? `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}` : (list[0] ?? '');
 }
+
+const PROGRESS_SHOWN = 5;
 
 const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] }> = ({ card, showHousehold, thread }) => {
   const { item } = card;
@@ -143,6 +153,28 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] }> = 
           {item.creators ? <small> · {item.creators}</small> : null}
         </p>
         {card.rating ? <span class="rating">{stars(card.rating)}</span> : null}
+        {card.progress.length ? (
+          <>
+            {/* the bar says how far through a book they are — a finished book isn't partway through anything */}
+            {card.progress[0]!.percent !== null && !card.kinds.has('finished') ? (
+              <div class="progress-track" role="img" aria-label={`${card.progress[0]!.percent}% read`}>
+                <div class="progress-fill" style={`width:${card.progress[0]!.percent}%`} />
+              </div>
+            ) : null}
+            <ol class="progress-log feed-progress">
+              {card.progress.slice(0, PROGRESS_SHOWN).map((p) => (
+                <li>
+                  <span class="mono">{p.percent !== null ? `${p.percent}%` : '—'}</span>
+                  <span class="mono">p. {p.page}</span>
+                  <span class="mono muted">{p.published.slice(0, 10)}</span>
+                </li>
+              ))}
+              {card.progress.length > PROGRESS_SHOWN ? (
+                <li class="muted">+{card.progress.length - PROGRESS_SHOWN} earlier</li>
+              ) : null}
+            </ol>
+          </>
+        ) : null}
         {card.review ? (
           <p class="prewrap feed-review">
             {card.review}
@@ -188,6 +220,8 @@ feed.get('/feed', async (c) => {
   const before = parseBefore(c.req.query('before'));
   const firstPage = before === null;
 
+  // Before refreshInBackground starts writing: entries its pull brings in stay unread until a visit shows them.
+  if (firstPage) await markFeedSeen(c.env.DB, user.id);
   const [{ entries, next }, subscriptions, removed] = settings
     ? await Promise.all([
         feedPage(c.env.DB, { before, maxEntries: FEED_PAGE_ENTRIES, maxBytes: FEED_PAGE_BYTES }),

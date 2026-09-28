@@ -799,6 +799,57 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     like a private note than a published review, but some households want a public "reading now"
     — stored in a single-row `site_settings` table whose missing row means every default, so a
     fresh instance needs no setup (§9). It reaches connections separately, as feed entries (§16 #35).
+35. **Progress reaches connections as a timeline: every update its own feed entry.** The
+    household chose that over "latest progress per book". `activity_log`'s (item, kind)
+    uniqueness became partial (`WHERE kind <> 'progress'`) so progress accumulates while 0007's
+    `INSERT OR REPLACE` still collapses reviews, ratings and finishes — a test proves both. An
+    entry points at its update through `progress_id`, so it carries the page it recorded, not
+    where the book is now. That column has no `ON DELETE CASCADE`: drizzle-kit silently drops
+    the clause when adding a column by `ALTER TABLE`, and D1 enforces foreign keys, so
+    `deleteProgress()` deletes the entry itself, first (the test fails with "FOREIGN KEY
+    constraint failed" without that). Sharing is on by default and a household-wide switch on
+    Connections; switching it off stops new entries and, through `stillShows`, withdraws sent ones
+    by the ordinary removal check. Older peers skip the unknown kind and keep going, because
+    `parseFeedPage` drops unparseable entries rather than the page. On the Feed page a book's
+    updates gather in its card as a timeline instead of each taking a card, keeping "one card per
+    book per household"; "reading" gives way to "finished" once it is. Every entry counts against
+    the receiver's `maxEntries`, so a busy reader's updates can push older entries out of a
+    connection's stored feed — the receiver's cap, chosen by the receiver.
+36. **Notifications are in-app, per person, and only about connections.** A household redeemed an
+    invitation and nothing told anyone to confirm it. Push was considered and set aside — a service
+    worker, VAPID keys and a subscriptions table for a household app that's checked daily. Stored
+    notifications cover the discrete events someone may need to act on or would want to know:
+    connection requested, accepted, declined, withdrawn, disconnected; a borrow requested,
+    withdrawn, accepted, declined, returned; a comment. Each is recorded behind the check that
+    proved the event happened — `markActivitySeen`, `setRequestStatus`'s return, `insertComment`'s
+    conflict — so a message replayed from an outbox notifies once. Names and titles are copied in,
+    so a notification still reads after a disconnect, and render as escaped text; `href` is always
+    built here. Connection kinds reach admins only, since only admins can act on them. Feed activity
+    is counted, not notified — a notification per progress update would bury everything else.
+    Read state is per person as an id watermark (`notifications_seen_id`, `feed_seen_id`), not a
+    time: the Feed page pulls after it responds, usually inside the same second, and a time marker
+    would count what that pull brings in as seen. The page marks the feed seen *before* starting
+    its pull, in one statement, and marks notifications up to the newest one shown, not "now". One
+    extra query per page, only on an instance with connections. On a phone the sidebar folds away,
+    so the mobile bar carries its own badge. `remote_activities.id` was a plain rowid, so when the
+    newest stored entry was withdrawn the next one could reuse its id and fall below a reader's
+    watermark; migration 0019 rebuilds the table with AUTOINCREMENT (hand-written — drizzle-kit wraps
+    rebuilds in PRAGMA foreign_keys, which D1 doesn't honour in a migration; nothing references the
+    table, so the drop is safe with foreign keys on). Kept six months. Migrations 0016–0018 (0017/0018
+    replace 0016's first-draft time columns; drizzle-kit can't answer its rename prompt
+    non-interactively, so the swap is a drop then an add).
+
+**2026-09-28 — measured, not assumed:**
+37. **The D1 limit that binds is 1,000 calls per invocation, and a batch is one call.** Every
+    design since the connections build assumed the documented free-plan figure — 50 queries per
+    invocation, each statement in a `batch()` counting separately. Production imports running
+    ~300 statements per request contradicted that, so a throwaway Worker with its own empty D1
+    database measured it: 1,000 separate `SELECT 1` calls in one invocation passed and the
+    1,001st failed ("Too many API requests by single Worker invocation"); a single 2,000-statement
+    batch passed; 1,001 two-statement batches failed on resources (1102), not on the count. The
+    probe was deleted afterwards and never touched Nalanda's data. Designs keep 50 as their
+    budget — conservative, and possibly what binds on another account — but a batch is no
+    longer counted per statement.
 
 The honest comparison, since it was asked:
 

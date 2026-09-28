@@ -3,6 +3,7 @@ import type { Child, FC, PropsWithChildren } from 'hono/jsx';
 import type { Library } from '../db/schema';
 import { listLibraries } from '../db/queries';
 import type { AppEnv, SessionUser } from '../env';
+import { unreadCounts } from '../db/federation';
 import { loadIdentity } from '../federation/keys';
 
 type NavLibrary = Library & { itemCount: number };
@@ -61,11 +62,12 @@ export const Brand: FC = () => (
   </a>
 );
 
-const NavLink: FC<{ href: string; label: string; path: string; count?: number; exact?: boolean }> = ({
+const NavLink: FC<{ href: string; label: string; path: string; count?: number; unread?: number; exact?: boolean }> = ({
   href,
   label,
   path,
   count,
+  unread,
   exact,
 }) => {
   const active = exact ? path === href : path === href || path.startsWith(`${href}/`);
@@ -73,15 +75,24 @@ const NavLink: FC<{ href: string; label: string; path: string; count?: number; e
     <a href={href} class={active ? 'nav-link active' : 'nav-link'}>
       <span>{label}</span>
       {count !== undefined ? <span class="nav-count">{count}</span> : null}
+      {unread ? (
+        <span class="nav-unread" aria-label={`${unread} unread`}>
+          {unread > 99 ? '99+' : unread}
+        </span>
+      ) : null}
     </a>
   );
 };
 
-const Sidebar: FC<{ user: SessionUser; path: string; libraries: NavLibrary[]; federation: boolean }> = ({
+export type Unread = { notifications: number; feed: number };
+const NONE_UNREAD: Unread = { notifications: 0, feed: 0 };
+
+const Sidebar: FC<{ user: SessionUser; path: string; libraries: NavLibrary[]; federation: boolean; unread: Unread }> = ({
   user,
   path,
   libraries,
   federation,
+  unread,
 }) => (
   <aside class="sidebar" id="sidebar">
     <Brand />
@@ -95,7 +106,8 @@ const Sidebar: FC<{ user: SessionUser; path: string; libraries: NavLibrary[]; fe
     <nav class="nav-section" aria-label="Circulation">
       <div class="nav-eyebrow">Circulation</div>
       <NavLink href="/loans" label="Loans" path={path} />
-      {federation ? <NavLink href="/feed" label="Feed" path={path} /> : null}
+      {federation ? <NavLink href="/feed" label="Feed" path={path} unread={unread.feed} /> : null}
+      {federation ? <NavLink href="/notifications" label="Notifications" path={path} unread={unread.notifications} /> : null}
       {federation ? <NavLink href="/borrowed" label="Borrowed" path={path} /> : null}
       {user.role === 'admin' ? <NavLink href="/shares" label="Shared links" path={path} /> : null}
       {federation && user.role === 'admin' ? <NavLink href="/connections" label="Connections" path={path} /> : null}
@@ -132,20 +144,31 @@ export const Layout: FC<
     path?: string;
     libraries?: NavLibrary[];
     federation?: boolean;
+    unread?: Unread;
   }>
-> = ({ title, user, path = '/', libraries = [], federation = false, children }) => (
+> = ({ title, user, path = '/', libraries = [], federation = false, unread = NONE_UNREAD, children }) => (
   <html lang="en">
     <Head title={title} />
     {user ? (
       <body>
         <div class="app">
-          <Sidebar user={user} path={path} libraries={libraries} federation={federation} />
+          <Sidebar user={user} path={path} libraries={libraries} federation={federation} unread={unread} />
           <div>
             <header class="mobile-bar">
               <button type="button" id="nav-toggle" class="btn-quiet" aria-label="Menu" aria-controls="sidebar">
                 ☰
               </button>
               <span class="brand-name">Nalanda</span>
+              {/* the sidebar folds away on a phone, taking its badges with it — so the bar carries the one that matters */}
+              {unread.notifications ? (
+                <a href="/notifications" class="nav-unread mobile-unread" aria-label={`${unread.notifications} unread notifications`}>
+                  {unread.notifications > 99 ? '99+' : unread.notifications}
+                </a>
+              ) : unread.feed ? (
+                <a href="/feed" class="nav-unread mobile-unread" aria-label={`${unread.feed} new in your feed`}>
+                  {unread.feed > 99 ? '99+' : unread.feed}
+                </a>
+              ) : null}
             </header>
             <main class="content">
               <div class="content-inner">{children}</div>
@@ -168,5 +191,7 @@ export async function page(c: Context<AppEnv>, title: string, body: Child) {
   const libraries = user ? await listLibraries(c.env.DB) : [];
   // Feed and Connections exist only on an instance with a federation key; only admins manage connections.
   const federation = !!user && !!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY));
-  return c.html(`<!doctype html>${Layout({ title, user, path, libraries, federation, children: body })}`);
+  // One query, and only on an instance with connections: everything notified is about a connection.
+  const unread = federation && user ? await unreadCounts(c.env.DB, user.id) : NONE_UNREAD;
+  return c.html(`<!doctype html>${Layout({ title, user, path, libraries, federation, unread, children: body })}`);
 }
