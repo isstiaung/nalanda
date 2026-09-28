@@ -422,8 +422,10 @@ export type SharedActivity = { id: number; kind: ActivityKind; at: string; item:
 
 /**
  * Activity in a view after a cursor, oldest first, so a busy stretch arrives over several pulls instead
- * of being cut. With no cursor — a new subscriber — the newest come first instead: a feed starts from the
- * present rather than replaying the past. `fromStart` says which the caller got.
+ * of being cut. With no cursor — a new subscriber — the newest by date come first instead: a feed starts
+ * from the present rather than replaying the past. By date, not id: an import records old reads under new
+ * ids, dated when they happened (§16 #40), and by id those filled a new follower's first page and pushed
+ * out what was genuinely recent. `fromStart` says which the caller got.
  */
 export async function activityInView(
   d1: D1Database,
@@ -449,7 +451,7 @@ export async function activityInView(
     .innerJoin(s.items, eq(s.activityLog.itemId, s.items.id))
     .leftJoin(s.readingProgress, eq(s.activityLog.progressId, s.readingProgress.id))
     .where(and(gt(s.activityLog.id, from), inView(view), stillShows))
-    .orderBy(from === 0 ? desc(s.activityLog.id) : asc(s.activityLog.id))
+    .orderBy(...(from === 0 ? [desc(s.activityLog.at), desc(s.activityLog.id)] : [asc(s.activityLog.id)]))
     .limit(limit);
   return { fromStart: from === 0, rows };
 }

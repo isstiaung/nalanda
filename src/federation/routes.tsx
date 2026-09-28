@@ -265,9 +265,8 @@ federation.get('/federation/feed', async (c) => {
     entries.push(entry);
     bytes += size;
   }
-  const newest = entries[0];
-  const last = entries[entries.length - 1];
-  const latest = fromStart ? (newest?.id ?? 0) : (last?.id ?? since);
+  // A first page runs newest by date, so its highest id can be anywhere in it; later pages run by id.
+  const latest = fromStart ? Math.max(0, ...entries.map((e) => e.id)) : (entries[entries.length - 1]?.id ?? since);
   return c.json({ view: view.id, latest, more: !fromStart && rows.length > entries.length, entries });
 });
 

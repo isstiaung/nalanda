@@ -410,6 +410,29 @@ describe('the feed this household serves', () => {
     expect((await a.signedPost('/federation/feed/check', peer, { view: view.id, ids: ['1'] })).status).toBe(400);
   });
 
+  it("starts a new follower's feed from the most recent by date, not the highest ids", async () => {
+    // An import records old reads under new ids, dated when they happened. Taken by id, a page of them filled
+    // a new follower's first pull and pushed out what was genuinely recent.
+    const shelf = await createLibrary(env.DB, 'Main');
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    for (const title of ['Recent 1', 'Recent 2']) await createItem(env.DB, { libraryId: shelf.id, title, rating: 8, completedOn: yesterday });
+    const view = await shareView({ libraryId: shelf.id }); // its backfill records both ratings, dated yesterday
+    for (let i = 0; i < 100; i++) {
+      // then a page's worth of reads finished years ago, recorded under higher ids
+      await createItem(env.DB, { libraryId: shelf.id, title: `Old ${i}`, status: 'completed', completedOn: '2019-03-09' });
+    }
+    const newestId = (await rows<{ id: number }>('SELECT max(id) AS id FROM activity_log'))[0]!.id;
+
+    const first = await feedOf(peer, view.id, 0);
+
+    expect(first.entries.slice(0, 2).map((e) => e.item.title).sort()).toEqual(['Recent 1', 'Recent 2']);
+    // the cursor is the highest id sent: what follows comes after it, and nothing sent comes again
+    expect(first.latest).toBe(Math.max(...first.entries.map((e) => e.id)));
+    const next = await feedOf(peer, view.id, first.latest);
+    expect(next.entries.every((e) => e.id > first.latest)).toBe(true);
+    expect(Math.max(first.latest, ...next.entries.map((e) => e.id))).toBe(newestId);
+  });
+
   it('lists shared views with their size and recent activity', async () => {
     const shelf = await createLibrary(env.DB, 'Main');
     const view = await shareView({ name: 'Everything' });

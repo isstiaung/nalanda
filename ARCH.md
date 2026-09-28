@@ -912,7 +912,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope â€” Â
     batch, so the marker can't outlive the import or miss a row of it; a failed import rolls it
     back with everything else. Considered and set aside: dating ratings by `completed_on` always
     (buries genuine re-ratings), and suppressing everything during imports (loses a read finished
-    last week and imported today, which is news). Deleting the last view clears the log in the
+    last week and imported today, which is news). A new follower's first page is the newest by
+    date, not by id, since an import's old reads now carry new ids and old dates; its cursor is the
+    highest id it sent. The first view and its opening entries are one batch. Deleting the last view clears the log in the
     same batch, so a stale log can't survive to the next first view.
 
 The honest comparison, since it was asked:
