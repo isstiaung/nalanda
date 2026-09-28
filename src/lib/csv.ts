@@ -92,6 +92,10 @@ export type MappedRow = {
 
 /** Columns we map onto real item fields; everything else lands in `details` (lossless). */
 const KNOWN_COLUMNS = new Set([
+  // Nalanda's own export: reading progress is private and must never fall through into `details`,
+  // which share pages and connections render. Re-importing a Nalanda export doesn't restore it.
+  'progress_page',
+  'progress_history',
   'item_type',
   'type',
   'ean_isbn13',

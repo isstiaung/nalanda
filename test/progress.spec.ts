@@ -8,11 +8,12 @@ import {
   createLibrary,
   createUser,
   deleteProgress,
+  deleteUser,
   getItem,
   listProgress,
   progressForIdRange,
 } from '../src/db/queries';
-import { progressHistoryCell } from '../src/lib/csv';
+import { EXPORT_COLUMNS, mapLibibRow, progressHistoryCell } from '../src/lib/csv';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import { progressPercent } from '../src/lib/progress';
 import app from '../src/index';
@@ -218,5 +219,54 @@ describe('export', () => {
     expect(map.get(one.id)?.map((e) => e.page)).toEqual([36, 124]);
     expect(map.get(two.id)?.map((e) => e.page)).toEqual([12]);
     expect((await progressForIdRange(env.DB, two.id + 1, two.id + 50)).size).toBe(0);
+  });
+});
+
+// Found by the adversarial pass on this phase; each test pins the failure it proved.
+describe('regressions', () => {
+  it('lets a member who recorded progress be deleted, keeping the log unattributed', async () => {
+    const book = await seedBook();
+    const member = await createUser(env.DB, { username: 'kid', passwordHash: 'pbkdf2$1$x$y', role: 'member', mustChangePassword: false });
+    await addProgress(env.DB, book.id, 36, member.id);
+
+    await deleteUser(env.DB, member.id); // was: FOREIGN KEY constraint failed
+
+    const [entry] = await listProgress(env.DB, book.id);
+    expect(entry?.page).toBe(36);
+    expect(entry?.addedBy).toBeNull();
+  });
+
+  it('never stamps a start date after a finish', async () => {
+    // a Goodreads "read" import: finished, no start date recorded
+    const book = await seedBook({ status: 'completed', completedOn: '2019-05-01' });
+    await addProgress(env.DB, book.id, 120, null);
+
+    const after = await getItem(env.DB, book.id);
+    expect(after?.beganOn).toBeNull();
+    expect(after?.status).toBe('completed');
+  });
+
+  it('leaves updated_at alone — connections see it, and the backfill dates activity by it', async () => {
+    const book = await seedBook();
+    await env.DB.prepare("UPDATE items SET updated_at = '2000-01-01 00:00:00' WHERE id = ?1").bind(book.id).run();
+
+    await addProgress(env.DB, book.id, 36, null);
+    const [entry] = await listProgress(env.DB, book.id);
+    await deleteProgress(env.DB, book.id, entry!.id);
+    await deleteProgress(env.DB, book.id, 999_999); // an entry that isn't there
+
+    expect((await getItem(env.DB, book.id))?.updatedAt).toBe('2000-01-01 00:00:00');
+  });
+
+  it("doesn't let a re-imported export put progress into details, where share pages would show it", () => {
+    const row = Object.fromEntries(EXPORT_COLUMNS.map((c) => [c, '']));
+    Object.assign(row, {
+      title: 'The Dispossessed',
+      media_type: 'book',
+      progress_page: '150',
+      progress_history: '150@2026-09-28 03:59:00',
+    });
+    const mapped = mapLibibRow(row, { defaultType: 'book', musicAsVinyl: true });
+    expect(mapped?.item.details ?? '{}').not.toMatch(/progress/);
   });
 });

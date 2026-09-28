@@ -140,6 +140,7 @@ export const ReadingProgressSection: FC<{ item: Item; entries: { id: number; pag
         <input
           name="page"
           inputmode="numeric"
+          pattern="[0-9]+"
           class="mono"
           size={6}
           placeholder="Page"
@@ -166,7 +167,7 @@ export const ReadingProgressSection: FC<{ item: Item; entries: { id: number; pag
                 hx-target="#reading-progress"
                 hx-swap="outerHTML"
               >
-                <button type="submit" class="progress-delete" title="Remove this entry">
+                <button type="submit" class="progress-delete" aria-label={`Remove page ${e.page}, ${e.at.slice(0, 10)}`}>
                   Remove
                 </button>
               </form>
