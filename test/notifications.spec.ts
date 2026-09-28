@@ -96,14 +96,17 @@ describe('connection events', () => {
     expect(await kinds()).toEqual(['connection_accepted']);
   });
 
-  it('tells a withdrawn request apart from a disconnection', async () => {
-    await connectPeer(peer, 'awaiting_us');
+  it('names a Disconnect by where it found us: a withdrawn request, a decline, or a disconnection', async () => {
+    await connectPeer(peer, 'awaiting_us'); // they asked us, then took it back
     await inbox(inboxMessage('Disconnect', peer.url));
+    const asked = await makePeer('Lakeside library');
+    await connectPeer(asked, 'awaiting_them'); // we asked them; they backed out without confirming
+    await inbox(inboxMessage('Disconnect', asked.url), asked);
     const other = await makePeer('Hillside annex');
     await connectPeer(other, 'active');
     await inbox(inboxMessage('Disconnect', other.url), other);
 
-    expect(await kinds()).toEqual(['connection_withdrawn', 'disconnected']);
+    expect(await kinds()).toEqual(['connection_withdrawn', 'connection_declined', 'disconnected']);
   });
 });
 

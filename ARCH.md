@@ -831,7 +831,11 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     would count what that pull brings in as seen. The page marks the feed seen *before* starting
     its pull, in one statement, and marks notifications up to the newest one shown, not "now". One
     extra query per page, only on an instance with connections. On a phone the sidebar folds away,
-    so the mobile bar carries its own badge. Kept six months. Migrations 0016–0018 (0017/0018
+    so the mobile bar carries its own badge. **Known limit:** `remote_activities.id` is a plain rowid,
+    so when the newest stored entry is withdrawn, the next one to arrive can reuse its id and fall
+    at or below a reader's watermark — the Feed badge then undercounts by one, though the entry still
+    shows on Feed. Rebuilding the table with AUTOINCREMENT would close it; for a badge that costs a
+    production table rewrite, so it waits until something else needs that table changed. Kept six months. Migrations 0016–0018 (0017/0018
     replace 0016's first-draft time columns; drizzle-kit can't answer its rename prompt
     non-interactively, so the swap is a drop then an add).
 

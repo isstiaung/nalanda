@@ -438,9 +438,15 @@ federation.post('/federation/inbox', async (c) => {
       return c.json({ status: 'declined' });
     case 'Disconnect':
       await deleteConnection(c.env.DB, connection.id);
-      // from a household still waiting on us, this takes back their request rather than ending a connection
+      // What a Disconnect means depends on where it found us: a household still waiting on us takes back its
+      // request; one we asked, that never confirmed, has in effect declined; only an active one disconnects.
       await notify(c.env.DB, {
-        kind: connection.status === 'awaiting_us' ? 'connection_withdrawn' : 'disconnected',
+        kind:
+          connection.status === 'awaiting_us'
+            ? 'connection_withdrawn'
+            : connection.status === 'awaiting_them'
+              ? 'connection_declined'
+              : 'disconnected',
         householdName: who,
         href: '/connections',
       });
