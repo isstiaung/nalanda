@@ -292,7 +292,10 @@ importexport.get('/export.csv', async (c) => {
         const items = await pageItems(d1, { libraryId: scope, afterId, limit: PAGE });
         if (!items.length) return controller.close();
         const [from, to] = [items[0]!.id, items.at(-1)!.id];
-        const [tagMap, progressMap] = await Promise.all([tagsForIdRange(d1, from, to), progressForIdRange(d1, from, to)]);
+        const [tagMap, progressMap] = await Promise.all([
+          tagsForIdRange(d1, from, to, scope),
+          progressForIdRange(d1, from, to, scope),
+        ]);
         let chunk = '';
         for (const item of items) {
           chunk += itemToCsvLine(item, libNames.get(item.libraryId) ?? '', tagMap.get(item.id) ?? [], progressMap.get(item.id) ?? []);

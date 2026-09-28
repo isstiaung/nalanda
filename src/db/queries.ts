@@ -457,13 +457,25 @@ export async function pageItems(
  * the 50-query budget. Items outside the page's library filter can come back too; callers look up
  * the ids they have, so those are simply never read.
  */
-export async function tagsForIdRange(d1: D1Database, fromId: number, toId: number): Promise<Map<number, string[]>> {
+export async function tagsForIdRange(
+  d1: D1Database,
+  fromId: number,
+  toId: number,
+  libraryId?: number,
+): Promise<Map<number, string[]>> {
   const result = new Map<number, string[]>();
   const rows = await db(d1)
     .select({ itemId: s.itemTags.itemId, name: s.tags.name })
     .from(s.itemTags)
     .innerJoin(s.tags, eq(s.itemTags.tagId, s.tags.id))
-    .where(and(gte(s.itemTags.itemId, fromId), lte(s.itemTags.itemId, toId)));
+    .where(
+      and(
+        gte(s.itemTags.itemId, fromId),
+        lte(s.itemTags.itemId, toId),
+        // scoped to one shelf, a page's id range can span every other shelf's rows too — skip them in SQL
+        libraryId ? sql`${s.itemTags.itemId} IN (SELECT id FROM items WHERE library_id = ${libraryId})` : undefined,
+      ),
+    );
   for (const r of rows) {
     const list = result.get(r.itemId) ?? [];
     list.push(r.name);
@@ -550,7 +562,12 @@ export async function deleteProgress(d1: D1Database, itemId: number, entryId: nu
  * Progress history for every item whose id lies in [fromId, toId] — the export's pages are contiguous
  * in id order, so one query covers a page (see tagsForIdRange for why not an IN list).
  */
-export async function progressForIdRange(d1: D1Database, fromId: number, toId: number): Promise<Map<number, ProgressEntry[]>> {
+export async function progressForIdRange(
+  d1: D1Database,
+  fromId: number,
+  toId: number,
+  libraryId?: number,
+): Promise<Map<number, ProgressEntry[]>> {
   const result = new Map<number, ProgressEntry[]>();
   const rows = await db(d1)
     .select({
@@ -561,7 +578,14 @@ export async function progressForIdRange(d1: D1Database, fromId: number, toId: n
       addedBy: s.readingProgress.addedBy,
     })
     .from(s.readingProgress)
-    .where(and(gte(s.readingProgress.itemId, fromId), lte(s.readingProgress.itemId, toId)))
+    .where(
+      and(
+        gte(s.readingProgress.itemId, fromId),
+        lte(s.readingProgress.itemId, toId),
+        // as tagsForIdRange: a scoped page's range can span other shelves' rows
+        libraryId ? sql`${s.readingProgress.itemId} IN (SELECT id FROM items WHERE library_id = ${libraryId})` : undefined,
+      ),
+    )
     .orderBy(asc(s.readingProgress.at), asc(s.readingProgress.id));
   for (const r of rows) {
     const list = result.get(r.itemId) ?? [];
