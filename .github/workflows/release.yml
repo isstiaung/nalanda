@@ -1,0 +1,47 @@
+name: Release
+
+# Publishes a GitHub Release when a version tag is pushed, with that version's section of CHANGELOG.md as
+# its notes. It never deploys: deploys happen elsewhere (runbooks/deploy.md), and nothing here should ever
+# be given a deploy token. The only credential is the job's own GITHUB_TOKEN, allowed to write releases.
+# Only people with push access can push a tag, so a fork's pull request can't start this.
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # the notes come from main's CHANGELOG.md, which covers every release
+
+      # A tag from before versioning began (v1.0.0) has no version in package.json; every later one must match.
+      - name: Check the tag matches package.json
+        run: |
+          tagged="${GITHUB_REF_NAME#v}"
+          declared="$(node -p "require('./package.json').version || ''")"
+          if [ -n "$declared" ] && [ "$declared" != "$tagged" ]; then
+            echo "::error::tag $GITHUB_REF_NAME, but package.json says $declared"
+            exit 1
+          fi
+
+      - name: Take this version's notes from CHANGELOG.md
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          git show origin/main:CHANGELOG.md \
+            | awk -v heading="## [$version]" 'index($0, "## [") == 1 { if (found) exit; found = (index($0, heading) == 1); next } found && !/^\[[0-9]+\.[0-9]+\.[0-9]+\]: /' \
+            > notes.md
+          if [ ! -s notes.md ]; then
+            echo "::error::CHANGELOG.md on main has no section for $version"
+            exit 1
+          fi
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --title "Nalanda $GITHUB_REF_NAME" --notes-file notes.md --verify-tag
