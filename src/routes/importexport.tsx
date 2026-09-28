@@ -230,6 +230,7 @@ importexport.post('/api/backfill-covers', async (c) => {
           title: item.title,
           creators: item.creators,
           mediaType: item.mediaType,
+          wantCover: !item.coverKey,
         },
         // an item that only wants a description keeps the cover it has — nothing is fetched for it
         item.coverKey ? async () => null : (url) => storeCover(c.env.COVERS, url),
