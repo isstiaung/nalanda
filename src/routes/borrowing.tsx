@@ -23,6 +23,7 @@ import {
   setRequestStatus,
 } from '../db/federation';
 import type { BorrowRequestRow, BorrowStatus, Connection, FederationSettings } from '../db/schema';
+import { outwardName } from '../db/queries';
 import type { AppEnv } from '../env';
 import { refreshInBackground } from '../federation/background';
 import { MAX_BORROW_NOTE_CHARS, SHELF_CACHE_ENTRIES, SHELF_CACHE_MS } from '../federation/config';
@@ -389,7 +390,8 @@ borrowing.post('/households/:id/requests', async (c) => {
   if (await hasPendingOutgoing(c.env.DB, connection.id, item.id, item.stamp)) return c.redirect('/borrowed');
 
   const user = c.get('user');
-  const message = borrowRequest(ctx.settings.baseUrl, item.id, item.stamp, user.username, rawNote || null);
+  // a display name while names are on for connections, else "A member" — never the username (§16 #45)
+  const message = borrowRequest(ctx.settings.baseUrl, item.id, item.stamp, await outwardName(c.env.DB, user.id), rawNote || null);
   // stored and queued together, unless one for this book is already waiting (a double submit); a refusal
   // declines it and takes it out of the outbox, also together
   const requestId = await requestToBorrow(

@@ -86,6 +86,21 @@ export async function setDisplayName(d1: D1Database, id: number, displayName: st
 }
 
 /**
+ * The name a comment or a borrow request carries to a connection (§16 #45): the member's display name while names
+ * are switched on for connections, else "A member". Never a username — those never leave the app.
+ */
+export async function outwardName(d1: D1Database, userId: number): Promise<string> {
+  const row = await d1
+    .prepare(
+      `SELECT u.display_name AS name, coalesce((SELECT names_to_connections FROM site_settings WHERE id = 1), 0) AS on_
+       FROM users u WHERE u.id = ?1`,
+    )
+    .bind(userId)
+    .first<{ name: string | null; on_: number }>();
+  return row?.on_ && row.name ? row.name : 'A member';
+}
+
+/**
  * Everyone's rating and review of an item, each with its writer's display name — null for a member who has none, or
  * was removed — the household's latest review first. For share pages and connections with names switched on (§16
  * #45): never a username.

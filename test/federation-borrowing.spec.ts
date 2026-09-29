@@ -3,7 +3,8 @@
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createConnectionView, getConnection, getFederationSettings, postComment, requestToBorrow } from '../src/db/federation';
-import { createItem, createLibrary, createLoan, deleteItem, setItemTags } from '../src/db/queries';
+import { createItem, createLibrary, createLoan, deleteItem, setDisplayName, setItemTags, updateSiteSettings } from '../src/db/queries';
+import { member } from './member-helpers';
 import type { Item } from '../src/db/schema';
 import type { Bindings } from '../src/env';
 import { receiveBorrowing } from '../src/federation/borrowing';
@@ -337,6 +338,28 @@ describe('borrowing: this household asks', () => {
     expect(html).toContain('https://evil.example/phish'); // still shown, as text
     expect(html).not.toContain('href="https://evil.example');
     expect(html).toContain('Paperback');
+  });
+
+  it('sends "A member" as the requester — the display name only with names on for connections — never a login', async () => {
+    const pushes: Record<string, unknown>[] = [];
+    answerOutbound((req) => {
+      const { pathname } = new URL(req.url);
+      if (pathname === '/federation/item') return json(detailJson(true));
+      if (pathname === '/federation/inbox') {
+        pushes.push(decode(req.body));
+        return json({ status: 'received' });
+      }
+      return json({}, 404);
+    });
+    const priya = await member('u-priya-login');
+    await setDisplayName(env.DB, priya.id, 'Priya');
+    await a.postForm(`/households/${connectionId}/requests`, { viewId: '7', itemId: '70', note: '' }, priya.cookie);
+    expect(pushes[0]).toMatchObject({ type: 'BorrowRequest', requester: 'A member' }); // names off (§16 #45)
+    await env.DB.prepare('DELETE FROM borrow_requests').run(); // a request for the same book again
+    await updateSiteSettings(env.DB, { namesToConnections: true });
+    await a.postForm(`/households/${connectionId}/requests`, { viewId: '7', itemId: '70', note: '' }, priya.cookie);
+    expect(pushes[1]).toMatchObject({ type: 'BorrowRequest', requester: 'Priya' });
+    expect(JSON.stringify(pushes)).not.toContain('u-priya-login');
   });
 
   it('asks to borrow, and follows the answer through to the return', async () => {

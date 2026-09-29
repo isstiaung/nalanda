@@ -15,7 +15,7 @@ import {
   theyStartedThread,
   type ThreadComment,
 } from '../db/federation';
-import { getItem } from '../db/queries';
+import { getItem, outwardName } from '../db/queries';
 import type { Comment, FederationSettings, Item } from '../db/schema';
 import type { AppEnv } from '../env';
 import { MAX_COMMENT_CHARS, MAX_SENT_PER_DAY } from '../federation/config';
@@ -128,7 +128,8 @@ comments.post('/items/:id/comments', async (c) => {
   const message = commentCreate(
     ctx.settings.baseUrl,
     { owner: ctx.settings.baseUrl, item: item.id, stamp: await itemStamp(item) },
-    user.username,
+    // a display name while names are on for connections, else "A member" — never the username (§16 #45)
+    await outwardName(c.env.DB, user.id),
     text,
   );
   // stored and queued together, so a failure can't leave it here unsent, nor a second Send store it twice
@@ -168,7 +169,8 @@ comments.post('/feed/comments', async (c) => {
   if ((await sentToday(c.env.DB, connection.id)) >= MAX_SENT_PER_DAY) return c.redirect(back);
 
   const user = c.get('user');
-  const message = commentCreate(ctx.settings.baseUrl, { owner: connection.baseUrl, item: itemId, stamp }, user.username, text);
+  // a display name while names are on for connections, else "A member" — never the username (§16 #45)
+  const message = commentCreate(ctx.settings.baseUrl, { owner: connection.baseUrl, item: itemId, stamp }, await outwardName(c.env.DB, user.id), text);
   await postComment(
     c.env.DB,
     {
