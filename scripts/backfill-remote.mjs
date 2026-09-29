@@ -243,6 +243,7 @@ async function loadMetadata() {
 
 const GOOGLE_BOOKS = 'www.googleapis.com';
 const OPEN_LIBRARY = 'openlibrary.org';
+const BOARDGAMEGEEK = 'boardgamegeek.com';
 const FAILURES_BEFORE_STOPPING = 15;
 
 /**
@@ -281,7 +282,7 @@ function instrumentFetch({ rps }) {
     'api.discogs.com': 1,
     'musicbrainz.org': 1,
     'coverartarchive.org': 1,
-    'boardgamegeek.com': 0.2,
+    [BOARDGAMEGEEK]: 0.2,
   };
   const waitForSlot = async (host) => {
     const gap = 1000 / (host === OPEN_LIBRARY ? rps : (PACE[host] ?? 4));
@@ -316,13 +317,17 @@ function instrumentFetch({ rps }) {
           bump(host, 'limited');
           return res;
         }
-        if ((res.status === 429 || res.status === 503) && attempt < 2) {
+        // BoardGameGeek's 202 is a success status with no items: "queued, ask again". Asked again like a
+        // throttle, and if it's still queued, a failure — so the provider's "busy" isn't recorded as a miss.
+        const queued = res.status === 202 && host === BOARDGAMEGEEK;
+        if ((res.status === 429 || res.status === 503 || queued) && attempt < 2) {
           bump(host, 'limited');
           await sleep(2000 * (attempt + 1));
           continue;
         }
-        bump(host, res.ok ? 'ok' : res.status === 404 ? 'notFound' : 'failed');
-        if (res.ok || res.status === 404) failures.set(host, 0);
+        const answered = res.ok && !queued;
+        bump(host, answered ? 'ok' : res.status === 404 ? 'notFound' : 'failed');
+        if (answered || res.status === 404) failures.set(host, 0);
         else noteFailure(host, `HTTP ${res.status}`);
         return res;
       } catch (err) {
