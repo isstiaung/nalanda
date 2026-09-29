@@ -17,6 +17,7 @@ Everyone's own reading. Each member of a household now has their own reads, reco
 - **Everyone's reading on the book's page**, each person's under their name, with their progress, and everyone's rating and review with their username. A household of one sees the page as before.
 - **A "Read by" filter** on shelves and search: read by me, not read by me, read by a member or by anyone, and being read now. It can't be published: a share link made from a filtered shelf shows it without "Read by".
 - **Admins can move** a read (with its recorded pages) or a review to another member, and change or delete anyone's. Members change only their own. The same works for records and board games, from their page.
+- **Names on share pages and to connected households, when you choose.** Each member can set a **display name** on their Account page (an admin can set anyone's under Members). Two switches, both **off by default**, show names outside the app: on **Shared links**, a shared book lists each member's rating and review signed with their display name; on **Connections**, connected households get a feed entry per person ("Priya finished …", "Ravi rated …", "Priya started …") and see everyone's rating and review on a book's page. Members without a display name stay unnamed, login usernames never leave the app, and nobody outside ever sees the dates of anyone's reads. Names other households send show on your Feed and their book pages.
 - **Export and import keep each person's history.** Each read in the `reads` column names its reader, and a new `reviews` column holds everyone's rating and review, with when each was written and given. When an admin imports the file, each read and review goes back to the member of the same name, or to the admin; a member's import is all theirs. The preview says who gets what.
 - **The "Powered by BGG" logo**, linked to BoardGameGeek, now shows under board game search results, on a board game's page, and in the footer of a share page that shows a board game. BoardGameGeek's API terms require it wherever an app shows its data publicly. It uses BGG's own logo files, in its light and dark versions.
 
@@ -37,7 +38,7 @@ Everyone's own reading. Each member of a household now has their own reads, reco
 - **Two setups at once**, such as a double-click on **Create account**, now make one admin and one set of starter shelves. A double-click could end in an error, and two people racing made two admins. The setup that loses lands on the login page, which says another setup finished first; after a double-click, the password you just chose works there.
 
 ### Upgrading
-- **Back up first** (`npm run backup`). Migrations `0024_per-member` and `0025_per-member-backfill` run when you deploy.
+- **Back up first** (`npm run backup`). Migrations `0024_per-member`, `0025_per-member-backfill`, `0026_member-names` and `0027_member-activity-triggers` run when you deploy.
 - **All your existing history goes to your first admin.** Nothing before 1.3.0 recorded who read or rated what, so every existing read, every recorded page, and each book's rating and review are credited to the admin with the lowest id (normally the account made at `/setup`). No book changes on your shelves, share pages or connections. In a household of one there's nothing more to do. Otherwise, an admin moves each misattributed read or review to the right member from the book's page: **Edit** on it, choose the member, **Move**. [runbooks/updating.md](runbooks/updating.md) walks through it. Move rather than have members re-import Goodreads, which would add their reads beside the admin's copies.
 - **What share pages show now:**
   - the household's average rating;
@@ -45,13 +46,14 @@ Everyone's own reading. Each member of a household now has their own reads, reco
   - "Read N times" counting everyone's finishes;
   - with progress switched on, the latest page anyone reading the book recorded.
 
-  Nothing per person ever appears. With one member, all of this is exactly what they showed before.
+  Nothing per person appears until an admin switches names on. With one member, all of this is exactly what they showed before.
+- **Names stay private until an admin turns them on.** 0026 and 0027 add display names, the two switches (both off) and a per-person activity log, which starts with your last 90 days of reading if you share anything with connections. Until an admin switches names on, share pages, your feed and your books' pages look to everyone outside exactly as before. Switching names off for connections withdraws the named entries they already have at their next check; a household can still keep what it already pulled.
 - **Deploy when nobody is editing, and don't roll back past this release.** In the seconds between the migration and the new code, an edit saved by the old code makes a read that belongs to nobody, or a rating with no review behind it, which the average replaces at the book's next review. Older code writes reading and ratings without a person, so to go back, restore the backup instead. A 1.3.0 export doesn't import correctly into an older version.
 - **No new secrets.**
 - **Board game search needs BoardGameGeek's approval.** If you have no `BGG_TOKEN` yet, apply for a non-commercial application at boardgamegeek.com/applications; once BGG approves it, create a token there and run `npx wrangler secret put BGG_TOKEN`. [runbooks/deploy.md](runbooks/deploy.md) → API tokens has the steps. If you already have one, nothing to do.
 - **If your `SESSION_SECRET` is blank** (only spaces or blank lines), everyone is signed out after this update and nobody can sign in until you set a real one: `npx wrangler secret put SESSION_SECRET`, with a value from `openssl rand -base64 32`. Setup and login say so.
 - **If setup once failed with an error** and you couldn't log in afterwards, your admin account was created before the error. Set `SESSION_SECRET`, then log in with the username and password you chose at setup.
-- **Connections:** households on older versions keep working with yours. The protocol hasn't changed; they see the household's rating, review and read count as before, and never a member's name.
+- **Connections:** households on older versions keep working with yours. The protocol is still version 1: they see the household's rating, review and read count as before. With names switched on, they get your entries without the names, skip "started", and don't see the list of everyone's reviews.
 
 ## [1.2.1] - 2026-09-28
 

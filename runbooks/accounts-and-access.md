@@ -7,7 +7,13 @@
 3. A temporary password is shown **once** — send it to them however you like.
 4. They log in with it and are forced to set their own password before doing anything else.
 
-Members can do everything except manage users and publish/rotate share links. Each person's
+Members can do everything except manage users and publish/rotate share links.
+
+**Display names.** Each member can set a display name on their **Account** page, and an admin can set
+anyone's in the Members table. It's optional, not a login, and not unique (two people can both be
+"Sam"). It only ever appears outside Nalanda where an admin has switched names on — **Shared links →
+Names on share pages** and **Connections → Show names to connected households**, both off by default
+(ARCH.md §16 #45). Without one, a member stays unnamed. Usernames never leave the app. Each person's
 reads, recorded pages, rating and review are their own (ARCH.md §16 #43): members change only
 theirs, and admins can change, delete or **move** anyone's — a read (with its pages) or a review
 credited to the wrong person moves from the book's page, under *Edit* on it.

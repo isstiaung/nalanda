@@ -96,7 +96,8 @@ CREATE TABLE users (
   password_hash TEXT NOT NULL,          -- 'pbkdf2$<iters>$<salt>$<hash>' (WebCrypto)
   role          TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin','member')),
   must_change_password INTEGER NOT NULL DEFAULT 0,   -- set on admin-created accounts
-  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  display_name  TEXT                    -- optional, what outsiders see when names are on (§16 #45); never a login
 );
 
 CREATE TABLE libraries (                 -- top-level collections, e.g. "Books", "Vinyl"
@@ -325,7 +326,9 @@ Multi-user, built into the app (no email infrastructure, no paid services):
 - **Roles**: `admin` = manage users + publish/unpublish share links; `member` = everything
   else (full item/library/loan CRUD). Two roles, no permission matrix. Reading and reviews
   are each member's own (§16 #43): a member changes only their own reads, pages and review,
-  an admin anyone's, and only an admin moves one to another member.
+  an admin anyone's, and only an admin moves one to another member. Each member may set a
+  **display name** — the only name that ever leaves the app, and only where an admin has
+  switched names on (§16 #45); the username is the login and stays inside.
 - Items record `added_by`, so "who added this" is visible on the detail page.
 - Password hashing: **PBKDF2-SHA256 (100k iterations) via WebCrypto** — native-speed, fits
   the free plan's CPU budget. Never bcrypt/argon2 npm packages (pure-JS, would blow it).
@@ -359,9 +362,16 @@ portable, and makes share routes trivially public. CF Access remains available l
   carry a "Not owned" badge (§16 #13), and `readCount` — how many times the household
   finished it, only from twice on ("Read N times"), never the reads or their dates (§16 #41).
   The rating is the household's average and the review the one written last, with no author
-  (§16 #43). **Never**: private notes, loans/borrowers, the copies count, added_by, usernames
-  or anything else per member, or any nav into the authenticated app. The whitelist lives in
-  one view module so it can't drift.
+  (§16 #43). **Never**: private notes, loans/borrowers, the copies count, added_by, usernames,
+  the dates of anyone's reads, or any nav into the authenticated app — and nothing per member
+  unless an admin switches names on (below). The whitelist lives in one view module so it
+  can't drift.
+- **Names are the household's choice, off by default** (§16 #45). `site_settings.names_on_shares`
+  (admin-only, on **Shared links**) adds one field to a shared book's page: `reviews`, each
+  member's rating and review signed with their **display name** — or unsigned, for a member
+  without one — beside the household's average. Nothing else changes: reading history stays
+  "Read N times", never whose or when; listing cards keep the average; a login username never
+  appears. Off, the key is absent and the page is byte for byte what it was.
   Not item data, and so outside the whitelist: a page that shows a board game carries
   BoardGameGeek's "Powered by BGG" logo in its footer, linked to boardgamegeek.com with
   `rel="noreferrer"` (§16 #44).
@@ -390,7 +400,7 @@ portable, and makes share routes trivially public. CF Access remains available l
 ```
 GET  /setup                    first-run admin creation (404 once a user exists)
 GET  /login                    POST /auth/login · POST /auth/logout
-GET  /account                  change own password (also the forced first-login flow)
+GET  /account                  change own password (also the forced first-login flow) · POST /account/display-name
 
 GET  /                         dashboard: libraries, recent adds, loans out
                                (anonymous + HOME_SHARE_TOKEN set → 302 /share/<token>)
@@ -417,6 +427,8 @@ GET  /covers/:key              cover art from R2 (public, unguessable, immutable
 GET  /settings/users           admin: create/remove members, reissue temp passwords
 POST /shares                   admin: publish a view (captures shelf + filters + name)
 POST /shares/:id               admin: action=rotate | delete
+POST /shares/settings          admin: setting=progress | names (the share-page switches, §16 #34, #45)
+POST /settings/users/:id/display-name   admin: set a member's display name (§16 #45)
 
 GET  /share/:token             public read-only library (whitelisted fields, noindex)
 GET  /share/:token/items/:id   public read-only item detail
@@ -434,7 +446,7 @@ GET  /federation/shelf          signed by a connection: a page of a shared shelf
 GET  /federation/item           signed by a connection: one shared item in full, with availability
 GET  /connections              admin: name, invitations, pending and active connections
 POST /connections/…            admin: settings · invites · redeem · confirm · decline · disconnect ·
-                                views · follow · purge · unfollow
+                                views · follow · purge · unfollow · progress-sharing · names-sharing
 GET  /connections/:id/feed      admin: that household's shared views, what you follow, storage
 GET  /feed                      members: activity from followed views, with comment threads
 POST /items/:id/comments        members: reply in a connection's thread on one of our reviews
@@ -1191,6 +1203,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     treats NULLs as distinct and so doesn't hold unattributed open reads to one; nothing in the app
     opens one.
 
+    *Amended by #45:* members' names can reach share pages and connections as display names —
+    never usernames — when an admin switches them on; off, as above.
+
 **2026-09-29 — BoardGameGeek's terms:**
 44. **BoardGameGeek's "Powered by BGG" logo sits beside its data.** BGG approved this app's
     use of its XML API as a non-commercial, public-facing application, and its terms make the
@@ -1217,6 +1232,70 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     `&mdash;`, line breaks) and drops spaces before a line break. It used to cut descriptions
     at 2,000 characters and collapse blank lines, losing paragraphs. One term stays with the
     owner: BGG may change its terms at any time (the Geek Tools News forum announces changes).
+
+**2026-09-29 — names outside the app:**
+45. **Members' names reach share pages and connections only as display names, only while an admin
+    has switched them on — and with both switches off nothing outside changes.** #43 made reading
+    and reviews each member's but kept the household anonymous outside. The owner asked for names,
+    under the household's control, deciding each point in turn:
+    - **The setting is the household's**, set by an admin: two switches beside
+      `progress_on_shares`, both off by default — `names_on_shares` (on **Shared links**) and
+      `names_to_connections` (on **Connections**). No per-member opt-in.
+    - **What is shown is a display name**, new and optional, per member: set on their Account page,
+      or by an admin under Members. Trimmed, single-spaced, stripped of control and format
+      characters (so no bidi override can reorder the text around it), at most 40 characters, *not*
+      unique — nothing needs to tell two Sams apart by it — and never a login. A member without one
+      stays unnamed. A login username never leaves the app. It is a user field, not an item's, so it
+      isn't in `/export.csv`; backups carry it with `users`.
+    - **Share pages with names on** list each member's rating and review under their display name,
+      unsigned without one, beside the household's average (§9). Reading history stays "Read N
+      times", and no read's date appears.
+    - **Connections with names on** get one feed entry per person — "Priya finished", "Ravi
+      rated", "Priya reviewed", "Ravi started", and each page — so two people finishing a book make
+      two entries, each with that member's own rating or review; an item page lists everyone's
+      rating and review by display name. Names a connection sends render here as escaped text,
+      stripped as ours are: a card per person on the Feed, their reviews on their item page.
+
+    **Recording always, choosing at serve time.** Names are applied when a page renders or a
+    connection pulls, never when something is recorded, so switching off hides names from every
+    later render and pull, and a rename or a removed member (shown unnamed) takes effect at once.
+    Per-person facts are recorded always, by triggers (migration 0027) on `reads`, `reviews` and
+    `reading_progress`, into a new `member_activity` table — only while a connection view exists,
+    dated as #40 dates the household's entries, never as news inside an import. A row points at
+    its read, review or page, never at a person, so who did it is resolved at pull time, and
+    `ON DELETE CASCADE` takes an entry with what it showed. The household's `activity_log`, its
+    triggers and its ids are untouched — a test drops the new triggers and shows `activity_log`
+    recorded identically, ids and all. Mixing per-person rows into `activity_log` was set aside:
+    they would have shifted the household entries' ids, which peers hold as cursors, and so
+    changed what is served with the switch off.
+
+    **Two streams, one cursor space.** A connection pulls the household's stream with names off,
+    exactly as before, and the per-person stream with names on; per-person ids are served offset
+    by `MEMBER_ACTIVITY_BASE` (2^40), past any `activity_log` id and within a safe integer. A cursor
+    from the other stream is "past the end" or "before the start", which the existing rule turns
+    into the newest page — so a switch either way needs nothing from the peer. The removal check
+    judges ids by range: household entries as ever, named ones valid only while names are on, so
+    switching off withdraws every named entry at each connection's next check. A household is
+    trusted to delete them; one can keep what it already pulled, and the Connections page says so.
+
+    **The protocol stays version 1** — additive, optional fields only. A feed item may carry `by`
+    (a display name), and an item page `reviews` (`{ by, rating, review }`, `by` null for an
+    unnamed member); with names off neither key is present, so every served byte is as before —
+    tests compare the feed, item pages and share pages with and without display names and the
+    per-person log. An older version's parser ignores both fields (a copy of it, in
+    `test/fixtures/`, reads what this version serves) and skips entries of the new kind
+    `started`, keeping the page, as #35 arranged for unknown kinds. D1: a share item page with names
+    on is one extra query; a feed pull reads the per-person stream in the same two queries as the
+    household's.
+
+    **Chosen without asking, overrulable:** display names are not unique and not in the CSV export;
+    an unnamed member's entries still come one per person, just unsigned; "started" is recorded
+    only for a read with a start date inside an import or the first-view backfill (production's
+    backup has three open reads with none, so its backfill holds one start and one page); a
+    rating or review in the per-person backfill is dated by its book's `completed_on`, as the
+    household's is, since #40 learned that imports rewrite everything else; names a connection
+    sends are cut to 40 characters here and a name over 80 rejects its entry; our Feed puts the
+    name before the verb ("Priya finished") and drops a "started" once pages or a finish follow it.
 
 The honest comparison, since it was asked:
 

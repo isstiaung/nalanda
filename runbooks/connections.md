@@ -73,7 +73,14 @@ you do.
 - For the books in a view they see the title, creators, cover, rating, review, when you last
   finished it, and how many times you have. Never notes, loans, borrowers, how many copies you
   have, or the dates of your other reads.
-- **They see your household, never a person** (ARCH.md §16 #43). The rating is the average of
+- **Names are off by default.** **Show names to connected households** (in this section) sends one
+  feed entry per person, signed with each member's display name — "Priya finished", "Ravi rated",
+  "Priya started" — and lists everyone's rating and review on a book's page (ARCH.md §16 #45).
+  Members without a display name stay unnamed; usernames and read dates never leave. Turning it
+  off stops names from their next pull on and asks them to delete the named entries they have at
+  their next check; they can keep what they already pulled. Households on older versions get the
+  entries without names.
+- **With names off, they see your household, never a person** (ARCH.md §16 #43). The rating is the average of
   everyone's ratings here, the review the one written last, with no name on it; "when you last
   finished it" is the latest finish by anyone, and "how many times" counts everyone's. Which of
   you read or reviewed what stays inside your household.

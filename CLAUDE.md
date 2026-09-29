@@ -74,8 +74,8 @@ shape from this file.
 - `/share/:token` pages render a **field whitelist** via `toPublicItem()` in
   `src/lib/share.ts` — never add fields there without checking ARCH.md §9.
 - **Never** render on share pages: private `notes`, loans/borrowers, the `copies` count,
-  `added_by`, usernames, reads or their dates, anything per member — whose reads, whose
-  rating, whose review — or links into the authenticated app. (The derived boolean
+  `added_by`, usernames, reads or their dates, whose reads, or links into the authenticated
+  app — and nothing per member unless names are switched on (next bullet). (The derived boolean
   `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge. So is
   `readCount`, the household's finishes, only from two on — "Read N times", ARCH.md §16 #41.)
   `rating` and `review` there are the household summary: the average of everyone's ratings
@@ -84,6 +84,17 @@ shape from this file.
   being read now — in progress, or finished and being read again (`rereading`) — as the
   latest page anyone reading it recorded; `toPublicItem(item, { progress })` omits the key
   otherwise. Share pages get `noindex`.
+- **Names outside the app** (ARCH.md §16 #45) are a member's optional **display name**, never a
+  username, and only while an admin has switched them on — two `site_settings` switches, both
+  off by default. `names_on_shares`: a shared book's page adds `reviews` (each member's rating and
+  review, signed with their display name or unsigned), still with no reads, no read dates and no
+  "who read it". `names_to_connections`: the feed serves one entry per person with `by` (a display
+  name), including kind `started`, and an item page adds `reviews`. Resolve names when serving,
+  never when recording — `member_activity` rows point at a read, review or page, never a person.
+  **With both off, every served byte stays as before**: no `reviews` or `by` key at all, the
+  household's `activity_log` stream and ids untouched; tests compare with and without display
+  names. Named feed entries go out with ids past `MEMBER_ACTIVITY_BASE` and fail the removal check
+  once names are off. Names other instances send are strings from another instance (below).
 - The shelf's **"Read by" filter** (`ReaderFilter` in `src/db/queries.ts`) is never publishable:
   it is deliberately not part of `ItemFilters`, so `shareFilters()`, `itemMatchesShare()` and
   connection views have no room for it, and the publish form carries no field for it. Keep it
@@ -102,11 +113,12 @@ shape from this file.
   `toPublicItem()`), and only for items inside a connection view. Availability is a derived
   boolean — never a borrower, due date or copies count; reading history is a count
   (`readCount`, the household's), never the reads, their dates or their readers; the rating
-  and review are the household summary, never a member's name. Triggers on `items` record
+  and review are the household summary, never a member's name — unless `names_to_connections` is
+  on, and then only display names (see above). Triggers on `items` record
   activity only while a connection view exists (migration 0007), dated by when it happened —
   an import's batch brackets itself with `import_in_progress` so old reads aren't news
   (migration 0021, ARCH.md §16 #40).
-- Strings from another instance — household names, view names, feed entries, comments —
+- Strings from another instance — household names, view names, feed entries, members' names (`by`, `reviews`), comments —
   render only as escaped text. A comment thread is only ever shown to the two households in it. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:
   the browser decodes HTML escapes back into quotes before it runs the script.
 
@@ -154,7 +166,7 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    (export + libib mapping, whose reads an import brings), covers.ts (only R2
                    code), reads.ts (each read: how reads decide status, the legacy mapping, the
                    export cell, Goodreads), reviews.ts (each member's review: the household
-                   summary, the export's reviews cell)
+                   summary, the export's reviews cell), names.ts (display names, and names peers send)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments and borrowing (comments.ts,
