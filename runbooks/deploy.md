@@ -169,10 +169,25 @@ index restore cleanly; covers are re-fetched.)
 - **Google Books** (optional): console.cloud.google.com → create a project → enable
   *Books API* → Credentials → API key. Books work keyless; the key only raises the quota.
 - **BoardGameGeek** (board game search): BGG made its XML API registration-only in 2025, and
-  answers every unregistered request with 401. Sign in at boardgamegeek.com, register an
-  application at <https://boardgamegeek.com/applications>, and create a token for it. Set it as
-  the `BGG_TOKEN` secret; for `npm run backfill:remote`, put it in `.dev.vars` too. Without it,
-  board game search shows a notice asking for the token, and manual entry still works.
+  answers every unregistered request with 401. Getting a token takes BGG's approval:
+  1. Sign in at boardgamegeek.com, go to <https://boardgamegeek.com/applications>, and create
+     an application. Choose **non-commercial** (Nalanda shows no ads and takes no payment),
+     which BGG licenses at no cost. Say it is public-facing if you publish share links.
+  2. Wait for BGG's approval email. BGG says it can take a week or more.
+  3. Back at <https://boardgamegeek.com/applications>, click **Tokens** by your application
+     and create one.
+  4. Set it, pasting the token when asked:
+     ```sh
+     npx wrangler secret put BGG_TOKEN
+     ```
+     For `npm run backfill:remote`, also put `BGG_TOKEN=<token>` in `.dev.vars` (gitignored).
+
+  Without it, board game search shows a notice asking for the token, and manual entry still
+  works. BGG's terms come with the token: a public-facing app shows the "Powered by BGG" logo,
+  linked to BoardGameGeek. Nalanda already does, beside BGG's data (ARCH.md §16 #44), so
+  there is nothing to add. BGG offers no technical support for its API; its rules are at
+  <https://boardgamegeek.com/using_the_xml_api>, and **Usage** by your application on the
+  applications page shows how much you've used.
 - **Open Library**: no key, nothing to do.
 
 For local development, put the same values in `.dev.vars` (never committed).

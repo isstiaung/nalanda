@@ -300,7 +300,7 @@ interface MetadataProvider {
 |---|---|---|---|---|
 | Open Library | books | none | ✓ (ISBN) | default; covers via covers.openlibrary.org |
 | Google Books | books | free API key (optional) | ✓ (ISBN) | fallback — coverage differs from OL |
-| BoardGameGeek XML API2 | board games | **`BGG_TOKEN`** (free, registered app) | ✗ | XML (hence `fast-xml-parser`); name search + `thing` detail; `Authorization: Bearer` since BGG went registration-only in 2025 — 401 without it; be polite, BGG throttles |
+| BoardGameGeek XML API2 | board games | **`BGG_TOKEN`** (free, approved non-commercial app) | ✗ | XML (hence `fast-xml-parser`); name search + `thing` detail; `Authorization: Bearer` since BGG went registration-only in 2025 — 401 without it; throttles with 500/503 (429 at its edge, 202 = queued), which search reports as "busy"; its terms require the "Powered by BGG" logo (§16 #44) |
 | Discogs | vinyl (all music) | free personal token | **✓ (UPC/EAN)** | 60 req/min with token; returns format, label, catno |
 
 - Providers are called only at add/import time — zero runtime dependency on them for
@@ -362,6 +362,9 @@ portable, and makes share routes trivially public. CF Access remains available l
   (§16 #43). **Never**: private notes, loans/borrowers, the copies count, added_by, usernames
   or anything else per member, or any nav into the authenticated app. The whitelist lives in
   one view module so it can't drift.
+  Not item data, and so outside the whitelist: a page that shows a board game carries
+  BoardGameGeek's "Powered by BGG" logo in its footer, linked to boardgamegeek.com with
+  `rel="noreferrer"` (§16 #44).
 - **Who read what is never published.** The shelf's "Read by" filter isn't one of the
   filters a view captures, so no link can be made of it (§16 #43).
 - **Reading progress is opt-in, household-wide** (`site_settings.progress_on_shares`, off by
@@ -556,8 +559,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
 3. **Metadata gaps** — Open Library coverage is imperfect (Google Books fallback);
    BGG has no barcode lookup (board games are name-search by design); Discogs needs a free
    token and throttles at 60/min (irrelevant at add-time volumes). Manual edit always works.
-4. **BGG API quirks** — XML, occasional throttling/queueing; provider retries politely and
-   the search flow tolerates a slow first response.
+4. **BGG API quirks** — XML, occasional throttling/queueing; search says BGG is busy
+   rather than reporting no games, and the laptop backfill paces BGG at one request every
+   5 seconds, as BGG's docs advise.
 5. **iOS camera quirks** — `BarcodeDetector` is missing on iOS Safari; ZXing-WASM fallback
    plus manual entry keep the flow working.
 6. **Share-link privacy** — public pages use a strict field whitelist (§9) and unguessable
@@ -1186,6 +1190,31 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     finished it; removing a review or rating is not news. NULL readers are one "nobody" to the app's checks (`IS`), though SQLite's unique index
     treats NULLs as distinct and so doesn't hold unattributed open reads to one; nothing in the app
     opens one.
+
+**2026-09-29 — BoardGameGeek's terms:**
+44. **BoardGameGeek's "Powered by BGG" logo sits beside its data.** BGG approved this app's
+    use of its XML API as a non-commercial, public-facing application, and its terms make the
+    logo a condition: "public facing apps must include the 'Powered by BGG' logo, which should
+    link back to BoardGameGeek", sized "so that the text remains easily legible"
+    (boardgamegeek.com/using_the_xml_api, wiki/page/XML_API_Terms_of_Use). It appears where
+    BGG's data does, not on every page: under BGG results in the Add page's search, on a board
+    game's page, and in the footer of a share page that shows a board game — the share list
+    when any game on that page of it is one, a shared item when it is. The rule is the media
+    type, not whether a game's fields came from BGG this time: every board game Nalanda fills
+    in is filled from BGG, and a rule that inspects the data would need provenance the schema
+    doesn't keep. On share pages the logo is an attribution, not item data, so it stays
+    outside `toPublicItem()` (§9): it reveals only that a board game is on the page, which the
+    page already says, and its link leaves with `rel="noreferrer"` so a share's token never
+    travels to BGG. BGG's own SVGs are committed unmodified in `public/bgg/` — the colour file
+    for the light theme and the reversed one, white lettering, for the lamp-lit dark theme,
+    swapped by a `<picture>` on `prefers-color-scheme` — 32px tall, served as static assets
+    before the Worker, and covered by `MISSING_ASSET` so a missing one is a plain 404, never a
+    login redirect. They are BGG's trademark, not MIT (THIRD-PARTY.md). Not credited: a
+    connected household's board games on Feed and shelves, which the peer fetched from BGG
+    under its own terms, and the signed-in shelf tables, which a board game's own page covers.
+    Two terms stay with the owner rather than the code: BGG forbids modifying its data, and
+    the provider trims descriptions to 2,000 characters and tidies their whitespace; and it
+    may change its terms at any time (the Geek Tools News forum announces changes).
 
 The honest comparison, since it was asked:
 
