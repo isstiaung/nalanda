@@ -208,6 +208,27 @@ describe('the export and a re-import', () => {
     expect(await people(copy)).toEqual(before);
   });
 
+  it('give a review with no "by" to the importer, as a read with no "@" — only an explicit null or empty one is a former member’s', async () => {
+    const asha = await member('asha', 'admin');
+    const shelf = await createLibrary(env.DB, 'In');
+    const row = {
+      library: 'x', media_type: 'book', isbn10_upc: '', added_at: '', details: '', progress_history: '', began_on: '', completed_on: '',
+      title: 'Hand-made',
+      reviews: JSON.stringify([
+        { rating: 7, review: 'no by' },
+        { by: null, rating: 3, review: 'null by' },
+        { by: '', rating: 5, review: 'empty by' },
+      ]),
+    };
+    await as(asha, '/api/import', { json: { libraryId: shelf.id, rows: [row] } });
+    const id = (await rows<{ id: number }>('SELECT id FROM items'))[0]!.id;
+    expect((await reviewsOf(id)).map((r) => [r.review, r.userId])).toEqual([
+      ['no by', asha.id],
+      ['null by', null],
+      ['empty by', null],
+    ]);
+  });
+
   it('import a reviews cell from before rating times, dating each rating by its review, else by the import', async () => {
     const asha = await member('asha', 'admin');
     const shelf = await createLibrary(env.DB, 'In');

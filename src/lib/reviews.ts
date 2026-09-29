@@ -74,7 +74,7 @@ const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 //
 // JSON, one object per review, oldest first:
 //   [{"by":"asha","rating":8,"review":"…","at":"2026-09-01 10:00:00","ratedAt":"2026-08-30 09:00:00"}]
-// `by` is null for a member removed since. `at` is when the text was
+// `by` is null for a member removed since, and a review with no `by` at all is the importer's. `at` is when the text was
 // written, which decides whose review the household shows; `ratedAt` when the rating was given, which dates a "rated"
 // entry — an older file without it takes `at`, else the time of the import. The item's own `rating` and `review` columns stay beside it as the household summary, for anything that reads
 // only those (a spreadsheet, an older Nalanda).
@@ -108,14 +108,15 @@ export function parseReviewsCell(cell: string | null | undefined): CellReview[] 
   for (const entry of parsed.slice(0, MAX_REVIEWS_PER_ITEM)) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
     const e = entry as Record<string, unknown>;
-    const by = typeof e.by === 'string' && e.by.trim() ? e.by : null;
+    // no `by` at all: the importer's, as a reads token with no `@`; an empty or null one: a member removed since
+    const by = !('by' in e) ? undefined : typeof e.by === 'string' && e.by.trim() ? e.by : null;
     const rating = isRating(e.rating) ? e.rating : null;
     const review = typeof e.review === 'string' ? reviewText(e.review) : null;
     if (rating === null && review === null) continue;
     const reviewedAt = review !== null && typeof e.at === 'string' && SQL_DATETIME.test(e.at) ? e.at : null;
     const writtenAt = typeof e.at === 'string' && SQL_DATETIME.test(e.at) ? e.at : null;
     const ratedAt = rating === null ? null : typeof e.ratedAt === 'string' && SQL_DATETIME.test(e.ratedAt) ? e.ratedAt : writtenAt;
-    out.push({ by, rating, review, reviewedAt, ratedAt });
+    out.push({ ...(by === undefined ? {} : { by }), rating, review, reviewedAt, ratedAt });
   }
   return out;
 }
