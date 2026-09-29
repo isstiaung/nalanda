@@ -288,6 +288,7 @@ describe('connections with names on', () => {
     const extra = await member('u-extra-login');
     await setDisplayName(env.DB, extra.id, 'Zero');
     await updateItemWithTags(env.DB, item.id, {}, [], undefined, extra.id, { rating: 0, review: null });
+    expect(await rows('SELECT m.kind FROM member_activity m JOIN reviews v ON v.id = m.review_id WHERE v.user_id = ?1', extra.id)).toEqual([]);
     expect((await pull(before.latest)).entries).toEqual([]);
     const detail = (await (await a.signedGet(`/federation/item?view=${viewId}&id=${item.id}`, peer)).json()) as { reviews: { by: string | null }[] };
     expect(detail.reviews.map((r) => r.by)).not.toContain('Zero');
