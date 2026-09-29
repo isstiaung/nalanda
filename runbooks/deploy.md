@@ -172,7 +172,7 @@ index restore cleanly; covers are re-fetched.)
   answers every unregistered request with 401. Getting a token takes BGG's approval:
   1. Sign in at boardgamegeek.com, go to <https://boardgamegeek.com/applications>, and create
      an application. Choose **non-commercial** (Nalanda shows no ads and takes no payment),
-     which BGG licenses at no cost. Say it is public-facing if you publish share links.
+     which BGG generally licenses at no cost.
   2. Wait for BGG's approval email. BGG says it can take a week or more.
   3. Back at <https://boardgamegeek.com/applications>, click **Tokens** by your application
      and create one.

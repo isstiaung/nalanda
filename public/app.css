@@ -627,7 +627,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
    never recoloured: the <picture> swaps in BGG's reversed file for the lamp-lit theme. 32px tall keeps its
    lettering legible, which BGG's terms ask for; it is a credit, so it sits quietly below what it credits. */
 .bgg-credit { display: inline-block; line-height: 0; border-radius: var(--radius-sm); flex: none; }
-.bgg-credit img { display: block; height: 32px; width: auto; max-width: 100%; }
+.bgg-credit img { display: block; height: 32px; width: auto; } /* 144px wide: fits any phone, never squeezed */
 .bgg-credit:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .bgg-attribution { margin: 1.4rem 0 0; }
 
