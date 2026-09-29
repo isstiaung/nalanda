@@ -87,7 +87,7 @@ shape from this file.
 - **Names outside the app** (ARCH.md §16 #45) are a member's optional **display name**, never a
   username, and only while an admin has switched them on — two `site_settings` switches, both
   off by default. `names_on_shares`: a shared book's page adds `reviews` (each member's rating and
-  review, signed with their display name or unsigned), still with no reads, no read dates and no
+  review, signed with their display name or "A member"), still with no reads, no read dates and no
   "who read it". `names_to_connections`: the feed serves one entry per person with `by` (a display
   name), including kind `started`, and an item page adds `reviews`. Resolve names when serving,
   never when recording — `member_activity` rows point at a read, review or page, never a person.
@@ -97,7 +97,8 @@ shape from this file.
   time, so named ids fail the removal check once names are off and household ids while they're on.
   A per-person start or finish is recorded only as it happens, dated then — never by a read's dates,
   never backfilled. A rename or removal re-keys that member's entries in its batch
-  (`rekeyMemberActivity()`) so peers' held copies are withdrawn. Comments and borrow requests are
+  (`rekeyMemberActivity()`), and a move of a read or review re-keys that one's (`rekeyMoved()`),
+  so peers' held copies are withdrawn. Comments and borrow requests are
   signed with `outwardName()` — the display name while names go to connections, else "A member",
   never the username. Names other instances send are strings from another instance (below).
 - The shelf's **"Read by" filter** (`ReaderFilter` in `src/db/queries.ts`) is never publishable:

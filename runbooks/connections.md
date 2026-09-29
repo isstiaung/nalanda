@@ -79,8 +79,8 @@ you do.
   Members without a display name stay unnamed; usernames and read dates never leave — a start or
   finish goes out only as it happens, dated then. Turning it on or off swaps what they hold at
   their next check: on, they're asked to delete the unnamed entries and pull the named ones; off,
-  the reverse. They can keep what they already pulled. Renaming or removing a member swaps that
-  member's entries the same way. Comments and borrow requests your members send are signed with
+  the reverse. They can keep what they already pulled. Renaming or removing a member, or moving
+  a read or review to another member, swaps those entries the same way. Comments and borrow requests your members send are signed with
   their display name while this is on, and "A member" while it's off. Households on older
   versions get the entries without names, shown as the household's — two people finishing one
   book show as one entry.

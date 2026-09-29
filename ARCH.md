@@ -368,7 +368,7 @@ portable, and makes share routes trivially public. CF Access remains available l
   can't drift.
 - **Names are the household's choice, off by default** (§16 #45). `site_settings.names_on_shares`
   (admin-only, on **Shared links**) adds one field to a shared book's page: `reviews`, each
-  member's rating and review signed with their **display name** — or unsigned, for a member
+  member's rating and review signed with their **display name** — or "A member", for a member
   without one — beside the household's average. Nothing else changes: reading history stays
   "Read N times", never whose or when; listing cards keep the average; a login username never
   appears. Off, the key is absent and the page is byte for byte what it was.
@@ -1243,12 +1243,15 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       `names_to_connections` (on **Connections**). No per-member opt-in.
     - **What is shown is a display name**, new and optional, per member: set on their Account page,
       or by an admin under Members. Trimmed, single-spaced, stripped of control and format
-      characters (so no bidi override can reorder the text around it), at most 40 characters, *not*
+      characters (so no bidi override can reorder the text around it) and of fillers that look like
+      nothing — but for the zero-width joiner and non-joiner where they join two characters, which
+      Persian words, Indic conjuncts and emoji families need — at most 40 characters, *not*
       unique — nothing needs to tell two Sams apart by it — and never a login. A member without one
       stays unnamed. A login username never leaves the app. It is a user field, not an item's, so it
       isn't in `/export.csv`; backups carry it with `users`.
     - **Share pages with names on** list each member's rating and review under their display name,
-      unsigned without one, beside the household's average (§9). Reading history stays "Read N
+      labelled "A member" without one, as a connection's item page labels it, beside the
+      household's average (§9). Reading history stays "Read N
       times", and no read's date appears.
     - **Connections with names on** get one feed entry per person — "Priya finished", "Ravi
       rated", "Priya reviewed", "Ravi started", and each page — so two people finishing a book make
@@ -1267,7 +1270,11 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     Per-person facts are recorded always, by triggers (migration 0027) on `reads`, `reviews` and
     `reading_progress`, into a new `member_activity` table — only while a connection view exists.
     A row points at its read, review or page, never at a person, so who did it is resolved at pull
-    time, and `ON DELETE CASCADE` takes an entry with what it showed.
+    time, and `ON DELETE CASCADE` takes an entry with what it showed. The household's
+    `activity_log`, its triggers and its ids are untouched — a test drops the new triggers and
+    shows `activity_log` recorded identically, ids and all. Mixing per-person rows into
+    `activity_log` was set aside: they would have shifted the household entries' ids, which peers
+    hold as cursors, and so changed what is served with the switch off.
 
     **No read's dates, even by implication.** A household entry is dated by when it happened (#40),
     and a finish by its read's end — but per person, that date *is* the member's read date. So a
@@ -1279,17 +1286,17 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     pages by their own time. A rating or review is dated now, or inside an import by the book's
     `completed_on`, and not at all without one; a rating of 0 isn't one.
 
-    **A rename reaches what peers already hold.** Names are resolved at pull time, but a peer keeps
-    the entries it pulled. So renaming a member — or removing one, who then shows unnamed —
-    re-keys that member's entries in the same batch (`rekeyMemberActivity()`, §16 #39): the same
-    entries, dated as before, under new ids. The removal check then withdraws the old copies and
-    the next pull brings the renamed or unsigned ones. Saving the same name again changes nothing.
-    A finish or a page per person counts that member's own reads (`readCount`, `readsBefore`), not
-    the household's, so a first read isn't "finished again" because someone else read the book. The household's `activity_log`, its
-    triggers and its ids are untouched — a test drops the new triggers and shows `activity_log`
-    recorded identically, ids and all. Mixing per-person rows into `activity_log` was set aside:
-    they would have shifted the household entries' ids, which peers hold as cursors, and so
-    changed what is served with the switch off.
+    **A rename or a move reaches what peers already hold.** Names are resolved at pull time, but a
+    peer keeps the entries it pulled. So renaming a member — or removing one, who then shows
+    unnamed — re-keys that member's entries in the same batch (`rekeyMemberActivity()`, §16 #39):
+    the same entries, dated as before, under new ids. The removal check then withdraws the old
+    copies and the next pull brings the renamed or unsigned ones. Saving the same name again
+    changes nothing. An admin moving a read (with its pages) or a review to another member re-keys
+    just that read's or review's entries (`rekeyMoved()`), straight after the move's UPDATE and
+    guarded by its `changes()`, so a refused move re-keys nothing; both members' other entries
+    still say who did them. A finish or a page per person counts that member's own reads
+    (`readCount`, `readsBefore`), not the household's, so a first read isn't "finished again"
+    because someone else read the book.
 
     **Two streams, one cursor space.** A connection pulls the household's stream with names off,
     exactly as before, and the per-person stream with names on; per-person ids are served offset
