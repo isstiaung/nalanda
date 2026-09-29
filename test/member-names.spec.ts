@@ -79,6 +79,14 @@ describe('display names', () => {
     expect(normalizeDisplayName('x'.repeat(60))).toHaveLength(40);
     expect(normalizeDisplayName('   ')).toBeNull();
     expect(normalizeDisplayName('\u3164\u2800\u115F')).toBeNull(); // characters that look like nothing are nothing
+    // the joiners stay where they join: an emoji family, a Persian word, Devanagari half forms — each a different
+    // word or picture without them
+    expect(normalizeDisplayName('\u{1F468}\u200D\u{1F469}\u200D\u{1F467} Sam')).toBe('\u{1F468}\u200D\u{1F469}\u200D\u{1F467} Sam');
+    expect(normalizeDisplayName('\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645')).toBe('\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645');
+    expect(normalizeDisplayName('\u0915\u094D\u200D\u0937 \u0915\u094D\u200C\u0937')).toBe('\u0915\u094D\u200D\u0937 \u0915\u094D\u200C\u0937');
+    // but join nothing at the ends of a word, and alone are no name
+    expect(normalizeDisplayName('\u200DSam\u200C \u200DR.')).toBe('Sam R.');
+    expect(normalizeDisplayName('\u200D\u200C')).toBeNull();
     expect(normalizeDisplayName(undefined)).toBeNull();
   });
 
@@ -463,6 +471,7 @@ describe('the protocol stays version 1: additive, optional fields only', () => {
     expect(parseFeedEntry(entry('finished', { by: 42 }))).toBeNull();
     expect(parseFeedEntry(entry('finished', { by: 'x'.repeat(81) }))).toBeNull();
     expect(parseFeedEntry(entry('finished', { by: 'Pri‮ya' }))!.item.by).toBe('Pri ya'); // no text reordering
+    expect(parseFeedEntry(entry('finished', { by: '\u{1F468}\u200D\u{1F469}\u200D\u{1F467} \u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645' }))!.item.by).toBe('\u{1F468}\u200D\u{1F469}\u200D\u{1F467} \u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645'); // joiners kept
     const detail = { ...item(), publisher: null, description: null, length: null, details: {}, updatedAt: sqlAgo(1), available: true, tags: [] };
     expect(parseItemDetail(detail)).not.toHaveProperty('reviews');
     expect(parseItemDetail({ ...detail, reviews: [{ by: 'Priya', rating: 8, review: 'Yes' }, { rating: 4 }] })!.reviews).toEqual([

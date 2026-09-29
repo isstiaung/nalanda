@@ -7,7 +7,8 @@ export const MAX_DISPLAY_NAME = 40;
 
 /**
  * What a display name typed into a form becomes: control and format characters (newlines, bidi overrides) and
- * characters that look like nothing (Hangul fillers, the braille blank) taken out, runs of
+ * characters that look like nothing (Hangul fillers, the braille blank) taken out — except the zero-width joiner and
+ * non-joiner, which Persian words, Indic conjuncts and emoji families need, kept where they join two characters — runs of
  * whitespace made one space, trimmed, cut to MAX_DISPLAY_NAME characters. Empty is no display name — the member
  * stays unnamed. Not unique: two members may both go by "Sam"; nothing needs to tell them apart by it.
  */
@@ -15,11 +16,13 @@ export function normalizeDisplayName(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const clean = raw
     .normalize('NFC')
-    .replace(/[\p{Cc}\p{Cf}\u2028\u2029\u115F\u1160\u3164\uFFA0\u2800]/gu, ' ')
+    .replace(/(?![\u200C\u200D])[\p{Cc}\p{Cf}\u2028\u2029\u115F\u1160\u3164\uFFA0\u2800]/gu, ' ')
     .replace(/\s+/gu, ' ')
     .trim();
-  const cut = [...clean].slice(0, MAX_DISPLAY_NAME).join('').trim();
-  return cut || null;
+  const cut = [...clean].slice(0, MAX_DISPLAY_NAME).join('');
+  // a joiner joins only between two characters: at either end of the name or of a word, it's nothing
+  const joined = cut.replace(/(?<=^|\s)[\u200C\u200D]+|[\u200C\u200D]+(?=\s|$)/gu, '').trim();
+  return joined || null;
 }
 
 /**
@@ -31,7 +34,7 @@ export const PEER_NAME_MAX = 80;
 export function parsePeerName(v: unknown): string | null | undefined {
   if (v === undefined || v === null) return undefined;
   if (typeof v !== 'string' || [...v].length > PEER_NAME_MAX) return null;
-  // control and format characters (bidi overrides, zero-width marks) go, as they do from a display name typed here,
+  // control and format characters (bidi overrides, zero-width marks but the joiners) go, as they do from a display name typed here,
   // so a name can't reorder or hide the text around it; what's left renders as escaped text
   const clean = normalizeDisplayName(v.slice(0, PEER_NAME_MAX * 2));
   return clean ?? undefined;
