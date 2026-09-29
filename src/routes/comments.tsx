@@ -140,7 +140,7 @@ comments.post('/items/:id/comments', async (c) => {
       connectionId: connection.id,
       ourItemId: item.id,
       fromUs: true,
-      authorName: message.author,
+      authorName: user.username, // inside, as everywhere in the app; the connection gets message.author
       authorId: user.id,
       body: text,
       createdAt: message.published,
@@ -179,7 +179,7 @@ comments.post('/feed/comments', async (c) => {
       theirItemId: itemId,
       theirItemStamp: stamp,
       fromUs: true,
-      authorName: message.author,
+      authorName: user.username, // inside, as everywhere in the app; the connection gets message.author
       authorId: user.id,
       body: text,
       createdAt: message.published,

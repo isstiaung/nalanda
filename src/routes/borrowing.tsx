@@ -405,7 +405,7 @@ borrowing.post('/households/:id/requests', async (c) => {
       theirViewId: viewId,
       itemTitle: item.title,
       coverKey: item.coverKey,
-      requesterName: message.requester,
+      requesterName: user.username, // inside, as everywhere in the app; the connection gets message.requester
       requesterId: user.id,
       note: message.note,
     },

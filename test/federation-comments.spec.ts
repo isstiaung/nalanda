@@ -307,6 +307,11 @@ describe('comments on a connected household’s reviews', () => {
       ['Names on', 'Priya'],
     ]);
     expect(JSON.stringify(pushes)).not.toContain('u-priya-login');
+    // what this household sees of its own comments is the login, as everywhere inside the app
+    expect((await env.DB.prepare('SELECT author_name AS a FROM comments WHERE from_us = 1').all()).results).toEqual([
+      { a: 'u-priya-login' },
+      { a: 'u-priya-login' },
+    ]);
   });
 
   it('keep their comment only in a thread this household started', async () => {

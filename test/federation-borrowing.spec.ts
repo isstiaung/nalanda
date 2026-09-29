@@ -360,6 +360,7 @@ describe('borrowing: this household asks', () => {
     await a.postForm(`/households/${connectionId}/requests`, { viewId: '7', itemId: '70', note: '' }, priya.cookie);
     expect(pushes[1]).toMatchObject({ type: 'BorrowRequest', requester: 'Priya' });
     expect(JSON.stringify(pushes)).not.toContain('u-priya-login');
+    expect((await env.DB.prepare('SELECT requester_name AS r FROM borrow_requests').all()).results).toEqual([{ r: 'u-priya-login' }]); // ours, inside
   });
 
   it('asks to borrow, and follows the answer through to the return', async () => {
