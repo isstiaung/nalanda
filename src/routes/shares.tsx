@@ -132,6 +132,7 @@ shares.get('/shares', async (c) => {
       <section style="margin-top:2rem">
         <p class="eyebrow">Reading progress on share pages</p>
         <form method="post" action="/shares/settings" class="inline-form">
+          <input type="hidden" name="setting" value="progress" />
           <label>
             <input type="checkbox" name="progressOnShares" value="on" checked={settings.progressOnShares} /> Show how far
             through a book you are
@@ -145,6 +146,25 @@ shares.get('/shares', async (c) => {
           already loaded can take up to an hour to catch up.
         </p>
       </section>
+
+      <section class="settings-section" id="names-on-shares">
+        <p class="eyebrow">Names on share pages</p>
+        <form method="post" action="/shares/settings" class="inline-form">
+          <input type="hidden" name="setting" value="names" />
+          <label>
+            <input type="checkbox" name="namesOnShares" value="on" checked={settings.namesOnShares} /> Show each member's rating
+            and review, with their display name
+          </label>
+          <button type="submit">Save</button>
+        </form>
+        <p class="muted">
+          Off by default, and then a shared book shows the household's average rating and its latest review, unsigned.
+          On, it also lists everyone's rating and review, each signed with the member's <strong>display name</strong> —
+          set on their Account page, or here under Members. A member without one appears unsigned. Login usernames never
+          appear, and nor does who read what or when: reading history stays "Read N times". Turning it off hides names
+          from every page served after; a page someone already loaded can take up to an hour to catch up.
+        </p>
+      </section>
     </>,
   );
 });
@@ -152,8 +172,11 @@ shares.get('/shares', async (c) => {
 shares.post('/shares/settings', async (c) => {
   if (c.get('user').role !== 'admin') return c.text('Admins only', 403);
   const body = await c.req.parseBody();
-  // an unchecked checkbox sends nothing at all, so absence means off
-  await updateSiteSettings(c.env.DB, { progressOnShares: body['progressOnShares'] === 'on' });
+  // an unchecked checkbox sends nothing at all, so absence means off — for the setting its form names, and only that
+  await updateSiteSettings(
+    c.env.DB,
+    body['setting'] === 'names' ? { namesOnShares: body['namesOnShares'] === 'on' } : { progressOnShares: body['progressOnShares'] === 'on' },
+  );
   return c.redirect('/shares'); // a successful POST also clears this isolate's share-page cache (index.ts)
 });
 

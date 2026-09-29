@@ -25,6 +25,10 @@ export const users = sqliteTable('users', {
   // marker would count those as seen. NULL means never looked, so everything counts.
   notificationsSeenId: integer('notifications_seen_id'),
   feedSeenId: integer('feed_seen_id'),
+  // The name a member goes by outside the app (§16 #45): on share pages and to connections, only while the household
+  // has switched names on there. Optional — without one a member stays unnamed. Never a login, never unique: the
+  // username is what signs in, and the username never leaves the app.
+  displayName: text('display_name'),
 });
 
 export const libraries = sqliteTable('libraries', {
@@ -157,6 +161,10 @@ export const siteSettings = sqliteTable('site_settings', {
   progressOnShares: integer('progress_on_shares', { mode: 'boolean' }).notNull().default(false),
   // Progress updates reach connections' feeds unless this is turned off (§16 #35).
   progressToConnections: integer('progress_to_connections', { mode: 'boolean' }).notNull().default(true),
+  // Members' display names, and each one's rating and review, on share pages (§16 #45). Off: share pages as before.
+  namesOnShares: integer('names_on_shares', { mode: 'boolean' }).notNull().default(false),
+  // Connections get one feed entry per person, with their display name, and everyone's review on an item page (§16 #45).
+  namesToConnections: integer('names_to_connections', { mode: 'boolean' }).notNull().default(false),
   updatedAt: text('updated_at').notNull().default(now),
 });
 
@@ -329,7 +337,7 @@ export const readingProgress = sqliteTable(
   (t) => [index('idx_reading_progress_item').on(t.itemId, t.at), index('idx_reading_progress_read').on(t.readId)],
 );
 
-export const ACTIVITY_KINDS = ['reviewed', 'rated', 'finished', 'progress'] as const;
+export const ACTIVITY_KINDS = ['reviewed', 'rated', 'finished', 'progress', 'started'] as const; // 'started': per person only (§16 #45)
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 /**
@@ -358,6 +366,37 @@ export const activityLog = sqliteTable(
     uniqueIndex('activity_log_item_kind').on(t.itemId, t.kind).where(sql`${t.kind} <> 'progress'`),
     index('idx_activity_log_at').on(t.at),
     index('idx_activity_log_progress').on(t.progressId),
+  ],
+);
+
+/**
+ * Each member's own activity, for the per-person feed connections get while names are switched on (§16 #45). Written
+ * only by triggers (migration 0027) on reads, reviews and reading_progress, and only while a connection view exists —
+ * always, whatever the switch says: the switch decides at serve time which stream a connection pulls. Who did it is
+ * never stored here; it is the reader of `read_id`, the writer of `review_id`, or the reader of `progress_id`'s read,
+ * resolved when served, so moving a read or removing a member changes every later pull. One row per read and kind,
+ * and per review and kind, replaced on a repeat, as activity_log does per item; progress accumulates. Served with ids
+ * offset by MEMBER_ACTIVITY_BASE, so the two streams never share a cursor.
+ */
+export const memberActivity = sqliteTable(
+  'member_activity',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: ACTIVITY_KINDS }).notNull(),
+    at: text('at').notNull().default(now),
+    readId: integer('read_id').references(() => reads.id, { onDelete: 'cascade' }), // started, finished
+    reviewId: integer('review_id').references(() => reviews.id, { onDelete: 'cascade' }), // rated, reviewed
+    progressId: integer('progress_id').references(() => readingProgress.id, { onDelete: 'cascade' }), // progress
+  },
+  (t) => [
+    uniqueIndex('member_activity_read_kind').on(t.kind, t.readId).where(sql`${t.readId} IS NOT NULL`),
+    uniqueIndex('member_activity_review_kind').on(t.kind, t.reviewId).where(sql`${t.reviewId} IS NOT NULL`),
+    index('idx_member_activity_at').on(t.at),
+    index('idx_member_activity_item').on(t.itemId),
+    index('idx_member_activity_progress').on(t.progressId),
   ],
 );
 

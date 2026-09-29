@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import type { User } from '../db/schema';
-import { createUser, deleteUser, getUserById, listUsers, setPassword } from '../db/queries';
+import { createUser, deleteUser, getUserById, listUsers, setDisplayName, setPassword } from '../db/queries';
 import type { AppEnv } from '../env';
 import { hashPassword, tempPassword } from '../lib/auth';
+import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
 import { page } from '../views/layout';
 
 const settings = new Hono<AppEnv>();
@@ -47,6 +48,7 @@ const UsersPage = ({
         <thead>
           <tr>
             <th>Username</th>
+            <th>Display name</th>
             <th>Role</th>
             <th class="hide-sm">Since</th>
             <th class="actions-cell"></th>
@@ -59,6 +61,21 @@ const UsersPage = ({
                 <strong>{u.username}</strong>
                 {u.id === self ? <small class="muted"> (you)</small> : null}
                 {u.mustChangePassword ? <span class="pill progress"> Temp password</span> : null}
+              </td>
+              <td>
+                {/* shown outside the app only where names are switched on (§16 #45); an admin can set anyone's */}
+                <form method="post" action={`/settings/users/${u.id}/display-name`} class="inline-form display-name-form">
+                  <input
+                    name="displayName"
+                    value={u.displayName ?? ''}
+                    maxlength={MAX_DISPLAY_NAME}
+                    placeholder="none"
+                    aria-label={`Display name for ${u.username}`}
+                  />
+                  <button type="submit" class="btn">
+                    Save
+                  </button>
+                </form>
               </td>
               <td class="num">{u.role}</td>
               <td class="date hide-sm">{u.createdAt.slice(0, 10)}</td>
@@ -99,6 +116,11 @@ const UsersPage = ({
       </form>
       <p class="muted">
         No email needed: you get a one-time temporary password to hand over; they set their own at first login.
+      </p>
+      <p class="muted">
+        A <strong>display name</strong> is how a member is signed outside this library — on share pages and to connected
+        households — and only once names are switched on under Shared links or Connections. Empty means unnamed.
+        Usernames never leave the app.
       </p>
     </section>
   </>
@@ -146,6 +168,14 @@ settings.post('/settings/users/:id/reset', async (c) => {
       minted={{ username: user.username, password: temp }}
     />
   ));
+});
+
+settings.post('/settings/users/:id/display-name', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!(await getUserById(c.env.DB, id))) return c.notFound();
+  const body = await c.req.parseBody();
+  await setDisplayName(c.env.DB, id, normalizeDisplayName(body['displayName']));
+  return c.redirect('/settings/users');
 });
 
 settings.post('/settings/users/:id/delete', async (c) => {

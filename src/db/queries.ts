@@ -77,6 +77,33 @@ export async function listUsers(d1: D1Database): Promise<User[]> {
   return db(d1).select().from(s.users).orderBy(asc(s.users.id));
 }
 
+/**
+ * Sets a member's display name (§16 #45) — already normalized (normalizeDisplayName); null clears it. It shows only
+ * where an admin has switched names on, and is never a login.
+ */
+export async function setDisplayName(d1: D1Database, id: number, displayName: string | null): Promise<void> {
+  await db(d1).update(s.users).set({ displayName }).where(eq(s.users.id, id));
+}
+
+/**
+ * Everyone's rating and review of an item, each with its writer's display name — null for a member who has none, or
+ * was removed — the household's latest review first. For share pages and connections with names switched on (§16
+ * #45): never a username.
+ */
+export async function namedReviews(
+  d1: D1Database,
+  itemId: number,
+): Promise<Array<{ by: string | null; rating: number | null; review: string | null }>> {
+  const rows = await d1
+    .prepare(
+      `SELECT u.display_name AS by, v.rating, v.review FROM reviews v LEFT JOIN users u ON u.id = v.user_id
+       WHERE v.item_id = ?1 ORDER BY ${reviewOrderSql('v')}`,
+    )
+    .bind(itemId)
+    .all<{ by: string | null; rating: number | null; review: string | null }>();
+  return rows.results.map((r) => ({ by: r.by || null, rating: r.rating, review: r.review }));
+}
+
 /** Every member's id and name, and no more — what a page needs to say whose read or review something is (§16 #43). */
 export async function listPeople(d1: D1Database): Promise<Array<{ id: number; username: string }>> {
   return db(d1).select({ id: s.users.id, username: s.users.username }).from(s.users).orderBy(asc(s.users.username), asc(s.users.id));
@@ -701,13 +728,25 @@ export async function tagsForIdRange(
 
 // ---------- site settings ----------
 
-export type SiteSettings = { progressOnShares: boolean; progressToConnections: boolean };
-const SITE_DEFAULTS: SiteSettings = { progressOnShares: false, progressToConnections: true };
+export type SiteSettings = {
+  progressOnShares: boolean;
+  progressToConnections: boolean;
+  namesOnShares: boolean; // §16 #45 — members' display names, ratings and reviews on share pages
+  namesToConnections: boolean; // §16 #45 — per-person feed entries and reviews, with display names, to connections
+};
+const SITE_DEFAULTS: SiteSettings = { progressOnShares: false, progressToConnections: true, namesOnShares: false, namesToConnections: false };
 
 /** One row, id 1. Absent means defaults, so a fresh instance needs no setup step. */
 export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
   const [row] = await db(d1).select().from(s.siteSettings).where(eq(s.siteSettings.id, 1));
-  return row ? { progressOnShares: row.progressOnShares, progressToConnections: row.progressToConnections } : { ...SITE_DEFAULTS };
+  return row
+    ? {
+        progressOnShares: row.progressOnShares,
+        progressToConnections: row.progressToConnections,
+        namesOnShares: row.namesOnShares,
+        namesToConnections: row.namesToConnections,
+      }
+    : { ...SITE_DEFAULTS };
 }
 
 export async function updateSiteSettings(d1: D1Database, patch: Partial<SiteSettings>): Promise<void> {

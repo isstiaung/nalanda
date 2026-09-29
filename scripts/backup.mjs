@@ -37,6 +37,7 @@ export const TABLES = [
   'connections',
   'connection_views',
   'activity_log',
+  'member_activity', // after items, reads, reviews and reading_progress, which it references (§16 #45)
   'feed_subscriptions', // after connections
   'remote_activities', // after feed_subscriptions
   'comments',

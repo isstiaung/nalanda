@@ -133,7 +133,7 @@ function runs(cards: Card[]): Card[][] {
 }
 
 const VERB_ORDER: ActivityKind[] = ['progress', 'finished', 'rated', 'reviewed'];
-const VERB: Record<ActivityKind, string> = { progress: 'reading', finished: 'finished', rated: 'rated', reviewed: 'reviewed' };
+const VERB: Record<ActivityKind, string> = { started: 'started', progress: 'reading', finished: 'finished', rated: 'rated', reviewed: 'reviewed' };
 
 /**
  * A book finished before and being read again (§16 #41): its newest page belongs to a read with a finished one

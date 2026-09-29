@@ -78,7 +78,7 @@ npm run db:migrate:remote
 # 2. data, in FK-safe order — the order `npm run backup` prints, TABLES in scripts/backup.mjs
 #    (the files set defer_foreign_keys themselves; a table with no rows is an empty file)
 for t in users libraries shares site_settings items reads reading_progress reviews tags item_tags loans \
-         federation_settings connection_invites connections connection_views activity_log \
+         federation_settings connection_invites connections connection_views activity_log member_activity \
          feed_subscriptions remote_activities comments outbox borrow_requests connection_loans \
          borrowed_items notifications; do
   npm run wrangler:remote -- d1 execute nalanda --remote --file=backups/remote-<date>/$t.sql

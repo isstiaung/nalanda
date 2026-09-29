@@ -84,6 +84,9 @@ export type PublicItem = {
   readCount?: number;
   // Only when the household has turned progress on for share pages, and only for a book in progress.
   progress?: { page: number; length: number | null; percent: number | null };
+  // Only when an admin has switched names on for share pages (§16 #45): each member's rating and review, signed with
+  // their display name or unsigned (null). Never a username, never a read or its date.
+  reviews?: Array<{ by: string | null; rating: number | null; review: string | null }>;
 };
 
 export function parseDetails(json: string | null | undefined): Record<string, unknown> {
@@ -106,7 +109,10 @@ export function parseDetails(json: string | null | undefined): Record<string, un
  * unstarted one has none. The key is left out entirely otherwise, so nothing downstream can render an empty or
  * stale value.
  */
-export function toPublicItem(item: Item, opts: { progress?: boolean } = {}): PublicItem {
+export function toPublicItem(
+  item: Item,
+  opts: { progress?: boolean; reviews?: Array<{ by: string | null; rating: number | null; review: string | null }> } = {},
+): PublicItem {
   const readingNow = item.status === 'in_progress' || item.rereading;
   const showProgress = opts.progress === true && item.mediaType === 'book' && readingNow && !!item.progressPage;
   return {
@@ -127,6 +133,8 @@ export function toPublicItem(item: Item, opts: { progress?: boolean } = {}): Pub
     ...(showProgress
       ? { progress: { page: item.progressPage!, length: item.length, percent: progressPercent(item.progressPage, item.length) } }
       : {}),
+    // the key only when the caller passed names in, which it does only with names switched on for share pages
+    ...(opts.reviews ? { reviews: opts.reviews.map((r) => ({ by: r.by || null, rating: r.rating, review: r.review })) } : {}),
   };
 }
 
