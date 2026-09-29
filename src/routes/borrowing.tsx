@@ -312,7 +312,23 @@ borrowing.get('/households/:id/views/:viewId/items/:itemId', async (c) => {
             <DetailsList details={item.details} fromConnection />
           </div>
         ) : null}
-        {item.review ? (
+        {item.reviews?.length ? (
+          // §16 #45: their household shares names — everyone's rating and review, names as escaped text
+          <div class="detail-section">
+            <p class="eyebrow">Their ratings and reviews</p>
+            <ol class="member-reviews">
+              {item.reviews.map((r) => (
+                <li>
+                  <p class="review-by">
+                    <span class="reviewer">{r.by ?? 'A member'}</span>
+                    {r.rating ? <span class="rating">{stars(r.rating)}</span> : null}
+                  </p>
+                  {r.review ? <p class="prewrap">{r.review}</p> : null}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : item.review ? (
           <div class="detail-section">
             <p class="eyebrow">Their review</p>
             <p class="prewrap">{item.review}</p>

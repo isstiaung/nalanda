@@ -8,6 +8,7 @@ import * as s from './schema';
 import { ADMIN_NOTIFICATIONS } from './schema';
 import {
   BACKFILL_ENTRIES,
+  MEMBER_ACTIVITY_BASE,
   MAX_FEED_REVIEW_CHARS,
   MAX_STORED_ENTRIES_PER_CONNECTION,
   OUTBOX_PULL_MINUTES,
@@ -352,7 +353,11 @@ export async function createConnectionView(
   const dbi = db(d1);
   // The view and, for a first one, the log's opening entries, in one batch. Apart, a failed backfill shared a
   // first view with an empty log that nothing would ever fill, since the next view isn't a first.
-  const [[row]] = await dbi.batch([dbi.insert(s.connectionViews).values(values).returning(), dbi.run(recentActivity)]);
+  const [[row]] = await dbi.batch([
+    dbi.insert(s.connectionViews).values(values).returning(),
+    dbi.run(recentActivity),
+    dbi.run(recentMemberActivity),
+  ]);
   if (!row) throw new Error('failed to create connection view');
   return row;
 }
@@ -397,6 +402,41 @@ const recentActivity = sql.raw(
 );
 
 /**
+ * The per-person log's opening entries for a first view (§16 #45), as recentActivity is the household's: the same
+ * window and cap, each dated by when it happened — a finish by its read's end, a start by its read's start, a rating
+ * or review by its book's completed_on (nothing dates it more honestly, §16 #40), a page by its own time. Recorded
+ * whether or not names are switched on: the switch decides what is served. Migration 0027 carries the same text for
+ * an instance already sharing a view.
+ */
+const recentMemberActivity = sql.raw(
+  `INSERT INTO member_activity (item_id, kind, at, read_id, review_id, progress_id)
+     SELECT item_id, kind, at, read_id, review_id, progress_id FROM (
+       SELECT r.item_id, 'finished' AS kind, min(datetime(r.ended_on), datetime('now')) AS at, r.id AS read_id, NULL AS review_id, NULL AS progress_id
+         FROM reads r WHERE r.status = 'completed' AND date(r.ended_on) > date('now', '-${VOLUME_WINDOW_DAYS} days')
+       UNION ALL
+       SELECT r.item_id, 'started', min(datetime(r.began_on), datetime('now')), r.id, NULL, NULL
+         FROM reads r WHERE r.status = 'in_progress' AND date(r.began_on) > date('now', '-${VOLUME_WINDOW_DAYS} days')
+       UNION ALL
+       SELECT v.item_id, 'rated', min(datetime(i.completed_on), datetime('now')), NULL, v.id, NULL
+         FROM reviews v JOIN items i ON i.id = v.item_id
+         WHERE v.rating IS NOT NULL AND date(i.completed_on) > date('now', '-${VOLUME_WINDOW_DAYS} days')
+       UNION ALL
+       SELECT v.item_id, 'reviewed', min(datetime(i.completed_on), datetime('now')), NULL, v.id, NULL
+         FROM reviews v JOIN items i ON i.id = v.item_id
+         WHERE trim(replace(coalesce(v.review, ''), char(13), ''), ' ' || char(9) || char(10)) <> ''
+           AND date(i.completed_on) > date('now', '-${VOLUME_WINDOW_DAYS} days')
+       UNION ALL
+       SELECT p.item_id, 'progress', datetime(p.at), NULL, NULL, p.id FROM reading_progress p
+         WHERE datetime(p.at) > datetime('now', '-${VOLUME_WINDOW_DAYS} days')
+           AND coalesce((SELECT progress_to_connections FROM site_settings WHERE id = 1), 1) = 1
+       ORDER BY at DESC LIMIT ${BACKFILL_ENTRIES}
+     )
+     WHERE (SELECT count(*) FROM connection_views) = 1 -- in the view's own batch: it's the first
+       AND NOT EXISTS (SELECT 1 FROM member_activity)
+     ORDER BY at ASC`,
+);
+
+/**
  * With the last view gone the triggers stop recording, and the log would go stale: an edit made meanwhile
  * never replaces its row, so an old review would still look current. The log is cleared instead, and the
  * next first view starts it again under new ids. One batch, so a view can't go without the log going too:
@@ -406,6 +446,7 @@ export async function deleteConnectionView(d1: D1Database, id: number): Promise<
   await d1.batch([
     d1.prepare('DELETE FROM connection_views WHERE id = ?1').bind(id),
     d1.prepare('DELETE FROM activity_log WHERE NOT EXISTS (SELECT 1 FROM connection_views)'),
+    d1.prepare('DELETE FROM member_activity WHERE NOT EXISTS (SELECT 1 FROM connection_views)'),
   ]);
 }
 
@@ -483,6 +524,89 @@ export async function stillShared(d1: D1Database, view: ConnectionView, ids: num
       and(sql`${s.activityLog.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`, inView(view), stillShows),
     );
   return new Set(rows.map((r) => r.id));
+}
+
+// ---------- the per-person feed (§16 #45) ----------
+
+/** A member's display name as a connection may see it: the reader of the read, the writer of the review, or the reader of the page's read. */
+const actorName = sql<string | null>`nullif(CASE
+  WHEN ${s.memberActivity.readId} IS NOT NULL THEN
+    (SELECT u.display_name FROM reads r JOIN users u ON u.id = r.reader_id WHERE r.id = ${s.memberActivity.readId})
+  WHEN ${s.memberActivity.reviewId} IS NOT NULL THEN
+    (SELECT u.display_name FROM reviews v JOIN users u ON u.id = v.user_id WHERE v.id = ${s.memberActivity.reviewId})
+  ELSE (SELECT u.display_name FROM reading_progress p JOIN reads r ON r.id = p.read_id JOIN users u ON u.id = r.reader_id
+        WHERE p.id = ${s.memberActivity.progressId}) END, '')`;
+
+/**
+ * A per-person entry is shared only while what it shows still stands: a review entry its review's text, a rating
+ * entry its rating, a finish a finished read, a start its read, a page its page and the household sharing progress.
+ * Deleting a read, a review or a page removes its entries with it (ON DELETE CASCADE).
+ */
+const memberStillShows = sql`(
+  (${s.memberActivity.kind} = 'reviewed' AND trim(replace(coalesce(${s.reviews.review}, ''), char(13), ''), ' ' || char(9) || char(10)) <> '')
+  OR (${s.memberActivity.kind} = 'rated' AND ${s.reviews.rating} IS NOT NULL)
+  OR (${s.memberActivity.kind} = 'finished' AND ${s.reads.status} = 'completed')
+  OR (${s.memberActivity.kind} = 'started' AND ${s.reads.id} IS NOT NULL)
+  OR (${s.memberActivity.kind} = 'progress' AND ${s.readingProgress.id} IS NOT NULL
+      AND coalesce((SELECT ${s.siteSettings.progressToConnections} FROM ${s.siteSettings} WHERE ${s.siteSettings.id} = 1), 1) = 1)
+)`;
+
+/** A per-person entry as served: whose (a display name, or null), and their own rating or review on those kinds. */
+export type MemberActivity = SharedActivity & { by: string | null; rating: number | null; review: string | null };
+
+const memberRows = (dbi: ReturnType<typeof db>) =>
+  dbi
+    .select({
+      id: s.memberActivity.id,
+      kind: s.memberActivity.kind,
+      at: s.memberActivity.at,
+      item: s.items,
+      progressPage: s.readingProgress.page,
+      readsBefore: sql`CASE WHEN ${s.readingProgress.id} IS NULL THEN 0 ELSE (
+        SELECT count(*) FROM reads r2 WHERE r2.item_id = ${s.readingProgress.itemId} AND r2.status = 'completed'
+          AND r2.id IS NOT ${s.readingProgress.readId}
+          AND (r2.ended_on IS NULL OR r2.ended_on <= date(${s.readingProgress.at}))
+      ) END`.mapWith(Number),
+      by: actorName,
+      rating: s.reviews.rating,
+      review: s.reviews.review,
+    })
+    .from(s.memberActivity)
+    .innerJoin(s.items, eq(s.memberActivity.itemId, s.items.id))
+    .leftJoin(s.reviews, eq(s.memberActivity.reviewId, s.reviews.id))
+    .leftJoin(s.reads, eq(s.memberActivity.readId, s.reads.id))
+    .leftJoin(s.readingProgress, eq(s.memberActivity.progressId, s.readingProgress.id));
+
+/**
+ * The per-person stream of a view, as activityInView is the household's: after a cursor oldest first, or — with no
+ * cursor in this stream (`since` below MEMBER_ACTIVITY_BASE: a new follower, or one that was pulling the household's
+ * stream until names were switched on) — the newest by date. Ids come back offset by MEMBER_ACTIVITY_BASE.
+ */
+export async function memberActivityInView(
+  d1: D1Database,
+  view: ConnectionView,
+  since: number,
+  limit: number,
+): Promise<{ fromStart: boolean; rows: MemberActivity[] }> {
+  const dbi = db(d1);
+  const [top] = await dbi.select({ latest: sql`coalesce(max(${s.memberActivity.id}), 0)`.mapWith(Number) }).from(s.memberActivity);
+  const local = since - MEMBER_ACTIVITY_BASE;
+  const from = local < 0 || local > (top?.latest ?? 0) ? 0 : local;
+  const rows = await memberRows(dbi)
+    .where(and(gt(s.memberActivity.id, from), inView(view), memberStillShows))
+    .orderBy(...(from === 0 ? [desc(s.memberActivity.at), desc(s.memberActivity.id)] : [asc(s.memberActivity.id)]))
+    .limit(limit);
+  return { fromStart: from === 0, rows: rows.map((r) => ({ ...r, id: r.id + MEMBER_ACTIVITY_BASE, by: r.by || null })) };
+}
+
+/** Which of these per-person entry ids (offset) are still shared through this view — stillShared's twin. */
+export async function stillSharedMember(d1: D1Database, view: ConnectionView, ids: number[]): Promise<Set<number>> {
+  const local = ids.filter((id) => id > MEMBER_ACTIVITY_BASE).map((id) => id - MEMBER_ACTIVITY_BASE);
+  if (!local.length) return new Set();
+  const rows = await memberRows(db(d1)).where(
+    and(sql`${s.memberActivity.id} IN (SELECT value FROM json_each(${JSON.stringify(local)}))`, inView(view), memberStillShows),
+  );
+  return new Set(rows.map((r) => r.id + MEMBER_ACTIVITY_BASE));
 }
 
 /** Activity in a view over the last `days`, and roughly what storing it as feed entries costs. */

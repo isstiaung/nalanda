@@ -5,6 +5,7 @@
 // The parse functions are the other direction: everything a connection sends is untrusted, checked
 // field by field before it is stored or rendered.
 import { ACTIVITY_KINDS, MEDIA_TYPES, type ActivityKind, type Item, type MediaType } from '../db/schema';
+import { parsePeerName } from '../lib/names';
 import { MAX_PROGRESS_PAGE, progressPercent } from '../lib/progress';
 import { toPublicItem, type PublicItem } from '../lib/share';
 import { MAX_DETAIL_TEXT_CHARS, MAX_FEED_REVIEW_CHARS, MAX_FEED_TEXT_CHARS } from './config';
@@ -35,7 +36,14 @@ export type FeedItem = Pick<
   // finished ("finished again" from two). On a `progress` entry, how many finished reads came before the one the
   // page belongs to — one or more is a re-read, whenever the entry is served.
   readCount: number | null;
+  // §16 #45: whose activity this is, by display name — only on a per-person entry from a household that has switched
+  // names on, and only for a member with a display name. Absent everywhere else, so a household's entries are exactly
+  // what they were; an older receiver ignores it.
+  by?: string;
 };
+
+/** A per-person feed entry's own part (§16 #45): whose it is, and that member's rating or review on those kinds. */
+export type FeedPerson = { by: string | null; rating: number | null; review: string | null };
 
 /**
  * A feed entry's item, carrying only what its kind shows: the review only on a `reviewed` entry, the
@@ -48,8 +56,11 @@ export function toFeedItem(
   stamp: string,
   progressPage: number | null = null,
   readsBefore = 0,
+  person?: FeedPerson,
 ): FeedItem {
   const c = toConnectionItem(item);
+  // a per-person entry carries its member's own rating and review, not the household's summary
+  if (person) Object.assign(c, { rating: person.rating, review: person.review });
   const long = c.review !== null && c.review.length > MAX_FEED_REVIEW_CHARS;
   return keepForKind(
     {
@@ -68,6 +79,8 @@ export function toFeedItem(
       progress: progressPage ? { page: progressPage, percent: progressPercent(progressPage, item.length) } : null,
       // a page: the finished reads before its own read; anything else: all of them
       readCount: kind === 'progress' ? readsBefore : c.readCount,
+      // only a named member's entry has the key at all, so a household's entry serializes exactly as before
+      ...(person?.by ? { by: person.by } : {}),
     },
     kind,
   );
@@ -135,6 +148,9 @@ export function parseFeedItem(value: unknown): FeedItem | null {
   if (readCount !== null && !(Number.isSafeInteger(readCount) && (readCount as number) >= 0 && (readCount as number) <= MAX_FEED_READ_COUNT)) {
     return null;
   }
+  // absent from an older sender, a household's entry or an unnamed member's; malformed rejects the entry
+  const by = parsePeerName(v.by);
+  if (by === null) return null;
   return {
     id: v.id,
     mediaType: v.mediaType as MediaType,
@@ -150,6 +166,7 @@ export function parseFeedItem(value: unknown): FeedItem | null {
     stamp: v.stamp,
     progress,
     readCount: readCount as number | null,
+    ...(by !== undefined ? { by } : {}),
   };
 }
 
@@ -225,13 +242,21 @@ export function toShelfItem(item: Item, available: boolean, stamp: string): Shel
 }
 
 /** One item in full, for its page on a connection's instance: the share-page fields, availability and tags. */
+/** One member's rating and review on a connection's item page (§16 #45): by display name, or unsigned (null). */
+export type NamedReview = { by: string | null; rating: number | null; review: string | null };
+
 export type ItemDetail = Omit<ConnectionItem, 'details' | 'readCount'> & {
   details: Record<string, string | number | boolean>;
   readCount: number | null; // null from a household on an older version
   available: boolean;
   tags: string[];
   stamp: string;
+  // §16 #45: everyone's rating and review, only from a household that has switched names on; absent otherwise
+  reviews?: NamedReview[];
 };
+
+/** At most this many members' reviews on one item page, from anyone. */
+export const MAX_NAMED_REVIEWS = 30;
 
 /** Details reduced to short, plain values — the only shape a connection's item page renders. */
 function plainDetails(details: Record<string, unknown>): Record<string, string | number | boolean> {
@@ -244,7 +269,7 @@ function plainDetails(details: Record<string, unknown>): Record<string, string |
   return out;
 }
 
-export function toItemDetail(item: Item, available: boolean, tags: string[], stamp: string): ItemDetail {
+export function toItemDetail(item: Item, available: boolean, tags: string[], stamp: string, reviews?: NamedReview[]): ItemDetail {
   const c = toConnectionItem(item);
   return {
     ...c,
@@ -259,7 +284,40 @@ export function toItemDetail(item: Item, available: boolean, tags: string[], sta
     available: c.inCollection && available,
     tags: tags.slice(0, 50).map((t) => t.slice(0, 50)),
     stamp,
+    // with names off the key is absent, so the page serializes exactly as before
+    ...(reviews
+      ? {
+          reviews: reviews.slice(0, MAX_NAMED_REVIEWS).map((r) => ({
+            by: r.by,
+            rating: r.rating,
+            review: r.review?.slice(0, MAX_DETAIL_TEXT_CHARS) ?? null,
+          })),
+        }
+      : {}),
   };
+}
+
+/**
+ * A connection's list of members' reviews: undefined when absent (an older household, or names off), null when
+ * malformed — which rejects the page, as any malformed field does.
+ */
+function parseNamedReviews(value: unknown): NamedReview[] | null | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.length > MAX_NAMED_REVIEWS) return null;
+  const out: NamedReview[] = [];
+  for (const raw of value) {
+    const r = asRecord(raw);
+    if (!r) return null;
+    const by = parsePeerName(r.by);
+    if (by === null) return null;
+    if (!(r.rating === null || r.rating === undefined || (Number.isInteger(r.rating) && (r.rating as number) >= 1 && (r.rating as number) <= 10))) return null;
+    if (!(r.review === null || r.review === undefined || (typeof r.review === 'string' && r.review.length <= MAX_DETAIL_TEXT_CHARS))) return null;
+    const rating = (r.rating as number | null | undefined) ?? null;
+    const review = (r.review as string | null | undefined) ?? null;
+    if (rating === null && review === null) continue;
+    out.push({ by: by ?? null, rating, review });
+  }
+  return out;
 }
 
 const asRecord = (v: unknown): Record<string, unknown> | null =>
@@ -308,7 +366,10 @@ export function parseItemDetail(value: unknown): ItemDetail | null {
     return null;
   }
   if (!v.tags.every((t) => typeof t === 'string' && t.length <= 50)) return null;
+  const reviews = parseNamedReviews(v.reviews);
+  if (reviews === null) return null;
   return {
+    ...(reviews ? { reviews } : {}),
     ...base,
     publisher: v.publisher,
     description: v.description,

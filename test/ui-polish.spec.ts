@@ -104,7 +104,7 @@ describe('primary and secondary buttons', () => {
 
     const { a } = await connected();
     const connections = await (await a.get('/connections', await sessionCookie('admin'))).text();
-    expect(connections.match(/<button type="submit">Save<\/button>/g)).toHaveLength(2); // library name, progress sharing
+    expect(connections.match(/<button type="submit">Save<\/button>/g)).toHaveLength(3); // library name, progress sharing, names (§16 #45)
   });
 });
 

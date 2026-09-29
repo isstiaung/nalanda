@@ -40,6 +40,8 @@ type Card = {
   baseUrl: string;
   itemId: number; // their items id
   itemStamp: string; // and which of their books it means
+  // §16 #45: which of them, by display name, when their household shares names — a card per person then
+  by: string | null;
   item: FeedItem;
   kinds: Set<ActivityKind>;
   published: string;
@@ -70,7 +72,8 @@ function toCards(entries: StoredEntry[]): Card[] {
       item = null;
     }
     if (!item) continue;
-    const key = `${e.connectionId}:${e.itemRemoteId}:${e.itemStamp}`;
+    // one card per book per household — and per person, when the household names who did what (§16 #45)
+    const key = `${e.connectionId}:${e.itemRemoteId}:${e.itemStamp}:${item.by ?? ''}`;
     let card = cards.get(key);
     if (!card) {
       card = {
@@ -79,6 +82,7 @@ function toCards(entries: StoredEntry[]): Card[] {
         baseUrl: e.baseUrl,
         itemId: e.itemRemoteId,
         itemStamp: e.itemStamp,
+        by: item.by ?? null,
         item,
         kinds: new Set(),
         published: e.publishedAt,
@@ -132,7 +136,7 @@ function runs(cards: Card[]): Card[][] {
   return out;
 }
 
-const VERB_ORDER: ActivityKind[] = ['progress', 'finished', 'rated', 'reviewed'];
+const VERB_ORDER: ActivityKind[] = ['started', 'progress', 'finished', 'rated', 'reviewed'];
 const VERB: Record<ActivityKind, string> = { started: 'started', progress: 'reading', finished: 'finished', rated: 'rated', reviewed: 'reviewed' };
 
 /**
@@ -151,6 +155,8 @@ function verbs(card: Card): string {
     // once a book is finished its progress is the story of how, not what's happening now — unless it's a re-read,
     // when the earlier finish is the old news
     .filter((k) => !(k === 'progress' && card.kinds.has('finished') && !again) && !(k === 'finished' && again))
+    // a start says less than the pages or the finish that followed it
+    .filter((k) => !(k === 'started' && (card.kinds.has('progress') || card.kinds.has('finished'))))
     .map((k) =>
       k === 'progress' && again ? 're-reading' : k === 'finished' && (card.finishedReadCount ?? 0) >= 2 ? 'finished again' : VERB[k],
     );
@@ -189,6 +195,8 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] }> = 
           {card.published.slice(0, 10)}
         </p>
         <p class="feed-line">
+          {/* a name from another household: escaped text, like everything else here */}
+          {card.by ? <span class="feed-by">{card.by} </span> : null}
           <span class="muted">{verbs(card)}</span> <strong>{item.title}</strong>
           {item.creators ? <small> · {item.creators}</small> : null}
         </p>
