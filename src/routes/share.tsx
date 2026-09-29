@@ -5,6 +5,7 @@ import type { Child, FC, PropsWithChildren } from 'hono/jsx';
 import { getItem, getShareByToken, getSiteSettings, listItems, tagsForItems } from '../db/queries';
 import type { AppEnv } from '../env';
 import { itemMatchesShare, shareFilters, toPublicItem, type PublicItem } from '../lib/share';
+import { BggCredit, fromBgg } from '../views/attribution';
 import { DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, stars } from '../views/components';
 
 const share = new Hono<AppEnv>();
@@ -51,7 +52,8 @@ share.use('*', async (c, next) => {
   }
 });
 
-const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string }>> = ({ title, shelf, children }) => (
+/** `bgg`: the page shows a board game, so BoardGameGeek's logo is owed in the footer (ARCH.md §16 #44). */
+const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: boolean }>> = ({ title, shelf, bgg, children }) => (
   <html lang="en">
     <head>
       <meta charset="utf-8" />
@@ -76,8 +78,11 @@ const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string }>> = ({ 
         </div>
         {children}
         <footer class="share-footer">
-          Shared read-only from a Nalanda home library ·{' '}
-          <span lang="sa">नालन्दा</span>
+          <span>
+            Shared read-only from a Nalanda home library ·{' '}
+            <span lang="sa">नालन्दा</span>
+          </span>
+          {bgg ? <BggCredit /> : null}
         </footer>
       </main>
     </body>
@@ -112,8 +117,8 @@ const PublicCard: FC<{ item: PublicItem; token: string }> = ({ item, token }) =>
   </a>
 );
 
-function renderShare(c: Context<AppEnv>, title: string, shelf: string, body: Child) {
-  return c.html(`<!doctype html>${ShareLayout({ title, shelf, children: body })}`);
+function renderShare(c: Context<AppEnv>, title: string, shelf: string, body: Child, opts: { bgg?: boolean } = {}) {
+  return c.html(`<!doctype html>${ShareLayout({ title, shelf, bgg: opts.bgg, children: body })}`);
 }
 
 /**
@@ -156,6 +161,7 @@ share.get('/:token', async (c) => {
       </div>
       <Pagination page={current} pages={pages} makeHref={(p) => `/share/${token}?page=${p}`} />
     </>,
+    { bgg: publicItems.some(fromBgg) },
   );
 });
 
@@ -286,6 +292,7 @@ share.get('/:token/items/:id', async (c) => {
         </p>
       </div>
     </article>,
+    { bgg: fromBgg(pub) },
   );
 });
 
