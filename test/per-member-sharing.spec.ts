@@ -241,7 +241,7 @@ describe('connections see the household, never a person', () => {
     const asha = await member('asha', 'admin');
     const ravi = await member('ravi');
     const item = await book(asha, { rating: 8, review: 'Hers, from 2019.' });
-    await env.DB.prepare("UPDATE reviews SET reviewed_at = '2019-06-01 10:00:00', updated_at = '2019-06-01 10:00:00'").run();
+    await env.DB.prepare("UPDATE reviews SET reviewed_at = '2019-06-01 10:00:00', rated_at = '2019-06-01 10:00:00', updated_at = '2019-06-01 10:00:00'").run();
     const entries = () => rows<{ id: number; kind: string; at: string }>('SELECT id, kind, at FROM activity_log WHERE item_id = ?1 ORDER BY kind', item.id);
 
     const edit = (fields: Record<string, string>) =>
@@ -267,6 +267,28 @@ describe('connections see the household, never a person', () => {
     const [review] = (await rows<{ id: number }>('SELECT id FROM reviews WHERE user_id = ?1', ravi.id));
     await as(asha, `/items/${item.id}/reviews/${review!.id}/delete`, { body: {} });
     expect((await entries()).map((e) => e.at)).toEqual(['2019-06-01 10:00:00', '2019-06-01 10:00:00']);
+  });
+
+  it('date a rating by when it was given, not by a later edit of its review’s text', async () => {
+    await createConnectionView(env.DB, { name: 'Everything', libraryId: null, mediaType: null, status: null, owned: null });
+    const asha = await member('asha', 'admin');
+    const ravi = await member('ravi');
+    const item = await book(asha, { rating: 8, review: 'Hers, from 2019.' });
+    await env.DB
+      .prepare("UPDATE reviews SET reviewed_at = '2019-05-01 10:00:00', rated_at = '2019-05-01 10:00:00', updated_at = '2019-05-01 10:00:00'")
+      .run();
+    const edit = (who: Member, fields: Record<string, string>) =>
+      as(who, `/items/${item.id}`, { body: { libraryId: String(item.libraryId), title: item.title, mediaType: 'book', status: 'not_started', ...fields } });
+
+    // she rewords her review today, keeping her 8: her rating was still given in 2019
+    await edit(asha, { rating: '8', review: 'Hers, from 2019, reworded.' });
+    expect((await rows<{ ratedAt: string }>('SELECT rated_at AS ratedAt FROM reviews WHERE user_id = ?1', asha.id))[0]!.ratedAt).toBe('2019-05-01 10:00:00');
+
+    // he rates it 6, then takes that back: the average returns to her 8, which is old news
+    await edit(ravi, { rating: '6', review: '' });
+    await edit(ravi, { rating: '', review: '' });
+    const rated = await rows<{ at: string }>("SELECT at FROM activity_log WHERE item_id = ?1 AND kind = 'rated'", item.id);
+    expect(rated).toEqual([{ at: '2019-05-01 10:00:00' }]);
   });
 
   it('record nothing new from an import: a Goodreads rating is dated by its read, or left out', async () => {

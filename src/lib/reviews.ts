@@ -7,10 +7,16 @@ export type ReviewDraft = {
   rating: number | null; // half-stars 1–10
   review: string | null;
   reviewedAt: string | null; // when the text was last written, 'YYYY-MM-DD HH:MM:SS'; null with no text
+  // when the rating was last given, likewise; null with no rating, or not known (it then takes now, or `reviewedAt`
+  // from an export that has it). Only activity dating reads it — the summary doesn't depend on it.
+  ratedAt?: string | null;
 };
 
-/** A review in the export's `reviews` cell: whose it is by username, or null for a member removed since. */
-export type CellReview = ReviewDraft & { by: string | null };
+/**
+ * A review in the export's `reviews` cell: whose it is by username, null for a member removed since, or left out for
+ * whoever imports it — as a reads token with no `@` is.
+ */
+export type CellReview = ReviewDraft & { by?: string | null };
 
 /** A review on its way in, and whose it is: a member's id, null for nobody here, or left out for whoever brings it in. */
 export type PersonReview = ReviewDraft & { userId?: number | null };
@@ -49,7 +55,11 @@ export const sqlNow = () => new Date().toISOString().slice(0, 19).replace('T', '
  */
 export function stampReviews<T extends ReviewDraft>(reviews: T[]): T[] {
   const now = sqlNow();
-  return reviews.map((r) => (r.review !== null && r.reviewedAt === null ? { ...r, reviewedAt: now } : r));
+  return reviews.map((r) => ({
+    ...r,
+    reviewedAt: r.review !== null && r.reviewedAt === null ? now : r.reviewedAt,
+    ratedAt: r.rating === null ? null : (r.ratedAt ?? now),
+  }));
 }
 
 /** Whitespace-only text is no review; the rest is kept as written. */
@@ -62,14 +72,18 @@ const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
 // ---------- the export's `reviews` cell ----------
 //
-// JSON, one object per review, oldest first: [{"by":"asha","rating":8,"review":"…","at":"2026-09-01 10:00:00"}].
-// `by` is null for a member removed since. `at` is when the text was written, which decides whose review the household
-// shows. The item's own `rating` and `review` columns stay beside it as the household summary, for anything that reads
+// JSON, one object per review, oldest first:
+//   [{"by":"asha","rating":8,"review":"…","at":"2026-09-01 10:00:00","ratedAt":"2026-08-30 09:00:00"}]
+// `by` is null for a member removed since. `at` is when the text was
+// written, which decides whose review the household shows; `ratedAt` when the rating was given, which dates a "rated"
+// entry — an older file without it takes `at`, else the time of the import. The item's own `rating` and `review` columns stay beside it as the household summary, for anything that reads
 // only those (a spreadsheet, an older Nalanda).
 
 export function formatReviewsCell(reviews: CellReview[]): string {
   if (!reviews.length) return '';
-  return JSON.stringify(reviews.map((r) => ({ by: r.by, rating: r.rating, review: r.review, at: r.reviewedAt })));
+  return JSON.stringify(
+    reviews.map((r) => ({ by: r.by ?? null, rating: r.rating, review: r.review, at: r.reviewedAt, ratedAt: r.rating === null ? null : (r.ratedAt ?? null) })),
+  );
 }
 
 /** Enough for any household, and a bound on what a crafted CSV can make one row insert. */
@@ -99,7 +113,9 @@ export function parseReviewsCell(cell: string | null | undefined): CellReview[] 
     const review = typeof e.review === 'string' ? reviewText(e.review) : null;
     if (rating === null && review === null) continue;
     const reviewedAt = review !== null && typeof e.at === 'string' && SQL_DATETIME.test(e.at) ? e.at : null;
-    out.push({ by, rating, review, reviewedAt });
+    const writtenAt = typeof e.at === 'string' && SQL_DATETIME.test(e.at) ? e.at : null;
+    const ratedAt = rating === null ? null : typeof e.ratedAt === 'string' && SQL_DATETIME.test(e.ratedAt) ? e.ratedAt : writtenAt;
+    out.push({ by, rating, review, reviewedAt, ratedAt });
   }
   return out;
 }

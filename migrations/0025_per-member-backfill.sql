@@ -9,7 +9,8 @@
 --   reading_progress  every page, to the first admin too: a page belongs to its read's reader, so the pages of a read
 --                     and the read agree (pages recorded by another member included — they go with their read)
 --   reviews           one row per item with a rating or a review, the first admin's, holding exactly what the item
---                     holds. Its time is the item's updated_at: the last the review could have been written.
+--                     holds. Its times — when the text was written, when the rating was given — are the item's
+--                     updated_at: the last either could have been.
 --
 -- The items themselves aren't touched. Their rating and review are now the summary of their reviews, and with one
 -- review each that summary is the review itself; their status and dates are the summary of everyone's reads, which
@@ -21,7 +22,7 @@ WHERE `reader_id` IS NULL;
 UPDATE `reading_progress` SET `added_by` = (SELECT min(`id`) FROM `users` WHERE `role` = 'admin')
 WHERE EXISTS (SELECT 1 FROM `users` WHERE `role` = 'admin');
 --> statement-breakpoint
-INSERT INTO `reviews` (`item_id`, `user_id`, `rating`, `review`, `created_at`, `updated_at`, `reviewed_at`)
+INSERT INTO `reviews` (`item_id`, `user_id`, `rating`, `review`, `created_at`, `updated_at`, `reviewed_at`, `rated_at`)
   SELECT `id`, (SELECT min(`id`) FROM `users` WHERE `role` = 'admin'), `rating`, `review`, `updated_at`, `updated_at`,
-    CASE WHEN `review` IS NOT NULL THEN `updated_at` END
+    CASE WHEN `review` IS NOT NULL THEN `updated_at` END, CASE WHEN `rating` IS NOT NULL THEN `updated_at` END
   FROM `items` WHERE `rating` IS NOT NULL OR `review` IS NOT NULL ORDER BY `id`;

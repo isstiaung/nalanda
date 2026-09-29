@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c37606e4-a2f7-40b5-a2b3-53fa4fd82b52",
+  "id": "a3bfc23b-e8fb-4559-91c5-dad8a22d07e5",
   "prevId": "8a3982e7-7023-4a18-8715-f0cd4d92fff5",
   "tables": {
     "activity_log": {
@@ -2181,6 +2181,13 @@
         },
         "reviewed_at": {
           "name": "reviewed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rated_at": {
+          "name": "rated_at",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

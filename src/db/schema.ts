@@ -296,6 +296,9 @@ export const reviews = sqliteTable(
     // When its text was last written — which review is the household's latest. A rating changed on its own leaves it,
     // so re-rating a book doesn't push an old review over a newer one. NULL with no text.
     reviewedAt: text('reviewed_at'),
+    // When its rating was last given — what a "rated" feed entry is dated by once the household's average falls back
+    // to older ratings. Only a change of the rating moves it; editing the text alone doesn't. NULL with no rating.
+    ratedAt: text('rated_at'),
   },
   // one review per person per item; NULLs are distinct, so reviews of removed members never collide
   (t) => [uniqueIndex('reviews_item_user').on(t.itemId, t.userId)],

@@ -1103,7 +1103,8 @@ export function refreshReviewState(d1: D1Database, ids: number[] | 'newest'): D1
  * member's review or rating goes — deleted, or cleared from the edit form — the one the household shows next is
  * older, but migration 0021's trigger sees only that the item's review or rating changed, and dates its replacement
  * now: an old review would reach connections as news. This moves such an entry back to when the review now shown was
- * written, or the latest rating was given. Never forward, so an entry for something just written keeps its time, and
+ * written (reviewed_at), or the latest remaining rating was given (rated_at — a text edit alone doesn't move it, so
+ * an old rating whose review was later reworded isn't re-announced as new). Never forward, so an entry for something just written keeps its time, and
  * an import's, dated by its read, keeps that. The entry keeps its new id, so connections still learn their copy is out
  * of date. Rides in the batch of every write that can remove a review, after refreshReviewState().
  */
@@ -1112,7 +1113,7 @@ function redateReviewActivity(d1: D1Database, ids: number[]): D1PreparedStatemen
     .prepare(
       `UPDATE activity_log SET at = min(at, coalesce(CASE kind
          WHEN 'reviewed' THEN (SELECT max(v.reviewed_at) FROM reviews v WHERE v.item_id = activity_log.item_id AND v.review IS NOT NULL)
-         ELSE (SELECT max(v.updated_at) FROM reviews v WHERE v.item_id = activity_log.item_id AND v.rating IS NOT NULL) END, at))
+         ELSE (SELECT max(v.rated_at) FROM reviews v WHERE v.item_id = activity_log.item_id AND v.rating IS NOT NULL) END, at))
        WHERE item_id IN (SELECT value FROM json_each(?1)) AND kind IN ('reviewed', 'rated')`,
     )
     .bind(JSON.stringify(ids));
@@ -1127,7 +1128,7 @@ function withReviewState<T extends NewItem>(values: T, reviews: ReviewDraft[]): 
 function reviewsFromColumns(values: Pick<NewItem, 'rating' | 'review'>): ReviewDraft[] {
   const rating = values.rating ?? null;
   const review = values.review ?? null;
-  return rating === null && review === null ? [] : [{ rating, review, reviewedAt: null }];
+  return rating === null && review === null ? [] : [{ rating, review, reviewedAt: null, ratedAt: null }];
 }
 
 /**
@@ -1145,13 +1146,14 @@ function reviewInsertStatements(d1: D1Database, item: number | 'newest', reviews
       if (seen.has(userId)) continue;
       seen.add(userId);
     }
-    rows.push({ userId, rating: r.rating, review: r.review, reviewedAt: r.reviewedAt });
+    rows.push({ userId, rating: r.rating, review: r.review, reviewedAt: r.reviewedAt, ratedAt: r.ratedAt ?? null });
   }
   const itemRef = item === 'newest' ? '(SELECT max(id) FROM items)' : '?2';
   const stmt = d1.prepare(
-    `INSERT INTO reviews (item_id, user_id, rating, review, reviewed_at)
+    `INSERT INTO reviews (item_id, user_id, rating, review, reviewed_at, rated_at)
      SELECT ${itemRef}, json_extract(value, '$.userId'), json_extract(value, '$.rating'), json_extract(value, '$.review'),
-       CASE WHEN json_extract(value, '$.review') IS NULL THEN NULL ELSE coalesce(json_extract(value, '$.reviewedAt'), datetime('now')) END
+       CASE WHEN json_extract(value, '$.review') IS NULL THEN NULL ELSE coalesce(json_extract(value, '$.reviewedAt'), datetime('now')) END,
+       CASE WHEN json_extract(value, '$.rating') IS NULL THEN NULL ELSE coalesce(json_extract(value, '$.ratedAt'), datetime('now')) END
      FROM json_each(?1) ORDER BY key`,
   );
   const json = JSON.stringify(rows);
@@ -1184,14 +1186,15 @@ function reviewWriteStatements(
       .prepare(
         `UPDATE reviews SET rating = ${newRating}, review = ${newReview}, updated_at = datetime('now'),
            reviewed_at = CASE WHEN ${newReview} IS NULL THEN NULL
-             WHEN review IS NOT NULL AND ${normText('review')} = ${normText(newReview)} THEN reviewed_at ELSE datetime('now') END
+             WHEN review IS NOT NULL AND ${normText('review')} = ${normText(newReview)} THEN reviewed_at ELSE datetime('now') END,
+           rated_at = CASE WHEN ${newRating} IS NULL THEN NULL WHEN rating IS ${newRating} THEN rated_at ELSE datetime('now') END
          WHERE item_id = ?1 AND user_id IS ?2 AND (?3 IS NOT NULL OR ?4 IS NOT NULL) AND ${differs}`,
       )
       .bind(...binds),
     d1
       .prepare(
-        `INSERT INTO reviews (item_id, user_id, rating, review, reviewed_at)
-         SELECT ?1, ?2, ?3, ?4, CASE WHEN ?4 IS NULL THEN NULL ELSE datetime('now') END
+        `INSERT INTO reviews (item_id, user_id, rating, review, reviewed_at, rated_at)
+         SELECT ?1, ?2, ?3, ?4, CASE WHEN ?4 IS NULL THEN NULL ELSE datetime('now') END, CASE WHEN ?3 IS NULL THEN NULL ELSE datetime('now') END
          WHERE (?3 IS NOT NULL OR ?4 IS NOT NULL) AND EXISTS (SELECT 1 FROM items WHERE id = ?1)
            AND NOT EXISTS (SELECT 1 FROM reviews WHERE item_id = ?1 AND user_id IS ?2)`,
       )
@@ -1224,7 +1227,8 @@ export async function updateReview(d1: D1Database, itemId: number, reviewId: num
       .prepare(
         `UPDATE reviews SET rating = ?3, review = ?4, updated_at = datetime('now'),
            reviewed_at = CASE WHEN ?4 IS NULL THEN NULL
-             WHEN review IS NOT NULL AND ${normText('review')} = ${normText('?4')} THEN reviewed_at ELSE datetime('now') END
+             WHEN review IS NOT NULL AND ${normText('review')} = ${normText('?4')} THEN reviewed_at ELSE datetime('now') END,
+           rated_at = CASE WHEN ?3 IS NULL THEN NULL WHEN rating IS ?3 THEN rated_at ELSE datetime('now') END
          WHERE id = ?1 AND item_id = ?2 AND ${allowed('user_id', '?5', '?6')}
            AND (?3 IS NOT NULL OR ?4 IS NOT NULL) AND (rating IS NOT ?3 OR review IS NOT ?4)`,
       )
@@ -1277,7 +1281,7 @@ export async function reviewsForIdRange(
 ): Promise<Map<number, Array<ReviewDraft & { by: string | null }>>> {
   const scoped = libraryId ? 'AND v.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : '';
   const stmt = d1.prepare(
-    `SELECT v.item_id AS itemId, u.username AS by, v.rating, v.review, v.reviewed_at AS reviewedAt
+    `SELECT v.item_id AS itemId, u.username AS by, v.rating, v.review, v.reviewed_at AS reviewedAt, v.rated_at AS ratedAt
      FROM reviews v LEFT JOIN users u ON u.id = v.user_id
      WHERE v.item_id BETWEEN ?1 AND ?2 ${scoped}
      ORDER BY v.item_id, v.id`,

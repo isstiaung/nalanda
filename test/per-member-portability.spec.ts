@@ -61,7 +61,12 @@ async function people(itemId: number) {
   );
   return {
     reads: reads.map((r) => ({ reader: who(r.readerId), status: r.status, beganOn: r.beganOn, endedOn: r.endedOn })),
-    reviews: (await reviewsOf(itemId)).map((r) => ({ by: who(r.userId), rating: r.rating, review: r.review, reviewedAt: r.reviewedAt })),
+    reviews: (
+      await rows<{ userId: number | null; rating: number | null; review: string | null; reviewedAt: string | null; ratedAt: string | null }>(
+        'SELECT user_id AS userId, rating, review, reviewed_at AS reviewedAt, rated_at AS ratedAt FROM reviews WHERE item_id = ?1 ORDER BY id',
+        itemId,
+      )
+    ).map((r) => ({ by: who(r.userId), rating: r.rating, review: r.review, reviewedAt: r.reviewedAt, ratedAt: r.ratedAt })),
     summary: await summaryOf(itemId),
   };
 }
@@ -77,13 +82,15 @@ describe('the export and a re-import', () => {
     await addPastRead(env.DB, item.id, { status: 'completed', beganOn: null, endedOn: '2023-03-03' }, ravi.id);
     await startRead(env.DB, item.id, '2026-09-01', ravi.id);
     await addPastRead(env.DB, item.id, { status: 'abandoned', beganOn: '2022-01-01', endedOn: '2022-01-09' }, gone.id);
-    for (const [who, rating, review, at] of [
-      [ravi, 4, 'His,\nover two lines', '2024-01-01 09:00:00'],
-      [gone, 7, null, null],
+    for (const [who, rating, review, at, ratedAt] of [
+      [ravi, 4, 'His,\nover two lines', '2024-01-01 09:00:00', '2023-12-31 08:00:00'],
+      [gone, 7, null, null, '2022-01-10 00:00:00'],
     ] as const) {
-      await env.DB.prepare('INSERT INTO reviews (item_id, user_id, rating, review, reviewed_at) VALUES (?1, ?2, ?3, ?4, ?5)').bind(item.id, who.id, rating, review, at).run();
+      await env.DB.prepare('INSERT INTO reviews (item_id, user_id, rating, review, reviewed_at, rated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)')
+        .bind(item.id, who.id, rating, review, at, ratedAt)
+        .run();
     }
-    await env.DB.prepare("UPDATE reviews SET reviewed_at = '2021-02-02 00:00:00' WHERE user_id = ?1").bind(asha.id).run();
+    await env.DB.prepare("UPDATE reviews SET reviewed_at = '2021-02-02 00:00:00', rated_at = '2021-02-01 00:00:00' WHERE user_id = ?1").bind(asha.id).run();
     await env.DB.batch([refreshReviewState(env.DB, [item.id])]);
     await deleteUser(env.DB, gone.id);
     const before = await people(item.id);
@@ -92,9 +99,9 @@ describe('the export and a re-import', () => {
     const [row] = parseCsv(await (await as(asha, '/export.csv')).text());
     expect(row!.reads).toBe('completed:2021-01-01..2021-02-01@asha;abandoned:2022-01-01..2022-01-09@;completed:..2023-03-03@ravi;in_progress:2026-09-01..@ravi');
     expect(JSON.parse(row!.reviews!)).toEqual([
-      { by: 'asha', rating: 9, review: 'Hers, "quoted", with a comma', at: '2021-02-02 00:00:00' },
-      { by: 'ravi', rating: 4, review: 'His,\nover two lines', at: '2024-01-01 09:00:00' },
-      { by: null, rating: 7, review: null, at: null },
+      { by: 'asha', rating: 9, review: 'Hers, "quoted", with a comma', at: '2021-02-02 00:00:00', ratedAt: '2021-02-01 00:00:00' },
+      { by: 'ravi', rating: 4, review: 'His,\nover two lines', at: '2024-01-01 09:00:00', ratedAt: '2023-12-31 08:00:00' },
+      { by: null, rating: 7, review: null, at: null, ratedAt: '2022-01-10 00:00:00' },
     ]);
     expect(row).toMatchObject({ rating: '7', review: 'His,\nover two lines' }); // the household summary, as before
 
@@ -199,6 +206,23 @@ describe('the export and a re-import', () => {
     await as(asha, '/api/import', { json: { libraryId: target.id, rows: [row] } });
     const copy = (await rows<{ id: number }>('SELECT id FROM items WHERE library_id = ?1', target.id))[0]!.id;
     expect(await people(copy)).toEqual(before);
+  });
+
+  it('import a reviews cell from before rating times, dating each rating by its review, else by the import', async () => {
+    const asha = await member('asha', 'admin');
+    const shelf = await createLibrary(env.DB, 'In');
+    const row = {
+      library: 'x', media_type: 'book', isbn10_upc: '', added_at: '', details: '', progress_history: '', began_on: '', completed_on: '',
+      title: 'Older file',
+      reviews: JSON.stringify([
+        { by: 'asha', rating: 6, review: 'Written in 2020', at: '2020-03-03 03:03:03' },
+        { by: null, rating: 4, review: null, at: null },
+      ]),
+    };
+    await as(asha, '/api/import', { json: { libraryId: shelf.id, rows: [row] } });
+    const got = await rows<{ ratedAt: string | null }>('SELECT rated_at AS ratedAt FROM reviews ORDER BY id');
+    expect(got[0]!.ratedAt).toBe('2020-03-03 03:03:03');
+    expect(got[1]!.ratedAt?.slice(0, 10)).toBe(new Date().toISOString().slice(0, 10));
   });
 
   it('still import an export from before readers and reviews, as the importer’s', async () => {
@@ -359,10 +383,10 @@ describe('migration 0025', () => {
     ]);
     expect(await rows('SELECT DISTINCT reader_id FROM reads')).toEqual([{ reader_id: 3 }]);
     expect(await rows('SELECT added_by FROM reading_progress')).toEqual([{ added_by: 3 }]);
-    expect(await rows('SELECT item_id, user_id, rating, review, reviewed_at, created_at FROM reviews ORDER BY item_id')).toEqual([
-      { item_id: 1, user_id: 3, rating: 8, review: 'Loved it', reviewed_at: '2024-05-05 05:05:05', created_at: '2024-05-05 05:05:05' },
-      { item_id: 2, user_id: 3, rating: 4, review: null, reviewed_at: null, created_at: '2024-06-06 06:06:06' },
-      { item_id: 3, user_id: 3, rating: null, review: 'Gave up', reviewed_at: '2024-07-07 07:07:07', created_at: '2024-07-07 07:07:07' },
+    expect(await rows('SELECT item_id, user_id, rating, review, reviewed_at, rated_at, created_at FROM reviews ORDER BY item_id')).toEqual([
+      { item_id: 1, user_id: 3, rating: 8, review: 'Loved it', reviewed_at: '2024-05-05 05:05:05', rated_at: '2024-05-05 05:05:05', created_at: '2024-05-05 05:05:05' },
+      { item_id: 2, user_id: 3, rating: 4, review: null, reviewed_at: null, rated_at: '2024-06-06 06:06:06', created_at: '2024-06-06 06:06:06' },
+      { item_id: 3, user_id: 3, rating: null, review: 'Gave up', reviewed_at: '2024-07-07 07:07:07', rated_at: null, created_at: '2024-07-07 07:07:07' },
     ]);
     expect(await rows('SELECT * FROM items ORDER BY id')).toEqual(before);
 

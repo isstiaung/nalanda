@@ -90,7 +90,7 @@ describe('the household summary on an item', () => {
     expect(await summaryOf(item.id)).toMatchObject({ progressPage: 60 });
 
     // asha finishes: only ravi is reading now, so his page is the one shown
-    await closeRead(env.DB, item.id, await openReadOf(item.id, asha), 'completed', '2026-09-28', actor(asha));
+    await closeRead(env.DB, item.id, await openReadOf(item.id, asha), 'completed', new Date().toISOString().slice(0, 10), actor(asha));
     expect(await summaryOf(item.id)).toMatchObject({ progressPage: 120 });
   });
 

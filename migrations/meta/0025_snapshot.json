@@ -1,6 +1,6 @@
 {
-  "id": "afcfd9c4-5400-4f49-8c0d-df54300a2d43",
-  "prevId": "c37606e4-a2f7-40b5-a2b3-53fa4fd82b52",
+  "id": "b7b59e0e-d2f5-49a4-97a0-f86efbc01dc5",
+  "prevId": "a3bfc23b-e8fb-4559-91c5-dad8a22d07e5",
   "version": "6",
   "dialect": "sqlite",
   "tables": {
@@ -2181,6 +2181,13 @@
         },
         "reviewed_at": {
           "name": "reviewed_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rated_at": {
+          "name": "rated_at",
           "type": "text",
           "primaryKey": false,
           "notNull": false,
