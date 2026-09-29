@@ -290,13 +290,12 @@ share.get('/:token/items/:id', async (c) => {
               {pub.reviews.map((r) => (
                 <li>
                   {/* a display name, or unsigned: never a username */}
-                  {r.by || r.rating ? (
-                    <p class="review-by">
-                      {/* unsigned for a member without a display name, as a connection's item page labels it */}
-                      <span class="reviewer">{r.by ?? 'A member'}</span>
-                      {r.rating ? <span class="rating">{stars(r.rating)}</span> : null}
-                    </p>
-                  ) : null}
+                  {/* every entry has a rating or words; each is signed, "A member" for someone without a display
+                      name, as a connection's item page labels it */}
+                  <p class="review-by">
+                    <span class="reviewer">{r.by ?? 'A member'}</span>
+                    {r.rating ? <span class="rating">{stars(r.rating)}</span> : null}
+                  </p>
                   {r.review ? <p class="prewrap">{r.review}</p> : null}
                 </li>
               ))}

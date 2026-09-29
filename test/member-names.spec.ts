@@ -223,6 +223,9 @@ describe('share pages with names on', () => {
     expect(after).not.toContain('Ravi K');
     expect(after).toContain('His: the statues.'); // still there, unsigned
     expect(after.match(/<span class="reviewer">A member<\/span>/g)).toHaveLength(2); // his, with its words, and Mira's
+    // an unsigned review of words alone is signed too, not left without a name line
+    await env.DB.prepare("UPDATE reviews SET rating = NULL WHERE review = 'His: the statues.'").run();
+    expect((await page()).match(/<span class="reviewer">A member<\/span>/g)).toHaveLength(2);
 
     // and switching off hides every name from the next render
     expect((await as(asha, '/shares/settings', { body: { setting: 'names' } })).status).toBe(302);
