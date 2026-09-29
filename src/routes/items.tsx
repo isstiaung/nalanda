@@ -56,6 +56,7 @@ import {
   type Viewer,
 } from '../views/components';
 import { page } from '../views/layout';
+import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
 
 const items = new Hono<AppEnv>();
@@ -397,6 +398,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
             <DetailsList details={details} />
           </div>
         ) : null}
+        {fromBgg(item) ? <BggAttribution /> : null}
 
         {grouped ? (
           <>

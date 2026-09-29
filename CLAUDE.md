@@ -165,6 +165,8 @@ src/federation/    connections between instances (docs/proposals/connections.md)
                    in-app notifications in routes/notifications (recorded in src/db/federation.ts)
 public/            app.css, scanner.js, import.js, app.js, covers.js (swaps a cover that fails to
                    load for its media-icon box; app and share pages) + vendor/ (htmx, zxing, eczar fonts)
+                   + bgg/ (BGG's "Powered by BGG" logos, committed unmodified — its API terms
+                   require them beside its data; src/views/attribution.tsx, ARCH.md §16 #44)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;
                    apply-migrations.ts resets + re-migrates D1 before EVERY test and fails
