@@ -191,7 +191,7 @@ describe('with both switches off (the default), nothing anyone outside sees chan
 // ---------- share pages with names on ----------
 
 describe('share pages with names on', () => {
-  it('show everyone’s rating and review by display name, unnamed members unsigned — never a login or a read’s date', async () => {
+  it('show everyone’s rating and review by display name, unnamed members as “A member” — never a login or a read’s date', async () => {
     const { item, shelf, asha } = await scene();
     const share = await createShare(env.DB, { token: newShareToken(), name: 'Ours', libraryId: shelf.id });
     expect((await as(asha, '/shares/settings', { body: { setting: 'names', namesOnShares: 'on' } })).status).toBe(302);
@@ -205,7 +205,12 @@ describe('share pages with names on', () => {
     expect(html).toContain('<span class="reviewer">Ravi K</span>');
     expect(html).toContain('Hers: the tides.');
     expect(html).toContain('His: the statues.');
-    expect(html.match(/<span class="reviewer">/g)).toHaveLength(2); // Mira's rating is there, unsigned
+    // Mira's rating is there too, labelled as a connection's item page labels it — no stray line of stars
+    expect(html.match(/<span class="reviewer">[^<]*<\/span>/g)).toEqual([
+      '<span class="reviewer">Ravi K</span>',
+      '<span class="reviewer">Asha</span>',
+      '<span class="reviewer">A member</span>',
+    ]);
     expect(html).toContain('★★★½'); // her 7
     expect(html).toContain('2 times'); // reading history stays a nameless count
     expectNoLoginsOrReadDates(html);
@@ -217,6 +222,7 @@ describe('share pages with names on', () => {
     const after = await page();
     expect(after).not.toContain('Ravi K');
     expect(after).toContain('His: the statues.'); // still there, unsigned
+    expect(after.match(/<span class="reviewer">A member<\/span>/g)).toHaveLength(2); // his, with its words, and Mira's
 
     // and switching off hides every name from the next render
     expect((await as(asha, '/shares/settings', { body: { setting: 'names' } })).status).toBe(302);

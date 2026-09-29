@@ -292,7 +292,8 @@ share.get('/:token/items/:id', async (c) => {
                   {/* a display name, or unsigned: never a username */}
                   {r.by || r.rating ? (
                     <p class="review-by">
-                      {r.by ? <span class="reviewer">{r.by}</span> : null}
+                      {/* unsigned for a member without a display name, as a connection's item page labels it */}
+                      <span class="reviewer">{r.by ?? 'A member'}</span>
                       {r.rating ? <span class="rating">{stars(r.rating)}</span> : null}
                     </p>
                   ) : null}
