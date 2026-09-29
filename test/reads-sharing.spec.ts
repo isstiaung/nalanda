@@ -35,6 +35,9 @@ import {
   type Peer,
 } from './federation-helpers';
 
+// The DB layer's own callers here act for the whole household, as an admin would (§16 #43).
+const HOUSEHOLD = { id: null, admin: true };
+
 const rows = async <T = Record<string, unknown>>(query: string, ...binds: unknown[]) =>
   (await env.DB.prepare(query).bind(...binds).all<T>()).results;
 
@@ -50,7 +53,7 @@ const openRead = async (itemId: number) =>
 
 async function readTwice(item: Item) {
   await startRead(env.DB, item.id, daysAgo(10));
-  await closeRead(env.DB, item.id, await openRead(item.id), 'completed', daysAgo(2));
+  await closeRead(env.DB, item.id, await openRead(item.id), 'completed', daysAgo(2), HOUSEHOLD);
 }
 
 // ---------- share pages ----------
@@ -121,7 +124,7 @@ describe('recording a re-read for connections', () => {
 
     await startRead(env.DB, item.id, daysAgo(10));
     expect(await finishes(item.id)).toEqual([first]); // starting is no news, and the old finish stands
-    await closeRead(env.DB, item.id, await openRead(item.id), 'completed', daysAgo(0));
+    await closeRead(env.DB, item.id, await openRead(item.id), 'completed', daysAgo(0), HOUSEHOLD);
 
     const [latest] = await finishes(item.id);
     expect(latest!.id).toBeGreaterThan(first!.id); // replaced under a new id, so followers drop the old copy
@@ -131,7 +134,7 @@ describe('recording a re-read for connections', () => {
   it('dates a back-dated finish by its date, per §16 #40', async () => {
     const item = await finishedBook();
     await startRead(env.DB, item.id, daysAgo(10));
-    await closeRead(env.DB, item.id, await openRead(item.id), 'completed', daysAgo(3));
+    await closeRead(env.DB, item.id, await openRead(item.id), 'completed', daysAgo(3), HOUSEHOLD);
     expect((await finishes(item.id))[0]!.at).toBe(`${daysAgo(3)} 00:00:00`);
   });
 
@@ -139,7 +142,7 @@ describe('recording a re-read for connections', () => {
     const item = await finishedBook();
     const before = await finishes(item.id);
     await startRead(env.DB, item.id, daysAgo(10));
-    await closeRead(env.DB, item.id, await openRead(item.id), 'abandoned', daysAgo(1));
+    await closeRead(env.DB, item.id, await openRead(item.id), 'abandoned', daysAgo(1), HOUSEHOLD);
     expect(await finishes(item.id)).toEqual(before);
   });
 
@@ -181,7 +184,7 @@ describe('serving a re-read to a connection', () => {
     const view = await createConnectionView(env.DB, { name: 'Read', libraryId: null, mediaType: 'book', status: 'completed', owned: null });
     const first = await createItem(env.DB, { libraryId: (await createLibrary(env.DB, 'S')).id, mediaType: 'book', title: 'First read', length: 300, details: '{}' });
     await addProgress(env.DB, first.id, 100, null); // starts its first read
-    await closeRead(env.DB, first.id, await openRead(first.id), 'completed', daysAgo(0));
+    await closeRead(env.DB, first.id, await openRead(first.id), 'completed', daysAgo(0), HOUSEHOLD);
 
     const again = await finishedBook('Read again');
     await startRead(env.DB, again.id, daysAgo(5));
@@ -192,10 +195,10 @@ describe('serving a re-read to a connection', () => {
     await addProgress(env.DB, twice.id, 50, null);
     await env.DB.prepare("UPDATE reading_progress SET at = ?2 WHERE item_id = ?1").bind(twice.id, `${daysAgo(20)} 10:00:00`).run();
     await env.DB.prepare('UPDATE reads SET began_on = ?2 WHERE item_id = ?1').bind(twice.id, daysAgo(21)).run();
-    await closeRead(env.DB, twice.id, await openRead(twice.id), 'completed', daysAgo(19));
+    await closeRead(env.DB, twice.id, await openRead(twice.id), 'completed', daysAgo(19), HOUSEHOLD);
     await startRead(env.DB, twice.id, daysAgo(5));
     await addProgress(env.DB, twice.id, 70, null);
-    await closeRead(env.DB, twice.id, await openRead(twice.id), 'completed', daysAgo(0));
+    await closeRead(env.DB, twice.id, await openRead(twice.id), 'completed', daysAgo(0), HOUSEHOLD);
 
     const body = (await (await a.signedGet(`/federation/feed?view=${view.id}&since=0`, peer)).json()) as { entries: Array<{ kind: string; item: { title: string; readCount: number | null; progress: { page: number } | null } }> };
     const pagesOf = (title: string) =>

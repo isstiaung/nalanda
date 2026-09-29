@@ -16,14 +16,23 @@ manuscripts.
   click when a copy finally arrives, and back again.
 - **Goodreads import**: drop in a Goodreads export CSV — rows matching your shelves merge
   their ratings/reviews onto existing books, and their shelves, read dates and read counts
-  become reads; the rest arrive as reading-log entries. Re-runs merge instead of duplicating,
-  and never remove a read. libib CSV import too.
+  become reads; the rest arrive as reading-log entries. Everything it brings is the importing
+  member's own. Re-runs merge instead of duplicating, and never remove a read. libib CSV
+  import too.
 - **Public share links, per view**: publish any filtered slice of a shelf ("my reviews",
   "owned sci-fi"), or everything carrying a tag, at its own unguessable URL — rotate or remove each link independently.
   Private notes, loans, and copy counts never appear. Reviews can link out to blog posts.
   One admin page lists everything you've published, with the item count each link
   exposes.
 - **Family accounts**: admin + members, no email infrastructure needed.
+- **Everyone's own reading and reviews**: each member's reads, pages, rating and review are
+  their own, shown under their name on the book's page, and a "Read by" filter narrows a shelf
+  to what you (or anyone) have read, or haven't. A book's status on shelves stays the
+  household's: Completed once anyone has finished it. Share pages and connections see only the
+  household's average rating and latest review, never who wrote it — unless an admin switches
+  names on, when each member's rating and review appear under the display name they chose, and
+  connected households get a feed entry per person. "Read by" can't be published, and usernames
+  never leave the app. Admins can move a read or review credited to the wrong person.
 - **Loans**: track who borrowed what, with due dates and history.
 - **Connections between households** (optional): connect with another household that
   self-hosts Nalanda — follow each other's reading in a feed, comment on each other's
@@ -42,7 +51,8 @@ manuscripts.
   and pages, and can be corrected, deleted or added after the fact; a book read more than
   once says "Read N times" on share pages, and connections see "re-reading" and "finished
   again".
-- **Own your data**: every field round-trips through CSV export; plain-SQLite backups.
+- **Own your data**: every field round-trips through CSV export — each read with its reader,
+  each member's review — and plain-SQLite backups.
 - **The manuscript ledger**: a hand-written design system grounded in Nalanda's Pala-era
   scriptorium — palm-leaf paper, indigo and vermilion, Devanagari-first display type,
   a lamp-lit dark mode. No CSS framework.
@@ -100,7 +110,7 @@ wrangler d1 create nalanda            # note the id it prints
 wrangler r2 bucket create nalanda-covers
 wrangler secret put SESSION_SECRET
 wrangler secret put DISCOGS_TOKEN     # free — enables vinyl barcode lookup
-wrangler secret put BGG_TOKEN         # free — enables board game search (runbooks/deploy.md → API tokens)
+wrangler secret put BGG_TOKEN         # free once BGG approves your app — board game search (runbooks/deploy.md → API tokens)
 wrangler secret put HOME_SHARE_TOKEN  # optional — logged-out "/" redirects to this share
 wrangler secret put FEDERATION_PRIVATE_KEY  # optional — turns on connections; see runbooks/connections.md
 

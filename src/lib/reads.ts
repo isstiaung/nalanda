@@ -7,9 +7,18 @@ import { READ_STATUSES } from '../db/schema';
 
 export type ReadDraft = { status: ReadStatus; beganOn: string | null; endedOn: string | null };
 export type ReadRow = ReadDraft & { id: number };
+/**
+ * A read on its way in, and whose it is (ARCH.md §16 #43): a member's id, null for nobody here (a member removed
+ * since), or left out for whoever brings it in — the person adding the item, or importing the file.
+ */
+export type PersonRead = ReadDraft & { readerId?: number | null };
+/** A read in the export's `reads` cell: its reader by username, null for a member removed since, or left out in an older export. */
+export type CellRead = ReadDraft & { reader?: string | null };
 
-/** Enough for anyone, and a bound on what a crafted CSV can make one row insert. */
+/** Enough for anyone — per reader, as `startRead` and `addPastRead` hold it (§16 #43). */
 export const MAX_READS_PER_ITEM = 100;
+/** A bound on what a crafted CSV can make one row insert, across everyone's reads: ten readers' worth. */
+export const MAX_READS_PER_CELL = 1000;
 
 // ---------- ordering ----------
 //
@@ -162,38 +171,92 @@ export function topUpReads(reads: ReadDraft[], count: number | null | undefined)
 
 // ---------- the export's `reads` cell ----------
 //
-// Oldest first, semicolon-separated, each `status:began..ended` with a blank side for a date not known:
-//   completed:..2019-03-20;completed:2024-01-05..2024-02-01;in_progress:2026-09-28..
-// Nothing in it needs CSV quoting.
+// Oldest first, semicolon-separated, each `status:began..ended@reader` with a blank side for a date not known:
+//   completed:..2019-03-20@asha;completed:2024-01-05..2024-02-01@asha;in_progress:2026-09-28..@ravi
+// The reader is a username, percent-encoded so no name can break the cell; nothing after the `@` means a member
+// removed since. A token with no `@` at all is from an export before readers (1.2.x), whose reads belong to whoever
+// imports it. Nothing in the cell needs CSV quoting.
 
-export function formatReadsCell(reads: ReadDraft[]): string {
-  return reads.map((r) => `${r.status}:${r.beganOn ?? ''}..${r.endedOn ?? ''}`).join(';');
+export function formatReadsCell(reads: CellRead[]): string {
+  return reads
+    .map((r) => `${r.status}:${r.beganOn ?? ''}..${r.endedOn ?? ''}${r.reader === undefined ? '' : `@${r.reader === null ? '' : encodeURIComponent(r.reader)}`}`)
+    .join(';');
 }
 
 const READ_TOKEN = /^(in_progress|completed|abandoned):(.*?)\.\.(.*)$/;
 
+/** The reader part of a token: undefined without an `@`, null for an empty name, else the name. */
+function readerOf(token: string): { rest: string; reader?: string | null } {
+  const at = token.lastIndexOf('@');
+  if (at < 0) return { rest: token };
+  const raw = token.slice(at + 1).trim();
+  let reader: string | null = null;
+  if (raw) {
+    try {
+      reader = decodeURIComponent(raw);
+    } catch {
+      reader = raw; // not our encoding — someone typed a name by hand; take it as written
+    }
+  }
+  return { rest: token.slice(0, at), reader };
+}
+
 /**
  * A `reads` cell back into reads. A part that doesn't parse is dropped and the rest kept; a date that isn't a
- * calendar date becomes unknown and its read stays, as the export's date columns always have; a second open
- * read, which the database refuses, is dropped. At most MAX_READS_PER_ITEM.
+ * calendar date becomes unknown and its read stays, as the export's date columns always have; a reader's second
+ * open read, which the database refuses, is dropped — but not a former member's: several removed members can each
+ * have had one open, and the database holds them. At most MAX_READS_PER_ITEM a reader and MAX_READS_PER_CELL in all.
+ * Readers stay names here: the importer knows its members (attributePeople in csv.ts).
  */
-export function parseReadsCell(cell: string | null | undefined): ReadDraft[] {
-  const out: ReadDraft[] = [];
-  let open = false;
+export function parseReadsCell(cell: string | null | undefined): CellRead[] {
+  const out: CellRead[] = [];
+  const open = new Set<string | undefined>();
+  const each = new Map<string | null | undefined, number>();
   for (const part of (cell ?? '').split(';')) {
-    const m = READ_TOKEN.exec(part.trim());
+    const { rest, reader } = readerOf(part.trim());
+    const m = READ_TOKEN.exec(rest.trim());
     if (!m) continue;
     const status = m[1] as ReadStatus;
     const beganOn = isIsoDate(m[2]!.trim()) ? m[2]!.trim() : null;
     const endedOn = status !== 'in_progress' && isIsoDate(m[3]!.trim()) ? m[3]!.trim() : null;
-    if (status === 'in_progress') {
-      if (open) continue;
-      open = true;
+    if (status === 'in_progress' && reader !== null) {
+      if (open.has(reader)) continue;
+      open.add(reader);
     }
-    out.push({ status, beganOn, endedOn });
-    if (out.length === MAX_READS_PER_ITEM) break;
+    const n = each.get(reader) ?? 0;
+    if (n >= MAX_READS_PER_ITEM) continue;
+    each.set(reader, n + 1);
+    out.push(reader === undefined ? { status, beganOn, endedOn } : { status, beganOn, endedOn, reader });
+    if (out.length === MAX_READS_PER_CELL) break;
   }
   return out;
+}
+
+/**
+ * Reads whose readers are known as ids, as the database will take them: each person held to one open read — two
+ * names that turn out to be the same person here (both unknown, so both the importer's) could otherwise bring two,
+ * and the database refuses a second — and to MAX_READS_PER_ITEM, and the row to MAX_READS_PER_CELL. The later are
+ * dropped, as parseReadsCell drops them within a name. A read with no reader (a former member's) isn't held to one
+ * open read: the unique index treats NULLs as distinct, and a round trip keeps every one. `fallback` is whose a read
+ * that names nobody is.
+ */
+export function oneOpenReadEach<T extends PersonRead>(reads: T[], fallback: number | null): { reads: T[]; dropped: number } {
+  const open = new Set<number>();
+  const each = new Map<number | null, number>();
+  const kept: T[] = [];
+  for (const r of reads) {
+    const who = r.readerId === undefined ? fallback : r.readerId;
+    if (r.status === 'in_progress' && who !== null) {
+      if (open.has(who)) continue;
+      open.add(who);
+    }
+    const n = each.get(who) ?? 0;
+    if (n >= MAX_READS_PER_ITEM) continue;
+    each.set(who, n + 1);
+    kept.push(r);
+    if (kept.length === MAX_READS_PER_CELL) break;
+  }
+  return { reads: kept, dropped: reads.length - kept.length };
 }
 
 /** 1st, 2nd, 3rd, 4th … 11th, 12th, 13th, 21st. */

@@ -19,6 +19,9 @@ import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import { progressPercent } from '../src/lib/progress';
 import app from '../src/index';
 
+// The DB layer's own callers here act for the whole household, as an admin would (§16 #43).
+const HOUSEHOLD = { id: null, admin: true };
+
 async function seedBook(overrides: Record<string, unknown> = {}) {
   const lib = await createLibrary(env.DB, 'Progress shelf');
   return createItem(env.DB, {
@@ -108,7 +111,7 @@ describe('removing an entry', () => {
     for (const page of [36, 124, 187]) await addProgress(env.DB, book.id, page, null);
     const log = await listProgress(env.DB, book.id);
 
-    await deleteProgress(env.DB, book.id, log.at(-1)!.id);
+    await deleteProgress(env.DB, book.id, log.at(-1)!.id, HOUSEHOLD);
 
     expect((await getItem(env.DB, book.id))?.progressPage).toBe(124);
     expect((await listProgress(env.DB, book.id)).map((e) => e.page)).toEqual([36, 124]);
@@ -119,7 +122,7 @@ describe('removing an entry', () => {
     await addProgress(env.DB, book.id, 36, null);
     const [only] = await listProgress(env.DB, book.id);
 
-    await deleteProgress(env.DB, book.id, only!.id);
+    await deleteProgress(env.DB, book.id, only!.id, HOUSEHOLD);
 
     const after = await getItem(env.DB, book.id);
     expect(after?.progressPage).toBeNull();
@@ -134,7 +137,7 @@ describe('removing an entry', () => {
     await addProgress(env.DB, theirs.id, 50, null);
     const [entry] = await listProgress(env.DB, theirs.id);
 
-    await deleteProgress(env.DB, mine.id, entry!.id);
+    await deleteProgress(env.DB, mine.id, entry!.id, HOUSEHOLD);
 
     expect((await listProgress(env.DB, theirs.id)).length).toBe(1);
   });
@@ -274,8 +277,8 @@ describe('regressions', () => {
 
     await addProgress(env.DB, book.id, 36, null);
     const [entry] = await listProgress(env.DB, book.id);
-    await deleteProgress(env.DB, book.id, entry!.id);
-    await deleteProgress(env.DB, book.id, 999_999); // an entry that isn't there
+    await deleteProgress(env.DB, book.id, entry!.id, HOUSEHOLD);
+    await deleteProgress(env.DB, book.id, 999_999, HOUSEHOLD); // an entry that isn't there
 
     expect((await getItem(env.DB, book.id))?.updatedAt).toBe('2000-01-01 00:00:00');
   });

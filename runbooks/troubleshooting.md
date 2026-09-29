@@ -23,8 +23,13 @@ Local dev prints to the `npm run dev` terminal.
 - **Board game search asks for `BGG_TOKEN`, or says BoardGameGeek rejected it**: BGG needs a
   registered application's token for every request since 2025 — see [deploy.md](deploy.md) →
   API tokens. A token that worked and now doesn't was likely revoked; issue a new one.
-- **BGG empty results / slow**: BoardGameGeek throttles — wait a few seconds and retry; the
-  search tolerates it. Persistent failures usually mean BGG itself is down.
+- **"BoardGameGeek is busy"**: BGG throttles apps that ask too often (its docs suggest about
+  5 seconds between requests). Wait a few seconds and search again. If it keeps saying so,
+  check **Usage** by your application at <https://boardgamegeek.com/applications>.
+- **"BoardGameGeek did not answer"**: BGG, or its Cloudflare edge, turned the request away or
+  is down. Try again later. Manual entry always works.
+- **"No board games found"**: BGG answered and nothing matched. Try BGG's own spelling, or
+  fewer words.
 - **Discogs 401 in logs**: token revoked or mistyped — re-run
   `npx wrangler secret put DISCOGS_TOKEN`.
 - **Weird edition data** (wrong publisher/year): providers return their "best" edition.

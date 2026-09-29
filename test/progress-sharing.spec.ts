@@ -75,12 +75,12 @@ describe('the whitelist', () => {
 describe('site settings', () => {
   it('defaults to off with no row, and round-trips', async () => {
     // share pages private, connections included — the answer the household gave when this was designed
-    expect(await getSiteSettings(env.DB)).toEqual({ progressOnShares: false, progressToConnections: true });
+    expect(await getSiteSettings(env.DB)).toEqual({ progressOnShares: false, progressToConnections: true, namesOnShares: false, namesToConnections: false });
     await updateSiteSettings(env.DB, { progressOnShares: true });
-    expect(await getSiteSettings(env.DB)).toEqual({ progressOnShares: true, progressToConnections: true });
+    expect(await getSiteSettings(env.DB)).toEqual({ progressOnShares: true, progressToConnections: true, namesOnShares: false, namesToConnections: false });
     await updateSiteSettings(env.DB, { progressToConnections: false });
     // updating one setting leaves the other as it was
-    expect(await getSiteSettings(env.DB)).toEqual({ progressOnShares: true, progressToConnections: false });
+    expect(await getSiteSettings(env.DB)).toEqual({ progressOnShares: true, progressToConnections: false, namesOnShares: false, namesToConnections: false });
   });
 });
 

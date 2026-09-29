@@ -33,6 +33,9 @@ import {
   type Peer,
 } from './federation-helpers';
 
+// The DB layer's own callers here act for the whole household, as an admin would (§16 #43).
+const HOUSEHOLD = { id: null, admin: true };
+
 let keysA: Keys;
 let a: ReturnType<typeof instanceA>;
 
@@ -104,7 +107,7 @@ describe('recording progress for connections', () => {
     await addProgress(env.DB, b.id, 90, null);
     const [first, second] = await listProgress(env.DB, b.id);
 
-    await deleteProgress(env.DB, b.id, second!.id);
+    await deleteProgress(env.DB, b.id, second!.id, HOUSEHOLD);
 
     expect((await progressRows()).map((r) => r.progress_id)).toEqual([first!.id]);
   });
@@ -180,7 +183,7 @@ describe('serving progress to a connection', () => {
     expect((await check(view.id, ids)).invalid).toEqual([]);
 
     const [firstUpdate] = await listProgress(env.DB, b.id);
-    await deleteProgress(env.DB, b.id, firstUpdate!.id);
+    await deleteProgress(env.DB, b.id, firstUpdate!.id, HOUSEHOLD);
     expect((await check(view.id, ids)).invalid).toHaveLength(1);
 
     await updateSiteSettings(env.DB, { progressToConnections: false });

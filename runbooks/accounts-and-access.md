@@ -9,6 +9,15 @@
 
 Members can do everything except manage users and publish/rotate share links.
 
+**Display names.** Each member can set a display name on their **Account** page, and an admin can set
+anyone's in the Members table. It's optional, not a login, and not unique (two people can both be
+"Sam"). It only ever appears outside Nalanda where an admin has switched names on — **Shared links →
+Names on share pages** and **Connections → Show names to connected households**, both off by default
+(ARCH.md §16 #45). Without one, a member stays unnamed. Usernames never leave the app. Each person's
+reads, recorded pages, rating and review are their own (ARCH.md §16 #43): members change only
+theirs, and admins can change, delete or **move** anyone's — a read (with its pages) or a review
+credited to the wrong person moves from the book's page, under *Edit* on it.
+
 ## Someone forgot their password
 
 Settings → *Reset password* next to their name → a new one-time temp password is shown.
@@ -18,7 +27,9 @@ and they set their own again at next login.
 ## Remove someone
 
 Settings → *Remove*. Revocation is immediate — every request re-checks that the user row
-still exists, so their session dies on their next click.
+still exists, so their session dies on their next click. Their reads, pages, ratings and
+reviews stay, shown as a *Former member*'s: nothing about a book changes on shelves, share
+pages or connections. An admin can move any of them to someone still here.
 
 ## Admin lockout (you forgot the admin password)
 

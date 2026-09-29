@@ -1,9 +1,10 @@
 # Third-party software
 
 Nalanda is MIT-licensed (see [LICENSE](LICENSE)). It depends on the following, all under
-licenses compatible with it. Nothing here is vendored into git — `npm install` fetches the
+licenses compatible with it. No package is vendored into git — `npm install` fetches the
 packages, and `scripts/vendor.mjs` copies the browser-facing ones into `public/vendor/`
-along with their license texts.
+along with their license texts. The one third-party file in git is BoardGameGeek's logo,
+below: it comes from no package.
 
 ## Served to browsers
 
@@ -19,6 +20,21 @@ into `public/vendor/` next to the assets themselves.
 Eczar is by the [Eczar Project Authors](https://github.com/rosettatype/eczar), copyright
 2014. The OFL requires that the font be distributed with its license and that any derived
 font not use the reserved name — Nalanda ships the woff2 files unmodified.
+
+### BoardGameGeek's "Powered by BGG" logo
+
+`public/bgg/powered-by-bgg-rgb.svg` (light theme) and `public/bgg/powered-by-bgg-reversed-rgb.svg`
+(dark theme) are BoardGameGeek's own files, committed unmodified from the logo folder its API terms
+link to: <https://drive.google.com/drive/folders/1k3VgEIpNEY59iTVnpTibt31JcO0rEaSw> (Color → SVG,
+fetched 2026-09-29).
+
+They are **not** under Nalanda's MIT license. The logo is a BoardGameGeek, LLC trademark
+(<https://boardgamegeek.com/terms>, "Respect our Trademarks"), shown because the
+[XML API Terms of Use](https://boardgamegeek.com/wiki/page/XML_API_Terms_of_Use) require it:
+*"We require that you include the 'Powered by BGG' logo (linked back to BoardGameGeek) in
+public-facing uses of the our XML API"*, displayed *"at a size such that the text is easily
+legible."* Where Nalanda shows it: ARCH.md §16 #44. A fork that drops BoardGameGeek may delete
+the folder; one that keeps BoardGameGeek keeps the logo.
 
 ## Bundled into the Worker
 
@@ -38,4 +54,5 @@ font not use the reserved name — Nalanda ships the woff2 files unmodified.
 Metadata and cover art are fetched at runtime from Open Library, Google Books,
 BoardGameGeek, and Discogs. Each has its own terms of use, and none of them are affiliated
 with this project — if you run an instance, you are the API consumer and those terms are
-between you and them.
+between you and them. BoardGameGeek's, for example, require an approved application (its
+token is your `BGG_TOKEN`) and the logo above.

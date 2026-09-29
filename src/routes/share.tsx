@@ -2,9 +2,10 @@
 // toPublicItem() (src/lib/share.ts). See ARCH.md §9 and CLAUDE.md privacy invariants.
 import { Hono, type Context } from 'hono';
 import type { Child, FC, PropsWithChildren } from 'hono/jsx';
-import { getItem, getShareByToken, getSiteSettings, listItems, tagsForItems } from '../db/queries';
+import { getItem, getShareByToken, getSiteSettings, listItems, namedReviews, tagsForItems } from '../db/queries';
 import type { AppEnv } from '../env';
 import { itemMatchesShare, shareFilters, toPublicItem, type PublicItem } from '../lib/share';
+import { BggCredit, fromBgg } from '../views/attribution';
 import { DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, stars } from '../views/components';
 
 const share = new Hono<AppEnv>();
@@ -51,7 +52,8 @@ share.use('*', async (c, next) => {
   }
 });
 
-const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string }>> = ({ title, shelf, children }) => (
+/** `bgg`: the page shows a board game, so BoardGameGeek's logo is owed in the footer (ARCH.md §16 #44). */
+const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: boolean }>> = ({ title, shelf, bgg, children }) => (
   <html lang="en">
     <head>
       <meta charset="utf-8" />
@@ -76,8 +78,11 @@ const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string }>> = ({ 
         </div>
         {children}
         <footer class="share-footer">
-          Shared read-only from a Nalanda home library ·{' '}
-          <span lang="sa">नालन्दा</span>
+          <span>
+            Shared read-only from a Nalanda home library ·{' '}
+            <span lang="sa">नालन्दा</span>
+          </span>
+          {bgg ? <BggCredit /> : null}
         </footer>
       </main>
     </body>
@@ -112,8 +117,8 @@ const PublicCard: FC<{ item: PublicItem; token: string }> = ({ item, token }) =>
   </a>
 );
 
-function renderShare(c: Context<AppEnv>, title: string, shelf: string, body: Child) {
-  return c.html(`<!doctype html>${ShareLayout({ title, shelf, children: body })}`);
+function renderShare(c: Context<AppEnv>, title: string, shelf: string, body: Child, opts: { bgg?: boolean } = {}) {
+  return c.html(`<!doctype html>${ShareLayout({ title, shelf, bgg: opts.bgg, children: body })}`);
 }
 
 /**
@@ -156,6 +161,7 @@ share.get('/:token', async (c) => {
       </div>
       <Pagination page={current} pages={pages} makeHref={(p) => `/share/${token}?page=${p}`} />
     </>,
+    { bgg: publicItems.some(fromBgg) },
   );
 });
 
@@ -175,7 +181,9 @@ share.get('/:token/items/:id', async (c) => {
   ]);
   const tags = tagMap.get(id) ?? [];
   if (!item || !itemMatchesShare(view, item, tags)) return c.notFound(); // token only unlocks its own view
-  const pub = toPublicItem(item, { progress: settings.progressOnShares });
+  // §16 #45: each member's rating and review, by display name, only while an admin has names on for share pages
+  const reviews = settings.namesOnShares ? await namedReviews(c.env.DB, item.id) : undefined;
+  const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews });
 
   return renderShare(
     c,
@@ -275,7 +283,25 @@ share.get('/:token/items/:id', async (c) => {
             <DetailsList details={pub.details} />
           </div>
         ) : null}
-        {pub.review ? (
+        {pub.reviews?.length ? (
+          <div class="detail-section">
+            <p class="eyebrow">Ratings and reviews</p>
+            <ol class="member-reviews">
+              {pub.reviews.map((r) => (
+                <li>
+                  {/* a display name, or unsigned: never a username */}
+                  {/* every entry has a rating or words; each is signed, "A member" for someone without a display
+                      name, as a connection's item page labels it */}
+                  <p class="review-by">
+                    <span class="reviewer">{r.by ?? 'A member'}</span>
+                    {r.rating ? <span class="rating">{stars(r.rating)}</span> : null}
+                  </p>
+                  {r.review ? <p class="prewrap">{r.review}</p> : null}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : pub.review ? (
           <div class="detail-section">
             <p class="eyebrow">Review</p>
             <p class="prewrap">{pub.review}</p>
@@ -286,6 +312,7 @@ share.get('/:token/items/:id', async (c) => {
         </p>
       </div>
     </article>,
+    { bgg: fromBgg(pub) },
   );
 });
 

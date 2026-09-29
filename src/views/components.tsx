@@ -2,7 +2,7 @@ import type { FC } from 'hono/jsx';
 import type { Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import { progressPercent } from '../lib/progress';
-import { ordinal, type ReadDraft, type ReadRow } from '../lib/reads';
+import { ordinal, summarizeReads, todayUtc, type ReadDraft, type ReadRow } from '../lib/reads';
 import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
 
@@ -115,8 +115,17 @@ export const ItemStatusPills: FC<{ item: Pick<Item, 'status' | 'rereading'>; oob
   </span>
 );
 
-type ReadingRead = ReadRow & { createdAt?: string };
-type ReadingPage = { id: number; page: number; at: string; readId: number | null };
+type ReadingRead = ReadRow & { createdAt?: string; readerId: number | null };
+type ReadingPage = { id: number; page: number; at: string; readId: number | null; addedBy: number | null };
+
+/** Who is looking at a book's page: members change their own reading and review, admins anyone's (§16 #43). */
+export type Viewer = { id: number; admin: boolean };
+/** A member of the household, as the book's page names them. */
+export type Person = { id: number; username: string };
+
+/** A member's name, or how a member removed since reads. */
+export const personName = (people: Person[], id: number | null): string =>
+  (id !== null ? people.find((p) => p.id === id)?.username : undefined) ?? 'Former member';
 
 const htmxTo = (url: string) => ({ 'hx-post': url, 'hx-target': '#reading', 'hx-swap': 'outerHTML' });
 
@@ -152,69 +161,191 @@ const PageLog: FC<{ item: Item; entries: ReadingPage[]; removable: boolean }> = 
   ) : null;
 
 /**
- * A book's reading: where the current read has got to, the controls to start, finish or stop one, and every read
- * so far with its pages (§16 #41). Swaps itself on every change (hx-target on the section), and the status pill
- * above it out of band, so nothing on the page goes stale. Books only — pages mean nothing for a record or a
- * board game, whose single read the edit form keeps.
+ * One person's reading of a book, worked out from their reads alone (§16 #43): what the summary line, the buttons
+ * and the page field say to them. `summarizeReads` is the household's rule, and with one person's reads it is that
+ * person's.
  */
-export const ReadingSection: FC<{ item: Item; reads: ReadingRead[]; entries: ReadingPage[]; today: string; error?: string }> = ({
-  item,
-  reads,
-  entries,
-  today,
-  error,
-}) => {
-  const open = reads.find((r) => r.status === 'in_progress') ?? null;
-  // pages of the open read, or — on a book with no reads at all — pages recorded before reads existed
-  const current = open ? entries.filter((e) => e.readId === open.id) : reads.length ? [] : entries.filter((e) => e.readId === null);
-  const percent = open ? progressPercent(item.progressPage, item.length) : null;
+function personalReading(item: Item, reads: ReadingRead[], entries: ReadingPage[], person: number | null) {
+  const mine = reads.filter((r) => r.readerId === person);
+  const ids = new Set(mine.map((r) => r.id));
+  // summarizeReads takes insertion order, where a later read is a newer one
+  const state = summarizeReads([...mine].sort((a, b) => a.id - b.id));
+  const open = mine.find((r) => r.status === 'in_progress') ?? null;
+  // pages of the open read, or — for someone with no reads at all — pages they recorded before reads existed
+  const current = open
+    ? entries.filter((e) => e.readId === open.id)
+    : mine.length
+      ? []
+      : entries.filter((e) => e.readId === null && e.addedBy === person);
+  const page = open ? (current.at(-1)?.page ?? null) : null;
   const pagesOf = (r: ReadingRead) => entries.filter((e) => e.readId === r.id);
-  const base = `/items/${item.id}`;
-
   let summary: string;
   if (open) {
     const since = open.beganOn ? `since ${open.beganOn}` : 'start date not known';
-    summary = item.rereading ? `Re-reading, ${since} · finished ${item.readCount === 1 ? 'once' : `${item.readCount} times`} before` : `Reading, ${since}`;
-  } else if (item.readCount > 0) {
-    summary = `Finished${item.completedOn ? ` ${item.completedOn}` : ', date not known'}${item.readCount > 1 ? ` · read ${item.readCount} times` : ''}`;
-  } else if (reads.length) {
-    summary = `Stopped${item.completedOn ? ` ${item.completedOn}` : ''}`;
+    summary = state.rereading ? `Re-reading, ${since} · finished ${state.readCount === 1 ? 'once' : `${state.readCount} times`} before` : `Reading, ${since}`;
+  } else if (state.readCount > 0) {
+    summary = `Finished${state.completedOn ? ` ${state.completedOn}` : ', date not known'}${state.readCount > 1 ? ` · read ${state.readCount} times` : ''}`;
+  } else if (mine.length) {
+    summary = `Stopped${state.completedOn ? ` ${state.completedOn}` : ''}`;
   } else {
     summary = 'Not started.';
   }
+  return { mine, ids, state, open, current, page, pagesOf, summary, percent: page ? progressPercent(page, item.length) : null };
+}
 
+/**
+ * Finish (on a date) and Stop for an open read — the reader's own, or, for an admin, anyone's (§16 #43): the routes
+ * allow both to them, so the page offers both. Each form's own action is primary; Stop is secondary.
+ */
+const CloseReadForms: FC<{ item: Item; read: ReadingRead; today: string; rereading: boolean }> = ({ item, read, today, rereading }) => {
+  const base = `/items/${item.id}`;
   return (
-    <div class="detail-section" id="reading">
-      <p class="eyebrow">Reading</p>
-      <p class={reads.length ? 'reading-summary' : 'reading-summary muted'}>{summary}</p>
+    <>
+      <form method="post" action={`${base}/reads/${read.id}/finish`} class="inline-form" {...htmxTo(`${base}/reads/${read.id}/finish`)}>
+        <input type="date" name="date" value={today} aria-label="Finished on" class="mono" />
+        <button type="submit">Finish</button>
+      </form>
+      <form method="post" action={`${base}/reads/${read.id}/stop`} class="inline-form" {...htmxTo(`${base}/reads/${read.id}/stop`)}>
+        <button type="submit" class="btn">
+          {rereading ? 'Stop re-reading' : 'Stop reading'}
+        </button>
+      </form>
+    </>
+  );
+};
 
-      {open && item.progressPage ? (
+/** Where a read in progress has got to: "p. 120 of 300 · 40%", and the bar. */
+const ProgressLine: FC<{ page: number; length: number | null; percent: number | null }> = ({ page, length, percent }) => (
+  <>
+    <p>
+      <span class="mono">p. {page}</span>
+      {length ? (
         <>
-          <p>
-            <span class="mono">p. {item.progressPage}</span>
-            {item.length ? (
-              <>
-                {' of '}
-                <span class="mono">{item.length}</span>
-              </>
-            ) : null}
-            {percent !== null ? (
-              <>
-                {' · '}
-                <span class="mono">{percent}%</span>
-              </>
-            ) : null}
-          </p>
-          {percent !== null ? (
-            <div class="progress-track" role="img" aria-label={`${percent}% read`}>
-              <div class="progress-fill" style={`width:${percent}%`} />
-            </div>
-          ) : null}
+          {' of '}
+          <span class="mono">{length}</span>
         </>
       ) : null}
+      {percent !== null ? (
+        <>
+          {' · '}
+          <span class="mono">{percent}%</span>
+        </>
+      ) : null}
+    </p>
+    {percent !== null ? (
+      <div class="progress-track" role="img" aria-label={`${percent}% read`}>
+        <div class="progress-fill" style={`width:${percent}%`} />
+      </div>
+    ) : null}
+  </>
+);
+
+/**
+ * A read in a history: its number, dates and outcome, and — for whoever may change it — the forms to correct it,
+ * delete it, and (admins only) move it to another member with its pages (§16 #43).
+ */
+const ReadLine: FC<{
+  item: Item;
+  read: ReadingRead;
+  n: number;
+  pages: ReadingPage[];
+  rereading: boolean;
+  editable: boolean;
+  moveTo: Person[];
+}> = ({ item, read: r, n, pages, rereading, editable, moveTo }) => {
+  const base = `/items/${item.id}`;
+  return (
+    <li>
+      <span class="mono">{ordinal(n)}</span>
+      <span class="mono">{readSpan(r)}</span>
+      <span>{outcome(r, rereading, pages.at(-1)?.page ?? null)}</span>
+      {pages.length ? <span class="muted">{pages.length === 1 ? '1 page logged' : `${pages.length} pages logged`}</span> : null}
+      {editable ? (
+        <details class="read-edit">
+          <summary>Edit</summary>
+          <form method="post" action={`${base}/reads/${r.id}`} class="inline-form" {...htmxTo(`${base}/reads/${r.id}`)}>
+            <select name="status" aria-label="Outcome">
+              <option value="completed" selected={r.status === 'completed'}>
+                Finished
+              </option>
+              <option value="abandoned" selected={r.status === 'abandoned'}>
+                Stopped
+              </option>
+              <option value="in_progress" selected={r.status === 'in_progress'}>
+                Reading now
+              </option>
+            </select>
+            <input type="date" name="beganOn" value={r.beganOn ?? ''} aria-label="Began" class="mono" />
+            <input type="date" name="endedOn" value={r.endedOn ?? ''} aria-label="Ended" class="mono" />
+            <button type="submit">Save</button>
+          </form>
+          <form
+            method="post"
+            action={`${base}/reads/${r.id}/delete`}
+            class="inline-form"
+            {...htmxTo(`${base}/reads/${r.id}/delete`)}
+            hx-confirm="Delete this read and the pages logged in it?"
+          >
+            <button type="submit" class="btn-danger">
+              Delete this read{pages.length ? ' and its pages' : ''}
+            </button>
+          </form>
+          {moveTo.length ? (
+            <form method="post" action={`${base}/reads/${r.id}/move`} class="inline-form" {...htmxTo(`${base}/reads/${r.id}/move`)}>
+              <select name="to" aria-label="Move this read to">
+                {moveTo.map((p) => (
+                  <option value={String(p.id)}>{p.username}</option>
+                ))}
+              </select>
+              <button type="submit" class="btn">
+                Move{pages.length ? ' with its pages' : ''}
+              </button>
+            </form>
+          ) : null}
+          {r.status !== 'in_progress' ? <PageLog item={item} entries={pages} removable={false} /> : null}
+        </details>
+      ) : null}
+    </li>
+  );
+};
+
+/**
+ * A book's reading: where the viewer's current read has got to, the controls to start, finish or stop one, and every
+ * read of theirs so far with its pages (§16 #41) — and, when anyone else has read it or the household has more than
+ * one member (`grouped`), everyone else's reading under their name (§16 #43). Everyone sees everyone's; only its
+ * reader or an admin gets the forms to change a read. Swaps itself on every change (hx-target on the section), and
+ * the household's status pill above it out of band, so nothing on the page goes stale. Books only — pages mean
+ * nothing for a record or a board game, whose reads the edit form keeps.
+ */
+export const ReadingSection: FC<{
+  item: Item;
+  reads: ReadingRead[];
+  entries: ReadingPage[];
+  today: string;
+  viewer: Viewer;
+  people: Person[];
+  grouped: boolean;
+  error?: string;
+}> = ({ item, reads, entries, today, viewer, people, grouped, error }) => {
+  const me = personalReading(item, reads, entries, viewer.id);
+  const { mine, open } = me;
+  const base = `/items/${item.id}`;
+  // admins move a read to anyone but its reader
+  const moveTargets = (readerId: number | null) => (viewer.admin ? people.filter((p) => p.id !== readerId) : []);
+
+  // everyone else who has read it, by name, and a member removed since last
+  const others = [...new Set(reads.map((r) => r.readerId).filter((id) => id !== viewer.id))].sort((a, b) =>
+    a === null ? 1 : b === null ? -1 : personName(people, a).localeCompare(personName(people, b)),
+  );
+
+  const own = (
+    <>
+      <p class={mine.length ? 'reading-summary' : 'reading-summary muted'}>{me.summary}</p>
+
+      {open && me.page ? <ProgressLine page={me.page} length={item.length} percent={me.percent} /> : null}
 
       {/* pages go to an open read; recording one on a book never started starts it (§16 #34) */}
-      {open || !reads.length ? (
+      {open || !mine.length ? (
         <form method="post" action={`${base}/progress`} class="inline-form" {...htmxTo(`${base}/progress`)}>
           <input name="page" inputmode="numeric" pattern="[0-9]+" class="mono" size={6} placeholder="Page" aria-label="Page reached" required />
           {item.length ? <span class="muted">of {item.length}</span> : null}
@@ -225,74 +356,33 @@ export const ReadingSection: FC<{ item: Item; reads: ReadingRead[]; entries: Rea
 
       {error ? <p class="error">{error}</p> : null}
 
-      <PageLog item={item} entries={current} removable={true} />
+      <PageLog item={item} entries={me.current} removable={true} />
 
       <div class="read-actions">
         {open ? (
-          <>
-            <form method="post" action={`${base}/reads/${open.id}/finish`} class="inline-form" {...htmxTo(`${base}/reads/${open.id}/finish`)}>
-              <input type="date" name="date" value={today} aria-label="Finished on" class="mono" />
-              <button type="submit">Finish</button>
-            </form>
-            <form method="post" action={`${base}/reads/${open.id}/stop`} class="inline-form" {...htmxTo(`${base}/reads/${open.id}/stop`)}>
-              <button type="submit" class="btn">
-                {item.rereading ? 'Stop re-reading' : 'Stop reading'}
-              </button>
-            </form>
-          </>
+          <CloseReadForms item={item} read={open} today={today} rereading={me.state.rereading} />
         ) : (
           <form method="post" action={`${base}/reads/start`} class="inline-form" {...htmxTo(`${base}/reads/start`)}>
-            <button type="submit">{item.readCount > 0 ? 'Read again' : reads.length ? 'Start again' : 'Start reading'}</button>
+            <button type="submit">{me.state.readCount > 0 ? 'Read again' : mine.length ? 'Start again' : 'Start reading'}</button>
           </form>
         )}
       </div>
 
-      {reads.length ? (
+      {mine.length ? (
         <>
-          <p class="eyebrow read-history-head">Reads</p>
+          <p class="eyebrow read-history-head">{grouped ? 'Your reads' : 'Reads'}</p>
           <ol class="read-history">
-            {reads.map((r, i) => {
-              const pages = pagesOf(r);
-              return (
-                <li>
-                  <span class="mono">{ordinal(i + 1)}</span>
-                  <span class="mono">{readSpan(r)}</span>
-                  <span>{outcome(r, item.rereading, pages.at(-1)?.page ?? null)}</span>
-                  {pages.length ? <span class="muted">{pages.length === 1 ? '1 page logged' : `${pages.length} pages logged`}</span> : null}
-                  <details class="read-edit">
-                    <summary>Edit</summary>
-                    <form method="post" action={`${base}/reads/${r.id}`} class="inline-form" {...htmxTo(`${base}/reads/${r.id}`)}>
-                      <select name="status" aria-label="Outcome">
-                        <option value="completed" selected={r.status === 'completed'}>
-                          Finished
-                        </option>
-                        <option value="abandoned" selected={r.status === 'abandoned'}>
-                          Stopped
-                        </option>
-                        <option value="in_progress" selected={r.status === 'in_progress'}>
-                          Reading now
-                        </option>
-                      </select>
-                      <input type="date" name="beganOn" value={r.beganOn ?? ''} aria-label="Began" class="mono" />
-                      <input type="date" name="endedOn" value={r.endedOn ?? ''} aria-label="Ended" class="mono" />
-                      <button type="submit">Save</button>
-                    </form>
-                    <form
-                      method="post"
-                      action={`${base}/reads/${r.id}/delete`}
-                      class="inline-form"
-                      {...htmxTo(`${base}/reads/${r.id}/delete`)}
-                      hx-confirm="Delete this read and the pages logged in it?"
-                    >
-                      <button type="submit" class="btn-danger">
-                        Delete this read{pages.length ? ' and its pages' : ''}
-                      </button>
-                    </form>
-                    {r.status !== 'in_progress' ? <PageLog item={item} entries={pages} removable={false} /> : null}
-                  </details>
-                </li>
-              );
-            })}
+            {mine.map((r, i) => (
+              <ReadLine
+                item={item}
+                read={r}
+                n={i + 1}
+                pages={me.pagesOf(r)}
+                rereading={me.state.rereading}
+                editable={true}
+                moveTo={moveTargets(r.readerId)}
+              />
+            ))}
           </ol>
         </>
       ) : null}
@@ -309,6 +399,189 @@ export const ReadingSection: FC<{ item: Item; reads: ReadingRead[]; entries: Rea
           <button type="submit">Add</button>
         </form>
       </details>
+    </>
+  );
+
+  return (
+    <div class="detail-section" id="reading">
+      <p class="eyebrow">Reading</p>
+      {grouped ? (
+        <div class="reader reader-self">
+          <p class="reader-name">
+            You <span class="muted">· {personName(people, viewer.id)}</span>
+          </p>
+          {own}
+        </div>
+      ) : (
+        own
+      )}
+      {others.map((id) => {
+        const them = personalReading(item, reads, entries, id);
+        const editable = viewer.admin;
+        return (
+          <div class="reader">
+            <p class="reader-name">{personName(people, id)}</p>
+            <p class="reading-summary">{them.summary}</p>
+            {them.open && them.page ? <ProgressLine page={them.page} length={item.length} percent={them.percent} /> : null}
+            {/* an admin can take out a mistyped page of anyone's, and finish or stop their read; everyone else just sees */}
+            {editable ? <PageLog item={item} entries={them.current} removable={true} /> : null}
+            {editable && them.open ? (
+              <div class="read-actions">
+                <CloseReadForms item={item} read={them.open} today={today} rereading={them.state.rereading} />
+              </div>
+            ) : null}
+            <ol class="read-history">
+              {them.mine.map((r, i) => (
+                <ReadLine
+                  item={item}
+                  read={r}
+                  n={i + 1}
+                  pages={them.pagesOf(r)}
+                  rereading={them.state.rereading}
+                  editable={editable}
+                  moveTo={moveTargets(r.readerId)}
+                />
+              ))}
+            </ol>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+/**
+ * Everyone's reads of a record, a board game or anything else that isn't a book (§16 #43), under their names — once the
+ * household has more than one member. Each person's own are kept from the edit form, as ever; here a read's reader or
+ * an admin corrects or deletes it, and an admin moves it to another member, as on a book's page. No pages, no Read
+ * again: those are for books. Swaps itself on every change, like the Reading section it stands in for.
+ */
+export const ReadsByPerson: FC<{ item: Item; reads: ReadingRead[]; viewer: Viewer; people: Person[]; error?: string }> = ({
+  item,
+  reads,
+  viewer,
+  people,
+  error,
+}) => {
+  const readers = [...new Set(reads.map((r) => r.readerId))].sort((a, b) =>
+    a === viewer.id ? -1 : b === viewer.id ? 1 : a === null ? 1 : b === null ? -1 : personName(people, a).localeCompare(personName(people, b)),
+  );
+  return (
+    <div class="detail-section" id="reading">
+      <p class="eyebrow">Reading</p>
+      {error ? <p class="error">{error}</p> : null}
+      {readers.map((id) => {
+        const them = personalReading(item, reads, [], id);
+        return (
+          // the viewer's own reads lead, styled as on a book's page
+          <div class={id === viewer.id ? 'reader reader-self' : 'reader'}>
+            <p class="reader-name">
+              {id === viewer.id ? (
+                <>
+                  You <span class="muted">· {personName(people, id)}</span>
+                </>
+              ) : (
+                personName(people, id)
+              )}
+            </p>
+            <p class="reading-summary">{them.summary}</p>
+            {them.open && (viewer.admin || id === viewer.id) ? (
+              <div class="read-actions">
+                <CloseReadForms item={item} read={them.open} today={todayUtc()} rereading={them.state.rereading} />
+              </div>
+            ) : null}
+            <ol class="read-history">
+              {them.mine.map((r, i) => (
+                <ReadLine
+                  item={item}
+                  read={r}
+                  n={i + 1}
+                  pages={[]}
+                  rereading={them.state.rereading}
+                  editable={viewer.admin || id === viewer.id}
+                  moveTo={viewer.admin ? people.filter((p) => p.id !== r.readerId) : []}
+                />
+              ))}
+            </ol>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+type ReviewLine = { id: number; userId: number | null; rating: number | null; review: string | null; reviewedAt: string | null };
+
+/**
+ * Everyone's ratings and reviews of an item, each under its writer's name (§16 #43) — inside the app only. The item's
+ * own rating and review, the household's summary, are what share pages and connections see, with no name. A review's
+ * writer and admins get Edit (rating and text, both empty deletes it) and Delete; admins also Move, to fix a review
+ * credited to the wrong person. The viewer's own review is also what the edit form's rating and review fields hold.
+ */
+export const ReviewsSection: FC<{ item: Item; reviews: ReviewLine[]; viewer: Viewer; people: Person[] }> = ({ item, reviews, viewer, people }) => {
+  const base = `/items/${item.id}`;
+  const mineWritten = reviews.some((r) => r.userId === viewer.id);
+  return (
+    <div class="detail-section" id="reviews">
+      <p class="eyebrow">Ratings and reviews</p>
+      {reviews.length ? (
+        <ol class="member-reviews">
+          {reviews.map((r) => {
+            const editable = viewer.admin || r.userId === viewer.id;
+            const moveTo = viewer.admin ? people.filter((p) => p.id !== r.userId && !reviews.some((o) => o.userId === p.id)) : [];
+            const who = r.userId === viewer.id ? `You · ${personName(people, r.userId)}` : personName(people, r.userId);
+            return (
+              <li>
+                <p class="review-by">
+                  <span class="reviewer">{who}</span>
+                  {r.rating ? <span class="rating">{stars(r.rating)}</span> : null}
+                  {r.reviewedAt ? <span class="mono muted">{r.reviewedAt.slice(0, 10)}</span> : null}
+                </p>
+                {r.review ? <p class="prewrap">{r.review}</p> : null}
+                {editable ? (
+                  <details class="read-edit">
+                    <summary>Edit</summary>
+                    <form method="post" action={`${base}/reviews/${r.id}`} class="review-form">
+                      <RatingSelect value={r.rating} />
+                      <textarea name="review" rows={3} aria-label="Review">
+                        {r.review ?? ''}
+                      </textarea>
+                      <button type="submit">Save</button>
+                    </form>
+                    <form
+                      method="post"
+                      action={`${base}/reviews/${r.id}/delete`}
+                      class="inline-form"
+                      data-confirm={r.userId === viewer.id ? 'Delete your rating and review?' : `Delete ${personName(people, r.userId)}’s rating and review?`}
+                    >
+                      <button type="submit" class="btn-danger">
+                        Delete
+                      </button>
+                    </form>
+                    {moveTo.length ? (
+                      <form method="post" action={`${base}/reviews/${r.id}/move`} class="inline-form">
+                        <select name="to" aria-label="Move this review to">
+                          {moveTo.map((p) => (
+                            <option value={String(p.id)}>{p.username}</option>
+                          ))}
+                        </select>
+                        <button type="submit" class="btn">
+                          Move
+                        </button>
+                      </form>
+                    ) : null}
+                  </details>
+                ) : null}
+              </li>
+            );
+          })}
+        </ol>
+      ) : null}
+      {!mineWritten ? (
+        <p class="muted form-note">
+          {reviews.length ? 'Add yours' : 'Rate or review it'} from <a href={`${base}/edit`}>Edit</a>.
+        </p>
+      ) : null}
     </div>
   );
 };
@@ -551,7 +824,10 @@ const RatingSelect: FC<{ value: number | null | undefined }> = ({ value }) => (
   </select>
 );
 
-/** Shared by manual add and edit. */
+/**
+ * Shared by manual add and edit. Its status, dates, rating and review are the person filling it in's own (§16 #43):
+ * `item` carries theirs, not the household's. `perMember` — a household of more than one — says so on the labels.
+ */
 export const ItemForm: FC<{
   libraries: Library[];
   action: string;
@@ -563,7 +839,8 @@ export const ItemForm: FC<{
   // what a refused form sends back, so nothing typed is lost
   coverUrl?: string;
   removeCover?: boolean;
-}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverUrl, removeCover }) => {
+  perMember?: boolean;
+}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverUrl, removeCover, perMember }) => {
   // a book being read again: status and dates describe its last finish, and the re-read is managed on its page
   const readingLocked = item?.mediaType === 'book' && !!item?.rereading;
   // A book finished before: the form edits that finish, so it offers Completed only — reading it again, or a stop, is
@@ -642,7 +919,7 @@ export const ItemForm: FC<{
     </label>
     <div class="grid">
       <label>
-        Status
+        {perMember ? 'Your status' : 'Status'}
         <select name="status" disabled={readingLocked}>
           {/* only what a read can become from here (`offered`, §16 #41) */}
           {ITEM_STATUSES.filter(offered).map((st) => (
@@ -653,7 +930,7 @@ export const ItemForm: FC<{
         </select>
       </label>
       <label>
-        Rating
+        {perMember ? 'Your rating' : 'Rating'}
         <RatingSelect value={item?.rating} />
       </label>
       <label>
@@ -684,12 +961,17 @@ export const ItemForm: FC<{
         started, finished, stopped and corrected on the book's page.
       </p>
     ) : null}
+    {perMember ? (
+      <p class="muted form-note">
+        Status, dates, rating and review here are yours; everyone's show on the item's page.
+      </p>
+    ) : null}
     <label>
       Tags <small>(comma-separated)</small>
       <input name="tags" value={tags?.join(', ') ?? ''} />
     </label>
     <label>
-      Review
+      {perMember ? 'Your review' : 'Review'}
       <textarea name="review" rows={3}>
         {item?.review ?? ''}
       </textarea>

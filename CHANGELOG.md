@@ -8,19 +8,53 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
-## [Unreleased]
+## [1.3.0] - 2026-09-29
+
+Everyone's own reading. Each member of a household now has their own reads, recorded pages, rating and review, and a book's page shows everyone's under their name. A book still has one status on your shelves, and share links and connected households still see one household rating and review, with no names. Board games now carry BoardGameGeek's "Powered by BGG" logo, as its API terms require.
+
+### Added
+- **Your own reading.** **Read again**, **Finish**, **Stop** and **Record** act on your own reads. Another member can start their first read of a book you've finished, and two people can read a book at the same time. The edit form's status, dates, rating and review are yours.
+- **Everyone's reading on the book's page**, each person's under their name, with their progress, and everyone's rating and review with their username. A household of one sees the page as before.
+- **A "Read by" filter** on shelves and search: read by me, not read by me, read by a member or by anyone, and being read now. It can't be published: a share link made from a filtered shelf shows it without "Read by".
+- **Admins can move** a read (with its recorded pages) or a review to another member, and change or delete anyone's. Members change only their own. The same works for records and board games, from their page.
+- **Names on share pages and to connected households, when you choose.** Each member can set a **display name** on their Account page (an admin can set anyone's under Members). Two switches, both **off by default**, show names outside the app: on **Shared links**, a shared book lists each member's rating and review signed with their display name; on **Connections**, connected households get a feed entry per person ("Priya finished …", "Ravi rated …", "Priya started …") and see everyone's rating and review on a book's page. Members without a display name stay unnamed, login usernames never leave the app, and nobody outside ever sees the dates of anyone's reads. Names other households send show on your Feed and their book pages.
+- **Export and import keep each person's history.** Each read in the `reads` column names its reader, and a new `reviews` column holds everyone's rating and review, with when each was written and given. When an admin imports the file, each read and review goes back to the member of the same name, or to the admin; a member's import is all theirs. The preview says who gets what.
+- **The "Powered by BGG" logo**, linked to BoardGameGeek, now shows under board game search results, on a board game's page, and in the footer of a share page that shows a board game. BoardGameGeek's API terms require it wherever an app shows its data publicly. It uses BGG's own logo files, in its light and dark versions.
 
 ### Changed
+- **A book's status is the household's:** Completed once anyone has finished it, In progress while anyone is reading it and nobody has finished, and "re-reading" while someone reads a book someone has finished. Its read count counts everyone's finishes, and its last finish is the latest by anyone.
+- **Its rating is the household's average** (rounded to the half-star), and its review is the one written last. That is what shelves, share pages and connections show.
+- **Goodreads and libib imports are the importer's own.** A Goodreads re-import is matched against your reads and your review only, and never touches anyone else's.
+- **Removing a member** keeps their reads and reviews, shown as a former member's. Nothing about a book changes.
+- **Comments and borrow requests you send no longer carry your login username.** They're signed with your display name while names are switched on for connections, and "A member" otherwise.
+- **Taking back a rating or review isn't news.** When a member's newer review or rating goes and an older one shows again, connected households see it dated when it was first given, not as today's.
 - **A backup that stops partway** now says its folder is incomplete, and to delete it before running the backup again. Otherwise the retry lands beside it as `-2`, and the incomplete folder keeps today's name. The backup runbook says the same.
 
 ### Fixed
+- **A board game search that BoardGameGeek throttles** now says BGG is busy and to try again in a few seconds. It used to say no board games were found. Other failures now say BGG did not answer.
+- **`npm run backfill:remote` paces BoardGameGeek** at one request every 5 seconds, as BGG's docs ask. It used to send up to 4 a second.
+- **Board game descriptions from BoardGameGeek are kept whole**, paragraphs included, and quotes and dashes show as themselves instead of codes like `&#039;` or `&mdash;`. They used to be cut at 2,000 characters, which BGG's terms don't allow, and their blank lines were lost. Games added before this keep the text they have until you edit it or fill it in again.
 - **Setting up before `SESSION_SECRET` is set** no longer locks you out. Setup used to create your admin account and then fail with an error, which closed setup, and login then failed the same way. Now setup and login say the secret is missing and how to set it, and nothing is saved until it is.
 - **A `SESSION_SECRET` that is only spaces or blank lines** now counts as missing. It used to be accepted, and it signed session cookies that anyone could forge. If yours is blank, sign-in stops after this update until you set a real one: `npx wrangler secret put SESSION_SECRET`.
 - **Two setups at once**, such as a double-click on **Create account**, now make one admin and one set of starter shelves. A double-click could end in an error, and two people racing made two admins. The setup that loses lands on the login page, which says another setup finished first; after a double-click, the password you just chose works there.
 
 ### Upgrading
+- **Back up first** (`npm run backup`). Migrations `0024_per-member`, `0025_per-member-backfill`, `0026_member-names` and `0027_member-activity-triggers` run when you deploy.
+- **All your existing history goes to your first admin.** Nothing before 1.3.0 recorded who read or rated what, so every existing read, every recorded page, and each book's rating and review are credited to the admin with the lowest id (normally the account made at `/setup`). No book changes on your shelves, share pages or connections. In a household of one there's nothing more to do. Otherwise, an admin moves each misattributed read or review to the right member from the book's page: **Edit** on it, choose the member, **Move**. [runbooks/updating.md](runbooks/updating.md) walks through it. Move rather than have members re-import Goodreads, which would add their reads beside the admin's copies.
+- **What share pages show now:**
+  - the household's average rating;
+  - the review written most recently, with no author;
+  - "Read N times" counting everyone's finishes;
+  - with progress switched on, the latest page anyone reading the book recorded.
+
+  Nothing per person appears until an admin switches names on. With one member, all of this is exactly what they showed before.
+- **Names stay private until an admin turns them on.** 0026 and 0027 add display names, the two switches (both off) and a per-person activity log. If you share anything with connections, it starts with the last 90 days of ratings, reviews and recorded pages; starts and finishes join it only as they happen from now on, so nobody's read dates go out. Until an admin switches names on, share pages, your feed and your books' pages look to everyone outside exactly as before. Switching names on for connections swaps the unnamed entries they hold for named ones at their next check, and switching off swaps them back; a household can still keep what it already pulled. Renaming or removing a member, or moving a read or review to another member, updates the entries they already have the same way.
+- **Deploy when nobody is editing, and don't roll back past this release.** In the seconds between the migration and the new code, an edit saved by the old code makes a read that belongs to nobody, or a rating with no review behind it, which the average replaces at the book's next review. Older code writes reading and ratings without a person, so to go back, restore the backup instead. A 1.3.0 export doesn't import correctly into an older version.
+- **No new secrets.**
+- **Board game search needs BoardGameGeek's approval.** If you have no `BGG_TOKEN` yet, apply for a non-commercial application at boardgamegeek.com/applications; once BGG approves it, create a token there and run `npx wrangler secret put BGG_TOKEN`. [runbooks/deploy.md](runbooks/deploy.md) → API tokens has the steps. If you already have one, nothing to do.
 - **If your `SESSION_SECRET` is blank** (only spaces or blank lines), everyone is signed out after this update and nobody can sign in until you set a real one: `npx wrangler secret put SESSION_SECRET`, with a value from `openssl rand -base64 32`. Setup and login say so.
 - **If setup once failed with an error** and you couldn't log in afterwards, your admin account was created before the error. Set `SESSION_SECRET`, then log in with the username and password you chose at setup.
+- **Connections:** households on older versions keep working with yours. The protocol is still version 1: they see the household's rating, review and read count as before. With names switched on, they get your entries without the names, as the household's (two people finishing one book show as one entry), skip "started", and don't see the list of everyone's reviews. Comments and borrow requests from your members reach them signed "A member", or with the display name when names are on.
 
 ## [1.2.1] - 2026-09-28
 
@@ -118,6 +152,7 @@ From an instance deployed before versioning:
 - **BoardGameGeek now needs a token.** BGG made its API registration-only in 2025. Register an application at boardgamegeek.com/applications, then run `npx wrangler secret put BGG_TOKEN`. Without it, board-game search shows a notice instead of results.
 - **Export needs JavaScript for a large catalogue.** The **Export** button fetches the CSV a page at a time. The plain `/export.csv` link still works, in one request, but can hit the free plan's CPU limit on a large catalogue.
 
+[1.3.0]: https://github.com/isstiaung/nalanda/releases/tag/v1.3.0
 [1.2.1]: https://github.com/isstiaung/nalanda/releases/tag/v1.2.1
 [1.2.0]: https://github.com/isstiaung/nalanda/releases/tag/v1.2.0
 [1.1.0]: https://github.com/isstiaung/nalanda/releases/tag/v1.1.0

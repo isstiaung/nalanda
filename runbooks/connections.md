@@ -73,11 +73,27 @@ you do.
 - For the books in a view they see the title, creators, cover, rating, review, when you last
   finished it, and how many times you have. Never notes, loans, borrowers, how many copies you
   have, or the dates of your other reads.
+- **Names are off by default.** **Show names to connected households** (in this section) sends one
+  feed entry per person, signed with each member's display name — "Priya finished", "Ravi rated",
+  "Priya started" — and lists everyone's rating and review on a book's page (ARCH.md §16 #45).
+  Members without a display name stay unnamed; usernames and read dates never leave — a start or
+  finish goes out only as it happens, dated then. Turning it on or off swaps what they hold at
+  their next check: on, they're asked to delete the unnamed entries and pull the named ones; off,
+  the reverse. They can keep what they already pulled. Renaming or removing a member, or moving
+  a read or review to another member, swaps those entries the same way. Comments and borrow requests your members send are signed with
+  their display name while this is on, and "A member" while it's off. Households on older
+  versions get the entries without names, shown as the household's — two people finishing one
+  book show as one entry.
+- **With names off, they see your household, never a person** (ARCH.md §16 #43). The rating is the average of
+  everyone's ratings here, the review the one written last, with no name on it; "when you last
+  finished it" is the latest finish by anyone, and "how many times" counts everyone's. Which of
+  you read or reviewed what stays inside your household.
 - What reaches them is activity: a book reviewed, rated or finished, and each page you record
   as you read. Sharing your first view includes the last 90 days of it.
 - Each entry is dated by when it happened. A finish carries its **completed** date, so marking a
   book you read in 2019 as finished doesn't appear at the top of anyone's feed. A rating or review
-  is dated the day you give it. When you share your first view, only books with a **completed**
+  is dated the day you give it — and a second member's rating is news only if it moves the
+  household's average; the same average sends nothing. When you share your first view, only books with a **completed**
   date in the last 90 days bring their finish, rating and review along. Earlier activity without
   a date isn't sent, because nothing says when it happened.
 - **Importing** (Goodreads, libib, or a Nalanda export) while a view is shared sends nothing as
@@ -133,7 +149,8 @@ than 1,000 entries.
 - **On their reviews:** a review card on **Feed** has **Comment**. Only reviews you follow
   can be commented on, and a thread stays on your side only while you follow that review.
 - **On yours:** comments appear under the review on the book's page, one thread per
-  household, and recent ones are listed at the top of **Feed**. **Reply** in the thread.
+  household, and recent ones are listed at the top of **Feed**. **Reply** in the thread. A
+  thread is about the household's review they saw — the one written last — whoever here wrote it.
 - **Who sees a thread:** only your library and that household — never your other connections.
 - **Deleting:** anyone in your household can delete a comment on your reviews, or one of your
   own anywhere, and the deletion reaches the other household too. Withdraw a comment on their

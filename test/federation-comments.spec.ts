@@ -10,7 +10,8 @@ import {
   removeEntries,
   storeEntries,
 } from '../src/db/federation';
-import { createItem, createLibrary, deleteItem } from '../src/db/queries';
+import { createItem, createLibrary, deleteItem, setDisplayName, updateSiteSettings } from '../src/db/queries';
+import { member } from './member-helpers';
 import type { Bindings } from '../src/env';
 import { budgeted } from '../src/federation/budget';
 import { itemStamp } from '../src/federation/items';
@@ -286,6 +287,31 @@ describe('comments on a connected household’s reviews', () => {
     expect(html).toContain('Lovely review');
     expect(html).toContain('Thank you!');
     expect(html).toContain('Seen only by Riverbank library and this library.');
+  });
+
+  it('are signed "A member" — the display name only with names on for connections — never with a login', async () => {
+    await followTheirReview(77);
+    const pushes: Record<string, unknown>[] = [];
+    answerOutbound((req) => {
+      if (new URL(req.url).pathname !== '/federation/inbox') return json({}, 404);
+      pushes.push(decode(req.body));
+      return json({ status: 'received' });
+    });
+    const priya = await member('u-priya-login');
+    await setDisplayName(env.DB, priya.id, 'Priya');
+    await a.postForm('/feed/comments', feedComment(77, 'Names off'), priya.cookie);
+    await updateSiteSettings(env.DB, { namesToConnections: true });
+    await a.postForm('/feed/comments', feedComment(77, 'Names on'), priya.cookie);
+    expect(pushes.map((p) => [p.content, p.author])).toEqual([
+      ['Names off', 'A member'],
+      ['Names on', 'Priya'],
+    ]);
+    expect(JSON.stringify(pushes)).not.toContain('u-priya-login');
+    // what this household sees of its own comments is the login, as everywhere inside the app
+    expect((await env.DB.prepare('SELECT author_name AS a FROM comments WHERE from_us = 1').all()).results).toEqual([
+      { a: 'u-priya-login' },
+      { a: 'u-priya-login' },
+    ]);
   });
 
   it('keep their comment only in a thread this household started', async () => {

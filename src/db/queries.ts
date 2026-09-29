@@ -4,15 +4,19 @@ import { drizzle } from 'drizzle-orm/d1';
 import {
   currentOrderSql,
   displayOrderSql,
+  MAX_READS_PER_CELL,
   MAX_READS_PER_ITEM,
+  oneOpenReadEach,
   readsFromColumns,
   reconcileGoodreads,
   statusOrderSql,
   summarizeReads,
   type GoodreadsReading,
+  type PersonRead,
   type ReadDraft,
   type ReadRow,
 } from '../lib/reads';
+import { reviewOrderSql, stampReviews, summarizeReviews, type PersonReview, type ReviewDraft } from '../lib/reviews';
 import * as s from './schema';
 import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Share, User } from './schema';
 
@@ -73,14 +77,137 @@ export async function listUsers(d1: D1Database): Promise<User[]> {
   return db(d1).select().from(s.users).orderBy(asc(s.users.id));
 }
 
-export async function deleteUser(d1: D1Database, id: number): Promise<void> {
-  // Two references to users have no ON DELETE action (migrations 0000 and 0012, both applied): items.added_by
-  // and reading_progress.added_by. Either would stop a member being removed — and a member who both added an
-  // item and recorded a page hits both — so both are cleared in the same batch. Their items and reading log
-  // stay, just unattributed.
+/**
+ * Sets a member's display name (§16 #45) — already normalized (normalizeDisplayName); null clears it. It shows only
+ * where an admin has switched names on, and is never a login.
+ */
+export async function setDisplayName(d1: D1Database, id: number, displayName: string | null): Promise<void> {
+  // their entries re-keyed first, only if the name really changes, then the name — one batch (§16 #39)
   await d1.batch([
+    ...rekeyMemberActivity(d1, id, displayName),
+    d1.prepare('UPDATE users SET display_name = ?2 WHERE id = ?1').bind(id, displayName),
+  ]);
+}
+
+/**
+ * The name a comment or a borrow request carries to a connection (§16 #45): the member's display name while names
+ * are switched on for connections, else "A member". Never a username — those never leave the app.
+ */
+export async function outwardName(d1: D1Database, userId: number): Promise<string> {
+  const row = await d1
+    .prepare(
+      `SELECT u.display_name AS name, coalesce((SELECT names_to_connections FROM site_settings WHERE id = 1), 0) AS on_
+       FROM users u WHERE u.id = ?1`,
+    )
+    .bind(userId)
+    .first<{ name: string | null; on_: number }>();
+  return row?.on_ && row.name ? row.name : 'A member';
+}
+
+/**
+ * Everyone's rating and review of an item, each with its writer's display name — null for a member who has none, or
+ * was removed — the household's latest review first. For share pages and connections with names switched on (§16
+ * #45): never a username.
+ */
+export async function namedReviews(
+  d1: D1Database,
+  itemId: number,
+): Promise<Array<{ by: string | null; rating: number | null; review: string | null }>> {
+  const rows = await d1
+    .prepare(
+      `SELECT u.display_name AS by, v.rating, v.review FROM reviews v LEFT JOIN users u ON u.id = v.user_id
+       WHERE v.item_id = ?1 ORDER BY ${reviewOrderSql('v')}`,
+    )
+    .bind(itemId)
+    .all<{ by: string | null; rating: number | null; review: string | null }>();
+  // a rating of 0 isn't one (as the household's triggers hold), and a review with neither isn't shown
+  return rows.results
+    .map((r) => ({ by: r.by || null, rating: r.rating && r.rating > 0 ? r.rating : null, review: r.review }))
+    .filter((r) => r.rating !== null || r.review !== null);
+}
+
+/** Every member's id and name, and no more — what a page needs to say whose read or review something is (§16 #43). */
+export async function listPeople(d1: D1Database): Promise<Array<{ id: number; username: string }>> {
+  return db(d1).select({ id: s.users.id, username: s.users.username }).from(s.users).orderBy(asc(s.users.username), asc(s.users.id));
+}
+
+/**
+ * A member's per-person feed entries (§16 #45) given new ids — the same entries, dated as before — so a connection
+ * holding the old ones learns from the removal check that they're gone and pulls the new ones: a rename, or a member
+ * removed (then unnamed), reaches what connections already hold, not only what they pull next. INSERT OR REPLACE re-keys a read's or a review's entries in place (their unique
+ * index); a page's entries are copied, then the older copy goes.
+ */
+function rekeyMemberActivity(d1: D1Database, userId: number, newName?: string | null): D1PreparedStatement[] {
+  // with a new name: only when it differs from the one stored — nothing to re-key for a form saved unchanged
+  const guard = newName === undefined ? '1' : '(SELECT display_name FROM users WHERE id = ?1) IS NOT ?2';
+  const theirs = `(read_id IN (SELECT id FROM reads WHERE reader_id = ?1)
+    OR review_id IN (SELECT id FROM reviews WHERE user_id = ?1)
+    OR progress_id IN (SELECT p.id FROM reading_progress p JOIN reads r ON r.id = p.read_id WHERE r.reader_id = ?1))`;
+  return [
+    d1
+      .prepare(
+        `INSERT OR REPLACE INTO member_activity (item_id, kind, at, read_id, review_id, progress_id)
+         SELECT item_id, kind, at, read_id, review_id, progress_id FROM member_activity WHERE ${theirs} AND ${guard} ORDER BY id`,
+      )
+      .bind(...(newName === undefined ? [userId] : [userId, newName])),
+    d1
+      .prepare(
+        `DELETE FROM member_activity WHERE kind = 'progress' AND ${theirs}
+           AND EXISTS (SELECT 1 FROM member_activity n WHERE n.progress_id = member_activity.progress_id AND n.id > member_activity.id)`,
+      )
+      .bind(userId),
+  ];
+}
+
+/**
+ * One read's or one review's per-person entries (§16 #45) given new ids, dated as before, when an admin moves it to
+ * another member: a connection holding them under the old name learns from the removal check that they're gone and
+ * pulls them again under the new one. Only that read or review — the rest of both members' entries still say who did
+ * them. Goes straight after the move's UPDATE in its batch: `changes()` is that statement's, so a move refused (or to
+ * the member it already belongs to) re-keys nothing. A read's pages go with it: copied, then the older copy goes.
+ */
+function rekeyMoved(d1: D1Database, moved: { readId: number } | { reviewId: number }): D1PreparedStatement[] {
+  if ('reviewId' in moved) {
+    return [
+      d1
+        .prepare(
+          `INSERT OR REPLACE INTO member_activity (item_id, kind, at, read_id, review_id, progress_id)
+           SELECT item_id, kind, at, read_id, review_id, progress_id FROM member_activity WHERE review_id = ?1 AND changes() > 0 ORDER BY id`,
+        )
+        .bind(moved.reviewId),
+    ];
+  }
+  const its = `(read_id = ?1 OR progress_id IN (SELECT id FROM reading_progress WHERE read_id = ?1))`;
+  return [
+    d1
+      .prepare(
+        `INSERT OR REPLACE INTO member_activity (item_id, kind, at, read_id, review_id, progress_id)
+         SELECT item_id, kind, at, read_id, review_id, progress_id FROM member_activity WHERE ${its} AND changes() > 0 ORDER BY id`,
+      )
+      .bind(moved.readId),
+    d1
+      .prepare(
+        `DELETE FROM member_activity WHERE kind = 'progress' AND ${its}
+           AND EXISTS (SELECT 1 FROM member_activity n WHERE n.progress_id = member_activity.progress_id AND n.id > member_activity.id)`,
+      )
+      .bind(moved.readId),
+  ];
+}
+
+export async function deleteUser(d1: D1Database, id: number): Promise<void> {
+  // Three references to users have no ON DELETE action (migrations 0000, 0012 and 0024, all applied — drizzle-kit
+  // drops the clause on ALTER TABLE): items.added_by, reading_progress.added_by and reads.reader_id. Any of them
+  // would stop a member being removed, so all are cleared in the same batch, and reviews.user_id too, which its
+  // table would set null on its own. Their items, reads, pages and reviews stay, unattributed (§16 #43): the
+  // household's summary on each item — status, read count, average rating — is everyone's, theirs included, so it
+  // doesn't change.
+  await d1.batch([
+    // first, while their reads still say whose: their named entries get new ids, so connections drop the named copies
+    ...rekeyMemberActivity(d1, id),
     d1.prepare('UPDATE items SET added_by = NULL WHERE added_by = ?1').bind(id),
     d1.prepare('UPDATE reading_progress SET added_by = NULL WHERE added_by = ?1').bind(id),
+    d1.prepare('UPDATE reads SET reader_id = NULL WHERE reader_id = ?1').bind(id),
+    d1.prepare('UPDATE reviews SET user_id = NULL WHERE user_id = ?1').bind(id),
     d1.prepare('DELETE FROM users WHERE id = ?1').bind(id),
   ]);
 }
@@ -145,7 +272,13 @@ export async function deleteLibrary(d1: D1Database, id: number): Promise<string[
     .select({ coverKey: s.items.coverKey })
     .from(s.items)
     .where(and(eq(s.items.libraryId, id), sql`${s.items.coverKey} IS NOT NULL`));
-  await dbi.delete(s.libraries).where(eq(s.libraries.id, id)); // items cascade
+  // items cascade, and so may the shelf's connection views: with none left, both activity logs go, as they do when the
+  // last view is removed on the Connections page (deleteConnectionView), so a stale log can't outlive every view
+  await d1.batch([
+    d1.prepare('DELETE FROM libraries WHERE id = ?1').bind(id),
+    d1.prepare('DELETE FROM activity_log WHERE NOT EXISTS (SELECT 1 FROM connection_views)'),
+    d1.prepare('DELETE FROM member_activity WHERE NOT EXISTS (SELECT 1 FROM connection_views)'),
+  ]);
   return covers.map((c) => c.coverKey).filter((k): k is string => !!k);
 }
 
@@ -211,9 +344,25 @@ export type ItemFilters = {
   page?: number; // 1-based
 };
 
+/**
+ * Who has read an item, for the shelf's "Read by" filter (ARCH.md §16 #43): finished by someone (`finished`), not
+ * finished by them (`unfinished`), or being read by them now (`reading`). `readerId` null means anyone in the
+ * household. Deliberately not part of ItemFilters: those are what a share link or a connection view captures, and
+ * who read what must never be published — shareFilters() can't carry this because the type has no room for it.
+ */
+export type ReaderFilter = { readerId: number | null; mode: 'finished' | 'unfinished' | 'reading' };
+
+function readerFilterWhere(r: ReaderFilter): SQL {
+  const status = r.mode === 'reading' ? 'in_progress' : 'completed';
+  const exists = sql`EXISTS (SELECT 1 FROM ${s.reads} WHERE ${s.reads.itemId} = ${s.items.id} AND ${s.reads.status} = ${status}${
+    r.readerId === null ? sql`` : sql` AND ${s.reads.readerId} = ${r.readerId}`
+  })`;
+  return r.mode === 'unfinished' ? sql`NOT ${exists}` : exists;
+}
+
 /** The WHERE behind both listItems and countMatchingItems — one definition, so a
  *  count can never disagree with the list it is counting. */
-function itemFilterWhere(libraryId: number | null, f: ItemFilters): SQL | undefined {
+function itemFilterWhere(libraryId: number | null, f: ItemFilters, reader?: ReaderFilter): SQL | undefined {
   const conds: SQL[] = [];
   if (libraryId !== null) conds.push(eq(s.items.libraryId, libraryId));
   if (f.mediaTypes?.length) conds.push(inArray(s.items.mediaType, f.mediaTypes));
@@ -228,6 +377,7 @@ function itemFilterWhere(libraryId: number | null, f: ItemFilters): SQL | undefi
     const needle = `%${f.q.replace(/[%_\\]/g, '\\$&')}%`;
     conds.push(sql`(${s.items.title} LIKE ${needle} ESCAPE '\\' OR ${s.items.creators} LIKE ${needle} ESCAPE '\\')`);
   }
+  if (reader) conds.push(readerFilterWhere(reader));
   return and(...conds);
 }
 
@@ -261,9 +411,10 @@ export async function listItems(
   d1: D1Database,
   libraryId: number | null, // null = across all shelves (share views)
   f: ItemFilters = {},
+  reader?: ReaderFilter, // the signed-in shelf's "Read by" — never a share's (see ReaderFilter)
 ): Promise<{ items: Item[]; total: number; page: number; pages: number }> {
   const dbi = db(d1);
-  const where = itemFilterWhere(libraryId, f);
+  const where = itemFilterWhere(libraryId, f, reader);
 
   const order =
     f.sort === 'title'
@@ -296,17 +447,21 @@ export async function getItem(d1: D1Database, id: number): Promise<Item | null> 
 }
 
 /**
- * An item and the reads its status and dates stand for (readsFromColumns), in one batch. The app adds items
- * through createItemWithTags and the imports; tests seed through this, so what they seed is shaped as the app
- * would have made it.
+ * An item and the reads its status and dates stand for (readsFromColumns), and the review its rating and review
+ * stand for, in one batch — both its adder's (added_by; nobody's when it has none). The app adds items through
+ * createItemWithTags and the imports; tests seed through this, so what they seed is shaped as the app would have
+ * made it.
  */
 export async function createItem(d1: D1Database, values: NewItem): Promise<Item> {
   const reads = readsFromColumns(values.status ?? 'not_started', values.beganOn, values.completedOn);
-  const q = db(d1).insert(s.items).values(withReadState(values, reads)).returning({ id: s.items.id }).toSQL();
+  const reviews = stampReviews(reviewsFromColumns(values));
+  const q = db(d1).insert(s.items).values(withReviewState(withReadState(values, reads), reviews)).returning({ id: s.items.id }).toSQL();
   const [created] = await d1.batch([
     d1.prepare(q.sql).bind(...q.params),
-    ...readInsertStatements(d1, 'newest', reads),
+    ...readInsertStatements(d1, 'newest', reads, values.addedBy ?? null),
     refreshReadState(d1, 'newest'),
+    ...reviewInsertStatements(d1, 'newest', reviews, values.addedBy ?? null),
+    refreshReviewState(d1, 'newest'),
   ]);
   const id = (created?.results[0] as { id: number } | undefined)?.id;
   const item = id ? await getItem(d1, id) : null;
@@ -382,17 +537,21 @@ export async function setItemTags(d1: D1Database, itemId: number, names: string[
 }
 
 /**
- * A new item, its tags and the read its status and dates stand for, in one batch: a failure between them saved
- * it without them, and the person's second try saved it twice. Returns its id.
+ * A new item, its tags, and the read and review the form's status, dates, rating and review stand for — the adder's
+ * (§16 #43) — in one batch: a failure between them saved it without them, and the person's second try saved it
+ * twice. Returns its id.
  */
 export async function createItemWithTags(d1: D1Database, values: NewItem, names: string[]): Promise<number> {
   const reads = readsFromColumns(values.status ?? 'not_started', values.beganOn, values.completedOn);
-  const q = db(d1).insert(s.items).values(withReadState(values, reads)).returning({ id: s.items.id }).toSQL();
+  const reviews = stampReviews(reviewsFromColumns(values));
+  const q = db(d1).insert(s.items).values(withReviewState(withReadState(values, reads), reviews)).returning({ id: s.items.id }).toSQL();
   const [created] = await d1.batch([
     d1.prepare(q.sql).bind(...q.params),
     ...tagLinkStatements(d1, 'newest', names),
-    ...readInsertStatements(d1, 'newest', reads),
+    ...readInsertStatements(d1, 'newest', reads, values.addedBy ?? null),
     refreshReadState(d1, 'newest'),
+    ...reviewInsertStatements(d1, 'newest', reviews, values.addedBy ?? null),
+    refreshReviewState(d1, 'newest'),
   ]);
   const row = created?.results[0] as { id: number } | undefined;
   if (!row) throw new Error('failed to create item');
@@ -400,18 +559,22 @@ export async function createItemWithTags(d1: D1Database, values: NewItem, names:
 }
 
 /**
- * What the edit form says about reading: it describes the read that decides the item's status. `clearReads` is
- * "Not started" for an item with no Reading section to delete reads from — a record, a board game — whose reads
- * then go (the route allows it only there).
+ * What the edit form says about its person's reading (§16 #43): it describes that person's read that decides their
+ * status. `clearReads` is "Not started" for an item with no Reading section to delete reads from — a record, a board
+ * game — whose reads of theirs then go (the route allows it only there).
  */
 export type FormRead = { status: ItemStatus; beganOn: string | null; completedOn: string | null; clearReads?: boolean };
 
+/** What the edit form says about its person's rating and review. Both empty means they have none. */
+export type FormReview = { rating: number | null; review: string | null };
+
 /**
- * An edit, the item's new tags, and what the form says about its reading, in one batch, so a failure can't save
- * one without the others. The form's status and dates edit the read that decides the item's status — the last
- * finished one, or the open one, or the last stopped one — or make the first read of an item that has none;
- * items.status and its neighbours are then recomputed from the reads, never written from the form. "Not
- * started" writes no read: the route refuses it for an item that has reads.
+ * An edit, the item's new tags, and what the form says about its person's reading and review, in one batch, so a
+ * failure can't save one without the others. The form's status and dates edit that person's read that decides their
+ * status — their last finished one, or their open one, or their last stopped one — or make their first read; its
+ * rating and review are theirs. items.status, rating and their neighbours are then recomputed from everyone's reads
+ * and reviews, never written from the form. "Not started" writes no read: the route refuses it for a book with
+ * reads. `person` is who is editing: the reads and review are theirs whoever else has any.
  */
 export async function updateItemWithTags(
   d1: D1Database,
@@ -419,9 +582,11 @@ export async function updateItemWithTags(
   values: Partial<NewItem>,
   names: string[],
   formRead?: FormRead,
+  person: number | null = null,
+  formReview?: FormReview,
 ): Promise<void> {
-  // reading state comes from reads alone
-  const { status: _s, beganOn: _b, completedOn: _c, readCount: _n, rereading: _r, progressPage: _p, ...rest } = values;
+  // reading state and the rating and review come from reads and reviews alone
+  const { status: _s, beganOn: _b, completedOn: _c, readCount: _n, rereading: _r, progressPage: _p, rating: _g, review: _v, ...rest } = values;
   const q = db(d1)
     .update(s.items)
     .set({ ...rest, updatedAt: sql`(datetime('now'))` })
@@ -431,8 +596,12 @@ export async function updateItemWithTags(
     d1.prepare(q.sql).bind(...q.params),
     d1.prepare('DELETE FROM item_tags WHERE item_id = ?1').bind(id),
     ...tagLinkStatements(d1, id, names),
-    ...(formRead ? formReadStatements(d1, id, formRead) : []),
+    ...(formRead ? formReadStatements(d1, id, person, formRead) : []),
     refreshReadState(d1, [id]),
+    // reads first, as everywhere: a rating given with a finish is dated by it inside an import (§16 #40)
+    ...(formReview ? reviewWriteStatements(d1, id, person, formReview, 'replace') : []),
+    refreshReviewState(d1, [id]),
+    redateReviewActivity(d1, [id]),
   ]);
 }
 
@@ -575,7 +744,7 @@ export async function activeLoanItemIds(d1: D1Database, itemIds: number[]): Prom
 // ---------- full-text search ----------
 
 /** FTS5 lives outside Drizzle's DSL; ids come from a raw query, rows from Drizzle. */
-export async function searchItems(d1: D1Database, query: string, limit = 50): Promise<Item[]> {
+export async function searchItems(d1: D1Database, query: string, limit = 50, reader?: ReaderFilter): Promise<Item[]> {
   const match = query
     .replace(/["'*^]/g, ' ')
     .split(/\s+/)
@@ -583,10 +752,15 @@ export async function searchItems(d1: D1Database, query: string, limit = 50): Pr
     .map((t) => `"${t}"*`)
     .join(' ');
   if (!match) return [];
-  const idRows = await d1
-    .prepare('SELECT rowid AS id FROM items_fts WHERE items_fts MATCH ?1 ORDER BY rank LIMIT ?2')
-    .bind(match, limit)
-    .all<{ id: number }>();
+  // "Read by" narrows the match inside the FTS query, so a filtered search still finds up to `limit` items
+  const status = reader?.mode === 'reading' ? 'in_progress' : 'completed';
+  const readerSql = !reader
+    ? ''
+    : `AND rowid ${reader.mode === 'unfinished' ? 'NOT IN' : 'IN'} (SELECT item_id FROM reads WHERE status = '${status}'${
+        reader.readerId === null ? '' : ' AND reader_id = ?3'
+      })`;
+  const stmt = d1.prepare(`SELECT rowid AS id FROM items_fts WHERE items_fts MATCH ?1 ${readerSql} ORDER BY rank LIMIT ?2`);
+  const idRows = await (reader && reader.readerId !== null ? stmt.bind(match, limit, reader.readerId) : stmt.bind(match, limit)).all<{ id: number }>();
   const ids = idRows.results.map((r) => r.id);
   if (!ids.length) return [];
   const rows = await db(d1).select().from(s.items).where(inArray(s.items.id, ids));
@@ -647,13 +821,25 @@ export async function tagsForIdRange(
 
 // ---------- site settings ----------
 
-export type SiteSettings = { progressOnShares: boolean; progressToConnections: boolean };
-const SITE_DEFAULTS: SiteSettings = { progressOnShares: false, progressToConnections: true };
+export type SiteSettings = {
+  progressOnShares: boolean;
+  progressToConnections: boolean;
+  namesOnShares: boolean; // §16 #45 — members' display names, ratings and reviews on share pages
+  namesToConnections: boolean; // §16 #45 — per-person feed entries and reviews, with display names, to connections
+};
+const SITE_DEFAULTS: SiteSettings = { progressOnShares: false, progressToConnections: true, namesOnShares: false, namesToConnections: false };
 
 /** One row, id 1. Absent means defaults, so a fresh instance needs no setup step. */
 export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
   const [row] = await db(d1).select().from(s.siteSettings).where(eq(s.siteSettings.id, 1));
-  return row ? { progressOnShares: row.progressOnShares, progressToConnections: row.progressToConnections } : { ...SITE_DEFAULTS };
+  return row
+    ? {
+        progressOnShares: row.progressOnShares,
+        progressToConnections: row.progressToConnections,
+        namesOnShares: row.namesOnShares,
+        namesToConnections: row.namesToConnections,
+      }
+    : { ...SITE_DEFAULTS };
 }
 
 export async function updateSiteSettings(d1: D1Database, patch: Partial<SiteSettings>): Promise<void> {
@@ -663,17 +849,32 @@ export async function updateSiteSettings(d1: D1Database, patch: Partial<SiteSett
     .onConflictDoUpdate({ target: s.siteSettings.id, set: { ...patch, updatedAt: sql`(datetime('now'))` } });
 }
 
-// ---------- reads (ARCH.md §16 #41) ----------
+// ---------- reads (ARCH.md §16 #41, #43) ----------
 //
-// `reads` is the source of truth for reading state. Every write to it carries refreshReadState() in the same
-// batch (§16 #39), which recomputes the columns on `items` that shelves, filters, share views, connection views,
-// the activity triggers and the export read.
+// `reads` is the source of truth for reading state, one row per time someone read an item. Every write to it carries
+// refreshReadState() in the same batch (§16 #39), which recomputes the household's summary on `items` that shelves,
+// filters, share views, connection views, the activity triggers and the export read. Readers are matched with `IS`,
+// so reads with no reader (a member removed since) behave as one person, "nobody", rather than never matching.
 
 /**
- * The item columns a set of reads decides, in SQL — the twin of summarizeReads() in src/lib/reads.ts, and
- * migration 0023 carries the same text. status, began_on and completed_on come from the read that decides status
- * (a finished one, else the open one, else a stopped one); progress_page from the current read, the open one if
- * any. An item with no reads falls back to pages with no read, which is how a page kept its place before reads.
+ * Who is changing a read, a page or a review (§16 #43): members change their own, admins anyone's. Checked inside the
+ * statement that writes, so the check and the write can't come apart. `id` null only with `admin` — a caller that
+ * has already decided.
+ */
+export type Actor = { id: number | null; admin: boolean };
+
+/** `?admin = 1 OR <owner> = ?id`, for the two parameters an actor binds as. */
+const allowed = (owner: string, admin: string, id: string) => `(${admin} = 1 OR ${owner} = ${id})`;
+const actorBinds = (by: Actor) => [by.admin ? 1 : 0, by.id] as const;
+
+/**
+ * The item columns everyone's reads decide, in SQL — the twin of summarizeReads() in src/lib/reads.ts. status,
+ * began_on and completed_on come from the read that decides status across the household (a finished one by anyone,
+ * else an open one, else a stopped one), so it is Completed once anyone has finished it and completed_on is the latest
+ * finish by anyone; read_count counts everyone's finishes; rereading is an open read, by anyone, of a book finished
+ * before, by anyone. progress_page is the latest page recorded in any open read — someone reading it now — or, with
+ * none open, the deciding read's last page; an item with no reads falls back to pages with no read, which is how a
+ * page kept its place before reads. With one reader this is exactly what migration 0023 carried.
  */
 export const READ_STATE_SET = `
   status = coalesce((SELECT r.status FROM reads r WHERE r.item_id = items.id ORDER BY ${statusOrderSql('r')} LIMIT 1), 'not_started'),
@@ -683,7 +884,9 @@ export const READ_STATE_SET = `
   rereading = EXISTS (SELECT 1 FROM reads r WHERE r.item_id = items.id AND r.status = 'in_progress')
     AND EXISTS (SELECT 1 FROM reads r WHERE r.item_id = items.id AND r.status = 'completed'),
   progress_page = (SELECT p.page FROM reading_progress p WHERE p.item_id = items.id
-    AND p.read_id IS (SELECT r.id FROM reads r WHERE r.item_id = items.id ORDER BY ${currentOrderSql('r')} LIMIT 1)
+    AND CASE WHEN EXISTS (SELECT 1 FROM reads o WHERE o.item_id = items.id AND o.status = 'in_progress')
+      THEN p.read_id IN (SELECT o.id FROM reads o WHERE o.item_id = items.id AND o.status = 'in_progress')
+      ELSE p.read_id IS (SELECT r.id FROM reads r WHERE r.item_id = items.id ORDER BY ${currentOrderSql('r')} LIMIT 1) END
     ORDER BY p.at DESC, p.id DESC LIMIT 1)`;
 
 /**
@@ -706,32 +909,41 @@ function withReadState<T extends NewItem>(values: T, reads: ReadDraft[]): T {
   return { ...values, ...state };
 }
 
-/** Inserts `reads` for an item — its id, or 'newest' for one inserted earlier in the batch. One statement, in list order. */
-function readInsertStatements(d1: D1Database, item: number | 'newest', reads: ReadDraft[]): D1PreparedStatement[] {
+/**
+ * Inserts `reads` for an item — its id, or 'newest' for one inserted earlier in the batch. One statement, in list
+ * order. A read without a reader of its own is `person`'s — whoever adds the item or imports it.
+ */
+function readInsertStatements(d1: D1Database, item: number | 'newest', reads: PersonRead[], person: number | null): D1PreparedStatement[] {
   if (!reads.length) return [];
   const itemRef = item === 'newest' ? '(SELECT max(id) FROM items)' : '?2';
-  const json = JSON.stringify(reads.slice(0, MAX_READS_PER_ITEM));
+  const json = JSON.stringify(
+    reads.slice(0, MAX_READS_PER_CELL).map((r) => ({ status: r.status, beganOn: r.beganOn, endedOn: r.endedOn, readerId: r.readerId === undefined ? person : r.readerId })),
+  );
   const stmt = d1.prepare(
-    `INSERT INTO reads (item_id, status, began_on, ended_on)
-     SELECT ${itemRef}, json_extract(value, '$.status'), json_extract(value, '$.beganOn'), json_extract(value, '$.endedOn')
+    `INSERT INTO reads (item_id, reader_id, status, began_on, ended_on)
+     SELECT ${itemRef}, json_extract(value, '$.readerId'), json_extract(value, '$.status'), json_extract(value, '$.beganOn'), json_extract(value, '$.endedOn')
      FROM json_each(?1) ORDER BY key`,
   );
   return [item === 'newest' ? stmt.bind(json) : stmt.bind(json, item)];
 }
 
 /**
- * The edit form's status and dates, applied to the read that decides the item's status — or, for an item with no
- * reads yet, made its first read. Both statements are conditional on the reads actually there, not on what the
- * item columns say. Reopening a read is skipped while another one is open (the unique index would refuse it).
+ * The edit form's status and dates, applied to `person`'s read that decides their status — or, when they have no
+ * reads of it yet, made their first read. Every statement is conditional on the reads actually there, not on what
+ * the item columns say (those are the household's). Reopening a read is skipped while they have another open (the
+ * unique index would refuse it). Nobody else's reads are touched.
  */
-function formReadStatements(d1: D1Database, itemId: number, form: FormRead): D1PreparedStatement[] {
+function formReadStatements(d1: D1Database, itemId: number, person: number | null, form: FormRead): D1PreparedStatement[] {
   if (form.status === 'not_started') {
     // pages first: reading_progress.read_id references its read without a cascade
+    const theirPages = `(read_id IN (SELECT id FROM reads WHERE item_id = ?1 AND reader_id IS ?2) OR (read_id IS NULL AND added_by IS ?2))`;
     return form.clearReads
       ? [
-          d1.prepare('DELETE FROM activity_log WHERE progress_id IN (SELECT id FROM reading_progress WHERE item_id = ?1)').bind(itemId),
-          d1.prepare('DELETE FROM reading_progress WHERE item_id = ?1').bind(itemId),
-          d1.prepare('DELETE FROM reads WHERE item_id = ?1').bind(itemId),
+          d1
+            .prepare(`DELETE FROM activity_log WHERE progress_id IN (SELECT id FROM reading_progress WHERE item_id = ?1 AND ${theirPages})`)
+            .bind(itemId, person),
+          d1.prepare(`DELETE FROM reading_progress WHERE item_id = ?1 AND ${theirPages}`).bind(itemId, person),
+          d1.prepare('DELETE FROM reads WHERE item_id = ?1 AND reader_id IS ?2').bind(itemId, person),
         ]
       : [];
   }
@@ -739,79 +951,115 @@ function formReadStatements(d1: D1Database, itemId: number, form: FormRead): D1P
   return [
     d1
       .prepare(
-        `INSERT INTO reads (item_id, status, began_on, ended_on)
-         SELECT ?1, ?2, ?3, ?4 WHERE NOT EXISTS (SELECT 1 FROM reads WHERE item_id = ?1)`,
+        `INSERT INTO reads (item_id, reader_id, status, began_on, ended_on)
+         SELECT ?1, ?5, ?2, ?3, ?4 WHERE NOT EXISTS (SELECT 1 FROM reads WHERE item_id = ?1 AND reader_id IS ?5)`,
       )
-      .bind(itemId, form.status, form.beganOn, ended),
+      .bind(itemId, form.status, form.beganOn, ended, person),
     d1
       .prepare(
         `UPDATE reads SET status = ?2, began_on = ?3, ended_on = ?4
-         WHERE id = (SELECT r.id FROM reads r WHERE r.item_id = ?1 ORDER BY ${statusOrderSql('r')} LIMIT 1)
+         WHERE id = (SELECT r.id FROM reads r WHERE r.item_id = ?1 AND r.reader_id IS ?5 ORDER BY ${statusOrderSql('r')} LIMIT 1)
            AND NOT (?2 = 'in_progress' AND EXISTS (
-             SELECT 1 FROM reads o WHERE o.item_id = ?1 AND o.status = 'in_progress' AND o.id <> reads.id))`,
+             SELECT 1 FROM reads o WHERE o.item_id = ?1 AND o.reader_id IS ?5 AND o.status = 'in_progress' AND o.id <> reads.id))`,
       )
-      .bind(itemId, form.status, form.beganOn, ended),
-    adoptOrphanPages(d1, itemId),
+      .bind(itemId, form.status, form.beganOn, ended, person),
+    adoptOrphanPages(d1, itemId, person),
   ];
 }
 
 /**
  * Pages recorded before an item had any read — only a book marked not started that had pages when reads arrived —
- * join its current read once it has one, as migration 0023 put everyone else's. Left behind with no read, they'd
- * drop out of the item page while still being exported and shared. A no-op for every other item.
+ * join their recorder's current read once they have one, as migration 0023 put everyone else's. Left behind with no
+ * read, they'd drop out of the item page while still being exported and shared. A no-op for every other item.
  */
-function adoptOrphanPages(d1: D1Database, itemId: number): D1PreparedStatement {
+function adoptOrphanPages(d1: D1Database, itemId: number, person: number | null): D1PreparedStatement {
   return d1
     .prepare(
-      `UPDATE reading_progress SET read_id = (SELECT r.id FROM reads r WHERE r.item_id = ?1 ORDER BY ${currentOrderSql('r')} LIMIT 1)
-       WHERE item_id = ?1 AND read_id IS NULL AND EXISTS (SELECT 1 FROM reads WHERE item_id = ?1)`,
+      `UPDATE reading_progress SET read_id = (SELECT r.id FROM reads r WHERE r.item_id = ?1 AND r.reader_id IS ?2 ORDER BY ${currentOrderSql('r')} LIMIT 1)
+       WHERE item_id = ?1 AND read_id IS NULL AND added_by IS ?2 AND EXISTS (SELECT 1 FROM reads WHERE item_id = ?1 AND reader_id IS ?2)`,
     )
-    .bind(itemId);
+    .bind(itemId, person);
 }
 
-export type ReadEntry = ReadRow & { createdAt: string };
+export type ReadEntry = ReadRow & { createdAt: string; readerId: number | null };
+export type ReviewEntry = {
+  id: number;
+  userId: number | null;
+  rating: number | null;
+  review: string | null;
+  reviewedAt: string | null;
+  updatedAt: string;
+};
 
-/** An item's reads, oldest first with the open one last, and its pages — one D1 call. */
-export async function readingLog(d1: D1Database, itemId: number): Promise<{ reads: ReadEntry[]; entries: ProgressEntry[] }> {
-  const [reads, entries] = await d1.batch([
+/**
+ * An item's reads, everyone's, oldest first with the open ones last; its pages; and everyone's reviews, the one the
+ * household shows first — one D1 call.
+ */
+export async function readingLog(
+  d1: D1Database,
+  itemId: number,
+): Promise<{ reads: ReadEntry[]; entries: ProgressEntry[]; reviews: ReviewEntry[] }> {
+  const [reads, entries, reviews] = await d1.batch([
     d1
       .prepare(
-        `SELECT r.id, r.status, r.began_on AS beganOn, r.ended_on AS endedOn, r.created_at AS createdAt
+        `SELECT r.id, r.status, r.began_on AS beganOn, r.ended_on AS endedOn, r.created_at AS createdAt, r.reader_id AS readerId
          FROM reads r WHERE r.item_id = ?1 ORDER BY ${displayOrderSql('r')}`,
       )
       .bind(itemId),
     d1
       .prepare('SELECT id, page, at, added_by AS addedBy, read_id AS readId FROM reading_progress WHERE item_id = ?1 ORDER BY at, id')
       .bind(itemId),
+    d1
+      .prepare(
+        `SELECT v.id, v.user_id AS userId, v.rating, v.review, v.reviewed_at AS reviewedAt, v.updated_at AS updatedAt
+         FROM reviews v WHERE v.item_id = ?1 ORDER BY ${reviewOrderSql('v')}`,
+      )
+      .bind(itemId),
   ]);
-  return { reads: (reads?.results ?? []) as ReadEntry[], entries: (entries?.results ?? []) as ProgressEntry[] };
+  return {
+    reads: (reads?.results ?? []) as ReadEntry[],
+    entries: (entries?.results ?? []) as ProgressEntry[],
+    reviews: (reviews?.results ?? []) as ReviewEntry[],
+  };
+}
+
+/** One read of an item, or null — what a route checks the actor against before it says why a change was refused. */
+export async function getRead(d1: D1Database, itemId: number, readId: number): Promise<ReadEntry | null> {
+  return d1
+    .prepare(
+      `SELECT id, status, began_on AS beganOn, ended_on AS endedOn, created_at AS createdAt, reader_id AS readerId
+       FROM reads WHERE id = ?1 AND item_id = ?2`,
+    )
+    .bind(readId, itemId)
+    .first<ReadEntry>();
 }
 
 /**
- * Opens a read — the first, or "Read again" on a finished book, which stays Completed and shows as re-reading.
- * Nothing happens while one is already open. True when a read was opened.
+ * Opens a read for `reader` — their first, or "Read again" on a book they've finished, which stays Completed and
+ * shows as re-reading. Nothing happens while they have one open; someone else's open read doesn't matter. True when
+ * a read was opened.
  */
-export async function startRead(d1: D1Database, itemId: number, beganOn: string): Promise<boolean> {
+export async function startRead(d1: D1Database, itemId: number, beganOn: string, reader: number | null = null): Promise<boolean> {
   const [inserted] = await d1.batch([
     d1
       .prepare(
-        `INSERT INTO reads (item_id, status, began_on)
-         SELECT ?1, 'in_progress', ?2
+        `INSERT INTO reads (item_id, reader_id, status, began_on)
+         SELECT ?1, ?3, 'in_progress', ?2
          WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1)
-           AND NOT EXISTS (SELECT 1 FROM reads WHERE item_id = ?1 AND status = 'in_progress')
-           AND (SELECT count(*) FROM reads WHERE item_id = ?1) < ${MAX_READS_PER_ITEM}`,
+           AND NOT EXISTS (SELECT 1 FROM reads WHERE item_id = ?1 AND reader_id IS ?3 AND status = 'in_progress')
+           AND (SELECT count(*) FROM reads WHERE item_id = ?1 AND reader_id IS ?3) < ${MAX_READS_PER_ITEM}`,
       )
-      .bind(itemId, beganOn),
-    adoptOrphanPages(d1, itemId),
+      .bind(itemId, beganOn, reader),
+    adoptOrphanPages(d1, itemId, reader),
     refreshReadState(d1, [itemId], { touch: true }),
   ]);
   return (inserted?.meta.changes ?? 0) > 0;
 }
 
 /**
- * Closes the open read: finished, or stopped. A finish makes it the last finished read, so completed_on moves to
- * its date and migration 0021's trigger records the finish for connections, dated by it (§16 #40). Only an open
- * read that began by that date closes. True when it did.
+ * Closes an open read: finished, or stopped. A finish after the household's last makes completed_on move to its
+ * date, and migration 0021's trigger records the finish for connections, dated by it (§16 #40). Only an open read
+ * that began by that date closes, and only by its reader or an admin. True when it did.
  */
 export async function closeRead(
   d1: D1Database,
@@ -819,50 +1067,53 @@ export async function closeRead(
   readId: number,
   status: Exclude<ReadStatus, 'in_progress'>,
   endedOn: string,
+  by: Actor,
 ): Promise<boolean> {
   const [closed] = await d1.batch([
     d1
       .prepare(
         `UPDATE reads SET status = ?3, ended_on = ?4
-         WHERE id = ?1 AND item_id = ?2 AND status = 'in_progress' AND (began_on IS NULL OR began_on <= ?4)`,
+         WHERE id = ?1 AND item_id = ?2 AND status = 'in_progress' AND (began_on IS NULL OR began_on <= ?4)
+           AND ${allowed('reader_id', '?5', '?6')}`,
       )
-      .bind(readId, itemId, status, endedOn),
+      .bind(readId, itemId, status, endedOn, ...actorBinds(by)),
     refreshReadState(d1, [itemId], { touch: true }),
   ]);
   return (closed?.meta.changes ?? 0) > 0;
 }
 
-/** Records a read from before — "I also read this in 2010" — finished or stopped. True when it was added. */
-export async function addPastRead(d1: D1Database, itemId: number, read: ReadDraft): Promise<boolean> {
+/** Records one of `reader`'s reads from before — "I also read this in 2010" — finished or stopped. True when it was added. */
+export async function addPastRead(d1: D1Database, itemId: number, read: ReadDraft, reader: number | null = null): Promise<boolean> {
   if (read.status === 'in_progress') return false;
   const [inserted] = await d1.batch([
     d1
       .prepare(
-        `INSERT INTO reads (item_id, status, began_on, ended_on)
-         SELECT ?1, ?2, ?3, ?4
-         WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1) AND (SELECT count(*) FROM reads WHERE item_id = ?1) < ${MAX_READS_PER_ITEM}`,
+        `INSERT INTO reads (item_id, reader_id, status, began_on, ended_on)
+         SELECT ?1, ?5, ?2, ?3, ?4
+         WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1)
+           AND (SELECT count(*) FROM reads WHERE item_id = ?1 AND reader_id IS ?5) < ${MAX_READS_PER_ITEM}`,
       )
-      .bind(itemId, read.status, read.beganOn, read.endedOn),
-    adoptOrphanPages(d1, itemId),
+      .bind(itemId, read.status, read.beganOn, read.endedOn, reader),
+    adoptOrphanPages(d1, itemId, reader),
     refreshReadState(d1, [itemId], { touch: true }),
   ]);
   return (inserted?.meta.changes ?? 0) > 0;
 }
 
 /**
- * Corrects one read's outcome and dates. Making it the open read is skipped while another is open. True when it
- * changed.
+ * Corrects one read's outcome and dates, by its reader or an admin. Making it an open read is skipped while its
+ * reader has another open. True when it changed.
  */
-export async function updateRead(d1: D1Database, itemId: number, readId: number, read: ReadDraft): Promise<boolean> {
+export async function updateRead(d1: D1Database, itemId: number, readId: number, read: ReadDraft, by: Actor): Promise<boolean> {
   const [updated] = await d1.batch([
     d1
       .prepare(
         `UPDATE reads SET status = ?3, began_on = ?4, ended_on = ?5
-         WHERE id = ?1 AND item_id = ?2
+         WHERE id = ?1 AND item_id = ?2 AND ${allowed('reader_id', '?6', '?7')}
            AND NOT (?3 = 'in_progress' AND EXISTS (
-             SELECT 1 FROM reads o WHERE o.item_id = ?2 AND o.status = 'in_progress' AND o.id <> ?1))`,
+             SELECT 1 FROM reads o WHERE o.item_id = ?2 AND o.status = 'in_progress' AND o.id <> ?1 AND o.reader_id IS reads.reader_id))`,
       )
-      .bind(readId, itemId, read.status, read.beganOn, read.status === 'in_progress' ? null : read.endedOn),
+      .bind(readId, itemId, read.status, read.beganOn, read.status === 'in_progress' ? null : read.endedOn, ...actorBinds(by)),
     refreshReadState(d1, [itemId], { touch: true }),
   ]);
   return (updated?.meta.changes ?? 0) > 0;
@@ -871,38 +1122,312 @@ export async function updateRead(d1: D1Database, itemId: number, readId: number,
 /**
  * Deletes a read and the pages recorded in it — a read's page log only means something inside that read — with
  * those pages' feed entries first, because activity_log.progress_id and reading_progress.read_id reference them
- * without a cascade (§16 #35).
+ * without a cascade (§16 #35). Only by its reader or an admin: every statement checks, so a refused delete removes
+ * no page either. True when the read went.
  */
-export async function deleteRead(d1: D1Database, itemId: number, readId: number): Promise<void> {
-  await d1.batch([
+export async function deleteRead(d1: D1Database, itemId: number, readId: number, by: Actor): Promise<boolean> {
+  const mayDelete = `EXISTS (SELECT 1 FROM reads g WHERE g.id = ?1 AND g.item_id = ?2 AND ${allowed('g.reader_id', '?3', '?4')})`;
+  const binds = [readId, itemId, ...actorBinds(by)];
+  const results = await d1.batch([
     d1
-      .prepare(
-        `DELETE FROM activity_log WHERE progress_id IN (SELECT id FROM reading_progress WHERE read_id = ?1 AND item_id = ?2)`,
-      )
-      .bind(readId, itemId),
-    d1.prepare('DELETE FROM reading_progress WHERE read_id = ?1 AND item_id = ?2').bind(readId, itemId),
-    d1.prepare('DELETE FROM reads WHERE id = ?1 AND item_id = ?2').bind(readId, itemId),
+      .prepare(`DELETE FROM activity_log WHERE progress_id IN (SELECT id FROM reading_progress WHERE read_id = ?1 AND item_id = ?2) AND ${mayDelete}`)
+      .bind(...binds),
+    d1.prepare(`DELETE FROM reading_progress WHERE read_id = ?1 AND item_id = ?2 AND ${mayDelete}`).bind(...binds),
+    d1.prepare(`DELETE FROM reads WHERE id = ?1 AND item_id = ?2 AND ${allowed('reader_id', '?3', '?4')}`).bind(...binds),
     refreshReadState(d1, [itemId], { touch: true }),
   ]);
+  return (results[2]?.meta.changes ?? 0) > 0;
 }
 
 /**
- * Reads for every item whose id lies in [fromId, toId], each item's in display order — the export's pages are
- * contiguous in id order, so one query covers a page (see tagsForIdRange).
+ * Moves a read, and the pages recorded in it, to another member — an admin fixing history credited to the wrong
+ * person (§16 #43), such as everything migration 0025 gave the first admin. Refused for anyone but an admin, for a
+ * member who doesn't exist, and for an open read when that member already has one open. The household's summary
+ * doesn't change, since it is everyone's, but it is refreshed with the move like every other write. True when it
+ * moved.
  */
-export async function readsForIdRange(d1: D1Database, fromId: number, toId: number, libraryId?: number): Promise<Map<number, ReadRow[]>> {
+export async function moveRead(d1: D1Database, itemId: number, readId: number, to: number, by: Actor): Promise<boolean> {
+  const [moved] = await d1.batch([
+    d1
+      .prepare(
+        `UPDATE reads SET reader_id = ?3
+         WHERE id = ?1 AND item_id = ?2 AND ?4 = 1 AND reader_id IS NOT ?3
+           AND EXISTS (SELECT 1 FROM users WHERE id = ?3)
+           AND NOT (status = 'in_progress' AND EXISTS (
+             SELECT 1 FROM reads o WHERE o.item_id = ?2 AND o.reader_id = ?3 AND o.status = 'in_progress'))
+           AND (SELECT count(*) FROM reads c WHERE c.item_id = ?2 AND c.reader_id = ?3) < ${MAX_READS_PER_ITEM}`,
+      )
+      .bind(readId, itemId, to, by.admin ? 1 : 0),
+    // its entries on the per-person feed, re-keyed so connections holding them under the old name pull them again
+    ...rekeyMoved(d1, { readId }),
+    // its pages are its reader's: they follow it, and only once it has moved
+    d1
+      .prepare(
+        `UPDATE reading_progress SET added_by = ?3
+         WHERE read_id = ?1 AND item_id = ?2 AND EXISTS (SELECT 1 FROM reads WHERE id = ?1 AND reader_id = ?3)`,
+      )
+      .bind(readId, itemId, to),
+    refreshReadState(d1, [itemId]),
+  ]);
+  return (moved?.meta.changes ?? 0) > 0;
+}
+
+/**
+ * Reads for every item whose id lies in [fromId, toId], each item's in display order, with each reader's username
+ * (null for a member removed since) — the export's pages are contiguous in id order, so one query covers a page
+ * (see tagsForIdRange).
+ */
+export async function readsForIdRange(
+  d1: D1Database,
+  fromId: number,
+  toId: number,
+  libraryId?: number,
+): Promise<Map<number, Array<ReadRow & { reader: string | null }>>> {
   const scoped = libraryId ? 'AND r.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : '';
   const stmt = d1.prepare(
-    `SELECT r.item_id AS itemId, r.id, r.status, r.began_on AS beganOn, r.ended_on AS endedOn FROM reads r
+    `SELECT r.item_id AS itemId, r.id, r.status, r.began_on AS beganOn, r.ended_on AS endedOn, u.username AS reader
+     FROM reads r LEFT JOIN users u ON u.id = r.reader_id
      WHERE r.item_id BETWEEN ?1 AND ?2 ${scoped}
      ORDER BY r.item_id, ${displayOrderSql('r')}`,
   );
-  const rows = (await (libraryId ? stmt.bind(fromId, toId, libraryId) : stmt.bind(fromId, toId)).all<ReadRow & { itemId: number }>())
-    .results;
-  const result = new Map<number, ReadRow[]>();
+  const rows = (
+    await (libraryId ? stmt.bind(fromId, toId, libraryId) : stmt.bind(fromId, toId)).all<ReadRow & { itemId: number; reader: string | null }>()
+  ).results;
+  const result = new Map<number, Array<ReadRow & { reader: string | null }>>();
   for (const { itemId, ...read } of rows) {
     const list = result.get(itemId) ?? [];
-    list.push({ id: read.id, status: read.status, beganOn: read.beganOn, endedOn: read.endedOn });
+    list.push({ id: read.id, status: read.status, beganOn: read.beganOn, endedOn: read.endedOn, reader: read.reader });
+    result.set(itemId, list);
+  }
+  return result;
+}
+
+// ---------- reviews (ARCH.md §16 #43) ----------
+//
+// `reviews` holds each member's rating and review of an item; items.rating and items.review are the household's
+// summary of them — the average rating and the review written most recently — kept by refreshReviewState() in the
+// same batch as every write, so share pages, connections, the activity triggers and the export read them as before.
+
+/** Whitespace-insensitive text, as migration 0007's triggers compare reviews: a CRLF resubmitted isn't a new review. */
+const normText = (x: string) => `trim(replace(coalesce(${x}, ''), char(13), ''), ' ' || char(9) || char(10))`;
+
+/**
+ * Brings items' rating and review in line with their reviews: the average of everyone's ratings, rounded to the 1–10
+ * scale, and the review written most recently — the twin of summarizeReviews(). Writes only an item whose summary
+ * actually changed, and stamps its updated_at then: connections see that time, and an average that didn't move is
+ * no change to the book. The update fires migration 0021's trigger, which records "rated" or "reviewed" when the
+ * summary moved — a second member's rating that changes the average is news, dated per §16 #40, and never inside an
+ * import's marker. `ids` as refreshReadState's.
+ */
+export function refreshReviewState(d1: D1Database, ids: number[] | 'newest'): D1PreparedStatement {
+  const source = ids === 'newest' ? '(SELECT max(id) AS id FROM items)' : '(SELECT value AS id FROM json_each(?1))';
+  const stmt = d1.prepare(
+    `UPDATE items SET rating = s.rating, review = s.review, updated_at = datetime('now')
+     FROM (SELECT j.id,
+             (SELECT CAST(round(avg(v.rating)) AS INTEGER) FROM reviews v WHERE v.item_id = j.id AND v.rating IS NOT NULL) AS rating,
+             (SELECT v.review FROM reviews v WHERE v.item_id = j.id AND v.review IS NOT NULL ORDER BY ${reviewOrderSql('v')} LIMIT 1) AS review
+           FROM ${source} j) AS s
+     WHERE items.id = s.id AND (items.rating IS NOT s.rating OR items.review IS NOT s.review)`,
+  );
+  return ids === 'newest' ? stmt : stmt.bind(JSON.stringify(ids));
+}
+
+/**
+ * Dates the household's "reviewed" and "rated" activity by when what they now show was given (§16 #40). When a
+ * member's review or rating goes — deleted, or cleared from the edit form — the one the household shows next is
+ * older, but migration 0021's trigger sees only that the item's review or rating changed, and dates its replacement
+ * now: an old review would reach connections as news. This moves such an entry back to when the review now shown was
+ * written (reviewed_at), or the latest remaining rating was given (rated_at — a text edit alone doesn't move it, so
+ * an old rating whose review was later reworded isn't re-announced as new). Never forward, so an entry for something just written keeps its time, and
+ * an import's, dated by its read, keeps that. The entry keeps its new id, so connections still learn their copy is out
+ * of date. Rides in the batch of every write that can remove a review, after refreshReviewState().
+ */
+function redateReviewActivity(d1: D1Database, ids: number[]): D1PreparedStatement {
+  return d1
+    .prepare(
+      `UPDATE activity_log SET at = min(at, coalesce(CASE kind
+         WHEN 'reviewed' THEN (SELECT max(v.reviewed_at) FROM reviews v WHERE v.item_id = activity_log.item_id AND v.review IS NOT NULL)
+         ELSE (SELECT max(v.rated_at) FROM reviews v WHERE v.item_id = activity_log.item_id AND v.rating IS NOT NULL) END, at))
+       WHERE item_id IN (SELECT value FROM json_each(?1)) AND kind IN ('reviewed', 'rated')`,
+    )
+    .bind(JSON.stringify(ids));
+}
+
+/** The item columns for reviews it is inserted with, so its insert trigger sees the rating and review it will have. */
+function withReviewState<T extends NewItem>(values: T, reviews: ReviewDraft[]): T {
+  return { ...values, ...summarizeReviews(reviews) };
+}
+
+/** The review an item's own rating and review columns stand for — how a form, a libib or Goodreads row arrives. */
+function reviewsFromColumns(values: Pick<NewItem, 'rating' | 'review'>): ReviewDraft[] {
+  const rating = values.rating ?? null;
+  const review = values.review ?? null;
+  return rating === null && review === null ? [] : [{ rating, review, reviewedAt: null, ratedAt: null }];
+}
+
+/**
+ * Inserts reviews for an item — its id, or 'newest'. A review without a person of its own is `person`'s. One per
+ * person: a second for the same person is dropped here (the unique index would refuse it), and a review with no
+ * written time takes now.
+ */
+function reviewInsertStatements(d1: D1Database, item: number | 'newest', reviews: PersonReview[], person: number | null): D1PreparedStatement[] {
+  if (!reviews.length) return [];
+  const seen = new Set<number>();
+  const rows = [];
+  for (const r of reviews) {
+    const userId = r.userId === undefined ? person : r.userId;
+    if (userId !== null) {
+      if (seen.has(userId)) continue;
+      seen.add(userId);
+    }
+    rows.push({ userId, rating: r.rating, review: r.review, reviewedAt: r.reviewedAt, ratedAt: r.ratedAt ?? null });
+  }
+  const itemRef = item === 'newest' ? '(SELECT max(id) FROM items)' : '?2';
+  const stmt = d1.prepare(
+    `INSERT INTO reviews (item_id, user_id, rating, review, reviewed_at, rated_at)
+     SELECT ${itemRef}, json_extract(value, '$.userId'), json_extract(value, '$.rating'), json_extract(value, '$.review'),
+       CASE WHEN json_extract(value, '$.review') IS NULL THEN NULL ELSE coalesce(json_extract(value, '$.reviewedAt'), datetime('now')) END,
+       CASE WHEN json_extract(value, '$.rating') IS NULL THEN NULL ELSE coalesce(json_extract(value, '$.ratedAt'), datetime('now')) END
+     FROM json_each(?1) ORDER BY key`,
+  );
+  const json = JSON.stringify(rows);
+  return [item === 'newest' ? stmt.bind(json) : stmt.bind(json, item)];
+}
+
+/**
+ * `person`'s rating and review of an item, written. `replace` (the edit form) makes them exactly what was sent —
+ * both empty removes the review; `merge` (a Goodreads re-import) takes only what was sent, never blanking what is
+ * there (§16 #14). The text's written time moves only when the text really changed, so a rating changed alone, or a
+ * form saved untouched, doesn't make an old review the household's latest. Update, then insert when there was none:
+ * `IS` matches a person of null too, where ON CONFLICT never would.
+ */
+function reviewWriteStatements(
+  d1: D1Database,
+  itemId: number,
+  person: number | null,
+  sent: FormReview,
+  mode: 'replace' | 'merge',
+): D1PreparedStatement[] {
+  const newRating = mode === 'merge' ? 'coalesce(?3, rating)' : '?3';
+  const newReview = mode === 'merge' ? 'coalesce(?4, review)' : '?4';
+  const differs =
+    mode === 'merge'
+      ? '((?3 IS NOT NULL AND rating IS NOT ?3) OR (?4 IS NOT NULL AND review IS NOT ?4))'
+      : '(rating IS NOT ?3 OR review IS NOT ?4)';
+  const binds = [itemId, person, sent.rating, sent.review] as const;
+  return [
+    d1
+      .prepare(
+        `UPDATE reviews SET rating = ${newRating}, review = ${newReview}, updated_at = datetime('now'),
+           reviewed_at = CASE WHEN ${newReview} IS NULL THEN NULL
+             WHEN review IS NOT NULL AND ${normText('review')} = ${normText(newReview)} THEN reviewed_at ELSE datetime('now') END,
+           rated_at = CASE WHEN ${newRating} IS NULL THEN NULL WHEN rating IS ${newRating} THEN rated_at ELSE datetime('now') END
+         WHERE item_id = ?1 AND user_id IS ?2 AND (?3 IS NOT NULL OR ?4 IS NOT NULL) AND ${differs}`,
+      )
+      .bind(...binds),
+    d1
+      .prepare(
+        `INSERT INTO reviews (item_id, user_id, rating, review, reviewed_at, rated_at)
+         SELECT ?1, ?2, ?3, ?4, CASE WHEN ?4 IS NULL THEN NULL ELSE datetime('now') END, CASE WHEN ?3 IS NULL THEN NULL ELSE datetime('now') END
+         WHERE (?3 IS NOT NULL OR ?4 IS NOT NULL) AND EXISTS (SELECT 1 FROM items WHERE id = ?1)
+           AND NOT EXISTS (SELECT 1 FROM reviews WHERE item_id = ?1 AND user_id IS ?2)`,
+      )
+      .bind(...binds),
+    ...(mode === 'replace'
+      ? [d1.prepare('DELETE FROM reviews WHERE item_id = ?1 AND user_id IS ?2 AND ?3 IS NULL AND ?4 IS NULL').bind(...binds)]
+      : []),
+  ];
+}
+
+/** One review of an item, or null — what a route checks the actor against before it says why a change was refused. */
+export async function getReview(d1: D1Database, itemId: number, reviewId: number): Promise<ReviewEntry | null> {
+  return d1
+    .prepare(
+      `SELECT id, user_id AS userId, rating, review, reviewed_at AS reviewedAt, updated_at AS updatedAt
+       FROM reviews WHERE id = ?1 AND item_id = ?2`,
+    )
+    .bind(reviewId, itemId)
+    .first<ReviewEntry>();
+}
+
+/**
+ * Edits one review in place — from the book's page, by its writer or an admin. Both empty deletes it. The household's
+ * summary is recomputed in the same batch. True when it changed.
+ */
+export async function updateReview(d1: D1Database, itemId: number, reviewId: number, sent: FormReview, by: Actor): Promise<boolean> {
+  const binds = [reviewId, itemId, sent.rating, sent.review, ...actorBinds(by)] as const;
+  const results = await d1.batch([
+    d1
+      .prepare(
+        `UPDATE reviews SET rating = ?3, review = ?4, updated_at = datetime('now'),
+           reviewed_at = CASE WHEN ?4 IS NULL THEN NULL
+             WHEN review IS NOT NULL AND ${normText('review')} = ${normText('?4')} THEN reviewed_at ELSE datetime('now') END,
+           rated_at = CASE WHEN ?3 IS NULL THEN NULL WHEN rating IS ?3 THEN rated_at ELSE datetime('now') END
+         WHERE id = ?1 AND item_id = ?2 AND ${allowed('user_id', '?5', '?6')}
+           AND (?3 IS NOT NULL OR ?4 IS NOT NULL) AND (rating IS NOT ?3 OR review IS NOT ?4)`,
+      )
+      .bind(...binds),
+    d1
+      .prepare(`DELETE FROM reviews WHERE id = ?1 AND item_id = ?2 AND ${allowed('user_id', '?5', '?6')} AND ?3 IS NULL AND ?4 IS NULL`)
+      .bind(...binds),
+    refreshReviewState(d1, [itemId]),
+    redateReviewActivity(d1, [itemId]),
+  ]);
+  return (results[0]?.meta.changes ?? 0) + (results[1]?.meta.changes ?? 0) > 0;
+}
+
+/** Deletes one review, by its writer or an admin, and recomputes the household's summary with it. True when it went. */
+export async function deleteReview(d1: D1Database, itemId: number, reviewId: number, by: Actor): Promise<boolean> {
+  const [deleted] = await d1.batch([
+    d1.prepare(`DELETE FROM reviews WHERE id = ?1 AND item_id = ?2 AND ${allowed('user_id', '?3', '?4')}`).bind(reviewId, itemId, ...actorBinds(by)),
+    refreshReviewState(d1, [itemId]),
+    redateReviewActivity(d1, [itemId]),
+  ]);
+  return (deleted?.meta.changes ?? 0) > 0;
+}
+
+/**
+ * Moves a review to another member, as moveRead does a read. Refused for anyone but an admin, for a member who
+ * doesn't exist, and for one who already has a review of this item — one each, so the two would have to become one,
+ * which is a person's call: they delete one first. True when it moved.
+ */
+export async function moveReview(d1: D1Database, itemId: number, reviewId: number, to: number, by: Actor): Promise<boolean> {
+  const [moved] = await d1.batch([
+    d1
+      .prepare(
+        `UPDATE reviews SET user_id = ?3
+         WHERE id = ?1 AND item_id = ?2 AND ?4 = 1 AND user_id IS NOT ?3
+           AND EXISTS (SELECT 1 FROM users WHERE id = ?3)
+           AND NOT EXISTS (SELECT 1 FROM reviews o WHERE o.item_id = ?2 AND o.user_id = ?3)`,
+      )
+      .bind(reviewId, itemId, to, by.admin ? 1 : 0),
+    ...rekeyMoved(d1, { reviewId }), // as moveRead's
+    refreshReviewState(d1, [itemId]),
+  ]);
+  return (moved?.meta.changes ?? 0) > 0;
+}
+
+/** Reviews for every item whose id lies in [fromId, toId], oldest first, with each writer's username — as readsForIdRange. */
+export async function reviewsForIdRange(
+  d1: D1Database,
+  fromId: number,
+  toId: number,
+  libraryId?: number,
+): Promise<Map<number, Array<ReviewDraft & { by: string | null }>>> {
+  const scoped = libraryId ? 'AND v.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : '';
+  const stmt = d1.prepare(
+    `SELECT v.item_id AS itemId, u.username AS by, v.rating, v.review, v.reviewed_at AS reviewedAt, v.rated_at AS ratedAt
+     FROM reviews v LEFT JOIN users u ON u.id = v.user_id
+     WHERE v.item_id BETWEEN ?1 AND ?2 ${scoped}
+     ORDER BY v.item_id, v.id`,
+  );
+  const rows = (
+    await (libraryId ? stmt.bind(fromId, toId, libraryId) : stmt.bind(fromId, toId)).all<ReviewDraft & { itemId: number; by: string | null }>()
+  ).results;
+  const result = new Map<number, Array<ReviewDraft & { by: string | null }>>();
+  for (const { itemId, ...review } of rows) {
+    const list = result.get(itemId) ?? [];
+    list.push(review);
     result.set(itemId, list);
   }
   return result;
@@ -928,56 +1453,70 @@ export async function listProgress(d1: D1Database, itemId: number): Promise<Prog
 }
 
 /**
- * Records a page reached, in the open read. One batch, so the page, its read and the copy on `items` can't
- * disagree. A book with no reads gets its first, opened today, because recording a page is what starting a book
- * looks like (§16 #34); an open read with no start date takes today's, as before. A book finished or stopped with
- * no open read records nothing — reading it again is a deliberate "Read again" first (§16 #41). True when the
- * page was recorded.
+ * Records a page `reader` reached, in their open read. One batch, so the page, its read and the copy on `items`
+ * can't disagree. Someone with no reads of the book gets their first, opened today, because recording a page is what
+ * starting a book looks like (§16 #34); an open read with no start date takes today's, as before. Someone who has
+ * finished or stopped it, with no read open, records nothing — reading it again is a deliberate "Read again" first
+ * (§16 #41). Anyone else's reads don't matter. True when the page was recorded.
  */
-export async function addProgress(d1: D1Database, itemId: number, page: number, userId: number | null): Promise<boolean> {
+export async function addProgress(d1: D1Database, itemId: number, page: number, reader: number | null): Promise<boolean> {
   const results = await d1.batch([
     d1
       .prepare(
-        `INSERT INTO reads (item_id, status, began_on)
-         SELECT ?1, 'in_progress', date('now')
-         WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1) AND NOT EXISTS (SELECT 1 FROM reads WHERE item_id = ?1)`,
+        `INSERT INTO reads (item_id, reader_id, status, began_on)
+         SELECT ?1, ?2, 'in_progress', date('now')
+         WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1) AND NOT EXISTS (SELECT 1 FROM reads WHERE item_id = ?1 AND reader_id IS ?2)`,
       )
-      .bind(itemId),
+      .bind(itemId, reader),
     d1
       .prepare(
         `UPDATE reads SET began_on = date('now')
-         WHERE item_id = ?1 AND status = 'in_progress' AND (began_on IS NULL OR trim(began_on) = '')`,
+         WHERE item_id = ?1 AND reader_id IS ?2 AND status = 'in_progress' AND (began_on IS NULL OR trim(began_on) = '')`,
       )
-      .bind(itemId),
-    adoptOrphanPages(d1, itemId),
+      .bind(itemId, reader),
+    adoptOrphanPages(d1, itemId, reader),
     d1
       .prepare(
         `INSERT INTO reading_progress (item_id, page, added_by, read_id)
-         SELECT ?1, ?2, ?3, id FROM reads WHERE item_id = ?1 AND status = 'in_progress'`,
+         SELECT ?1, ?3, ?2, id FROM reads WHERE item_id = ?1 AND reader_id IS ?2 AND status = 'in_progress' LIMIT 1`,
       )
-      .bind(itemId, page, userId),
+      .bind(itemId, reader, page),
     // updated_at is deliberately untouched: connections see it, and a page is its own entry, not an edit of the book
     refreshReadState(d1, [itemId]),
   ]);
   return (results[3]?.meta.changes ?? 0) > 0;
 }
 
+/** A page's person: its read's reader, or — for a page from before reads — whoever recorded it. */
+const pageOwner = (p: string) => `CASE WHEN ${p}.read_id IS NULL THEN ${p}.added_by ELSE (SELECT r.reader_id FROM reads r WHERE r.id = ${p}.read_id) END`;
+
+/** One page of an item, with its person — what a route checks the actor against. */
+export async function getProgressEntry(d1: D1Database, itemId: number, entryId: number): Promise<(ProgressEntry & { ownerId: number | null }) | null> {
+  return d1
+    .prepare(
+      `SELECT p.id, p.page, p.at, p.added_by AS addedBy, p.read_id AS readId, ${pageOwner('p')} AS ownerId
+       FROM reading_progress p WHERE p.id = ?1 AND p.item_id = ?2`,
+    )
+    .bind(entryId, itemId)
+    .first<ProgressEntry & { ownerId: number | null }>();
+}
+
 /**
- * Removes one entry — a typo, usually — and puts `items.progress_page` back to whatever the newest
- * remaining entry of the current read says, or to NULL when that was the only one. Its read stays:
- * deleting a mistyped page is not the same as saying you never started the book.
+ * Removes one entry — a typo, usually — by its person or an admin, and puts `items.progress_page` back to whatever
+ * the newest remaining entry says, or to NULL when that was the only one. Its read stays: deleting a mistyped page is
+ * not the same as saying you never started the book. True when it went.
  */
-export async function deleteProgress(d1: D1Database, itemId: number, entryId: number): Promise<void> {
-  await d1.batch([
+export async function deleteProgress(d1: D1Database, itemId: number, entryId: number, by: Actor): Promise<boolean> {
+  const mayDelete = `EXISTS (SELECT 1 FROM reading_progress p WHERE p.id = ?1 AND p.item_id = ?2 AND ${allowed(pageOwner('p'), '?3', '?4')})`;
+  const binds = [entryId, itemId, ...actorBinds(by)];
+  const results = await d1.batch([
     // its feed entry first: activity_log.progress_id references the update without a cascade
     // (SQLite can't add one by ALTER TABLE), and connections learn it's gone from the removal check
-    d1.prepare(
-      `DELETE FROM activity_log WHERE progress_id = ?1
-         AND EXISTS (SELECT 1 FROM reading_progress WHERE id = ?1 AND item_id = ?2)`,
-    ).bind(entryId, itemId),
-    d1.prepare('DELETE FROM reading_progress WHERE id = ?1 AND item_id = ?2').bind(entryId, itemId),
+    d1.prepare(`DELETE FROM activity_log WHERE progress_id = ?1 AND ${mayDelete}`).bind(...binds),
+    d1.prepare(`DELETE FROM reading_progress WHERE id = ?1 AND item_id = ?2 AND ${mayDelete}`).bind(...binds),
     refreshReadState(d1, [itemId]),
   ]);
+  return (results[1]?.meta.changes ?? 0) > 0;
 }
 
 /**
@@ -1089,24 +1628,40 @@ function asImport(d1: D1Database, writes: D1PreparedStatement[]): D1PreparedStat
 
 /**
  * A row as the importers hand it over. `reads` are its reads when the file says (a Nalanda export's `reads`
- * column, a Goodreads row); otherwise they come from its status and dates, as a libib row's do.
+ * column, a Goodreads row); otherwise they come from its status and dates, as a libib row's do. `reviews` likewise
+ * (a Nalanda export's `reviews` column); otherwise its rating and review are one review. Whatever doesn't name its
+ * person is the importer's — the row's added_by (§16 #43).
  */
-export type ImportRow = { item: NewItem; tags: string[]; reads?: ReadDraft[]; goodreads?: GoodreadsReading };
+export type ImportRow = {
+  item: NewItem;
+  tags: string[];
+  reads?: PersonRead[];
+  reviews?: PersonReview[];
+  goodreads?: GoodreadsReading;
+};
 
 /**
  * Batched insert used by /api/import. One network round trip per batch of rows: each item goes in with the
- * reading state its reads decide, so the insert trigger dates it right, then its reads, then the refresh that
- * fills in what only the reads know.
+ * reading state its reads decide and the rating and review its reviews decide, so the insert trigger dates it
+ * right, then its reads and reviews, then the refreshes that fill in what only they know.
  */
 export async function importItems(d1: D1Database, rows: ImportRow[]): Promise<number> {
   if (!rows.length) return 0;
   const writes: D1PreparedStatement[] = [];
   const itemAt: number[] = []; // each row's item insert, as an index into the batch's results
   for (const r of rows) {
-    const reads = r.reads ?? readsFromColumns(r.item.status ?? 'not_started', r.item.beganOn, r.item.completedOn);
-    const q = db(d1).insert(s.items).values(withReadState(r.item, reads)).returning({ id: s.items.id }).toSQL();
+    const person = r.item.addedBy ?? null;
+    const reads = oneOpenReadEach(r.reads ?? readsFromColumns(r.item.status ?? 'not_started', r.item.beganOn, r.item.completedOn), person).reads;
+    const reviews = stampReviews(r.reviews ?? reviewsFromColumns(r.item));
+    const q = db(d1).insert(s.items).values(withReviewState(withReadState(r.item, reads), reviews)).returning({ id: s.items.id }).toSQL();
     itemAt.push(writes.length + 1); // +1: the marker leads the batch
-    writes.push(d1.prepare(q.sql).bind(...q.params), ...readInsertStatements(d1, 'newest', reads), refreshReadState(d1, 'newest'));
+    writes.push(
+      d1.prepare(q.sql).bind(...q.params),
+      ...readInsertStatements(d1, 'newest', reads, person),
+      refreshReadState(d1, 'newest'),
+      ...reviewInsertStatements(d1, 'newest', reviews, person),
+      refreshReviewState(d1, 'newest'),
+    );
   }
   const results = await d1.batch(asImport(d1, writes));
 
@@ -1161,10 +1716,15 @@ const readingOf = (item: NewItem): GoodreadsReading => ({
  * inserted last time match by ISBN or title on the next run and merge instead of
  * duplicating, and every reads rule checks for its own result first. `reads` counts
  * the reads the run adds or dates.
+ *
+ * A Goodreads file is one person's (§16 #43): the importer's, every row's added_by. Its reads are reconciled with
+ * theirs alone, and its rating and review are theirs — someone else's reads and reviews of the same book are
+ * never touched. Private notes stay the item's own, as before.
  */
 export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun = false): Promise<MergeImportResult> {
   if (!rows.length) return { inserted: 0, merged: 0, reads: 0 };
   const dbi = db(d1);
+  const person = rows[0]!.item.addedBy ?? null;
 
   // Household scale: load every item's match keys once per batch — simpler and cheaper
   // than chunked IN() lookups under D1's bound-parameter limit.
@@ -1204,15 +1764,15 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
     merges.push({ id, set, tags: r.tags, reading: r.goodreads ?? readingOf(r.item) });
   }
 
-  // the reads already here for the books that matched: one query, the ids as one JSON parameter
+  // the importer's reads already here for the books that matched: one query, the ids as one JSON parameter
   const readsHere = new Map<number, ReadRow[]>();
   if (merges.length) {
     const found = await d1
       .prepare(
         `SELECT item_id AS itemId, id, status, began_on AS beganOn, ended_on AS endedOn FROM reads
-         WHERE item_id IN (SELECT value FROM json_each(?1)) ORDER BY id`,
+         WHERE item_id IN (SELECT value FROM json_each(?1)) AND reader_id IS ?2 ORDER BY id`,
       )
-      .bind(JSON.stringify([...new Set(merges.map((m) => m.id))]))
+      .bind(JSON.stringify([...new Set(merges.map((m) => m.id))]), person)
       .all<ReadRow & { itemId: number }>();
     for (const { itemId, ...read } of found.results) readsHere.set(itemId, [...(readsHere.get(itemId) ?? []), read]);
   }
@@ -1234,7 +1794,7 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
   let readChanges = 0;
   for (const [itemId, list] of work) {
     const fresh = list.filter((r) => r.fresh).map(({ status, beganOn, endedOn }) => ({ status, beganOn, endedOn }));
-    writes.push(...readInsertStatements(d1, itemId, fresh));
+    writes.push(...readInsertStatements(d1, itemId, fresh, person));
     for (const r of list.filter((x) => !x.fresh && x.changed)) {
       writes.push(
         d1.prepare('UPDATE reads SET status = ?2, began_on = ?3, ended_on = ?4 WHERE id = ?1').bind(r.id, r.status, r.beganOn, r.endedOn),
@@ -1248,29 +1808,29 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
     if (merges.length) {
       const ids = [...new Set(merges.map((m) => m.id))];
       // A re-import that changes nothing leaves updated_at alone — connections see it. Only books whose reads
-      // changed are touched by the refresh, and a rating, review or notes value is written only when it differs.
+      // changed are touched by the refresh, a note is written only when it differs, and the importer's rating and
+      // review only when they differ — the item then moves only if the household's summary of them did.
       const touched = ids.filter((id) => work.get(id)?.some((r) => r.changed));
       const untouched = ids.filter((id) => !touched.includes(id));
-      const merged = { rating: s.items.rating, review: s.items.review, notes: s.items.notes } as const;
-      const updates = merges
-        .filter((m) => Object.keys(m.set).length)
+      const notes = merges
+        .filter((m) => m.set.notes)
         .map((m) => {
-          const differs = or(
-            ...Object.entries(m.set).map(([k, v]) => sql`${merged[k as keyof typeof merged]} IS NOT ${v}`),
-          );
           const q = dbi
             .update(s.items)
-            .set({ ...m.set, updatedAt: sql`(datetime('now'))` })
-            .where(and(eq(s.items.id, m.id), differs))
+            .set({ notes: m.set.notes, updatedAt: sql`(datetime('now'))` })
+            .where(and(eq(s.items.id, m.id), sql`${s.items.notes} IS NOT ${m.set.notes}`))
             .toSQL();
           return d1.prepare(q.sql).bind(...q.params);
         });
+      const reviews = merges
+        .filter((m) => m.set.rating != null || m.set.review)
+        .flatMap((m) => reviewWriteStatements(d1, m.id, person, { rating: m.set.rating ?? null, review: m.set.review ?? null }, 'merge'));
       const refreshes = [
         ...(touched.length ? [refreshReadState(d1, touched, { touch: true })] : []),
         ...(untouched.length ? [refreshReadState(d1, untouched)] : []),
       ];
       // reads and their refresh first, so a rating merged in the same batch is dated by the finish it arrived with
-      await d1.batch(asImport(d1, [...writes, ...refreshes, ...updates]));
+      await d1.batch(asImport(d1, [...writes, ...refreshes, ...reviews, ...notes, refreshReviewState(d1, ids)]));
       const pairs: Array<{ itemId: number; tag: string }> = [];
       for (const m of merges) for (const tag of normalizeTags(m.tags)) pairs.push({ itemId: m.id, tag });
       await linkTags(dbi, pairs);

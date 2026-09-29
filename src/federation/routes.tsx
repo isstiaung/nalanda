@@ -5,6 +5,9 @@
 import { Hono, type Context } from 'hono';
 import {
   activityInView,
+  memberActivityInView,
+  stillSharedMember,
+  type MemberActivity,
   applyConnectionMessage,
   availability,
   countConnections,
@@ -22,7 +25,7 @@ import {
   shelfPage,
   stillShared,
 } from '../db/federation';
-import { getItem, tagsForItem } from '../db/queries';
+import { getItem, getSiteSettings, namedReviews, tagsForItem } from '../db/queries';
 import type { Connection, NotificationKind } from '../db/schema';
 import type { AppEnv } from '../env';
 import { page } from '../views/layout';
@@ -38,6 +41,7 @@ import {
   MAX_CHECK_IDS,
   MAX_CONNECT_BODY_BYTES,
   MAX_INBOX_BODY_BYTES,
+  MEMBER_ACTIVITY_BASE,
   MAX_PUSHES_PER_DAY,
   OUTBOX_PAGE_SIZE,
   OUTBOX_RESPONSE_BUDGET_BYTES,
@@ -248,17 +252,23 @@ federation.get('/federation/feed', async (c) => {
   const view = await getConnectionView(c.env.DB, viewId);
   if (!view) return c.json({ error: 'no such view' }, 404);
 
-  const { fromStart, rows } = await activityInView(c.env.DB, view, since, FEED_PAGE_SIZE + 1);
+  // §16 #45: with names switched on, the per-person stream; off, the household's, exactly as before. Decided now, on
+  // every pull, so switching off stops names reaching anyone from the next pull on.
+  const { namesToConnections } = await getSiteSettings(c.env.DB);
+  const { fromStart, rows } = namesToConnections
+    ? await memberActivityInView(c.env.DB, view, since, FEED_PAGE_SIZE + 1)
+    : await activityInView(c.env.DB, view, since, FEED_PAGE_SIZE + 1);
   const entries: FeedEntry[] = [];
   let bytes = 0;
   const stamps = new Map<number, string>();
   for (const row of rows) if (!stamps.has(row.item.id)) stamps.set(row.item.id, await itemStamp(row.item));
   for (const row of rows.slice(0, FEED_PAGE_SIZE)) {
+    const person = 'by' in row ? (row as MemberActivity) : undefined;
     const entry: FeedEntry = {
       id: row.id,
       kind: row.kind,
       published: row.at,
-      item: toFeedItem(row.item, row.kind, stamps.get(row.item.id)!, row.progressPage, row.readsBefore),
+      item: toFeedItem(row.item, row.kind, stamps.get(row.item.id)!, row.progressPage, row.readsBefore, person),
     };
     const size = jsonBytes(entry).bytes;
     if (entries.length > 0 && bytes + size > FEED_RESPONSE_BUDGET_BYTES) break;
@@ -288,8 +298,15 @@ federation.post('/federation/feed/check', async (c) => {
   const asked = [...new Set(ids)];
   const view = await getConnectionView(c.env.DB, viewId);
   if (!view) return c.json({ invalid: asked, viewGone: true });
-  const valid = await stillShared(c.env.DB, view, asked);
-  return c.json({ invalid: asked.filter((id) => !valid.has(id)), viewGone: false });
+  // One stream is valid at a time (§16 #45): the household's with names off, checked as ever; the per-person one (ids
+  // past MEMBER_ACTIVITY_BASE) with names on. Switching either way withdraws what was sent from the other at the next
+  // check — named entries once names go off, and the household's once they're on, so no one sees an event twice.
+  const { namesToConnections } = await getSiteSettings(c.env.DB);
+  const [valid, validMember] = await Promise.all([
+    namesToConnections ? Promise.resolve(new Set<number>()) : stillShared(c.env.DB, view, asked.filter((id) => id < MEMBER_ACTIVITY_BASE)),
+    namesToConnections ? stillSharedMember(c.env.DB, view, asked.filter((id) => id >= MEMBER_ACTIVITY_BASE)) : Promise.resolve(new Set<number>()),
+  ]);
+  return c.json({ invalid: asked.filter((id) => !valid.has(id) && !validMember.has(id)), viewGone: false });
 });
 
 /**
@@ -355,8 +372,10 @@ federation.get('/federation/item', async (c) => {
   if (!viewId || !itemId) return c.json({ error: 'malformed request' }, 400);
   const [view, item] = await Promise.all([getConnectionView(c.env.DB, viewId), getItem(c.env.DB, itemId)]);
   if (!view || !item || !itemMatchesView(view, item)) return c.json({ error: 'no such item' }, 404);
-  const [free, tags] = await Promise.all([availability(c.env.DB, [item]), tagsForItem(c.env.DB, item.id)]);
-  return c.json(toItemDetail(item, free.get(item.id) ?? false, tags, await itemStamp(item)));
+  const [free, tags, settings] = await Promise.all([availability(c.env.DB, [item]), tagsForItem(c.env.DB, item.id), getSiteSettings(c.env.DB)]);
+  // §16 #45: everyone's rating and review by display name, only while names are switched on for connections
+  const reviews = settings.namesToConnections ? await namedReviews(c.env.DB, item.id) : undefined;
+  return c.json(toItemDetail(item, free.get(item.id) ?? false, tags, await itemStamp(item), reviews));
 });
 
 // ---------- messages from connected instances ----------

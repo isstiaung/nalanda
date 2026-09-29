@@ -1,13 +1,49 @@
 import { Hono } from 'hono';
-import { getUserById, setPassword } from '../db/queries';
+import { getUserById, setDisplayName, setPassword } from '../db/queries';
 import type { AppEnv } from '../env';
 import { hashPassword, verifyPassword } from '../lib/auth';
+import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
 import { VERSION } from '../version';
 import { page } from '../views/layout';
 
 const account = new Hono<AppEnv>();
 
-const Form = ({ mustChange, error, ok }: { mustChange: boolean; error?: string; ok?: boolean }) => (
+/**
+ * The name you go by outside this library (§16 #45): shown on share pages and to connected households only where an
+ * admin has switched names on. Your username signs you in and never leaves the app.
+ */
+const DisplayNameForm = ({ displayName, saved }: { displayName: string | null; saved?: boolean }) => (
+  <article class="panel form-card" id="display-name">
+    <p class="eyebrow">Display name</p>
+    {saved ? <p class="notice">Display name saved.</p> : null}
+    <form method="post" action="/account/display-name">
+      <label>
+        Display name <small>(optional — up to {MAX_DISPLAY_NAME} characters)</small>
+        <input name="displayName" value={displayName ?? ''} maxlength={MAX_DISPLAY_NAME} autocomplete="nickname" />
+      </label>
+      <button type="submit">Save display name</button>
+    </form>
+    <p class="muted form-note">
+      Signs your ratings, reviews and reading on share pages and to connected households — but only once an admin
+      switches names on there. Leave it empty to stay unnamed. It isn't your login: your username signs you in, and
+      never leaves this library.
+    </p>
+  </article>
+);
+
+const Form = ({
+  mustChange,
+  error,
+  ok,
+  displayName,
+  nameSaved,
+}: {
+  mustChange: boolean;
+  error?: string;
+  ok?: boolean;
+  displayName?: string | null;
+  nameSaved?: boolean;
+}) => (
   <>
     <div class="page-head">
       <h1>Account</h1>
@@ -34,6 +70,7 @@ const Form = ({ mustChange, error, ok }: { mustChange: boolean; error?: string; 
         <button type="submit">Change password</button>
       </form>
     </article>
+    {mustChange ? null : <DisplayNameForm displayName={displayName ?? null} saved={nameSaved} />}
     <p class="muted version-line">
       Nalanda <span class="mono">v{VERSION}</span> ·{' '}
       <a href={`https://github.com/isstiaung/nalanda/releases/tag/v${VERSION}`}>release notes</a>
@@ -41,9 +78,25 @@ const Form = ({ mustChange, error, ok }: { mustChange: boolean; error?: string; 
   </>
 );
 
-account.get('/account', (c) => {
+account.get('/account', async (c) => {
   const user = c.get('user');
-  return page(c, 'Account', <Form mustChange={user.mustChangePassword} ok={c.req.query('ok') === '1'} />);
+  const row = await getUserById(c.env.DB, user.id);
+  return page(
+    c,
+    'Account',
+    <Form
+      mustChange={user.mustChangePassword}
+      ok={c.req.query('ok') === '1'}
+      displayName={row?.displayName ?? null}
+      nameSaved={c.req.query('name') === 'saved'}
+    />,
+  );
+});
+
+account.post('/account/display-name', async (c) => {
+  const body = await c.req.parseBody();
+  await setDisplayName(c.env.DB, c.get('user').id, normalizeDisplayName(body['displayName']));
+  return c.redirect('/account?name=saved#display-name');
 });
 
 account.post('/account/password', async (c) => {

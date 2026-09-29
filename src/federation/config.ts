@@ -70,6 +70,13 @@ export const SUBSCRIPTION_REFRESH_QUERIES = 14;
 export const VOLUME_WINDOW_DAYS = 90;
 /** Activity recorded when a household shares its first view: the newest this many, within the window. */
 export const BACKFILL_ENTRIES = 300;
+/**
+ * Per-person feed entries (member_activity, §16 #45) are served with this added to their ids, so they never share a
+ * cursor or a removal check with the household's activity_log: a connection pulling one stream holds a cursor the
+ * other treats as "past the end", which starts it again from the newest page. 2^40: far past any activity_log id,
+ * well inside a safe integer and the 15 digits a cursor may have.
+ */
+export const MEMBER_ACTIVITY_BASE = 2 ** 40;
 /** Stored entries the Feed page renders at once, by count and by bytes of entry JSON. */
 export const FEED_PAGE_ENTRIES = 200;
 export const FEED_PAGE_BYTES = 128 * 1024;

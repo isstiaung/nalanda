@@ -28,6 +28,7 @@ export const TABLES = [
   'items',
   'reads', // after items, before reading_progress, which references it
   'reading_progress', // after items, users and reads, which it references
+  'reviews', // after items and users, which it references
   'tags',
   'item_tags',
   'loans',
@@ -36,6 +37,7 @@ export const TABLES = [
   'connections',
   'connection_views',
   'activity_log',
+  'member_activity', // after items, reads, reviews and reading_progress, which it references (§16 #45)
   'feed_subscriptions', // after connections
   'remote_activities', // after feed_subscriptions
   'comments',

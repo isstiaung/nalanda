@@ -111,6 +111,7 @@ type PageProps = Flash & {
   libraries: Library[];
   storage: Map<number, { entries: number; bytes: number }>;
   progressToConnections: boolean;
+  namesToConnections: boolean;
 };
 
 // Peer household names come from the peer's own server. They are only ever rendered as text,
@@ -166,10 +167,11 @@ function scopeLabel(v: ConnectionView): string {
   return parts.length ? parts.join(' · ') : 'Everything';
 }
 
-const SharedViews: FC<{ views: PageProps['views']; libraries: Library[]; progressToConnections: boolean }> = ({
+const SharedViews: FC<{ views: PageProps['views']; libraries: Library[]; progressToConnections: boolean; namesToConnections: boolean }> = ({
   views,
   libraries,
   progressToConnections,
+  namesToConnections,
 }) => {
   const shelfName = new Map(libraries.map((l) => [l.id, l.name]));
   return (
@@ -191,6 +193,24 @@ const SharedViews: FC<{ views: PageProps['views']; libraries: Library[]; progres
       <p class="muted">
         On by default. Each page you record becomes its own entry in their feed. Turning it off stops new entries and
         withdraws the ones already sent, the next time each connection checks.
+      </p>
+      <form method="post" action="/connections/names-sharing" class="inline-form" id="names-to-connections">
+        <label>
+          <input type="checkbox" name="namesToConnections" value="on" checked={namesToConnections} /> Show names to
+          connected households
+        </label>
+        <button type="submit">Save</button>
+      </form>
+      <p class="muted">
+        Off by default: they see your household as one — "finished", "rated" — with no names. On, their feed gets an
+        entry per person, signed with each member's <strong>display name</strong> ("Priya finished …", "Ravi rated …",
+        and when someone starts a book), and a book's page lists everyone's rating and review. Members without a display
+        name stay unnamed; login usernames never leave this library, and nor do the dates of anyone's reads. Comments
+        and borrow requests your members send are signed with their display name while this is on, "A member" while
+        it's off. Turning it on or off swaps what they hold the next time they check: they're asked to delete the
+        entries from before and pull the new ones — a household is trusted to, but can keep what it already pulled.
+        Households on older versions of Nalanda get the entries without names, as your household's, and skip
+        "started".
       </p>
       {views.length ? (
         <div class="data-table">
@@ -440,7 +460,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
           );
         }}
       />
-      {p.settings ? <SharedViews views={p.views} libraries={p.libraries} progressToConnections={p.progressToConnections} /> : null}
+      {p.settings ? <SharedViews views={p.views} libraries={p.libraries} progressToConnections={p.progressToConnections} namesToConnections={p.namesToConnections} /> : null}
     </>
   );
 };
@@ -471,6 +491,7 @@ async function render(c: Context<AppEnv>, flash: Flash = {}) {
       libraries={libraries}
       storage={storage}
       progressToConnections={site.progressToConnections}
+      namesToConnections={site.namesToConnections}
       {...flash}
     />,
   );
@@ -487,6 +508,13 @@ function notifyPeer(c: Context<AppEnv>, identity: Identity, settings: Federation
 }
 
 connections.get('/connections', (c) => render(c));
+
+connections.post('/connections/names-sharing', async (c) => {
+  const body = await c.req.parseBody();
+  // an unchecked checkbox sends nothing, so absence means off; the gate has already checked for an admin (§16 #45)
+  await updateSiteSettings(c.env.DB, { namesToConnections: body['namesToConnections'] === 'on' });
+  return c.redirect('/connections');
+});
 
 connections.post('/connections/progress-sharing', async (c) => {
   const body = await c.req.parseBody();

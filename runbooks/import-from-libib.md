@@ -38,6 +38,12 @@ so a do-over is just delete-and-retry.
 
 Rows without a title are skipped and counted; nothing is silently dropped.
 
+The reading status and dates, rating and review become **the importing member's own** read and
+review (ARCH.md §16 #43) — import while signed in as the person whose catalogue it is. A
+**Nalanda export** is different: it names each read's reader and each review's writer, and when an
+admin imports it, a name that is a member here keeps them; any other name is yours. A member's
+import is always all theirs. The preview lists who gets what.
+
 ## Covers
 
 libib CSVs contain no cover images or URLs, so imported items start coverless — and

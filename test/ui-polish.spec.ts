@@ -104,7 +104,7 @@ describe('primary and secondary buttons', () => {
 
     const { a } = await connected();
     const connections = await (await a.get('/connections', await sessionCookie('admin'))).text();
-    expect(connections.match(/<button type="submit">Save<\/button>/g)).toHaveLength(2); // library name, progress sharing
+    expect(connections.match(/<button type="submit">Save<\/button>/g)).toHaveLength(3); // library name, progress sharing, names (§16 #45)
   });
 });
 
@@ -462,7 +462,9 @@ describe('broken-cover fallback', () => {
 
   const plain = instanceA(env);
   const KEY = '0f0e0d0c-0b0a-4908-8706-050403020100'; // a cover key with no object behind it
-  const coverImgs = (html: string) => [...html.matchAll(/<img\b[^>]*>/g)].map((m) => m[0]);
+  // every image but BoardGameGeek's logo, which a board game's page carries and which is no cover
+  const coverImgs = (html: string) =>
+    [...html.matchAll(/<img\b[^>]*>/g)].map((m) => m[0]).filter((img) => !img.includes('src="/bgg/'));
 
   it('marks every cover the app renders — cards, table thumbs, the item page — with its media icon', async () => {
     const shelf = await createLibrary(env.DB, 'Games');

@@ -76,10 +76,12 @@ npm run backfill:remote -- enrich
   it stopped.
 - **It's slow by design:** about 5 seconds an item, so roughly 90 minutes per 1,000 items.
   Open Library gets one request a second, because it refused this project's connections outright
-  when pushed harder. Leave `--rps` at 1, or 2 at most.
+  when pushed harder. Leave `--rps` at 1, or 2 at most. BoardGameGeek gets one request every
+  5 seconds, the pace its API docs ask for, so each board game takes about 10 seconds.
 - **It stops rather than guess.** If a provider fails 15 times in a row, it stops. Answers
   given during the failure aren't recorded, so the next run looks those books up again instead
-  of marking them "not found".
+  of marking them "not found". BoardGameGeek's "queued, ask again" answer (HTTP 202) counts as
+  a failure after two retries, the same as a throttle.
 - **It prints requests per provider** at the end. A near-zero `ok` count anywhere is worth
   reading before you apply.
 

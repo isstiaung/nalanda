@@ -23,6 +23,7 @@ import {
   setRequestStatus,
 } from '../db/federation';
 import type { BorrowRequestRow, BorrowStatus, Connection, FederationSettings } from '../db/schema';
+import { outwardName } from '../db/queries';
 import type { AppEnv } from '../env';
 import { refreshInBackground } from '../federation/background';
 import { MAX_BORROW_NOTE_CHARS, SHELF_CACHE_ENTRIES, SHELF_CACHE_MS } from '../federation/config';
@@ -312,7 +313,23 @@ borrowing.get('/households/:id/views/:viewId/items/:itemId', async (c) => {
             <DetailsList details={item.details} fromConnection />
           </div>
         ) : null}
-        {item.review ? (
+        {item.reviews?.length ? (
+          // §16 #45: their household shares names — everyone's rating and review, names as escaped text
+          <div class="detail-section">
+            <p class="eyebrow">Their ratings and reviews</p>
+            <ol class="member-reviews">
+              {item.reviews.map((r) => (
+                <li>
+                  <p class="review-by">
+                    <span class="reviewer">{r.by ?? 'A member'}</span>
+                    {r.rating ? <span class="rating">{stars(r.rating)}</span> : null}
+                  </p>
+                  {r.review ? <p class="prewrap">{r.review}</p> : null}
+                </li>
+              ))}
+            </ol>
+          </div>
+        ) : item.review ? (
           <div class="detail-section">
             <p class="eyebrow">Their review</p>
             <p class="prewrap">{item.review}</p>
@@ -373,7 +390,8 @@ borrowing.post('/households/:id/requests', async (c) => {
   if (await hasPendingOutgoing(c.env.DB, connection.id, item.id, item.stamp)) return c.redirect('/borrowed');
 
   const user = c.get('user');
-  const message = borrowRequest(ctx.settings.baseUrl, item.id, item.stamp, user.username, rawNote || null);
+  // a display name while names are on for connections, else "A member" — never the username (§16 #45)
+  const message = borrowRequest(ctx.settings.baseUrl, item.id, item.stamp, await outwardName(c.env.DB, user.id), rawNote || null);
   // stored and queued together, unless one for this book is already waiting (a double submit); a refusal
   // declines it and takes it out of the outbox, also together
   const requestId = await requestToBorrow(
@@ -387,7 +405,7 @@ borrowing.post('/households/:id/requests', async (c) => {
       theirViewId: viewId,
       itemTitle: item.title,
       coverKey: item.coverKey,
-      requesterName: message.requester,
+      requesterName: user.username, // inside, as everywhere in the app; the connection gets message.requester
       requesterId: user.id,
       note: message.note,
     },

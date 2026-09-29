@@ -83,7 +83,9 @@ connects to an **instance**.
 - Activity is attributed to the **household name** the admin chooses, not to usernames —
   share pages already never show usernames. Comments are the exception: they carry their
   author's username — Nalanda has no separate display name — because the commenting household
-  chose to send it. *(Decision 2, §16.)*
+  chose to send it. *(Decision 2, §16.)* *Superseded by ARCH.md §16 #45: a login never leaves
+  the app; comments and borrow requests carry the member's display name while the household has
+  switched names on for connections, else "A member".*
 
 ### Pairwise, never a network
 

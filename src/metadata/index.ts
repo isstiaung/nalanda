@@ -1,7 +1,7 @@
 // Provider chain + barcode routing. Nothing outside src/metadata/ calls external APIs.
 import type { Bindings } from '../env';
 import type { MediaType } from '../db/schema';
-import { bgg, BggAuthError } from './bgg';
+import { bgg, BggAuthError, BggBusyError } from './bgg';
 import { discogs } from './discogs';
 import { googleBooks } from './googlebooks';
 import { itunesCoverByIsbn } from './itunes';
@@ -262,13 +262,15 @@ export async function searchByName(env: Bindings, q: string, type: SearchType): 
       const candidates = await bgg(env.BGG_TOKEN).search(q);
       return {
         candidates,
-        notices: candidates.length ? [] : ['No board games found on BoardGameGeek (it occasionally throttles — retry).'],
+        notices: candidates.length ? [] : ['No board games found on BoardGameGeek.'],
       };
     } catch (err) {
       const notice =
         err instanceof BggAuthError
           ? 'BoardGameGeek rejected the BGG_TOKEN — it may have been revoked or mistyped. Issue a new one and set it again.'
-          : 'BoardGameGeek did not answer — retry in a moment.';
+          : err instanceof BggBusyError
+            ? 'BoardGameGeek is busy — it limits how often apps may ask. Wait a few seconds and search again.'
+            : 'BoardGameGeek did not answer — retry in a moment.';
       return { candidates: [], notices: [notice] };
     }
   }
