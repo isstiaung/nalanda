@@ -9,6 +9,7 @@ import {
   addProgress,
   createLibrary,
   createShare,
+  deleteLibrary,
   deleteUser,
   mergeImportItems,
   setDisplayName,
@@ -30,10 +31,12 @@ import { answerOutbound, connectPeer, instanceA, json, makeKeys, makePeer, setUp
 import { as, book, member, rows, type Member } from './member-helpers';
 
 const LOGINS = ['u-asha-login', 'u-ravi-login', 'u-mira-login'];
+/** Starts and finishes reach the per-person log only as they happen (migration 0027), so the scene's happen today. */
+const today = () => new Date().toISOString().slice(0, 10);
 
 /**
  * A household of three: Asha (admin) and Ravi have display names, Mira has none. Asha and Ravi both finished
- * Piranesi and reviewed it; Mira rated it without words and is reading it now, on page 40.
+ * Piranesi today and reviewed it; Mira rated it without words and began reading it today, on page 40.
  */
 async function scene() {
   const asha = await member(LOGINS[0]!, 'admin');
@@ -47,22 +50,22 @@ async function scene() {
     title: 'Piranesi',
     status: 'completed',
     beganOn: '2026-08-01',
-    completedOn: '2026-08-15',
+    completedOn: today(),
     rating: 8,
     review: 'Hers: the tides.',
   });
-  await addPastRead(env.DB, item.id, { status: 'completed', beganOn: '2026-08-20', endedOn: '2026-09-02' }, ravi.id);
+  await addPastRead(env.DB, item.id, { status: 'completed', beganOn: '2026-08-20', endedOn: today() }, ravi.id);
   await updateItemWithTags(env.DB, item.id, {}, [], undefined, ravi.id, { rating: 5, review: 'His: the statues.' });
   await updateItemWithTags(env.DB, item.id, {}, [], undefined, mira.id, { rating: 7, review: null });
-  await startRead(env.DB, item.id, '2026-09-10', mira.id);
+  await startRead(env.DB, item.id, today(), mira.id);
   await addProgress(env.DB, item.id, 40, mira.id);
   return { asha, ravi, mira, shelf, item };
 }
 
-/** Nothing a login username, or the date of anyone's read, could show up as. */
+/** Nothing a login username, or the date a read began, could show up as (the ends are today — as is every entry). */
 function expectNoLoginsOrReadDates(text: string) {
   for (const login of LOGINS) expect(text, login).not.toContain(login);
-  for (const date of ['2026-08-01', '2026-08-15', '2026-08-20', '2026-09-02', '2026-09-10']) expect(text, date).not.toContain(date);
+  for (const date of ['2026-08-01', '2026-08-20']) expect(text, date).not.toContain(date);
 }
 
 // ---------- display names ----------
@@ -73,6 +76,7 @@ describe('display names', () => {
     expect(normalizeDisplayName('Ra‮vi​')).toBe('Ra vi');
     expect(normalizeDisplayName('x'.repeat(60))).toHaveLength(40);
     expect(normalizeDisplayName('   ')).toBeNull();
+    expect(normalizeDisplayName('\u3164\u2800\u115F')).toBeNull(); // characters that look like nothing are nothing
     expect(normalizeDisplayName(undefined)).toBeNull();
   });
 
@@ -241,7 +245,12 @@ describe('connections with names on', () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  type Entry = { id: number; kind: string; published: string; item: { by?: string; rating: number | null; review: string | null; progress: { page: number } | null } };
+  type Entry = {
+    id: number;
+    kind: string;
+    published: string;
+    item: { by?: string; rating: number | null; review: string | null; progress: { page: number } | null; readCount: number };
+  };
   const pull = async (since = 0) =>
     (await (await a.signedGet(`/federation/feed?view=${viewId}&since=${since}`, peer)).json()) as { latest: number; entries: Entry[] };
   const check = async (ids: number[]) =>
@@ -264,21 +273,50 @@ describe('connections with names on', () => {
       'Ravi K reviewed "His: the statues."',
     ]);
     expect(page.entries.every((e) => e.id > MEMBER_ACTIVITY_BASE)).toBe(true);
+    // each finish counts that member's own reads: a first read isn't "finished again" because the other read it too
+    expect(page.entries.filter((e) => e.kind === 'finished').map((e) => e.item.readCount)).toEqual([1, 1]);
     const text = JSON.stringify(page);
     for (const login of LOGINS) expect(text).not.toContain(login);
-    expect(text).not.toContain('2026-08-20'); // Ravi's read's start is nobody's business
+    expectNoLoginsOrReadDates(text);
   });
 
-  it('look names up on every pull: renamed, moved or removed, the next pull says so', async () => {
-    const { ravi, item } = await scene();
+  it('record a past read added later, or a rating of 0, as nothing — and leave a 0 off the item page', async () => {
+    const { item, mira } = await scene();
     await updateSiteSettings(env.DB, { namesToConnections: true });
+    const before = await pull();
+    await addPastRead(env.DB, item.id, { status: 'completed', beganOn: '2026-07-01', endedOn: '2026-07-20' }, mira.id);
+    const extra = await member('u-extra-login');
+    await setDisplayName(env.DB, extra.id, 'Zero');
+    await updateItemWithTags(env.DB, item.id, {}, [], undefined, extra.id, { rating: 0, review: null });
+    expect((await pull(before.latest)).entries).toEqual([]);
+    const detail = (await (await a.signedGet(`/federation/item?view=${viewId}&id=${item.id}`, peer)).json()) as { reviews: { by: string | null }[] };
+    expect(detail.reviews.map((r) => r.by)).not.toContain('Zero');
+  });
+
+  it('reach what a connection already holds when a member is renamed or removed: old entries withdrawn, new ones pulled', async () => {
+    const { ravi, asha } = await scene();
+    await updateSiteSettings(env.DB, { namesToConnections: true });
+    const first = await pull();
+    const his = first.entries.filter((e) => e.item.by === 'Ravi K').map((e) => e.id);
+    const hers = first.entries.filter((e) => e.item.by === 'Asha').map((e) => e.id);
+    expect(his).toHaveLength(3);
+
     await setDisplayName(env.DB, ravi.id, 'R. K.');
-    expect(lines((await pull()).entries).filter((l) => l.startsWith('R. K.'))).toHaveLength(3);
+    expect((await check([...his, ...hers])).invalid.sort()).toEqual([...his].sort()); // his withdrawn, hers stand
+    const renamed = await pull(first.latest);
+    expect(lines(renamed.entries)).toEqual(['R. K. finished', 'R. K. rated 5', 'R. K. reviewed "His: the statues."']);
+    expect(renamed.entries.map((e) => e.published).sort()).toEqual(first.entries.filter((e) => his.includes(e.id)).map((e) => e.published).sort()); // dated as before
+
+    await setDisplayName(env.DB, ravi.id, 'R. K.'); // the same name again: nothing to withdraw
+    expect((await pull(renamed.latest)).entries).toEqual([]);
+
     await deleteUser(env.DB, ravi.id);
-    const after = lines((await pull()).entries);
-    expect(after.some((l) => l.includes('R. K.') || l.includes('Ravi'))).toBe(false);
-    expect(after).toContain('(unnamed) reviewed "His: the statues."');
-    expect(item.id).toBeGreaterThan(0);
+    expect((await check(renamed.entries.map((e) => e.id))).invalid).toHaveLength(3);
+    const removed = await pull(renamed.latest);
+    expect(lines(removed.entries)).toEqual(['(unnamed) finished', '(unnamed) rated 5', '(unnamed) reviewed "His: the statues."']); // kept, unsigned
+    expect(JSON.stringify(await pull())).not.toMatch(/R\. K\.|Ravi/);
+    expect(hers.length).toBeGreaterThan(0);
+    expect(asha.id).toBeGreaterThan(0);
   });
 
   it('switch streams cleanly both ways, withdrawing named entries once names go off', async () => {
@@ -293,7 +331,8 @@ describe('connections with names on', () => {
     expect((await pull(named.latest)).entries).toEqual([]); // and then carries on from its own cursor
     const namedIds = named.entries.map((e) => e.id);
     const householdIds = household.entries.map((e) => e.id);
-    expect((await check([...namedIds, ...householdIds])).invalid).toEqual([]); // on: both still stand
+    // on: the household's entries are withdrawn, so no one sees an event twice, once unsigned and once by name
+    expect((await check([...namedIds, ...householdIds])).invalid.sort()).toEqual([...householdIds].sort());
 
     await a.postForm('/connections/names-sharing', {}, asha.cookie); // off
     expect((await check([...namedIds, ...householdIds])).invalid.sort()).toEqual([...namedIds].sort()); // named: withdrawn
@@ -328,9 +367,41 @@ describe('connections with names on', () => {
     ]);
     const recorded = await rows<{ kind: string; at: string }>('SELECT kind, at FROM member_activity ORDER BY id');
     expect(recorded).toEqual([
-      { kind: 'finished', at: '2019-05-01 00:00:00' }, // the dated read; the undated second finish records nothing
-      { kind: 'rated', at: '2019-05-01 00:00:00' }, // by the book's last finish, as the household's rating is
+      { kind: 'rated', at: '2019-05-01 00:00:00' }, // by the book's last finish, as the household's rating is; its reads: nothing
     ]);
+  });
+});
+
+// ---------- a shelf deleted with the last view ----------
+
+describe('deleting a shelf that takes the last connection view with it', () => {
+  it('clears both activity logs, as removing the last view does — but not while another view remains', async () => {
+    const run = async (otherView: boolean) => {
+      await reset();
+      await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+      const { shelf } = await (async () => {
+        const s = await createLibrary(env.DB, 'Just this shelf');
+        await createConnectionView(env.DB, { name: 'Shelf', libraryId: s.id, mediaType: null, status: null, owned: null });
+        if (otherView) await createConnectionView(env.DB, { name: 'All', libraryId: null, mediaType: null, status: null, owned: null });
+        const asha = await member('u-asha-login', 'admin');
+        await book(asha, { libraryId: s.id, title: 'Piranesi', status: 'completed', completedOn: today(), rating: 8, review: 'Yes' });
+        // and one on another shelf: with no view left, its entries are as stale as the deleted shelf's
+        await book(asha, { title: 'Kindred', status: 'completed', completedOn: today(), rating: 6, review: 'Also' });
+        return { shelf: s };
+      })();
+      const counts = async () =>
+        (await rows<{ h: number; m: number }>('SELECT (SELECT count(*) FROM activity_log) AS h, (SELECT count(*) FROM member_activity) AS m'))[0]!;
+      const recorded = await counts();
+      await deleteLibrary(env.DB, shelf.id);
+      return { recorded, after: await counts() };
+    };
+    const alone = await run(false);
+    expect(alone.recorded.h).toBeGreaterThan(0);
+    expect(alone.recorded.m).toBeGreaterThan(0);
+    expect(alone.after).toEqual({ h: 0, m: 0 });
+    const withOther = await run(true);
+    expect(withOther.after.h).toBeGreaterThan(0); // both logs stay while a view remains
+    expect(withOther.after.m).toBeGreaterThan(0);
   });
 });
 
@@ -406,6 +477,27 @@ describe('names another household sends', () => {
     expect(html).toContain('<span class="feed-by">Dev </span><span class="muted">started</span>');
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
     expect(html).not.toContain('<script>alert(1)</script>');
+  });
+
+  it('give a book one comment thread, under the first card that reviews it, however many people reviewed it', async () => {
+    answerOutbound((req) =>
+      new URL(req.url).pathname === '/federation/feed/check' ? json({ invalid: [], viewGone: false }) : json({ view: 7, latest: 0, more: false, entries: [] }),
+    );
+    const sub = (await createSubscription(env.DB, { connectionId, viewId: 7, viewName: 'Read', intervalMinutes: 60, retentionDays: 90, maxEntries: 500 }))!.id;
+    const stored = (remoteId: number, over: Record<string, unknown>): NewRemoteActivity => {
+      const body = JSON.stringify({
+        id: 5, mediaType: 'book', title: 'Piranesi', creators: null, published: null, coverKey: null, rating: null, review: null,
+        reviewTruncated: false, inCollection: true, completedOn: null, stamp: '0123456789abcdef', progress: null, readCount: 1, ...over,
+      });
+      return { remoteId, itemRemoteId: 5, itemStamp: '0123456789abcdef', kind: 'reviewed', publishedAt: sqlAgo(remoteId), item: body, bytes: body.length };
+    };
+    await storeEntries(env.DB, sub, [stored(1, { by: 'Priya', review: 'Hers' }), stored(2, { by: 'Dev', review: 'His' })]);
+    const member = await (await import('./federation-helpers')).sessionCookie('member');
+    const html = await (await a.get('/feed', member)).text();
+    expect(html).toContain('Hers');
+    expect(html).toContain('His');
+    expect(html.match(/<details class="thread"/g)).toHaveLength(1);
+    expect(html.match(/id="thread-/g)).toHaveLength(1); // and so one element with that id
   });
 
   it('render as escaped text on their item page', async () => {

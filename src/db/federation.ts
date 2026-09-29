@@ -403,23 +403,18 @@ const recentActivity = sql.raw(
 
 /**
  * The per-person log's opening entries for a first view (§16 #45), as recentActivity is the household's: the same
- * window and cap, each dated by when it happened — a finish by its read's end, a start by its read's start, a rating
- * or review by its book's completed_on (nothing dates it more honestly, §16 #40), a page by its own time. Recorded
+ * window and cap — a rating or review dated by its book's completed_on (nothing dates it more honestly, §16 #40), a
+ * page by its own time. No starts or finishes: dated by their reads, they'd tell a connection each member's read dates;
+ * those are recorded only as they happen, dated then (migration 0027). Recorded
  * whether or not names are switched on: the switch decides what is served. Migration 0027 carries the same text for
  * an instance already sharing a view.
  */
 const recentMemberActivity = sql.raw(
   `INSERT INTO member_activity (item_id, kind, at, read_id, review_id, progress_id)
      SELECT item_id, kind, at, read_id, review_id, progress_id FROM (
-       SELECT r.item_id, 'finished' AS kind, min(datetime(r.ended_on), datetime('now')) AS at, r.id AS read_id, NULL AS review_id, NULL AS progress_id
-         FROM reads r WHERE r.status = 'completed' AND date(r.ended_on) > date('now', '-${VOLUME_WINDOW_DAYS} days')
-       UNION ALL
-       SELECT r.item_id, 'started', min(datetime(r.began_on), datetime('now')), r.id, NULL, NULL
-         FROM reads r WHERE r.status = 'in_progress' AND date(r.began_on) > date('now', '-${VOLUME_WINDOW_DAYS} days')
-       UNION ALL
-       SELECT v.item_id, 'rated', min(datetime(i.completed_on), datetime('now')), NULL, v.id, NULL
+       SELECT v.item_id, 'rated' AS kind, min(datetime(i.completed_on), datetime('now')) AS at, NULL AS read_id, v.id AS review_id, NULL AS progress_id
          FROM reviews v JOIN items i ON i.id = v.item_id
-         WHERE v.rating IS NOT NULL AND date(i.completed_on) > date('now', '-${VOLUME_WINDOW_DAYS} days')
+         WHERE coalesce(v.rating, 0) > 0 AND date(i.completed_on) > date('now', '-${VOLUME_WINDOW_DAYS} days')
        UNION ALL
        SELECT v.item_id, 'reviewed', min(datetime(i.completed_on), datetime('now')), NULL, v.id, NULL
          FROM reviews v JOIN items i ON i.id = v.item_id
@@ -544,15 +539,25 @@ const actorName = sql<string | null>`nullif(CASE
  */
 const memberStillShows = sql`(
   (${s.memberActivity.kind} = 'reviewed' AND trim(replace(coalesce(${s.reviews.review}, ''), char(13), ''), ' ' || char(9) || char(10)) <> '')
-  OR (${s.memberActivity.kind} = 'rated' AND ${s.reviews.rating} IS NOT NULL)
+  OR (${s.memberActivity.kind} = 'rated' AND coalesce(${s.reviews.rating}, 0) > 0)
   OR (${s.memberActivity.kind} = 'finished' AND ${s.reads.status} = 'completed')
   OR (${s.memberActivity.kind} = 'started' AND ${s.reads.id} IS NOT NULL)
   OR (${s.memberActivity.kind} = 'progress' AND ${s.readingProgress.id} IS NOT NULL
       AND coalesce((SELECT ${s.siteSettings.progressToConnections} FROM ${s.siteSettings} WHERE ${s.siteSettings.id} = 1), 1) = 1)
 )`;
 
-/** A per-person entry as served: whose (a display name, or null), and their own rating or review on those kinds. */
-export type MemberActivity = SharedActivity & { by: string | null; rating: number | null; review: string | null };
+/**
+ * A per-person entry as served: whose (a display name, or null), their own rating or review on those kinds, and their
+ * own finishes — `readCount` on a finish, `readsBefore` on a page — so a first read isn't "finished again" because
+ * someone else in the household read the book too.
+ */
+export type MemberActivity = SharedActivity & { by: string | null; rating: number | null; review: string | null; readCount: number };
+
+/** The member an entry is about: the reader of its read, the writer of its review, or the reader of its page's read. */
+const actorId = sql`CASE
+  WHEN ${s.memberActivity.readId} IS NOT NULL THEN (SELECT r.reader_id FROM reads r WHERE r.id = ${s.memberActivity.readId})
+  WHEN ${s.memberActivity.reviewId} IS NOT NULL THEN (SELECT v.user_id FROM reviews v WHERE v.id = ${s.memberActivity.reviewId})
+  ELSE (SELECT r.reader_id FROM reading_progress p JOIN reads r ON r.id = p.read_id WHERE p.id = ${s.memberActivity.progressId}) END`;
 
 const memberRows = (dbi: ReturnType<typeof db>) =>
   dbi
@@ -562,11 +567,14 @@ const memberRows = (dbi: ReturnType<typeof db>) =>
       at: s.memberActivity.at,
       item: s.items,
       progressPage: s.readingProgress.page,
+      // this member's own finished reads before the page's read (a re-read of theirs), not the household's
       readsBefore: sql`CASE WHEN ${s.readingProgress.id} IS NULL THEN 0 ELSE (
         SELECT count(*) FROM reads r2 WHERE r2.item_id = ${s.readingProgress.itemId} AND r2.status = 'completed'
-          AND r2.id IS NOT ${s.readingProgress.readId}
+          AND r2.id IS NOT ${s.readingProgress.readId} AND r2.reader_id IS (${actorId})
           AND (r2.ended_on IS NULL OR r2.ended_on <= date(${s.readingProgress.at}))
       ) END`.mapWith(Number),
+      readCount: sql`(SELECT count(*) FROM reads r3 WHERE r3.item_id = ${s.memberActivity.itemId} AND r3.status = 'completed'
+        AND r3.reader_id IS (${actorId}))`.mapWith(Number),
       by: actorName,
       rating: s.reviews.rating,
       review: s.reviews.review,

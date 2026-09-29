@@ -165,7 +165,9 @@ function verbs(card: Card): string {
 
 const PROGRESS_SHOWN = 5;
 
-const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] }> = ({ card, showHousehold, thread }) => {
+// `thread`: the item's comment thread, or null on a card that doesn't carry it — with names shared, several people's
+// cards can review one book, and its one thread goes under the first of them only (§16 #45)
+const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] | null }> = ({ card, showHousehold, thread }) => {
   const { item } = card;
   const cover = coverUrl(card.baseUrl, item.coverKey);
   const again = rereading(card);
@@ -230,7 +232,7 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] }> = 
             {card.reviewTruncated ? '…' : ''}
           </p>
         ) : null}
-        {card.review ? (
+        {card.review && thread ? (
           <details class="thread" id={`thread-${card.connectionId}-${card.itemId}`} open={thread.length > 0}>
             <summary>{thread.length ? `Comments (${thread.length})` : 'Comment'}</summary>
             {thread.map((comment) => (
@@ -295,7 +297,16 @@ feed.get('/feed', async (c) => {
     const key = `${row.connectionId}:${row.theirItemId}:${row.theirItemStamp}`;
     threads.set(key, [...(threads.get(key) ?? []), row]);
   }
-  const threadOf = (card: Card) => threads.get(`${card.connectionId}:${card.itemId}:${card.itemStamp}`) ?? [];
+  // one thread per book: under the first card that reviews it, never repeated under another person's card (§16 #45)
+  const threadShown = new Set<string>();
+  const threadOf = (card: Card): Comment[] | null => {
+    const key = `${card.connectionId}:${card.itemId}:${card.itemStamp}`;
+    if (card.review) {
+      if (threadShown.has(key)) return null;
+      threadShown.add(key);
+    }
+    return threads.get(key) ?? [];
+  };
   const groups = runs(cards);
 
   return page(

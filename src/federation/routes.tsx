@@ -298,11 +298,12 @@ federation.post('/federation/feed/check', async (c) => {
   const asked = [...new Set(ids)];
   const view = await getConnectionView(c.env.DB, viewId);
   if (!view) return c.json({ invalid: asked, viewGone: true });
-  // Household entries are checked as ever. Per-person ones (ids past MEMBER_ACTIVITY_BASE, §16 #45) stay valid only
-  // while names are switched on: switched off, every one already sent is withdrawn at the next check.
+  // One stream is valid at a time (§16 #45): the household's with names off, checked as ever; the per-person one (ids
+  // past MEMBER_ACTIVITY_BASE) with names on. Switching either way withdraws what was sent from the other at the next
+  // check — named entries once names go off, and the household's once they're on, so no one sees an event twice.
   const { namesToConnections } = await getSiteSettings(c.env.DB);
   const [valid, validMember] = await Promise.all([
-    stillShared(c.env.DB, view, asked.filter((id) => id < MEMBER_ACTIVITY_BASE)),
+    namesToConnections ? Promise.resolve(new Set<number>()) : stillShared(c.env.DB, view, asked.filter((id) => id < MEMBER_ACTIVITY_BASE)),
     namesToConnections ? stillSharedMember(c.env.DB, view, asked.filter((id) => id >= MEMBER_ACTIVITY_BASE)) : Promise.resolve(new Set<number>()),
   ]);
   return c.json({ invalid: asked.filter((id) => !valid.has(id) && !validMember.has(id)), viewGone: false });

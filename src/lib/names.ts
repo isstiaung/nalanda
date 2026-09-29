@@ -6,7 +6,8 @@
 export const MAX_DISPLAY_NAME = 40;
 
 /**
- * What a display name typed into a form becomes: control characters (newlines included) taken out, runs of
+ * What a display name typed into a form becomes: control and format characters (newlines, bidi overrides) and
+ * characters that look like nothing (Hangul fillers, the braille blank) taken out, runs of
  * whitespace made one space, trimmed, cut to MAX_DISPLAY_NAME characters. Empty is no display name — the member
  * stays unnamed. Not unique: two members may both go by "Sam"; nothing needs to tell them apart by it.
  */
@@ -14,7 +15,7 @@ export function normalizeDisplayName(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
   const clean = raw
     .normalize('NFC')
-    .replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, ' ')
+    .replace(/[\p{Cc}\p{Cf}\u2028\u2029\u115F\u1160\u3164\uFFA0\u2800]/gu, ' ')
     .replace(/\s+/gu, ' ')
     .trim();
   const cut = [...clean].slice(0, MAX_DISPLAY_NAME).join('').trim();

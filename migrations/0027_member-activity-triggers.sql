@@ -6,42 +6,38 @@
 -- for activity_log. Who did it isn't stored: a row points at its read, review or page, and the name is looked up
 -- when a connection pulls, so moving a read, renaming or removing a member changes every later pull.
 --
--- Dated like the household's entries (§16 #40): a finish by its read's end, a start by its read's start, when that's
--- before today, else now; a rating or a review now. Inside an import (a row in import_in_progress) nothing is news:
--- a finish or start by its date, clamped to now, a rating or review by the book's completed_on, and a row with no
--- usable date records nothing.
+-- A start or a finish is recorded only as it happens — a read begun or ended today or yesterday (the server's day is
+-- UTC), or with no date — and dated now, never by the read's own dates: a member's read dates never reach a connection.
+-- A past read added later, or one an import brings, is no news and records nothing per person (the household's own
+-- stream still records the finish, as ever). A rating or review is dated now; inside an import (a row in
+-- import_in_progress) by the book's completed_on, as the household's are, and not at all without one (§16 #40). A
+-- rating of 0 isn't one, as in the household's triggers.
 --
 -- One row per read and kind, and per review and kind: INSERT OR REPLACE gives a repeat a new id, so a connection
 -- holding the old one learns from the removal check that its copy is out of date. Progress accumulates.
 
 CREATE TRIGGER `member_activity_reads_ai` AFTER INSERT ON `reads`
-WHEN EXISTS (SELECT 1 FROM `connection_views`)
+WHEN EXISTS (SELECT 1 FROM `connection_views`) AND NOT EXISTS (SELECT 1 FROM `import_in_progress`)
 BEGIN
   INSERT OR REPLACE INTO `member_activity` (`item_id`, `kind`, `at`, `read_id`)
-    SELECT new.item_id, 'finished',
-      CASE WHEN date(new.ended_on) < date('now') THEN datetime(new.ended_on) ELSE datetime('now') END, new.id
-    WHERE new.status = 'completed'
-      AND (date(new.ended_on) IS NOT NULL OR NOT EXISTS (SELECT 1 FROM `import_in_progress`));
+    SELECT new.item_id, 'finished', datetime('now'), new.id
+    WHERE new.status = 'completed' AND (new.ended_on IS NULL OR date(new.ended_on) >= date('now', '-1 day'));
   INSERT OR REPLACE INTO `member_activity` (`item_id`, `kind`, `at`, `read_id`)
-    SELECT new.item_id, 'started',
-      CASE WHEN date(new.began_on) < date('now') THEN datetime(new.began_on) ELSE datetime('now') END, new.id
-    WHERE new.status = 'in_progress'
-      AND (date(new.began_on) IS NOT NULL OR NOT EXISTS (SELECT 1 FROM `import_in_progress`));
+    SELECT new.item_id, 'started', datetime('now'), new.id
+    WHERE new.status = 'in_progress' AND (new.began_on IS NULL OR date(new.began_on) >= date('now', '-1 day'));
 END;
 --> statement-breakpoint
 CREATE TRIGGER `member_activity_reads_au` AFTER UPDATE OF `status`, `ended_on` ON `reads`
-WHEN EXISTS (SELECT 1 FROM `connection_views`)
+WHEN EXISTS (SELECT 1 FROM `connection_views`) AND NOT EXISTS (SELECT 1 FROM `import_in_progress`)
 BEGIN
   INSERT OR REPLACE INTO `member_activity` (`item_id`, `kind`, `at`, `read_id`)
-    SELECT new.item_id, 'finished',
-      CASE WHEN date(new.ended_on) < date('now') THEN datetime(new.ended_on) ELSE datetime('now') END, new.id
+    SELECT new.item_id, 'finished', datetime('now'), new.id
     WHERE new.status = 'completed' AND (old.status IS NOT 'completed' OR new.ended_on IS NOT old.ended_on)
-      AND (date(new.ended_on) IS NOT NULL OR NOT EXISTS (SELECT 1 FROM `import_in_progress`));
+      AND (new.ended_on IS NULL OR date(new.ended_on) >= date('now', '-1 day'));
   INSERT OR REPLACE INTO `member_activity` (`item_id`, `kind`, `at`, `read_id`)
-    SELECT new.item_id, 'started',
-      CASE WHEN date(new.began_on) < date('now') THEN datetime(new.began_on) ELSE datetime('now') END, new.id
+    SELECT new.item_id, 'started', datetime('now'), new.id
     WHERE new.status = 'in_progress' AND old.status IS NOT 'in_progress'
-      AND (date(new.began_on) IS NOT NULL OR NOT EXISTS (SELECT 1 FROM `import_in_progress`));
+      AND (new.began_on IS NULL OR date(new.began_on) >= date('now', '-1 day'));
 END;
 --> statement-breakpoint
 CREATE TRIGGER `member_activity_reviews_ai` AFTER INSERT ON `reviews`
@@ -53,7 +49,7 @@ BEGIN
     SELECT new.item_id, 'rated',
       CASE WHEN EXISTS (SELECT 1 FROM `import_in_progress`) AND date(i.completed_on) < date('now')
         THEN datetime(i.completed_on) ELSE datetime('now') END, new.id
-    FROM `items` i WHERE i.id = new.item_id AND new.rating IS NOT NULL;
+    FROM `items` i WHERE i.id = new.item_id AND coalesce(new.rating, 0) > 0;
   INSERT OR REPLACE INTO `member_activity` (`item_id`, `kind`, `at`, `review_id`)
     SELECT new.item_id, 'reviewed',
       CASE WHEN EXISTS (SELECT 1 FROM `import_in_progress`) AND date(i.completed_on) < date('now')
@@ -71,7 +67,7 @@ BEGIN
     SELECT new.item_id, 'rated',
       CASE WHEN EXISTS (SELECT 1 FROM `import_in_progress`) AND date(i.completed_on) < date('now')
         THEN datetime(i.completed_on) ELSE datetime('now') END, new.id
-    FROM `items` i WHERE i.id = new.item_id AND new.rating IS NOT NULL AND new.rating IS NOT old.rating;
+    FROM `items` i WHERE i.id = new.item_id AND coalesce(new.rating, 0) > 0 AND new.rating IS NOT old.rating;
   INSERT OR REPLACE INTO `member_activity` (`item_id`, `kind`, `at`, `review_id`)
     SELECT new.item_id, 'reviewed',
       CASE WHEN EXISTS (SELECT 1 FROM `import_in_progress`) AND date(i.completed_on) < date('now')
@@ -90,19 +86,14 @@ BEGIN
 END;
 --> statement-breakpoint
 -- An instance already sharing a view starts the per-person log with its recent activity, as a first view does
--- (createConnectionView): the last 90 days, the newest 300, dated by when each happened — a rating or review by its
--- book's completed_on, since nothing dates it more honestly (§16 #40).
+-- (createConnectionView): the last 90 days, the newest 300 — ratings and reviews dated by their book's completed_on,
+-- as the household's backfill dates them (§16 #40), and pages by their own time. Starts and finishes aren't backfilled:
+-- dated by the read, they'd tell a connection each member's read dates.
 INSERT INTO `member_activity` (`item_id`, `kind`, `at`, `read_id`, `review_id`, `progress_id`)
   SELECT `item_id`, `kind`, `at`, `read_id`, `review_id`, `progress_id` FROM (
-    SELECT r.item_id, 'finished' AS kind, min(datetime(r.ended_on), datetime('now')) AS at, r.id AS read_id, NULL AS review_id, NULL AS progress_id
-      FROM `reads` r WHERE r.status = 'completed' AND date(r.ended_on) > date('now', '-90 days')
-    UNION ALL
-    SELECT r.item_id, 'started', min(datetime(r.began_on), datetime('now')), r.id, NULL, NULL
-      FROM `reads` r WHERE r.status = 'in_progress' AND date(r.began_on) > date('now', '-90 days')
-    UNION ALL
-    SELECT v.item_id, 'rated', min(datetime(i.completed_on), datetime('now')), NULL, v.id, NULL
+    SELECT v.item_id, 'rated' AS kind, min(datetime(i.completed_on), datetime('now')) AS at, NULL AS read_id, v.id AS review_id, NULL AS progress_id
       FROM `reviews` v JOIN `items` i ON i.id = v.item_id
-      WHERE v.rating IS NOT NULL AND date(i.completed_on) > date('now', '-90 days')
+      WHERE coalesce(v.rating, 0) > 0 AND date(i.completed_on) > date('now', '-90 days')
     UNION ALL
     SELECT v.item_id, 'reviewed', min(datetime(i.completed_on), datetime('now')), NULL, v.id, NULL
       FROM `reviews` v JOIN `items` i ON i.id = v.item_id

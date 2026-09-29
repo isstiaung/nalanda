@@ -82,7 +82,11 @@ export async function listUsers(d1: D1Database): Promise<User[]> {
  * where an admin has switched names on, and is never a login.
  */
 export async function setDisplayName(d1: D1Database, id: number, displayName: string | null): Promise<void> {
-  await db(d1).update(s.users).set({ displayName }).where(eq(s.users.id, id));
+  // their entries re-keyed first, only if the name really changes, then the name — one batch (§16 #39)
+  await d1.batch([
+    ...rekeyMemberActivity(d1, id, displayName),
+    d1.prepare('UPDATE users SET display_name = ?2 WHERE id = ?1').bind(id, displayName),
+  ]);
 }
 
 /**
@@ -116,12 +120,43 @@ export async function namedReviews(
     )
     .bind(itemId)
     .all<{ by: string | null; rating: number | null; review: string | null }>();
-  return rows.results.map((r) => ({ by: r.by || null, rating: r.rating, review: r.review }));
+  // a rating of 0 isn't one (as the household's triggers hold), and a review with neither isn't shown
+  return rows.results
+    .map((r) => ({ by: r.by || null, rating: r.rating && r.rating > 0 ? r.rating : null, review: r.review }))
+    .filter((r) => r.rating !== null || r.review !== null);
 }
 
 /** Every member's id and name, and no more — what a page needs to say whose read or review something is (§16 #43). */
 export async function listPeople(d1: D1Database): Promise<Array<{ id: number; username: string }>> {
   return db(d1).select({ id: s.users.id, username: s.users.username }).from(s.users).orderBy(asc(s.users.username), asc(s.users.id));
+}
+
+/**
+ * A member's per-person feed entries (§16 #45) given new ids — the same entries, dated as before — so a connection
+ * holding the old ones learns from the removal check that they're gone and pulls the new ones: a rename, or a member
+ * removed (then unnamed), reaches what connections already hold, not only what they pull next. INSERT OR REPLACE re-keys a read's or a review's entries in place (their unique
+ * index); a page's entries are copied, then the older copy goes.
+ */
+function rekeyMemberActivity(d1: D1Database, userId: number, newName?: string | null): D1PreparedStatement[] {
+  // with a new name: only when it differs from the one stored — nothing to re-key for a form saved unchanged
+  const guard = newName === undefined ? '1' : '(SELECT display_name FROM users WHERE id = ?1) IS NOT ?2';
+  const theirs = `(read_id IN (SELECT id FROM reads WHERE reader_id = ?1)
+    OR review_id IN (SELECT id FROM reviews WHERE user_id = ?1)
+    OR progress_id IN (SELECT p.id FROM reading_progress p JOIN reads r ON r.id = p.read_id WHERE r.reader_id = ?1))`;
+  return [
+    d1
+      .prepare(
+        `INSERT OR REPLACE INTO member_activity (item_id, kind, at, read_id, review_id, progress_id)
+         SELECT item_id, kind, at, read_id, review_id, progress_id FROM member_activity WHERE ${theirs} AND ${guard} ORDER BY id`,
+      )
+      .bind(...(newName === undefined ? [userId] : [userId, newName])),
+    d1
+      .prepare(
+        `DELETE FROM member_activity WHERE kind = 'progress' AND ${theirs}
+           AND EXISTS (SELECT 1 FROM member_activity n WHERE n.progress_id = member_activity.progress_id AND n.id > member_activity.id)`,
+      )
+      .bind(userId),
+  ];
 }
 
 export async function deleteUser(d1: D1Database, id: number): Promise<void> {
@@ -132,6 +167,8 @@ export async function deleteUser(d1: D1Database, id: number): Promise<void> {
   // household's summary on each item — status, read count, average rating — is everyone's, theirs included, so it
   // doesn't change.
   await d1.batch([
+    // first, while their reads still say whose: their named entries get new ids, so connections drop the named copies
+    ...rekeyMemberActivity(d1, id),
     d1.prepare('UPDATE items SET added_by = NULL WHERE added_by = ?1').bind(id),
     d1.prepare('UPDATE reading_progress SET added_by = NULL WHERE added_by = ?1').bind(id),
     d1.prepare('UPDATE reads SET reader_id = NULL WHERE reader_id = ?1').bind(id),
@@ -200,7 +237,13 @@ export async function deleteLibrary(d1: D1Database, id: number): Promise<string[
     .select({ coverKey: s.items.coverKey })
     .from(s.items)
     .where(and(eq(s.items.libraryId, id), sql`${s.items.coverKey} IS NOT NULL`));
-  await dbi.delete(s.libraries).where(eq(s.libraries.id, id)); // items cascade
+  // items cascade, and so may the shelf's connection views: with none left, both activity logs go, as they do when the
+  // last view is removed on the Connections page (deleteConnectionView), so a stale log can't outlive every view
+  await d1.batch([
+    d1.prepare('DELETE FROM libraries WHERE id = ?1').bind(id),
+    d1.prepare('DELETE FROM activity_log WHERE NOT EXISTS (SELECT 1 FROM connection_views)'),
+    d1.prepare('DELETE FROM member_activity WHERE NOT EXISTS (SELECT 1 FROM connection_views)'),
+  ]);
   return covers.map((c) => c.coverKey).filter((k): k is string => !!k);
 }
 

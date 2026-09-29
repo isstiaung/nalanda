@@ -43,7 +43,7 @@ export type FeedItem = Pick<
 };
 
 /** A per-person feed entry's own part (§16 #45): whose it is, and that member's rating or review on those kinds. */
-export type FeedPerson = { by: string | null; rating: number | null; review: string | null };
+export type FeedPerson = { by: string | null; rating: number | null; review: string | null; readCount: number };
 
 /**
  * A feed entry's item, carrying only what its kind shows: the review only on a `reviewed` entry, the
@@ -60,7 +60,8 @@ export function toFeedItem(
 ): FeedItem {
   const c = toConnectionItem(item);
   // a per-person entry carries its member's own rating and review, not the household's summary
-  if (person) Object.assign(c, { rating: person.rating, review: person.review });
+  // — and that member's own finishes, not the household's (a first read isn't "finished again")
+  if (person) Object.assign(c, { rating: person.rating && person.rating > 0 ? person.rating : null, review: person.review, readCount: person.readCount });
   const long = c.review !== null && c.review.length > MAX_FEED_REVIEW_CHARS;
   return keepForKind(
     {
