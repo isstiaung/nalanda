@@ -205,10 +205,12 @@ const SharedViews: FC<{ views: PageProps['views']; libraries: Library[]; progres
         Off by default: they see your household as one — "finished", "rated" — with no names. On, their feed gets an
         entry per person, signed with each member's <strong>display name</strong> ("Priya finished …", "Ravi rated …",
         and when someone starts a book), and a book's page lists everyone's rating and review. Members without a display
-        name stay unnamed; login usernames never leave this library, and nor do the dates of anyone's reads. Turning it
-        off stops names from their next pull on, and asks them to delete the named entries they already have the next
-        time they check — a household is trusted to, but can keep what it already pulled. Households on older versions
-        of Nalanda get the entries without names, and skip "started".
+        name stay unnamed; login usernames never leave this library, and nor do the dates of anyone's reads. Comments
+        and borrow requests your members send are signed with their display name while this is on, "A member" while
+        it's off. Turning it on or off swaps what they hold the next time they check: they're asked to delete the
+        entries from before and pull the new ones — a household is trusted to, but can keep what it already pulled.
+        Households on older versions of Nalanda get the entries without names, as your household's, and skip
+        "started".
       </p>
       {views.length ? (
         <div class="data-table">

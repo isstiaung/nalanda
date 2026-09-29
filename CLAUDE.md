@@ -93,8 +93,13 @@ shape from this file.
   never when recording — `member_activity` rows point at a read, review or page, never a person.
   **With both off, every served byte stays as before**: no `reviews` or `by` key at all, the
   household's `activity_log` stream and ids untouched; tests compare with and without display
-  names. Named feed entries go out with ids past `MEMBER_ACTIVITY_BASE` and fail the removal check
-  once names are off. Names other instances send are strings from another instance (below).
+  names. Named feed entries go out with ids past `MEMBER_ACTIVITY_BASE`; one stream is valid at a
+  time, so named ids fail the removal check once names are off and household ids while they're on.
+  A per-person start or finish is recorded only as it happens, dated then — never by a read's dates,
+  never backfilled. A rename or removal re-keys that member's entries in its batch
+  (`rekeyMemberActivity()`) so peers' held copies are withdrawn. Comments and borrow requests are
+  signed with `outwardName()` — the display name while names go to connections, else "A member",
+  never the username. Names other instances send are strings from another instance (below).
 - The shelf's **"Read by" filter** (`ReaderFilter` in `src/db/queries.ts`) is never publishable:
   it is deliberately not part of `ItemFilters`, so `shareFilters()`, `itemMatchesShare()` and
   connection views have no room for it, and the publish form carries no field for it. Keep it

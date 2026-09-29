@@ -76,10 +76,14 @@ you do.
 - **Names are off by default.** **Show names to connected households** (in this section) sends one
   feed entry per person, signed with each member's display name — "Priya finished", "Ravi rated",
   "Priya started" — and lists everyone's rating and review on a book's page (ARCH.md §16 #45).
-  Members without a display name stay unnamed; usernames and read dates never leave. Turning it
-  off stops names from their next pull on and asks them to delete the named entries they have at
-  their next check; they can keep what they already pulled. Households on older versions get the
-  entries without names.
+  Members without a display name stay unnamed; usernames and read dates never leave — a start or
+  finish goes out only as it happens, dated then. Turning it on or off swaps what they hold at
+  their next check: on, they're asked to delete the unnamed entries and pull the named ones; off,
+  the reverse. They can keep what they already pulled. Renaming or removing a member swaps that
+  member's entries the same way. Comments and borrow requests your members send are signed with
+  their display name while this is on, and "A member" while it's off. Households on older
+  versions get the entries without names, shown as the household's — two people finishing one
+  book show as one entry.
 - **With names off, they see your household, never a person** (ARCH.md §16 #43). The rating is the average of
   everyone's ratings here, the review the one written last, with no name on it; "when you last
   finished it" is the latest finish by anyone, and "how many times" counts everyone's. Which of
