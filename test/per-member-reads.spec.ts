@@ -416,6 +416,31 @@ describe('permissions: members change their own, admins anyone’s', () => {
     expect(await deleteProgress(env.DB, s.item.id, s.page.id, actor(s.asha))).toBe(true);
   });
 
+  it('offers an admin Finish and Stop on someone else’s open read, and a member neither', async () => {
+    const { asha, ravi, mira } = await household();
+    const item = await book(null);
+    await startRead(env.DB, item.id, '2026-09-01', ravi.id);
+    const his = await openReadOf(item.id, ravi);
+
+    const asAdmin = await html(asha, `/items/${item.id}`);
+    expect(asAdmin).toContain(`action="/items/${item.id}/reads/${his}/finish"`);
+    expect(asAdmin).toContain(`action="/items/${item.id}/reads/${his}/stop"`);
+    const asMember = await html(mira, `/items/${item.id}`);
+    expect(asMember).not.toContain(`/reads/${his}/finish`);
+    expect(asMember).not.toContain(`/reads/${his}/stop`);
+
+    const finished = await as(asha, `/items/${item.id}/reads/${his}/finish`, { body: { date: '2026-09-20' }, htmx: true });
+    expect(finished.status).toBe(200);
+    expect((await readsOf(item.id)).find((r) => r.id === his)).toMatchObject({ readerId: ravi.id, status: 'completed', endedOn: '2026-09-20' });
+
+    // and on a record, where reads are kept from the edit form: his own too, never someone else's
+    const record = await book(ravi, { mediaType: 'vinyl', title: 'Blue', status: 'in_progress', beganOn: '2026-09-01' });
+    const [spin] = await readsOf(record.id);
+    expect(await html(asha, `/items/${record.id}`)).toContain(`/reads/${spin!.id}/stop`);
+    expect(await html(ravi, `/items/${record.id}`)).toContain(`/reads/${spin!.id}/stop`);
+    expect(await html(mira, `/items/${record.id}`)).not.toContain(`/reads/${spin!.id}/stop`);
+  });
+
   it('gives a record’s or game’s reads the same: listed by person, fixed by an admin, refused to other members', async () => {
     const { asha, ravi, mira } = await household();
     const game = await book(ravi, { mediaType: 'boardgame', title: 'Wingspan', status: 'completed', completedOn: '2026-05-01' });

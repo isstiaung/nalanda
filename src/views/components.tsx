@@ -2,7 +2,7 @@ import type { FC } from 'hono/jsx';
 import type { Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import { progressPercent } from '../lib/progress';
-import { ordinal, summarizeReads, type ReadDraft, type ReadRow } from '../lib/reads';
+import { ordinal, summarizeReads, todayUtc, type ReadDraft, type ReadRow } from '../lib/reads';
 import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
 
@@ -193,6 +193,27 @@ function personalReading(item: Item, reads: ReadingRead[], entries: ReadingPage[
   return { mine, ids, state, open, current, page, pagesOf, summary, percent: page ? progressPercent(page, item.length) : null };
 }
 
+/**
+ * Finish (on a date) and Stop for an open read — the reader's own, or, for an admin, anyone's (§16 #43): the routes
+ * allow both to them, so the page offers both. Each form's own action is primary; Stop is secondary.
+ */
+const CloseReadForms: FC<{ item: Item; read: ReadingRead; today: string; rereading: boolean }> = ({ item, read, today, rereading }) => {
+  const base = `/items/${item.id}`;
+  return (
+    <>
+      <form method="post" action={`${base}/reads/${read.id}/finish`} class="inline-form" {...htmxTo(`${base}/reads/${read.id}/finish`)}>
+        <input type="date" name="date" value={today} aria-label="Finished on" class="mono" />
+        <button type="submit">Finish</button>
+      </form>
+      <form method="post" action={`${base}/reads/${read.id}/stop`} class="inline-form" {...htmxTo(`${base}/reads/${read.id}/stop`)}>
+        <button type="submit" class="btn">
+          {rereading ? 'Stop re-reading' : 'Stop reading'}
+        </button>
+      </form>
+    </>
+  );
+};
+
 /** Where a read in progress has got to: "p. 120 of 300 · 40%", and the bar. */
 const ProgressLine: FC<{ page: number; length: number | null; percent: number | null }> = ({ page, length, percent }) => (
   <>
@@ -339,17 +360,7 @@ export const ReadingSection: FC<{
 
       <div class="read-actions">
         {open ? (
-          <>
-            <form method="post" action={`${base}/reads/${open.id}/finish`} class="inline-form" {...htmxTo(`${base}/reads/${open.id}/finish`)}>
-              <input type="date" name="date" value={today} aria-label="Finished on" class="mono" />
-              <button type="submit">Finish</button>
-            </form>
-            <form method="post" action={`${base}/reads/${open.id}/stop`} class="inline-form" {...htmxTo(`${base}/reads/${open.id}/stop`)}>
-              <button type="submit" class="btn">
-                {me.state.rereading ? 'Stop re-reading' : 'Stop reading'}
-              </button>
-            </form>
-          </>
+          <CloseReadForms item={item} read={open} today={today} rereading={me.state.rereading} />
         ) : (
           <form method="post" action={`${base}/reads/start`} class="inline-form" {...htmxTo(`${base}/reads/start`)}>
             <button type="submit">{me.state.readCount > 0 ? 'Read again' : mine.length ? 'Start again' : 'Start reading'}</button>
@@ -412,8 +423,13 @@ export const ReadingSection: FC<{
             <p class="reader-name">{personName(people, id)}</p>
             <p class="reading-summary">{them.summary}</p>
             {them.open && them.page ? <ProgressLine page={them.page} length={item.length} percent={them.percent} /> : null}
-            {/* an admin can take out a mistyped page of anyone's; everyone else just sees where they are */}
+            {/* an admin can take out a mistyped page of anyone's, and finish or stop their read; everyone else just sees */}
             {editable ? <PageLog item={item} entries={them.current} removable={true} /> : null}
+            {editable && them.open ? (
+              <div class="read-actions">
+                <CloseReadForms item={item} read={them.open} today={today} rereading={them.state.rereading} />
+              </div>
+            ) : null}
             <ol class="read-history">
               {them.mine.map((r, i) => (
                 <ReadLine
@@ -469,6 +485,11 @@ export const ReadsByPerson: FC<{ item: Item; reads: ReadingRead[]; viewer: Viewe
               )}
             </p>
             <p class="reading-summary">{them.summary}</p>
+            {them.open && (viewer.admin || id === viewer.id) ? (
+              <div class="read-actions">
+                <CloseReadForms item={item} read={them.open} today={todayUtc()} rereading={them.state.rereading} />
+              </div>
+            ) : null}
             <ol class="read-history">
               {them.mine.map((r, i) => (
                 <ReadLine
