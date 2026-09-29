@@ -273,9 +273,16 @@ function instrumentFetch({ rps }) {
     if (n >= FAILURES_BEFORE_STOPPING) health.stopReason ??= `${n} consecutive failures from ${host} (${why})`;
   };
   // Requests a second per host. Open Library takes --rps; the others follow their own published limits —
-  // Discogs allows 60 a minute, MusicBrainz and its Cover Art Archive one a second, and Google Books
-  // enforces a per-minute limit as well as its daily one.
-  const PACE = { 'www.googleapis.com': 1, 'api.discogs.com': 1, 'musicbrainz.org': 1, 'coverartarchive.org': 1 };
+  // Discogs allows 60 a minute, MusicBrainz and its Cover Art Archive one a second, Google Books
+  // enforces a per-minute limit as well as its daily one, and BoardGameGeek's API docs say "a 5-second
+  // wait between requests seems to suffice" to stay clear of its throttling.
+  const PACE = {
+    'www.googleapis.com': 1,
+    'api.discogs.com': 1,
+    'musicbrainz.org': 1,
+    'coverartarchive.org': 1,
+    'boardgamegeek.com': 0.2,
+  };
   const waitForSlot = async (host) => {
     const gap = 1000 / (host === OPEN_LIBRARY ? rps : (PACE[host] ?? 4));
     const now = Date.now();
