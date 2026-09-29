@@ -35,6 +35,23 @@ export class BggBusyError extends Error {
 
 const BUSY = new Set([202, 429, 500, 503]);
 
+// The named references BGG's descriptions use; any other is left as written. Numeric ones are all decoded.
+const NAMED: Record<string, string> = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: '\u00a0', ndash: '–', mdash: '—', hellip: '…',
+  lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”', laquo: '«', raquo: '»', bull: '•', middot: '·', times: '×',
+  deg: '°', copy: '©', reg: '®', trade: '™', eacute: 'é', egrave: 'è', aacute: 'á', agrave: 'à', iacute: 'í',
+  oacute: 'ó', uacute: 'ú', ntilde: 'ñ', ccedil: 'ç', auml: 'ä', ouml: 'ö', uuml: 'ü', szlig: 'ß',
+};
+
+/** One level of HTML character references, decoded: BGG escapes its descriptions once more than the XML needs. */
+export function decodeReferences(text: string): string {
+  return text.replace(/&(#\d{1,7}|#x[0-9a-f]{1,6}|[a-z]{2,8});/gi, (ref, code: string) => {
+    if (code[0] !== '#') return NAMED[code.toLowerCase()] ?? ref;
+    const n = code[1] === 'x' || code[1] === 'X' ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
+    return n > 0 && n <= 0x10ffff && !(n >= 0xd800 && n <= 0xdfff) ? String.fromCodePoint(n) : ref;
+  });
+}
+
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
@@ -80,8 +97,11 @@ function toCandidate(item: ThingItem): Candidate | null {
     .slice(0, 4);
   const publisher = links.find((l) => l['@_type'] === 'boardgamepublisher')?.['@_value'];
   const year = item.yearpublished?.['@_value'];
+  // Kept whole: BGG's terms forbid modifying its data (ARCH.md §16 #44). Only how it displays changes: its
+  // character references (still encoded once the XML is parsed) become the characters, and spaces left before a
+  // line break go — paragraphs, blank lines included, stay as BGG wrote them.
   const description = item.description
-    ? item.description.replace(/&#10;/g, '\n').replace(/\s+\n/g, '\n').trim().slice(0, 2000)
+    ? decodeReferences(item.description).replace(/[ \t]+\n/g, '\n').trim()
     : undefined;
   return {
     mediaType: 'boardgame',

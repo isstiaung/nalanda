@@ -57,6 +57,29 @@ describe('BoardGameGeek', () => {
     expect(result.notices.join(' ')).not.toContain('throttles');
   });
 
+  it("keeps BGG's description whole — its terms forbid modifying the data", async () => {
+    const long = Array.from({ length: 60 }, (_, i) => `Paragraph ${i + 1} of the rules and the story of the game.`).join('&#10;&#10;');
+    const thing = THING.replace('<yearpublished', `<description>${long}</description><yearpublished`);
+    stubBgg((url) => (url.includes('/search') ? xml(SEARCH) : xml(thing)));
+
+    const [catan] = await bgg('tok-123').search('Catan');
+
+    const expected = long.replace(/&#10;/g, '\n');
+    expect(expected.length).toBeGreaterThan(3000);
+    expect(catan!.description).toBe(expected); // every paragraph, blank lines kept
+  });
+
+  it("shows BGG's character references as the characters they stand for", async () => {
+    // BGG's XML escapes its descriptions once more than needed: after parsing, the text still says &#039; and &mdash;
+    const raw = 'Settlers&amp;#039; island &amp;mdash; 3&amp;ndash;4 players.  &amp;#10;&amp;#10;Trade &amp;amp; build &amp;#x2764; &amp;unknown; &amp;#0;';
+    const thing = THING.replace('<yearpublished', `<description>${raw}</description><yearpublished`);
+    stubBgg((url) => (url.includes('/search') ? xml(SEARCH) : xml(thing)));
+
+    const [catan] = await bgg('tok-123').search('Catan');
+
+    expect(catan!.description).toBe("Settlers' island — 3–4 players.\n\nTrade & build ❤ &unknown; &#0;");
+  });
+
   it('takes the first ids from a huge search result without parsing all of it', () => {
     const big = `<items total="5000">${Array.from({ length: 5000 }, (_, i) => `<item type="boardgame" id="${i + 1}"><name type="primary" value="Game ${i}"/></item>`).join('')}</items>`;
     expect(firstIds(big, 8)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8']);

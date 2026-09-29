@@ -1212,9 +1212,11 @@ kind. (Pairwise connections between two self-hosted instances are in scope â€” Â
     login redirect. They are BGG's trademark, not MIT (THIRD-PARTY.md). Not credited: a
     connected household's board games on Feed and shelves, which the peer fetched from BGG
     under its own terms, and the signed-in shelf tables, which a board game's own page covers.
-    Two terms stay with the owner rather than the code: BGG forbids modifying its data, and
-    the provider trims descriptions to 2,000 characters and tidies their whitespace; and it
-    may change its terms at any time (the Geek Tools News forum announces changes).
+    BGG forbids modifying its data, so a description is kept whole (the owner's call): the
+    provider only decodes the character references BGG's XML leaves escaped (`&#039;`,
+    `&mdash;`, line breaks) and drops spaces before a line break. It used to cut descriptions
+    at 2,000 characters and collapse blank lines, losing paragraphs. One term stays with the
+    owner: BGG may change its terms at any time (the Geek Tools News forum announces changes).
 
 The honest comparison, since it was asked:
 
