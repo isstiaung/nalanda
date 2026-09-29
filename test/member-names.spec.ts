@@ -12,6 +12,8 @@ import {
   deleteLibrary,
   deleteUser,
   mergeImportItems,
+  moveRead,
+  moveReview,
   setDisplayName,
   startRead,
   updateItemWithTags,
@@ -28,7 +30,7 @@ import { clearSharePageCache } from '../src/routes/share';
 import app from '../src/index';
 import * as before from './fixtures/items-before-names';
 import { answerOutbound, connectPeer, instanceA, json, makeKeys, makePeer, setUpA, sqlAgo, type Peer } from './federation-helpers';
-import { as, book, member, rows, type Member } from './member-helpers';
+import { actor, as, book, member, rows, type Member } from './member-helpers';
 
 const LOGINS = ['u-asha-login', 'u-ravi-login', 'u-mira-login'];
 /** Starts and finishes reach the per-person log only as they happen (migration 0027), so the scene's happen today. */
@@ -318,6 +320,35 @@ describe('connections with names on', () => {
     expect(JSON.stringify(await pull())).not.toMatch(/R\. K\.|Ravi/);
     expect(hers.length).toBeGreaterThan(0);
     expect(asha.id).toBeGreaterThan(0);
+  });
+
+  it('reach what a connection already holds when an admin moves a read or a review: re-served under the new name, dated as before', async () => {
+    const { asha, ravi, mira, item } = await scene();
+    const newcomer = await member('u-new-login');
+    await setDisplayName(env.DB, newcomer.id, 'Newcomer');
+    await updateSiteSettings(env.DB, { namesToConnections: true });
+    const first = await pull();
+    const readOf = async (m: Member) => (await rows<{ id: number }>('SELECT id FROM reads WHERE item_id = ?1 AND reader_id = ?2', item.id, m.id))[0]!.id;
+    const reviewOf = async (m: Member) => (await rows<{ id: number }>('SELECT id FROM reviews WHERE item_id = ?1 AND user_id = ?2', item.id, m.id))[0]!.id;
+    const [ashaRead, miraRead, raviReview] = [await readOf(asha), await readOf(mira), await reviewOf(ravi)];
+    const was = (line: string) => first.entries.filter((e) => lines([e])[0] === line);
+    const moved = [...was('Asha finished'), ...was('(unnamed) started'), ...was('(unnamed) progress p.40'), ...was('Ravi K rated 5'), ...was('Ravi K reviewed "His: the statues."')];
+    expect(moved).toHaveLength(5);
+
+    expect(await moveRead(env.DB, item.id, ashaRead, ravi.id, actor(asha))).toBe(true); // her finish was his
+    expect(await moveRead(env.DB, item.id, miraRead, asha.id, actor(asha))).toBe(true); // Mira's open read, page and all, was Asha's
+    expect(await moveReview(env.DB, item.id, raviReview, newcomer.id, actor(asha))).toBe(true); // his review was the newcomer's
+
+    // the moved entries withdrawn — only those: everyone's others still say who did them
+    expect((await check(first.entries.map((e) => e.id))).invalid.sort()).toEqual(moved.map((e) => e.id).sort());
+    const again = await pull(first.latest);
+    expect(lines(again.entries)).toEqual(['Asha progress p.40', 'Asha started', 'Newcomer rated 5', 'Newcomer reviewed "His: the statues."', 'Ravi K finished']);
+    expect(again.entries.map((e) => e.published).sort()).toEqual(moved.map((e) => e.published).sort()); // dated as before
+
+    // a move refused — to the member it already belongs to — re-keys nothing
+    expect(await moveReview(env.DB, item.id, raviReview, newcomer.id, actor(asha))).toBe(false);
+    expect(await moveRead(env.DB, item.id, ashaRead, ravi.id, actor(asha))).toBe(false);
+    expect((await pull(again.latest)).entries).toEqual([]);
   });
 
   it('switch streams cleanly both ways, withdrawing named entries once names go off', async () => {

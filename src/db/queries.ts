@@ -159,6 +159,41 @@ function rekeyMemberActivity(d1: D1Database, userId: number, newName?: string | 
   ];
 }
 
+/**
+ * One read's or one review's per-person entries (§16 #45) given new ids, dated as before, when an admin moves it to
+ * another member: a connection holding them under the old name learns from the removal check that they're gone and
+ * pulls them again under the new one. Only that read or review — the rest of both members' entries still say who did
+ * them. Goes straight after the move's UPDATE in its batch: `changes()` is that statement's, so a move refused (or to
+ * the member it already belongs to) re-keys nothing. A read's pages go with it: copied, then the older copy goes.
+ */
+function rekeyMoved(d1: D1Database, moved: { readId: number } | { reviewId: number }): D1PreparedStatement[] {
+  if ('reviewId' in moved) {
+    return [
+      d1
+        .prepare(
+          `INSERT OR REPLACE INTO member_activity (item_id, kind, at, read_id, review_id, progress_id)
+           SELECT item_id, kind, at, read_id, review_id, progress_id FROM member_activity WHERE review_id = ?1 AND changes() > 0 ORDER BY id`,
+        )
+        .bind(moved.reviewId),
+    ];
+  }
+  const its = `(read_id = ?1 OR progress_id IN (SELECT id FROM reading_progress WHERE read_id = ?1))`;
+  return [
+    d1
+      .prepare(
+        `INSERT OR REPLACE INTO member_activity (item_id, kind, at, read_id, review_id, progress_id)
+         SELECT item_id, kind, at, read_id, review_id, progress_id FROM member_activity WHERE ${its} AND changes() > 0 ORDER BY id`,
+      )
+      .bind(moved.readId),
+    d1
+      .prepare(
+        `DELETE FROM member_activity WHERE kind = 'progress' AND ${its}
+           AND EXISTS (SELECT 1 FROM member_activity n WHERE n.progress_id = member_activity.progress_id AND n.id > member_activity.id)`,
+      )
+      .bind(moved.readId),
+  ];
+}
+
 export async function deleteUser(d1: D1Database, id: number): Promise<void> {
   // Three references to users have no ON DELETE action (migrations 0000, 0012 and 0024, all applied — drizzle-kit
   // drops the clause on ALTER TABLE): items.added_by, reading_progress.added_by and reads.reader_id. Any of them
@@ -1123,6 +1158,8 @@ export async function moveRead(d1: D1Database, itemId: number, readId: number, t
            AND (SELECT count(*) FROM reads c WHERE c.item_id = ?2 AND c.reader_id = ?3) < ${MAX_READS_PER_ITEM}`,
       )
       .bind(readId, itemId, to, by.admin ? 1 : 0),
+    // its entries on the per-person feed, re-keyed so connections holding them under the old name pull them again
+    ...rekeyMoved(d1, { readId }),
     // its pages are its reader's: they follow it, and only once it has moved
     d1
       .prepare(
@@ -1364,6 +1401,7 @@ export async function moveReview(d1: D1Database, itemId: number, reviewId: numbe
            AND NOT EXISTS (SELECT 1 FROM reviews o WHERE o.item_id = ?2 AND o.user_id = ?3)`,
       )
       .bind(reviewId, itemId, to, by.admin ? 1 : 0),
+    ...rekeyMoved(d1, { reviewId }), // as moveRead's
     refreshReviewState(d1, [itemId]),
   ]);
   return (moved?.meta.changes ?? 0) > 0;
