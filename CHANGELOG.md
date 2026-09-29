@@ -8,7 +8,7 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
-## [1.3.0] - 2026-09-28
+## [1.3.0] - 2026-09-29
 
 Everyone's own reading. Each member of a household now has their own reads, recorded pages, rating and review, and a book's page shows everyone's under their name. A book still has one status on your shelves, and share links and connected households still see one household rating and review, with no names.
 
@@ -30,10 +30,6 @@ Everyone's own reading. Each member of a household now has their own reads, reco
 - **Setting up before `SESSION_SECRET` is set** no longer locks you out. Setup used to create your admin account and then fail with an error, which closed setup, and login then failed the same way. Now setup and login say the secret is missing and how to set it, and nothing is saved until it is.
 - **A `SESSION_SECRET` that is only spaces or blank lines** now counts as missing. It used to be accepted, and it signed session cookies that anyone could forge. If yours is blank, sign-in stops after this update until you set a real one: `npx wrangler secret put SESSION_SECRET`.
 - **Two setups at once**, such as a double-click on **Create account**, now make one admin and one set of starter shelves. A double-click could end in an error, and two people racing made two admins. The setup that loses lands on the login page, which says another setup finished first; after a double-click, the password you just chose works there.
-
-### Upgrading
-- **If your `SESSION_SECRET` is blank** (only spaces or blank lines), everyone is signed out after this update and nobody can sign in until you set a real one: `npx wrangler secret put SESSION_SECRET`, with a value from `openssl rand -base64 32`. Setup and login say so.
-- **If setup once failed with an error** and you couldn't log in afterwards, your admin account was created before the error. Set `SESSION_SECRET`, then log in with the username and password you chose at setup.
 
 ### Upgrading
 - **Back up first** (`npm run backup`). Migrations `0024_per-member` and `0025_per-member-backfill` run when you deploy.
