@@ -1,10 +1,11 @@
 // BoardGameGeek went registration-only in 2025: every XML API2 request needs an application's bearer token,
 // and without one it answers 401 to everything. That took board-game search down silently — this pins the
 // token, the host, the notices, and the cheap id scan.
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Bindings } from '../src/env';
 import { searchByName } from '../src/metadata';
 import { bgg, firstIds } from '../src/metadata/bgg';
+import { activateFetchMock, assertNoPendingInterceptors, intercept } from './fetch-mock';
 
 type Seen = { url: string; auth: string | null };
 
@@ -68,5 +69,53 @@ describe('BoardGameGeek', () => {
 
     expect(result.notices.join(' ')).toContain('did not answer');
     expect(result.notices.join(' ')).not.toContain('rejected the BGG_TOKEN');
+  });
+});
+
+// BGG's API docs: "if you send requests too frequently, the server will give you 500 or 503 return codes"; its edge
+// answers 429 for the same, and 202 means "queued — ask again". Each used to come back as an empty list, so a
+// throttled search told the household the game wasn't on BoardGameGeek at all.
+describe('BoardGameGeek, busy', () => {
+  const BGG = 'https://boardgamegeek.com';
+  const search = (p: string) => p.startsWith('/xmlapi2/search?');
+  const thing = (p: string) => p.startsWith('/xmlapi2/thing?');
+
+  beforeEach(() => activateFetchMock());
+  afterEach(() => assertNoPendingInterceptors());
+
+  for (const status of [202, 429, 500, 503]) {
+    it(`says BGG is busy, not that nothing matched, when the search answers ${status}`, async () => {
+      intercept(BGG, search, { status, body: status === 202 ? '<message>Your request has been accepted</message>' : '' });
+      const result = await searchByName(env('tok'), 'Catan', 'boardgame');
+
+      expect(result.candidates).toEqual([]);
+      expect(result.notices.join(' ')).toContain('BoardGameGeek is busy');
+      expect(result.notices.join(' ')).not.toContain('No board games found');
+    });
+  }
+
+  it('says BGG is busy when the search answers but the game details are throttled', async () => {
+    intercept(BGG, search, { body: SEARCH });
+    intercept(BGG, thing, { status: 429 });
+    const result = await searchByName(env('tok'), 'Catan', 'boardgame');
+
+    expect(result.candidates).toEqual([]);
+    expect(result.notices.join(' ')).toContain('BoardGameGeek is busy');
+  });
+
+  it('still says nothing was found when BGG answers with no games — and never asks for their details', async () => {
+    intercept(BGG, search, { body: '<items total="0" termsofuse="https://boardgamegeek.com/xmlapi/termsofuse"></items>' });
+    const result = await searchByName(env('tok'), 'Zzyzx the unplayable', 'boardgame');
+
+    expect(result.candidates).toEqual([]);
+    expect(result.notices).toEqual(['No board games found on BoardGameGeek.']);
+  });
+
+  it('reads any other failure as BGG not answering, not as an empty result', async () => {
+    intercept(BGG, search, { status: 502 });
+    const result = await searchByName(env('tok'), 'Catan', 'boardgame');
+
+    expect(result.notices.join(' ')).toContain('did not answer');
+    expect(result.notices.join(' ')).not.toContain('No board games found');
   });
 });

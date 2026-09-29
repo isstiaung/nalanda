@@ -1,6 +1,8 @@
-// BoardGameGeek XML API2 — free, XML (hence fast-xml-parser), and since 2025 registration-only: every request
-// carries `Authorization: Bearer <BGG_TOKEN>`, a token issued to a registered application at
-// boardgamegeek.com/applications. Without one BGG answers 401 to everything (ARCH.md §7).
+// BoardGameGeek XML API2 — free for a non-commercial app, XML (hence fast-xml-parser), and since 2025
+// registration-only: every request carries `Authorization: Bearer <BGG_TOKEN>` ("Bearer", a space, no colon),
+// a token made for an approved application at boardgamegeek.com/applications. Without one BGG answers 401 to
+// everything. The terms that come with it — the "Powered by BGG" logo, linked back to BGG, wherever the data is
+// shown publicly — are ARCH.md §7 and §16 #44; the rules are at boardgamegeek.com/using_the_xml_api.
 // No barcode endpoint exists; board games are added via name search.
 import { XMLParser } from 'fast-xml-parser';
 import { fetchWithTimeout, USER_AGENT } from '../env';
@@ -19,17 +21,32 @@ export class BggAuthError extends Error {
   }
 }
 
+/**
+ * BGG is throttling us, or hasn't got the answer ready. Its API docs say an over-eager client gets 500 or 503
+ * ("too busy"; about five seconds between requests avoids it), its edge answers 429 for the same thing, and 202
+ * means the request was queued and has to be asked again. None of those says the game doesn't exist, so none may
+ * read as "no results": 202 is even a success status, whose body holds no items.
+ */
+export class BggBusyError extends Error {
+  constructor(status: number) {
+    super(`BoardGameGeek is busy (HTTP ${status})`);
+  }
+}
+
+const BUSY = new Set([202, 429, 500, 503]);
+
 const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
   isArray: (name) => name === 'item' || name === 'link' || name === 'name',
 });
 
-async function fetchText(url: string, token: string): Promise<string | null> {
+async function fetchText(url: string, token: string): Promise<string> {
   const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT, Authorization: `Bearer ${token}` } });
   if (res.status === 401) throw new BggAuthError(res.status);
+  if (BUSY.has(res.status)) throw new BggBusyError(res.status);
   if (res.status === 403) throw new Error('BoardGameGeek turned the request away (HTTP 403)');
-  if (!res.ok) return null; // BGG throttles with 429/202; fail soft, the user can retry
+  if (!res.ok) throw new Error(`BoardGameGeek answered HTTP ${res.status}`);
   return res.text();
 }
 
@@ -110,11 +127,11 @@ export function bgg(token: string | undefined): MetadataProvider {
     async search(query: string): Promise<Candidate[]> {
       if (!token) return [];
       const found = await fetchText(`${API}/search?type=boardgame&query=${encodeURIComponent(query)}`, token);
-      const ids = found ? firstIds(found, 8) : [];
+      const ids = firstIds(found, 8); // `thing` takes at most 20 ids
       if (!ids.length) return [];
 
       const things = await fetchText(`${API}/thing?id=${ids.join(',')}&stats=1`, token);
-      const doc = (things ? parser.parse(things) : null) as { items?: { item?: ThingItem[] } } | null;
+      const doc = parser.parse(things) as { items?: { item?: ThingItem[] } } | null;
       return (doc?.items?.item ?? []).map(toCandidate).filter((c): c is Candidate => !!c);
     },
   };
