@@ -160,7 +160,8 @@ CREATE TABLE reviews (           -- each member's rating and review (§16 #43)
   review      TEXT,
   created_at  TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at  TEXT NOT NULL DEFAULT (datetime('now')),
-  reviewed_at TEXT              -- when the text was last written: whose review the household shows
+  reviewed_at TEXT,             -- when the text was last written: whose review the household shows
+  rated_at    TEXT              -- when the rating was last given: what a "rated" entry is dated by
 );
 CREATE UNIQUE INDEX reviews_item_user ON reviews(item_id, user_id);
 
@@ -1104,9 +1105,12 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       last finish or left out, as before. A review or rating taken away isn't news: the trigger
       sees only that the item's review changed, so when a member's newer review goes and an older
       one shows again, the same batch dates the replacement entry by when the review now shown was
-      written (and a rating entry by the latest remaining rating) — never later than the trigger
-      dated it, so something just written keeps its time (`redateReviewActivity()`; found by the
-      adversarial pass, which saw a 2019 review re-announced as today's). `summarizeReviews()` is
+      written (`reviewed_at`), and a rating entry by when the latest remaining rating was given
+      (`rated_at`, which only a change of the rating's value moves — dating it by `updated_at`
+      re-announced a 2019 rating as news after its review's text was edited, found by nalanda-review)
+      — never later than the trigger dated it, so something just written keeps its time
+      (`redateReviewActivity()`; found by the adversarial pass, which saw a 2019 review re-announced
+      as today's). `summarizeReviews()` is
       the refresh's TypeScript twin, held to it by a test.
 
     For a household of one every rule reduces to v1.2.1's, and the existing suite — run as one
@@ -1119,8 +1123,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     status, dates, rating and review are the editor's own, and its re-read lock and "use Read again"
     refusals are per person. A record's or game's "Not started" clears only the editor's reads, so
     its page lists everyone's reads by name too (once there is more than one member), where the
-    reader or an admin corrects or deletes one and an admin moves it; starting a read and pages
-    stay a book's.
+    reader or an admin corrects, finishes, stops or deletes one and an admin moves it; starting a
+    read and pages stay a book's. On a book's page too an admin gets Finish and Stop on anyone's
+    open read, which the routes always allowed.
 
     **Permissions.** Members change their own reads, pages and review; admins anyone's. Every route
     checks and answers 403 with a reason, and every statement that writes checks again (`Actor`,
@@ -1138,14 +1143,16 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     **Existing data goes to the first admin** (the lowest-id admin), the owner's call: migration
     0024 (generated) adds the column, replaces the open-read index with one per (item, reader) and
     makes `reviews`; 0025 (hand-written) credits every read and every page to that admin and makes
-    one review per item with a rating or review, holding exactly what the item holds, dated by the
-    item's `updated_at` — the last the review could have been written. The items themselves aren't
+    one review per item with a rating or review, holding exactly what the item holds, its text and
+    its rating dated by the item's `updated_at` — the last either could have been given. The items themselves aren't
     touched and no trigger fires. Rehearsed on production's backup of 2026-09-28 (0000–0023, the
     per-table restore, then 0024–0025): all 27 pre-existing tables identical in every pre-existing
     column; 381 of 381 reads and the one page to the admin; 359 reviews (153 rating only, 20 review
-    only, 186 both), each matching its item; statuses 376 / 2 / 1,620 with 2 re-reading, as before;
-    and recomputing both summaries over all 1,998 items with the new SQL changed nothing in any of
-    the 28 tables. Other self-hosters' history is credited to their first admin too, which the
+    only, 186 both), each matching its item, with `rated_at` set on all 339 rated ones and no other;
+    statuses 376 / 2 / 1,620 with 2 re-reading, as before; and recomputing both summaries over all
+    1,998 items with the new SQL changed nothing in any of the 28 tables. (Re-rehearsed on
+    2026-09-29 after `rated_at` joined 0024 — regenerated, since neither migration had reached a
+    persistent database — with the same numbers.) Other self-hosters' history is credited to their first admin too, which the
     changelog says, with how to move it. **Removing a member** keeps their reads, pages and reviews,
     unattributed ("Former member"); `deleteUser()` clears `reads.reader_id` itself, since drizzle-kit
     drops ON DELETE on ALTER TABLE and D1 enforces foreign keys (a test fails with "FOREIGN KEY
@@ -1153,8 +1160,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
 
     **Export and import.** The `reads` cell's tokens gain `@reader` (the username, percent-encoded so
     no name can break the cell; an empty name is a former member; no `@` is an export from before
-    readers). A new `reviews` column holds everyone's reviews as JSON, with their writers and written
-    times; `rating` and `review` stay beside it as the household summary for anything that reads only
+    readers). A new `reviews` column holds everyone's reviews as JSON, with their writers and when
+    each text was written and rating given (`at`, `ratedAt`; a cell without `ratedAt` takes `at`,
+    else the import's time). As in the reads cell, an entry with no `by` is the importer's and an
+    explicit null or empty one a former member's; `rating` and `review` stay beside it as the household summary for anything that reads only
     those. On import a name that is a member here keeps them — but only in an admin's import: a
     member changes only their own reading, so a member's import is all theirs, or it would let them
     write in someone else's name. Any other name, and anything that names nobody — an older export,
@@ -1166,9 +1175,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     says so. A Goodreads file is its importer's: it is reconciled with their
     reads alone and merges into their review, so it never touches anyone else's.
 
-    **Chosen without asking, overrulable:** `reviews.reviewed_at` beside the recommended columns —
-    without it, re-rating a book would make an old review the household's latest and announce it as
-    new; the migration's review times come from `items.updated_at`; migration 0025 also re-credits a
+    **Chosen without asking, overrulable:** `reviews.reviewed_at` and `rated_at` beside the
+    recommended columns — without the first, re-rating a book would make an old review the
+    household's latest and announce it as new; without the second, rewording a review would make its
+    old rating news when another's goes; the migration's review times come from `items.updated_at`; migration 0025 also re-credits a
     page another member recorded, so a read and its pages agree; the book page names people only in
     a household of more than one; progress among open reads is the latest page by anyone; a page
     recorded before reads (none on production) joins its recorder's first read; the per-read cap of

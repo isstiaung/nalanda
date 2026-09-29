@@ -17,13 +17,14 @@ Everyone's own reading. Each member of a household now has their own reads, reco
 - **Everyone's reading on the book's page**, each person's under their name, with their progress, and everyone's rating and review with their username. A household of one sees the page as before.
 - **A "Read by" filter** on shelves and search: read by me, not read by me, read by a member or by anyone, and being read now. It can't be published: a share link made from a filtered shelf shows it without "Read by".
 - **Admins can move** a read (with its recorded pages) or a review to another member, and change or delete anyone's. Members change only their own. The same works for records and board games, from their page.
-- **Export and import keep each person's history.** Each read in the `reads` column names its reader, and a new `reviews` column holds everyone's rating and review. When an admin imports the file, each read and review goes back to the member of the same name, or to the admin; a member's import is all theirs. The preview says who gets what.
+- **Export and import keep each person's history.** Each read in the `reads` column names its reader, and a new `reviews` column holds everyone's rating and review, with when each was written and given. When an admin imports the file, each read and review goes back to the member of the same name, or to the admin; a member's import is all theirs. The preview says who gets what.
 
 ### Changed
 - **A book's status is the household's:** Completed once anyone has finished it, In progress while anyone is reading it and nobody has finished, and "re-reading" while someone reads a book someone has finished. Its read count counts everyone's finishes, and its last finish is the latest by anyone.
 - **Its rating is the household's average** (rounded to the half-star), and its review is the one written last. That is what shelves, share pages and connections show.
 - **Goodreads and libib imports are the importer's own.** A Goodreads re-import is matched against your reads and your review only, and never touches anyone else's.
 - **Removing a member** keeps their reads and reviews, shown as a former member's. Nothing about a book changes.
+- **Taking back a rating or review isn't news.** When a member's newer review or rating goes and an older one shows again, connected households see it dated when it was first given, not as today's.
 - **A backup that stops partway** now says its folder is incomplete, and to delete it before running the backup again. Otherwise the retry lands beside it as `-2`, and the incomplete folder keeps today's name. The backup runbook says the same.
 
 ### Fixed
