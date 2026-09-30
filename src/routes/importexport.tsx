@@ -18,6 +18,7 @@ import {
   seriesForIds,
   tagsForIdRange,
   updateItem,
+  wantsAndLinksForIdRange,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { storeCover } from '../lib/covers';
@@ -195,8 +196,8 @@ importexport.post('/api/import', async (c) => {
   const members = new Map(people.map((p) => [p.username, p.id]));
   const tally: PeopleTally = new Map();
   const withOwners = mapped.map((m) => {
-    const { reads, reviews, plays } = attributePeople(m, members, user.id, tally, keepNames);
-    return { ...m, reads, reviews, plays, item: { ...m.item, libraryId, addedBy: user.id } };
+    const { reads, reviews, plays, wants } = attributePeople(m, members, user.id, tally, keepNames);
+    return { ...m, reads, reviews, plays, wants, item: { ...m.item, libraryId, addedBy: user.id } };
   });
 
   if (body.dryRun) {
@@ -226,6 +227,7 @@ importexport.post('/api/import', async (c) => {
         former: name === null,
         reads: t.reads,
         reviews: t.reviews,
+        ...(t.wants ? { wants: t.wants } : {}), // only from a file that has want lists in it (§16 #53)
         as: nameOf(t.to),
         known: t.known,
       })),
@@ -333,10 +335,10 @@ export const EXPORT_PAGE = 250;
 export const EXPORT_LOANS = 1000;
 
 /**
- * Items after `afterId` as CSV lines, with their tags, reads, reviews, loans, reading logs, plays and series:
- * eight queries. With
+ * Items after `afterId` as CSV lines, with their tags, reads, reviews, loans, reading logs, plays, series, wants and
+ * purchase links (§16 #53, the last two in one batch): nine queries. With
  * `loanLimit`, a page ends before it would carry more loans than that, and an item with more of its own goes out
- * alone, for a ninth query. `more` says another page may follow.
+ * alone, for a tenth query. `more` says another page may follow.
  */
 async function exportRows(
   d1: D1Database,
@@ -350,7 +352,7 @@ async function exportRows(
   if (!items.length) return { csv: '', count: 0, lastId: afterId, more: false };
   let more = items.length === limit;
   const [from, to] = [items[0]!.id, items.at(-1)!.id];
-  const [tagMap, progressMap, readMap, reviewMap, loansRead, playMap, seriesMap] = await Promise.all([
+  const [tagMap, progressMap, readMap, reviewMap, loansRead, playMap, seriesMap, wantsAndLinks] = await Promise.all([
     tagsForIdRange(d1, from, to, scope),
     progressForIdRange(d1, from, to, scope),
     readsForIdRange(d1, from, to, scope),
@@ -358,6 +360,7 @@ async function exportRows(
     loansForIdRange(d1, from, to, scope, loanLimit === undefined ? undefined : loanLimit + 1),
     playsForIdRange(d1, from, to, scope),
     seriesForIds(d1, items.map((i) => i.seriesId)),
+    wantsAndLinksForIdRange(d1, from, to, scope), // one batch: both cells in one call
   ]);
   let loanMap = loansRead.loans;
   if (loansRead.cutAt !== null) {
@@ -384,6 +387,8 @@ async function exportRows(
       loanMap.get(item.id) ?? [],
       playMap.get(item.id) ?? [],
       item.seriesId !== null ? (seriesMap.get(item.seriesId) ?? null) : null,
+      wantsAndLinks.wants.get(item.id) ?? [],
+      wantsAndLinks.links.get(item.id) ?? [],
     );
   }
   return { csv, count: items.length, lastId: items.at(-1)!.id, more };

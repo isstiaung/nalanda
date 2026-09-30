@@ -162,7 +162,7 @@
       if (people.length) {
         if (!data.keepsNames) append(`As a member, everything in this file becomes yours (${data.importer}): only an admin's import keeps each reader's and reviewer's name.`);
         append(`Readers and reviewers in the first ${sampled} rows:`);
-        const brings = (p) => [p.reads ? `${p.reads} ${p.reads === 1 ? 'read' : 'reads'}` : '', p.reviews ? `${p.reviews} ${p.reviews === 1 ? 'review' : 'reviews'}` : ''].filter(Boolean).join(', ');
+        const brings = (p) => [p.reads ? `${p.reads} ${p.reads === 1 ? 'read' : 'reads'}` : '', p.reviews ? `${p.reviews} ${p.reviews === 1 ? 'review' : 'reviews'}` : '', p.wants ? `${p.wants} on a want list` : ''].filter(Boolean).join(', ');
         for (const p of people) {
           const who = p.former ? 'a former member' : p.name === null ? 'nobody named (an older export)' : p.name;
           const as = p.former ? 'kept unattributed' : p.known ? `→ ${p.as}` : `→ you (${data.importer})${p.name === null ? '' : ': no member here has that name'}`;
