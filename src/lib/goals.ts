@@ -1,6 +1,6 @@
 // Reading goals (ARCH.md §16 #49): N books in a year, per member. What counts — every finished read of a book by that
 // member with its end date in that year, re-reads included — is SQL (goalCountSql in src/db/queries.ts, and the same
-// expression in migration 0029's milestone triggers); this module is the arithmetic around it.
+// expression in migration 0036's milestone triggers); this module is the arithmetic around it.
 
 /** The most books a goal can ask for: a book a day for nearly three years, far past any real goal. */
 export const MAX_GOAL_TARGET = 1000;

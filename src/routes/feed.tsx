@@ -18,11 +18,12 @@ import {
   type FeedCursor,
   type StoredEntry,
 } from '../db/federation';
-import type { ActivityKind, Comment } from '../db/schema';
+import { isGoalKind, type ActivityKind, type Comment, type GoalKind } from '../db/schema';
 import type { AppEnv } from '../env';
 import { refreshInBackground } from '../federation/background';
 import { FEED_PAGE_BYTES, FEED_PAGE_ENTRIES, RECENT_COMMENT_DAYS } from '../federation/config';
-import { coverUrl, parseFeedItem, type FeedItem } from '../federation/items';
+import { coverUrl, parseFeedGoal, parseFeedItem, type FeedGoal, type FeedItem } from '../federation/items';
+import { goalPercent } from '../lib/goals';
 import { loadIdentity } from '../federation/keys';
 import { MEDIA_ICON, stars } from '../views/components';
 import { page } from '../views/layout';
@@ -35,6 +36,7 @@ const BURST_GAP_MINUTES = 60;
 const BURST_MIN_CARDS = 6;
 
 type Card = {
+  type: 'item';
   connectionId: number;
   householdName: string;
   baseUrl: string;
@@ -57,14 +59,43 @@ type Card = {
 };
 
 /**
+ * A member's reading goal from a connected household (§16 #49): set, halfway, reached. No book, so no cover and no
+ * thread — a slim card with the name, what happened and the count it carried.
+ */
+type GoalCard = {
+  type: 'goal';
+  connectionId: number;
+  householdName: string;
+  kind: GoalKind;
+  goal: FeedGoal;
+  published: string;
+};
+
+type AnyCard = Card | GoalCard;
+
+/**
  * One card per book per household, newest first: "finished and reviewed" rather than two cards. Each
  * entry carries only its own kind's field, so the review comes from the `reviewed` entry and the rating
  * from the `rated` one. Progress entries stay separate entries, but gather in their book's card as a
  * timeline rather than each taking a card of its own.
  */
-function toCards(entries: StoredEntry[]): Card[] {
-  const cards = new Map<string, Card>();
+function toCards(entries: StoredEntry[]): AnyCard[] {
+  const cards = new Map<string, AnyCard>();
   for (const e of entries) {
+    if (isGoalKind(e.kind)) {
+      // a goal entry reaches us through every view of theirs we follow that can hold books: one card, whichever
+      const key = `goal:${e.connectionId}:${e.remoteId}`;
+      if (cards.has(key)) continue;
+      let goal: FeedGoal | null;
+      try {
+        goal = parseFeedGoal(JSON.parse(e.item));
+      } catch {
+        goal = null;
+      }
+      if (goal) cards.set(key, { type: 'goal', connectionId: e.connectionId, householdName: e.householdName, kind: e.kind, goal, published: e.publishedAt });
+      continue;
+    }
+    const kind = e.kind as ActivityKind;
     let item: FeedItem | null;
     try {
       item = parseFeedItem(JSON.parse(e.item));
@@ -74,9 +105,10 @@ function toCards(entries: StoredEntry[]): Card[] {
     if (!item) continue;
     // one card per book per household — and per person, when the household names who did what (§16 #45)
     const key = `${e.connectionId}:${e.itemRemoteId}:${e.itemStamp}:${item.by ?? ''}`;
-    let card = cards.get(key);
+    let card = cards.get(key) as Card | undefined;
     if (!card) {
       card = {
+        type: 'item',
         connectionId: e.connectionId,
         householdName: e.householdName,
         baseUrl: e.baseUrl,
@@ -96,7 +128,7 @@ function toCards(entries: StoredEntry[]): Card[] {
       };
       cards.set(key, card);
     }
-    card.kinds.add(e.kind);
+    card.kinds.add(kind);
     if (e.kind === 'reviewed' && card.review === null) {
       card.review = item.review;
       card.reviewTruncated = item.reviewTruncated;
@@ -117,8 +149,8 @@ function toCards(entries: StoredEntry[]): Card[] {
 const minutes = (sqlDatetime: string) => Date.parse(`${sqlDatetime.replace(' ', 'T')}Z`) / 60_000;
 
 /** Consecutive cards from the same household, each within BURST_GAP_MINUTES of the one before. */
-function runs(cards: Card[]): Card[][] {
-  const out: Card[][] = [];
+function runs(cards: AnyCard[]): AnyCard[][] {
+  const out: AnyCard[][] = [];
   for (const card of cards) {
     const run = out[out.length - 1];
     const prev = run?.[run.length - 1];
@@ -256,6 +288,49 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] | nul
   );
 };
 
+/** What a goal entry says happened, after the member's name. */
+function goalVerb(kind: GoalKind, goal: FeedGoal): string {
+  switch (kind) {
+    case 'goal_set':
+      return `set a goal of ${goal.target} ${goal.target === 1 ? 'book' : 'books'} for ${goal.year}`;
+    case 'goal_halfway':
+      return `is halfway to their ${goal.year} goal`;
+    case 'goal_reached':
+      return `reached their ${goal.year} goal`;
+  }
+}
+
+// Everything here came from another instance: the name and the numbers render as escaped text, and the bar's width
+// is a whole number worked out here from two checked integers — never a string of theirs.
+const GoalFeedCard: FC<{ card: GoalCard; showHousehold: boolean }> = ({ card, showHousehold }) => {
+  const { goal } = card;
+  return (
+    <article class="feed-card feed-goal">
+      <div class="feed-body">
+        <p class="eyebrow">
+          {showHousehold ? `${card.householdName} · ` : ''}
+          {card.published.slice(0, 10)}
+        </p>
+        <p class="feed-line">
+          <span class="feed-by">{goal.by} </span>
+          <span class="muted">{goalVerb(card.kind, goal)}</span>
+        </p>
+        <p class="goal-line">
+          <span class="goal-count">
+            {goal.count} of {goal.target}
+          </span>{' '}
+          <span class="muted mono">
+            {goal.target === 1 ? 'book' : 'books'} in {goal.year}
+          </span>
+        </p>
+        <div class="progress-track" role="img" aria-label={`${goal.count} of ${goal.target} books`}>
+          <div class="progress-fill" style={`width:${goalPercent(goal.count, goal.target)}%`} />
+        </div>
+      </div>
+    </article>
+  );
+};
+
 const BEFORE = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})~(\d{1,15})$/;
 
 function parseBefore(raw: string | undefined): FeedCursor | null {
@@ -287,7 +362,7 @@ feed.get('/feed', async (c) => {
     commentsOnTheirItems(
       c.env.DB,
       cards
-        .filter((card) => card.review !== null)
+        .filter((card): card is Card => card.type === 'item' && card.review !== null)
         .map((card): [number, number, string] => [card.connectionId, card.itemId, card.itemStamp]),
     ),
     settings && firstPage ? recentCommentsOnOurReviews(c.env.DB, RECENT_COMMENT_DAYS, 10) : Promise.resolve([]),
@@ -374,18 +449,34 @@ feed.get('/feed', async (c) => {
                 <summary>
                   <strong>{run[0]!.householdName}</strong>{' '}
                   <span class="mono">
-                    · {run.length} {run.every((card) => card.item.mediaType === 'book') ? 'books' : 'items'} ·{' '}
+                    · {run.length}{' '}
+                    {run.every((card) => card.type === 'item' && card.item.mediaType === 'book')
+                      ? 'books'
+                      : run.some((card) => card.type === 'goal')
+                        ? 'entries'
+                        : 'items'}{' '}
+                    ·{' '}
                     {run[0]!.published.slice(0, 10)}
                   </span>
                 </summary>
                 <div class="feed">
-                  {run.map((card) => (
-                    <FeedCard card={card} showHousehold={false} thread={threadOf(card)} />
-                  ))}
+                  {run.map((card) =>
+                    card.type === 'goal' ? (
+                      <GoalFeedCard card={card} showHousehold={false} />
+                    ) : (
+                      <FeedCard card={card} showHousehold={false} thread={threadOf(card)} />
+                    ),
+                  )}
                 </div>
               </details>
             ) : (
-              run.map((card) => <FeedCard card={card} showHousehold={true} thread={threadOf(card)} />)
+              run.map((card) =>
+                card.type === 'goal' ? (
+                  <GoalFeedCard card={card} showHousehold={true} />
+                ) : (
+                  <FeedCard card={card} showHousehold={true} thread={threadOf(card)} />
+                ),
+              )
             ),
           )}
         </div>

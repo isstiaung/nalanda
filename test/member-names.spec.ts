@@ -22,7 +22,10 @@ import {
 import type { Bindings } from '../src/env';
 import { budgeted } from '../src/federation/budget';
 import { MEMBER_ACTIVITY_BASE } from '../src/federation/config';
-import { parseFeedEntry, parseItemDetail } from '../src/federation/items';
+import { parseFeedEntry, parseItemDetail, type ItemFeedEntry } from '../src/federation/items';
+
+/** An entry about an item — every kind these tests send is one (goal entries, §16 #49, have none). */
+const parseItemEntry = (v: unknown) => parseFeedEntry(v) as ItemFeedEntry | null;
 import { clearSharedViewsCache } from '../src/federation/routes';
 import { normalizeDisplayName } from '../src/lib/names';
 import { newShareToken } from '../src/lib/share';
@@ -474,13 +477,13 @@ describe('the protocol stays version 1: additive, optional fields only', () => {
   });
 
   it('reads an older household’s entries and pages as before, and a newer one’s names — rejecting a malformed name', () => {
-    expect(parseFeedEntry(entry('finished'))!.item).not.toHaveProperty('by');
-    expect(parseFeedEntry(entry('finished', { by: 'Priya' }))!.item.by).toBe('Priya');
-    expect(parseFeedEntry(entry('started', { by: 'Priya' }))!.kind).toBe('started');
-    expect(parseFeedEntry(entry('finished', { by: 42 }))).toBeNull();
-    expect(parseFeedEntry(entry('finished', { by: 'x'.repeat(81) }))).toBeNull();
-    expect(parseFeedEntry(entry('finished', { by: 'Pri‮ya' }))!.item.by).toBe('Pri ya'); // no text reordering
-    expect(parseFeedEntry(entry('finished', { by: '\u{1F468}\u200D\u{1F469}\u200D\u{1F467} \u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645' }))!.item.by).toBe('\u{1F468}\u200D\u{1F469}\u200D\u{1F467} \u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645'); // joiners kept
+    expect(parseItemEntry(entry('finished'))!.item).not.toHaveProperty('by');
+    expect(parseItemEntry(entry('finished', { by: 'Priya' }))!.item.by).toBe('Priya');
+    expect(parseItemEntry(entry('started', { by: 'Priya' }))!.kind).toBe('started');
+    expect(parseItemEntry(entry('finished', { by: 42 }))).toBeNull();
+    expect(parseItemEntry(entry('finished', { by: 'x'.repeat(81) }))).toBeNull();
+    expect(parseItemEntry(entry('finished', { by: 'Pri‮ya' }))!.item.by).toBe('Pri ya'); // no text reordering
+    expect(parseItemEntry(entry('finished', { by: '\u{1F468}\u200D\u{1F469}\u200D\u{1F467} \u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645' }))!.item.by).toBe('\u{1F468}\u200D\u{1F469}\u200D\u{1F467} \u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645'); // joiners kept
     const detail = { ...item(), publisher: null, description: null, length: null, details: {}, updatedAt: sqlAgo(1), available: true, tags: [] };
     expect(parseItemDetail(detail)).not.toHaveProperty('reviews');
     expect(parseItemDetail({ ...detail, reviews: [{ by: 'Priya', rating: 8, review: 'Yes' }, { rating: 4 }] })!.reviews).toEqual([

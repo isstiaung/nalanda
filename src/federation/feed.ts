@@ -25,7 +25,7 @@ import {
 } from './config';
 import { budgeted, isBudgetSpent, type Budget } from './budget';
 import { getSigned, postSigned } from './http';
-import { isId, jsonBytes, keepForKind, parseFeedEntry, type FeedEntry } from './items';
+import { isGoalEntry, isId, jsonBytes, keepForKind, parseFeedEntry, type FeedEntry } from './items';
 import type { Identity } from './keys';
 
 const isCount = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
@@ -152,6 +152,11 @@ export async function refreshSubscription(
       db,
       sub,
       page.entries.slice(0, allowed).map((e) => {
+        // a goal entry (§16 #49) has no item: stored under item 0 with no stamp, its goal where an item would be
+        if (isGoalEntry(e)) {
+          const { json, bytes } = jsonBytes(e.goal);
+          return { remoteId: e.id, itemRemoteId: 0, itemStamp: '', kind: e.kind, publishedAt: e.published, item: json, bytes };
+        }
         const { json, bytes } = jsonBytes(keepForKind(e.item, e.kind));
         return { remoteId: e.id, itemRemoteId: e.item.id, itemStamp: e.item.stamp, kind: e.kind, publishedAt: e.published, item: json, bytes };
       }),

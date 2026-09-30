@@ -1,15 +1,27 @@
+// A FIXTURE, not app code: v1.3.0's parsing of what a connection sends, extracted verbatim with
+// `git show v1.3.0:src/federation/items.ts` (and parseFeedPage from v1.3.0:src/federation/feed.ts, parsePeerName from
+// v1.3.0:src/lib/names.ts via ./names-v1.3.0.ts), with its imports pointed back at src/ for what this PR leaves
+// unchanged — the media types, progress and text limits — and the activity kinds and page size 1.3.0 knew written in
+// here, copied from its schema.ts and config.ts. test/goal-sharing.spec.ts serves goal entries (ARCH.md §16 #49) and
+// reads them with this, to show a household still on 1.3.0 skips them and keeps the rest of the page.
+// Regenerate only to model a different release; never edit it by hand.
 // What a connected household may see of an item (docs/proposals/connections.md §7). A whitelist on
 // purpose, like toPublicItem(): a new item column stays private until it is added here, and these
 // are the only item fields that ever leave this instance for a connection.
 //
 // The parse functions are the other direction: everything a connection sends is untrusted, checked
 // field by field before it is stored or rendered.
-import { ACTIVITY_KINDS, isGoalKind, MEDIA_TYPES, type ActivityKind, type GoalKind, type Item, type MediaType } from '../db/schema';
-import { MAX_GOAL_TARGET } from '../lib/goals';
-import { parsePeerName } from '../lib/names';
-import { MAX_PROGRESS_PAGE, progressPercent } from '../lib/progress';
-import { toPublicItem, type PublicItem } from '../lib/share';
-import { MAX_DETAIL_TEXT_CHARS, MAX_FEED_REVIEW_CHARS, MAX_FEED_TEXT_CHARS } from './config';
+import { MEDIA_TYPES, type Item, type MediaType } from '../../src/db/schema';
+import { parsePeerName } from './names-v1.3.0';
+import { MAX_PROGRESS_PAGE, progressPercent } from '../../src/lib/progress';
+import { toPublicItem, type PublicItem } from '../../src/lib/share';
+import { MAX_DETAIL_TEXT_CHARS, MAX_FEED_REVIEW_CHARS, MAX_FEED_TEXT_CHARS } from '../../src/federation/config';
+
+// v1.3.0:src/db/schema.ts
+export const ACTIVITY_KINDS = ['reviewed', 'rated', 'finished', 'progress', 'started'] as const; // 'started': per person only (§16 #45)
+type ActivityKind = (typeof ACTIVITY_KINDS)[number];
+// v1.3.0:src/federation/config.ts
+const FEED_PAGE_SIZE = 100;
 
 /**
  * Share-page fields, plus what connections need on top: when it was last finished and changed, and how many
@@ -19,7 +31,6 @@ import { MAX_DETAIL_TEXT_CHARS, MAX_FEED_REVIEW_CHARS, MAX_FEED_TEXT_CHARS } fro
 export type ConnectionItem = PublicItem & { completedOn: string | null; updatedAt: string; readCount: number };
 
 export function toConnectionItem(item: Item): ConnectionItem {
-  // No play count: plays stay home (§16 #54), so toPublicItem is given none and leaves `playCount` out
   return { ...toPublicItem(item), completedOn: item.completedOn, updatedAt: item.updatedAt, readCount: item.readCount };
 }
 
@@ -101,30 +112,7 @@ export function keepForKind(item: FeedItem, kind: ActivityKind): FeedItem {
   };
 }
 
-export type ItemFeedEntry = { id: number; kind: ActivityKind; published: string; item: FeedItem };
-
-/**
- * A member's reading goal as a feed entry (§16 #49): whose (always a display name — a goal entry is never unsigned), the
- * year, and the target and count when it was recorded. No item, no book, no date but the entry's own.
- */
-export type FeedGoal = { by: string; year: number; target: number; count: number };
-export type GoalFeedEntry = { id: number; kind: GoalKind; published: string; goal: FeedGoal };
-
-/**
- * What a feed page carries. An entry about an item always has `item`; a goal entry never does. A household on 1.3.0 or
- * older requires an item and one of ACTIVITY_KINDS on every entry, so it drops goal entries one by one and keeps the
- * rest of the page (test/fixtures/items-v1.3.0.ts is its parser, run against what this version serves).
- */
-export type FeedEntry = ItemFeedEntry | GoalFeedEntry;
-export const isGoalEntry = (e: FeedEntry): e is GoalFeedEntry => isGoalKind(e.kind);
-
-/** The most books a goal entry can say were read: more than a book a day for years. */
-export const MAX_FEED_GOAL_COUNT = 100_000;
-
-/** A goal entry's goal, as served — the name already resolved and present, since only named members' goals go out. */
-export function toFeedGoal(by: string, year: number, target: number, count: number): FeedGoal {
-  return { by, year, target, count };
-}
+export type FeedEntry = { id: number; kind: ActivityKind; published: string; item: FeedItem };
 
 const MAX_TITLE = MAX_FEED_TEXT_CHARS;
 const MAX_SHORT_TEXT = 200;
@@ -221,35 +209,11 @@ function parseFeedProgress(value: unknown): FeedProgress | null | undefined {
   return { page: p.page as number, percent: p.percent as number | null };
 }
 
-/**
- * A goal from a connection (§16 #49): a name — required, since a goal entry is always signed — a year, a target and a
- * count, each a whole number in range. Null when anything is off, which rejects the entry.
- */
-export function parseFeedGoal(value: unknown): FeedGoal | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const v = value as Record<string, unknown>;
-  const by = parsePeerName(v.by);
-  if (typeof by !== 'string') return null;
-  if (!Number.isSafeInteger(v.year) || (v.year as number) < 1000 || (v.year as number) > 9999) return null;
-  if (!Number.isSafeInteger(v.target) || (v.target as number) < 1 || (v.target as number) > MAX_GOAL_TARGET) return null;
-  if (!Number.isSafeInteger(v.count) || (v.count as number) < 0 || (v.count as number) > MAX_FEED_GOAL_COUNT) return null;
-  return { by, year: v.year as number, target: v.target as number, count: v.count as number };
-}
-
-/**
- * One entry of a connection's feed page, or null to skip it. The goal kinds — and only those — come without an item;
- * every other kind still needs a valid one, as it always has. A kind this version doesn't know is skipped, not the page.
- */
 export function parseFeedEntry(value: unknown): FeedEntry | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
-  if (!isId(v.id)) return null;
+  if (!isId(v.id) || !(ACTIVITY_KINDS as readonly unknown[]).includes(v.kind)) return null;
   if (typeof v.published !== 'string' || !SQL_DATETIME.test(v.published)) return null;
-  if (isGoalKind(v.kind)) {
-    const goal = parseFeedGoal(v.goal);
-    return goal ? { id: v.id, kind: v.kind, published: v.published, goal } : null;
-  }
-  if (!(ACTIVITY_KINDS as readonly unknown[]).includes(v.kind)) return null;
   const item = parseFeedItem(v.item);
   if (!item) return null;
   // a progress entry is its page; without one there is nothing to show
@@ -433,3 +397,22 @@ export function parseItemDetail(value: unknown): ItemDetail | null {
   };
 }
 
+// ---------- v1.3.0:src/federation/feed.ts ----------
+
+const isCount = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) >= 0;
+const asObject = (v: unknown): Record<string, unknown> | null =>
+  v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+
+export type FeedPage = { latest: number; more: boolean; entries: FeedEntry[] };
+
+export function parseFeedPage(value: unknown): FeedPage | null {
+  const v = asObject(value);
+  if (!v || !isCount(v.latest) || typeof v.more !== 'boolean' || !Array.isArray(v.entries)) return null;
+  const entries: FeedEntry[] = [];
+  // Past the page size the owner broke the protocol; what it sent beyond that isn't read.
+  for (const raw of v.entries.slice(0, FEED_PAGE_SIZE)) {
+    const entry = parseFeedEntry(raw);
+    if (entry) entries.push(entry);
+  }
+  return { latest: v.latest, more: v.more, entries };
+}

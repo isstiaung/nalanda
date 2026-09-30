@@ -17,6 +17,7 @@ import {
 } from '../federation/config';
 import type {
   ActivityKind,
+  FeedKind,
   BorrowedItem,
   BorrowRequestRow,
   BorrowStatus,
@@ -521,10 +522,16 @@ export async function stillShared(d1: D1Database, view: ConnectionView, ids: num
   return new Set(rows.map((r) => r.id));
 }
 
-// ---------- the per-person feed (§16 #45) ----------
+// ---------- the per-person feed (§16 #45), goals included (§16 #49) ----------
 
-/** A member's display name as a connection may see it: the reader of the read, the writer of the review, or the reader of the page's read. */
+/**
+ * A member's display name as a connection may see it: the member whose goal it is, the reader of the read, the writer
+ * of the review, or the reader of the page's read. A goal comes first: a milestone also keeps the read that crossed the
+ * line, but it is the goal's member's news, whoever that read belongs to now.
+ */
 const actorName = sql<string | null>`nullif(CASE
+  WHEN ${s.memberActivity.goalId} IS NOT NULL THEN
+    (SELECT u.display_name FROM reading_goals g JOIN users u ON u.id = g.user_id WHERE g.id = ${s.memberActivity.goalId})
   WHEN ${s.memberActivity.readId} IS NOT NULL THEN
     (SELECT u.display_name FROM reads r JOIN users u ON u.id = r.reader_id WHERE r.id = ${s.memberActivity.readId})
   WHEN ${s.memberActivity.reviewId} IS NOT NULL THEN
@@ -536,25 +543,55 @@ const actorName = sql<string | null>`nullif(CASE
  * A per-person entry is shared only while what it shows still stands: a review entry its review's text, a rating
  * entry its rating, a finish a finished read, a start its read, a page its page and the household sharing progress.
  * Deleting a read, a review or a page removes its entries with it (ON DELETE CASCADE).
+ *
+ * A goal entry (§16 #49) only while the household shares goals (`goals`, which the caller reads from site_settings),
+ * its goal still asks for the target the entry carries, and its member has a display name — a goal entry is never
+ * unsigned; a milestone also only while the finish that crossed the line is still a finish. Deleting a goal removes
+ * its entries.
  */
-const memberStillShows = sql`(
+const memberStillShows = (goals: boolean) => sql`(
   (${s.memberActivity.kind} = 'reviewed' AND trim(replace(coalesce(${s.reviews.review}, ''), char(13), ''), ' ' || char(9) || char(10)) <> '')
   OR (${s.memberActivity.kind} = 'rated' AND coalesce(${s.reviews.rating}, 0) > 0)
   OR (${s.memberActivity.kind} = 'finished' AND ${s.reads.status} = 'completed')
   OR (${s.memberActivity.kind} = 'started' AND ${s.reads.id} IS NOT NULL)
   OR (${s.memberActivity.kind} = 'progress' AND ${s.readingProgress.id} IS NOT NULL
       AND coalesce((SELECT ${s.siteSettings.progressToConnections} FROM ${s.siteSettings} WHERE ${s.siteSettings.id} = 1), 1) = 1)
+  OR (${sql.raw(goals ? '1' : '0')} = 1 AND ${s.memberActivity.kind} IN ('goal_set', 'goal_halfway', 'goal_reached')
+      AND ${s.memberActivity.goalTarget} = ${s.readingGoals.target} AND ${actorName} IS NOT NULL
+      AND (${s.memberActivity.kind} = 'goal_set' OR ${s.reads.status} = 'completed'))
 )`;
+
+/**
+ * Which per-person entries a view carries: an item's, when the item is in the view — a goal milestone's item is the
+ * book whose finish crossed the line, so it goes where that finish goes — and a goal set, which has no item, in every
+ * view that can hold books (§16 #49): a goal is about a person, and a view of records only has no room for it.
+ */
+function memberInView(view: ConnectionView): SQL {
+  const items = inView(view);
+  const holdsBooks = view.mediaType === null || view.mediaType === 'book';
+  return sql`((${s.memberActivity.itemId} IS NOT NULL${items ? sql` AND ${items}` : sql``})
+    OR (${s.memberActivity.itemId} IS NULL AND ${sql.raw(holdsBooks ? '1' : '0')} = 1))`;
+}
 
 /**
  * A per-person entry as served: whose (a display name, or null), their own rating or review on those kinds, and their
  * own finishes — `readCount` on a finish, `readsBefore` on a page — so a first read isn't "finished again" because
- * someone else in the household read the book too.
+ * someone else in the household read the book too. A goal entry carries `goal` — its year, and the target and count it
+ * recorded — and a goal set has no item.
  */
-export type MemberActivity = SharedActivity & { by: string | null; rating: number | null; review: string | null; readCount: number };
+export type MemberActivity = Omit<SharedActivity, 'kind' | 'item'> & {
+  kind: FeedKind;
+  item: Item | null;
+  by: string | null;
+  rating: number | null;
+  review: string | null;
+  readCount: number;
+  goal: { year: number; target: number; count: number } | null;
+};
 
-/** The member an entry is about: the reader of its read, the writer of its review, or the reader of its page's read. */
+/** The member an entry is about: the goal's member, the reader of its read, the writer of its review, or the reader of its page's read. */
 const actorId = sql`CASE
+  WHEN ${s.memberActivity.goalId} IS NOT NULL THEN (SELECT g.user_id FROM reading_goals g WHERE g.id = ${s.memberActivity.goalId})
   WHEN ${s.memberActivity.readId} IS NOT NULL THEN (SELECT r.reader_id FROM reads r WHERE r.id = ${s.memberActivity.readId})
   WHEN ${s.memberActivity.reviewId} IS NOT NULL THEN (SELECT v.user_id FROM reviews v WHERE v.id = ${s.memberActivity.reviewId})
   ELSE (SELECT r.reader_id FROM reading_progress p JOIN reads r ON r.id = p.read_id WHERE p.id = ${s.memberActivity.progressId}) END`;
@@ -578,41 +615,68 @@ const memberRows = (dbi: ReturnType<typeof db>) =>
       by: actorName,
       rating: s.reviews.rating,
       review: s.reviews.review,
+      goalId: s.memberActivity.goalId,
+      goalYear: s.readingGoals.year,
+      goalTarget: s.memberActivity.goalTarget,
+      goalCount: s.memberActivity.goalCount,
     })
     .from(s.memberActivity)
-    .innerJoin(s.items, eq(s.memberActivity.itemId, s.items.id))
+    // a left join: a goal set has no item (§16 #49); every other entry's item is there, its entries cascading with it
+    .leftJoin(s.items, eq(s.memberActivity.itemId, s.items.id))
     .leftJoin(s.reviews, eq(s.memberActivity.reviewId, s.reviews.id))
     .leftJoin(s.reads, eq(s.memberActivity.readId, s.reads.id))
-    .leftJoin(s.readingProgress, eq(s.memberActivity.progressId, s.readingProgress.id));
+    .leftJoin(s.readingProgress, eq(s.memberActivity.progressId, s.readingProgress.id))
+    .leftJoin(s.readingGoals, eq(s.memberActivity.goalId, s.readingGoals.id));
+
+type MemberRow = Awaited<ReturnType<ReturnType<typeof memberRows>['where']>>[number];
+
+const asMemberActivity = (r: MemberRow): MemberActivity => ({
+  id: r.id + MEMBER_ACTIVITY_BASE,
+  kind: r.kind,
+  at: r.at,
+  item: r.item,
+  progressPage: r.progressPage,
+  readsBefore: r.readsBefore,
+  readCount: r.readCount,
+  by: r.by || null,
+  rating: r.rating,
+  review: r.review,
+  goal:
+    r.goalId !== null && r.goalYear !== null && r.goalTarget !== null && r.goalCount !== null
+      ? { year: r.goalYear, target: r.goalTarget, count: r.goalCount }
+      : null,
+});
 
 /**
  * The per-person stream of a view, as activityInView is the household's: after a cursor oldest first, or — with no
  * cursor in this stream (`since` below MEMBER_ACTIVITY_BASE: a new follower, or one that was pulling the household's
- * stream until names were switched on) — the newest by date. Ids come back offset by MEMBER_ACTIVITY_BASE.
+ * stream until names were switched on) — the newest by date. Ids come back offset by MEMBER_ACTIVITY_BASE. `goals`:
+ * whether the household shares reading goals (§16 #49).
  */
 export async function memberActivityInView(
   d1: D1Database,
   view: ConnectionView,
   since: number,
   limit: number,
+  goals: boolean,
 ): Promise<{ fromStart: boolean; rows: MemberActivity[] }> {
   const dbi = db(d1);
   const [top] = await dbi.select({ latest: sql`coalesce(max(${s.memberActivity.id}), 0)`.mapWith(Number) }).from(s.memberActivity);
   const local = since - MEMBER_ACTIVITY_BASE;
   const from = local < 0 || local > (top?.latest ?? 0) ? 0 : local;
   const rows = await memberRows(dbi)
-    .where(and(gt(s.memberActivity.id, from), inView(view), memberStillShows))
+    .where(and(gt(s.memberActivity.id, from), memberInView(view), memberStillShows(goals)))
     .orderBy(...(from === 0 ? [desc(s.memberActivity.at), desc(s.memberActivity.id)] : [asc(s.memberActivity.id)]))
     .limit(limit);
-  return { fromStart: from === 0, rows: rows.map((r) => ({ ...r, id: r.id + MEMBER_ACTIVITY_BASE, by: r.by || null })) };
+  return { fromStart: from === 0, rows: rows.map(asMemberActivity) };
 }
 
 /** Which of these per-person entry ids (offset) are still shared through this view — stillShared's twin. */
-export async function stillSharedMember(d1: D1Database, view: ConnectionView, ids: number[]): Promise<Set<number>> {
+export async function stillSharedMember(d1: D1Database, view: ConnectionView, ids: number[], goals: boolean): Promise<Set<number>> {
   const local = ids.filter((id) => id > MEMBER_ACTIVITY_BASE).map((id) => id - MEMBER_ACTIVITY_BASE);
   if (!local.length) return new Set();
   const rows = await memberRows(db(d1)).where(
-    and(sql`${s.memberActivity.id} IN (SELECT value FROM json_each(${JSON.stringify(local)}))`, inView(view), memberStillShows),
+    and(sql`${s.memberActivity.id} IN (SELECT value FROM json_each(${JSON.stringify(local)}))`, memberInView(view), memberStillShows(goals)),
   );
   return new Set(rows.map((r) => r.id + MEMBER_ACTIVITY_BASE));
 }
@@ -854,7 +918,7 @@ export type NewRemoteActivity = {
   remoteId: number;
   itemRemoteId: number;
   itemStamp: string;
-  kind: ActivityKind;
+  kind: FeedKind;
   publishedAt: string;
   item: string;
   bytes: number;
@@ -962,7 +1026,7 @@ export type StoredEntry = {
   remoteId: number;
   itemRemoteId: number;
   itemStamp: string;
-  kind: ActivityKind;
+  kind: FeedKind;
   publishedAt: string;
   item: string;
   bytes: number;

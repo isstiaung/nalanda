@@ -1067,3 +1067,9 @@ details.tracklist summary .mono { font-weight: 400; font-size: 11px; }
   .goal-list > li { grid-template-columns: minmax(0, 1fr) auto; }
   .goal-list .goal-meter { grid-column: 1 / -1; grid-row: 2; }
 }
+/* a connected household's goal on the Feed: no book, so no cover column — the line, the count and the bar */
+.feed-card.feed-goal { grid-template-columns: minmax(0, 1fr); }
+.feed-goal .goal-count { font-size: 14px; }
+.feed-goal .progress-track { margin-bottom: 0.2rem; }
+/* the goals switch waits on the names one: shown, but greyed and inert until names go to connections */
+.switch-off { opacity: 0.5; }

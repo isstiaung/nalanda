@@ -34,7 +34,7 @@ import {
   type SubscriptionSettings,
   type SubscriptionWithUsage,
 } from '../db/federation';
-import { getLibrary, getSiteSettings, listLibraries, updateSiteSettings } from '../db/queries';
+import { getLibrary, getSiteSettings, listLibraries, setGoalsToConnections, updateSiteSettings } from '../db/queries';
 import {
   ITEM_STATUSES,
   MEDIA_TYPES,
@@ -112,6 +112,7 @@ type PageProps = Flash & {
   storage: Map<number, { entries: number; bytes: number }>;
   progressToConnections: boolean;
   namesToConnections: boolean;
+  goalsToConnections: boolean;
 };
 
 // Peer household names come from the peer's own server. They are only ever rendered as text,
@@ -167,12 +168,13 @@ function scopeLabel(v: ConnectionView): string {
   return parts.length ? parts.join(' · ') : 'Everything';
 }
 
-const SharedViews: FC<{ views: PageProps['views']; libraries: Library[]; progressToConnections: boolean; namesToConnections: boolean }> = ({
-  views,
-  libraries,
-  progressToConnections,
-  namesToConnections,
-}) => {
+const SharedViews: FC<{
+  views: PageProps['views'];
+  libraries: Library[];
+  progressToConnections: boolean;
+  namesToConnections: boolean;
+  goalsToConnections: boolean;
+}> = ({ views, libraries, progressToConnections, namesToConnections, goalsToConnections }) => {
   const shelfName = new Map(libraries.map((l) => [l.id, l.name]));
   return (
     <section class="fed-section" style="margin-top:1.5rem">
@@ -211,6 +213,40 @@ const SharedViews: FC<{ views: PageProps['views']; libraries: Library[]; progres
         entries from before and pull the new ones — a household is trusted to, but can keep what it already pulled.
         Households on older versions of Nalanda get the entries without names, as your household's, and skip
         "started".
+      </p>
+      {/* §16 #49: a goal entry is always signed, so this switch only means anything while names go out — greyed and
+          inert until then, and the server serves no goal entry without names whatever it holds */}
+      <form
+        method="post"
+        action="/connections/goals-sharing"
+        class={namesToConnections ? 'inline-form' : 'inline-form switch-off'}
+        id="goals-to-connections"
+      >
+        <label>
+          <input
+            type="checkbox"
+            name="goalsToConnections"
+            value="on"
+            checked={goalsToConnections}
+            disabled={!namesToConnections}
+          />{' '}
+          Share reading goals
+        </label>
+        <button type="submit" disabled={!namesToConnections}>
+          Save
+        </button>
+      </form>
+      <p class="muted">
+        {namesToConnections ? null : (
+          <>
+            <strong>Takes effect only while names are shown to connected households</strong> — switch that on first.{' '}
+          </>
+        )}
+        With it on, their feed gets an entry when a member sets a reading goal, passes halfway and reaches it ("Priya
+        reached their 2026 goal"), with the target and the count so far — only for members with a display name, never
+        which books or when they were read. A goal goes to every view that can hold books, and a milestone only to views
+        holding the book whose finish reached it. Turning it off withdraws goal entries the next time each connection
+        checks. Households on Nalanda 1.3.0 or older skip goal entries and read the rest of your feed as before.
       </p>
       {views.length ? (
         <div class="data-table">
@@ -460,7 +496,15 @@ const ConnectionsPage: FC<PageProps> = (p) => {
           );
         }}
       />
-      {p.settings ? <SharedViews views={p.views} libraries={p.libraries} progressToConnections={p.progressToConnections} namesToConnections={p.namesToConnections} /> : null}
+      {p.settings ? (
+        <SharedViews
+          views={p.views}
+          libraries={p.libraries}
+          progressToConnections={p.progressToConnections}
+          namesToConnections={p.namesToConnections}
+          goalsToConnections={p.goalsToConnections}
+        />
+      ) : null}
     </>
   );
 };
@@ -492,6 +536,7 @@ async function render(c: Context<AppEnv>, flash: Flash = {}) {
       storage={storage}
       progressToConnections={site.progressToConnections}
       namesToConnections={site.namesToConnections}
+      goalsToConnections={site.goalsToConnections}
       {...flash}
     />,
   );
@@ -513,6 +558,13 @@ connections.post('/connections/names-sharing', async (c) => {
   const body = await c.req.parseBody();
   // an unchecked checkbox sends nothing, so absence means off; the gate has already checked for an admin (§16 #45)
   await updateSiteSettings(c.env.DB, { namesToConnections: body['namesToConnections'] === 'on' });
+  return c.redirect('/connections');
+});
+
+connections.post('/connections/goals-sharing', async (c) => {
+  const body = await c.req.parseBody();
+  // absence means off, as above; the gate has already checked for an admin. Takes effect only while names go out (§16 #49)
+  await setGoalsToConnections(c.env.DB, body['goalsToConnections'] === 'on');
   return c.redirect('/connections');
 });
 

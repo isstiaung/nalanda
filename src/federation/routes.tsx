@@ -8,6 +8,7 @@ import {
   memberActivityInView,
   stillSharedMember,
   type MemberActivity,
+  type SharedActivity,
   applyConnectionMessage,
   availability,
   countConnections,
@@ -26,7 +27,7 @@ import {
   stillShared,
 } from '../db/federation';
 import { getItem, getSiteSettings, namedReviews, tagsForItem } from '../db/queries';
-import type { Connection, NotificationKind } from '../db/schema';
+import { isGoalKind, type ActivityKind, type Connection, type NotificationKind } from '../db/schema';
 import type { AppEnv } from '../env';
 import { page } from '../views/layout';
 import {
@@ -52,7 +53,7 @@ import {
 } from './config';
 import { fetchDescriptor, parseJson, readLimited, type Descriptor } from './http';
 import { receiveDirected } from './directed';
-import { isId, itemStamp, jsonBytes, toFeedItem, toItemDetail, toShelfItem, type FeedEntry } from './items';
+import { isId, itemStamp, jsonBytes, toFeedGoal, toFeedItem, toItemDetail, toShelfItem, type FeedEntry } from './items';
 import { importPublicKey, loadIdentity } from './keys';
 import { isDirected, parseConnectRequest, parseInboxMessage } from './messages';
 import { forgetPeer, peerByKeyid, rememberPeer } from './peers';
@@ -254,22 +255,17 @@ federation.get('/federation/feed', async (c) => {
 
   // §16 #45: with names switched on, the per-person stream; off, the household's, exactly as before. Decided now, on
   // every pull, so switching off stops names reaching anyone from the next pull on.
-  const { namesToConnections } = await getSiteSettings(c.env.DB);
+  // Goals (§16 #49) ride in the per-person stream only, and only while the household shares them too.
+  const { namesToConnections, goalsToConnections } = await getSiteSettings(c.env.DB);
   const { fromStart, rows } = namesToConnections
-    ? await memberActivityInView(c.env.DB, view, since, FEED_PAGE_SIZE + 1)
+    ? await memberActivityInView(c.env.DB, view, since, FEED_PAGE_SIZE + 1, goalsToConnections)
     : await activityInView(c.env.DB, view, since, FEED_PAGE_SIZE + 1);
   const entries: FeedEntry[] = [];
   let bytes = 0;
   const stamps = new Map<number, string>();
-  for (const row of rows) if (!stamps.has(row.item.id)) stamps.set(row.item.id, await itemStamp(row.item));
+  for (const row of rows) if (row.item && !stamps.has(row.item.id)) stamps.set(row.item.id, await itemStamp(row.item));
   for (const row of rows.slice(0, FEED_PAGE_SIZE)) {
-    const person = 'by' in row ? (row as MemberActivity) : undefined;
-    const entry: FeedEntry = {
-      id: row.id,
-      kind: row.kind,
-      published: row.at,
-      item: toFeedItem(row.item, row.kind, stamps.get(row.item.id)!, row.progressPage, row.readsBefore, person),
-    };
+    const entry = feedEntryOf(row, stamps);
     const size = jsonBytes(entry).bytes;
     if (entries.length > 0 && bytes + size > FEED_RESPONSE_BUDGET_BYTES) break;
     entries.push(entry);
@@ -279,6 +275,20 @@ federation.get('/federation/feed', async (c) => {
   const latest = fromStart ? Math.max(0, ...entries.map((e) => e.id)) : (entries[entries.length - 1]?.id ?? since);
   return c.json({ view: view.id, latest, more: !fromStart && rows.length > entries.length, entries });
 });
+
+/**
+ * One row of either stream as it goes out. A goal entry (§16 #49) carries `goal` and no item — memberStillShows lets
+ * one through only with its goal and its member's display name, so both are there; every other entry is an item's.
+ */
+function feedEntryOf(row: SharedActivity | MemberActivity, stamps: Map<number, string>): FeedEntry {
+  if ('goal' in row && isGoalKind(row.kind) && row.goal) {
+    return { id: row.id, kind: row.kind, published: row.at, goal: toFeedGoal(row.by ?? '', row.goal.year, row.goal.target, row.goal.count) };
+  }
+  const item = row.item!;
+  const kind = row.kind as ActivityKind;
+  const person = 'by' in row ? row : undefined;
+  return { id: row.id, kind, published: row.at, item: toFeedItem(item, kind, stamps.get(item.id)!, row.progressPage, row.readsBefore, person) };
+}
 
 /**
  * The removal check (docs/proposals/connections.md §8): which of the caller's stored entries this
@@ -301,10 +311,13 @@ federation.post('/federation/feed/check', async (c) => {
   // One stream is valid at a time (§16 #45): the household's with names off, checked as ever; the per-person one (ids
   // past MEMBER_ACTIVITY_BASE) with names on. Switching either way withdraws what was sent from the other at the next
   // check — named entries once names go off, and the household's once they're on, so no one sees an event twice.
-  const { namesToConnections } = await getSiteSettings(c.env.DB);
+  // Goal entries (§16 #49) are per-person entries: withdrawn with the rest once names go off, and on their own once goals do.
+  const { namesToConnections, goalsToConnections } = await getSiteSettings(c.env.DB);
   const [valid, validMember] = await Promise.all([
     namesToConnections ? Promise.resolve(new Set<number>()) : stillShared(c.env.DB, view, asked.filter((id) => id < MEMBER_ACTIVITY_BASE)),
-    namesToConnections ? stillSharedMember(c.env.DB, view, asked.filter((id) => id >= MEMBER_ACTIVITY_BASE)) : Promise.resolve(new Set<number>()),
+    namesToConnections
+      ? stillSharedMember(c.env.DB, view, asked.filter((id) => id >= MEMBER_ACTIVITY_BASE), goalsToConnections)
+      : Promise.resolve(new Set<number>()),
   ]);
   return c.json({ invalid: asked.filter((id) => !valid.has(id) && !validMember.has(id)), viewGone: false });
 });

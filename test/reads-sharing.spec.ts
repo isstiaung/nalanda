@@ -16,7 +16,10 @@ import {
 import type { Item } from '../src/db/schema';
 import type { Bindings } from '../src/env';
 import { parseFeedPage } from '../src/federation/feed';
-import { parseFeedEntry, parseItemDetail, toConnectionItem, toFeedItem } from '../src/federation/items';
+import { parseFeedEntry, parseItemDetail, toConnectionItem, toFeedItem, type ItemFeedEntry } from '../src/federation/items';
+
+/** An entry about an item — every kind these tests send is one (goal entries, §16 #49, have none). */
+const parseItemEntry = (v: unknown) => parseFeedEntry(v) as ItemFeedEntry | null;
 import { clearSharedViewsCache } from '../src/federation/routes';
 import { newShareToken, toPublicItem } from '../src/lib/share';
 import { clearSharePageCache } from '../src/routes/share';
@@ -233,13 +236,13 @@ const sentItem = (overrides: Record<string, unknown> = {}) => ({
 
 describe('the wire format', () => {
   it('reads an entry from a household on an older version, which sends no count', () => {
-    expect(parseFeedEntry({ id: 1, kind: 'finished', published: sqlAgo(1), item: sentItem() })?.item.readCount).toBeNull();
-    expect(parseFeedEntry({ id: 1, kind: 'finished', published: sqlAgo(1), item: sentItem({ readCount: 3 }) })?.item.readCount).toBe(3);
+    expect(parseItemEntry({ id: 1, kind: 'finished', published: sqlAgo(1), item: sentItem() })?.item.readCount).toBeNull();
+    expect(parseItemEntry({ id: 1, kind: 'finished', published: sqlAgo(1), item: sentItem({ readCount: 3 }) })?.item.readCount).toBe(3);
   });
 
   it('rejects a malformed count as it would any malformed field, keeping the rest of the page', () => {
     for (const bad of ['3', -1, 1.5, 1_000_001, true]) {
-      expect(parseFeedEntry({ id: 1, kind: 'finished', published: sqlAgo(1), item: sentItem({ readCount: bad }) }), String(bad)).toBeNull();
+      expect(parseItemEntry({ id: 1, kind: 'finished', published: sqlAgo(1), item: sentItem({ readCount: bad }) }), String(bad)).toBeNull();
     }
     const page = parseFeedPage({
       latest: 2,
