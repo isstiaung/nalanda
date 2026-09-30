@@ -596,7 +596,7 @@ describe('the Recommended list', () => {
     const id = await received();
     const cookie = await sessionCookie('member');
     const html = await (await a.get('/recommendations', cookie)).text();
-    expect(html).toContain(`<label for="want-shelf-${id}" class="muted">Shelf<span class="visually-hidden"> for The Left Hand of Darkness</span></label>`);
+    expect(html).toContain(`<label for="want-shelf-${id}" class="muted">Shelf<span class="sr-only"> for The Left Hand of Darkness</span></label>`);
     expect((await a.postForm(`/recommendations/${id}/want`, { libraryId: '999' }, cookie)).headers.get('location')).toBe(
       '/recommendations?done=shelf',
     );

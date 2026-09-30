@@ -49,7 +49,7 @@ const MonthChart: FC<{ col: Column; year: number }> = ({ col, year }) => {
         ))}
       </div>
       {/* hidden by its wrapper: a table sizes to its content whatever its own width says, and would widen a phone */}
-      <div class="visually-hidden">
+      <div class="sr-only">
         <table>
           <caption>
             {col.label}: books finished and pages read in each month of {year}
@@ -147,7 +147,7 @@ const Rating: FC<{ halfStars: number }> = ({ halfStars }) => (
       {stars(Math.max(1, Math.round(halfStars)))}
     </span>{' '}
     <span class="mono">{outOfFive(halfStars)}</span>
-    <span class="visually-hidden"> out of 5</span>
+    <span class="sr-only"> out of 5</span>
   </span>
 );
 
