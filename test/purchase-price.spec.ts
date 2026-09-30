@@ -122,6 +122,7 @@ describe('money: parsing and formatting', () => {
     expect(() => minorToDecimal(1.5, 'USD')).toThrow();
     expect(formatMoney(3020000, 'INR')).toBe('₹30,200');
     expect(formatMoney(30250, 'INR')).toBe('₹302.50');
+    expect(formatMoney(10000000, 'INR')).toBe('₹100,000'); // 'en' grouping for every currency: a lakh isn't ₹1,00,000
     expect(formatMoney(4500, 'USD')).toBe('$45');
     expect(formatMoney(3000, 'JPY')).toBe('¥3,000');
     // SQL hands a sum over as text; past 2^53 a float would have lost the last digits
