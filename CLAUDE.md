@@ -55,7 +55,8 @@ shape from this file.
 - **10 ms CPU per request**: no server-side image processing; no server-side bulk parsing —
   CSV imports are parsed in the browser and posted as JSON batches; the Export button fetches
   `/export.csv` 250 items a request (`?after=<id>`) and joins the pages in the browser — the
-  whole catalog in one request measured past 10 ms (ARCH.md §16 #38).
+  whole catalog in one request measured past 10 ms (ARCH.md §16 #38). A page also ends at
+  1,000 loans, and an import batch closes at 1,000 (§16 #57).
 - **D1 calls per Worker invocation — design to 50, the real cap is 1,000** (ARCH.md §16 #37).
   D1's limits page says 50 on the free plan, but measured on this account the runtime allowed
   exactly 1,000 D1 calls per invocation, and a `batch()` counted as **one** call however many
@@ -178,7 +179,8 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    (export + libib mapping, whose reads an import brings), covers.ts (only R2
                    code), reads.ts (each read: how reads decide status, the legacy mapping, the
                    export cell, Goodreads), reviews.ts (each member's review: the household
-                   summary, the export's reviews cell), names.ts (display names, and names peers send)
+                   summary, the export's reviews cell), loans.ts (the export's loans cell),
+                   names.ts (display names, and names peers send)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments and borrowing (comments.ts,

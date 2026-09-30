@@ -8,6 +8,18 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [Unreleased]
+
+### Added
+- **Export and import now include loans.** A new `loans` column holds every loan of an item, still out or returned, with its borrower, the dates it went out, was due and came back, the contact and the note. Importing a Nalanda export brings them back onto the items it adds, whoever imports it; an export from before this version imports as it always did, without loans. A loan to a connected household comes back as an ordinary loan under the name it was lent to, since the link to that household can't be rebuilt from a file. Importing the same file twice still adds every item twice, each copy with its own loans, never a loan twice on one item. Very large exports now come in more, smaller pieces when items carry many loans; the Export button joins them into one file as before. Nothing to do when upgrading.
+
+### Fixed
+- **A loan's due date is kept only when it's a real date.** The item page's Lend form stored whatever it was sent, which the export couldn't carry; anything else now means no due date, as it already did when lending to a connected household.
+
+### Upgrading
+- No migrations and no new secrets. Deploy as usual.
+- An export made by this version has a `loans` column. An older Nalanda ignores it when importing the file, so the loans don't come back there.
+
 ## [1.4.0] - 2026-09-30
 
 What to read next, a book's lending history, bulk edit, and Nalanda on your phone's home screen with scanning that works offline. Also a security fix: a removed member's session could sign in as the next member created.

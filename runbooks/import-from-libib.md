@@ -42,7 +42,10 @@ The reading status and dates, rating and review become **the importing member's 
 review (ARCH.md §16 #43) — import while signed in as the person whose catalogue it is. A
 **Nalanda export** is different: it names each read's reader and each review's writer, and when an
 admin imports it, a name that is a member here keeps them; any other name is yours. A member's
-import is always all theirs. The preview lists who gets what.
+import is always all theirs. The preview lists who gets what. A Nalanda export also brings back
+every loan in its `loans` column, open and returned, onto the items it adds, whoever imports it;
+a loan to a connected household comes back as an ordinary loan under the name it was lent to
+(ARCH.md §16 #57). libib files have no loans.
 
 ## Covers
 
