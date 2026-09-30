@@ -1193,7 +1193,7 @@ details.tracklist summary .mono { font-weight: 400; font-size: 11px; }
 .goal-meter { min-width: 0; }
 .goal-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 0.55rem; margin: 0; }
 .goal-count { font-family: var(--mono); font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
-.goal-track { position: relative; }
+.goal-track { position: relative; display: flow-root; } /* flow-root: the bar's top margin stays inside, so the pace tick straddles the bar */
 .goal-track .progress-track { height: 8px; }
 .goal-pace { position: absolute; top: calc(0.4rem - 3px); width: 2px; height: 14px; margin-left: -1px; background: var(--ink-2); border-radius: 1px; pointer-events: none; }
 .pill.reached { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
@@ -1204,7 +1204,7 @@ details.tracklist summary .mono { font-weight: 400; font-size: 11px; }
 .goal-form { display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem; align-items: flex-end; margin-bottom: 0.9rem; }
 #goal-form { margin-bottom: 1.5rem; }
 .goal-form label { margin: 0; }
-.goal-form select, .goal-form input[type='number'] { width: 7rem; margin: 0.25rem 0 0; }
+.goal-form select, .goal-form input[type='number'] { display: block; width: 7rem; margin: 0.25rem 0 0; }
 .goal-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.2rem; max-width: 40rem; }
 .goal-list > li { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr) auto; gap: 0.3rem 0.9rem; align-items: center; padding: 0.55rem 0; border-top: 1px solid var(--line); }
 .goal-list > li:first-child { border-top: none; }
