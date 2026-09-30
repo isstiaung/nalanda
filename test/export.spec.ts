@@ -51,7 +51,7 @@ describe('id lists longer than D1 allows in one statement', () => {
   it('the CSV export includes every item, with its tags', async () => {
     await seed();
     const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-    const token = await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000));
+    const token = await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000));
     const ctx = createExecutionContext();
     const res = await app.fetch(new Request('http://nalanda.test/export.csv', { headers: { cookie: `${SESSION_COOKIE}=${token}` } }), env, ctx);
     const body = await res.text();
@@ -80,7 +80,7 @@ describe('a large export within the free plan', () => {
     await env.DB.prepare("INSERT INTO reading_progress (item_id, page, at) SELECT id, 120, '2026-09-08 21:00:00' FROM items WHERE id % 10 = 0").run();
 
     const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-    const token = await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000));
+    const token = await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000));
     // the page's own queries and the streaming work in waitUntil share one invocation's budget
     const budget = { left: 50 };
     const ctx = createExecutionContext();
@@ -111,7 +111,7 @@ describe('an export that fails partway', () => {
        SELECT ?1, 'book', 'Book ' || i, 'not_started', 1, '{}' FROM n`,
     ).bind(lib.id).run();
     const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-    const token = await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000));
+    const token = await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000));
     // enough for the page and the first page of items, not the second: the stream is cut off partway
     const budget = { left: 5 };
     const ctx = createExecutionContext();
@@ -140,7 +140,7 @@ describe('an export that fails partway', () => {
 describe('an export in pages, as the Export button fetches it', () => {
   async function adminCookie() {
     const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-    return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000))}`;
+    return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;
   }
 
   async function get(path: string, cookie: string, budget = { left: 50 }) {
@@ -245,7 +245,7 @@ describe('an export scoped to one shelf', () => {
       await setItemTags(env.DB, item.id, [n % 2 ? 'from-b' : 'from-a']);
     }
     const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-    const token = await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000));
+    const token = await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000));
     const ctx = createExecutionContext();
     const res = await app.fetch(new Request(`http://nalanda.test/export.csv?library=${a.id}`, { headers: { cookie: `${SESSION_COOKIE}=${token}` } }), env, ctx);
     const body = await res.text();

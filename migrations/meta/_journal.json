@@ -197,6 +197,20 @@
       "when": 1790658830571,
       "tag": "0027_member-activity-triggers",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1790745979719,
+      "tag": "0028_session-key",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1790745986020,
+      "tag": "0029_session-key-backfill",
+      "breakpoints": true
     }
   ]
 }

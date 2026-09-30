@@ -15,6 +15,7 @@ import {
 } from '../src/db/queries';
 import { olSearchLean, openLibrary } from '../src/metadata/openlibrary';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
+import { sessionTokenFor } from './session-helpers';
 import app from '../src/index';
 import { findCover } from '../src/metadata';
 
@@ -74,7 +75,7 @@ const olSearch = (needle: string) => (p: string) => p.startsWith('/search.json')
 const gbSearch = (needle: string) => (p: string) => p.includes(needle);
 
 async function backfill(userId: number, after: number): Promise<Record<string, unknown>> {
-  const token = await createSessionToken(env.SESSION_SECRET, userId, Math.floor(Date.now() / 1000));
+  const token = await sessionTokenFor(userId);
   const ctx = createExecutionContext();
   const res = await app.fetch(
     new Request('http://nalanda.test/api/backfill-covers', {
@@ -113,7 +114,7 @@ describe('GET /import', () => {
       role: 'admin',
       mustChangePassword: false,
     });
-    const token = await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000));
+    const token = await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000));
     const ctx = createExecutionContext();
     const res = await app.fetch(
       new Request('http://nalanda.test/import', { headers: { cookie: `${SESSION_COOKIE}=${token}` } }),

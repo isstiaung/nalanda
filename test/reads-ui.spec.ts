@@ -17,6 +17,7 @@ import {
 } from '../src/db/queries';
 import type { Item } from '../src/db/schema';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
+import { sessionTokenFor } from './session-helpers';
 import { newShareToken, toPublicItem } from '../src/lib/share';
 import { clearSharePageCache } from '../src/routes/share';
 import { budgeted } from '../src/federation/budget';
@@ -45,7 +46,7 @@ async function request(
 ): Promise<Response> {
   const headers: Record<string, string> = { origin: init.origin ?? 'http://nalanda.test' };
   if (!init.anonymous) {
-    const token = await createSessionToken(env.SESSION_SECRET, await user(), Math.floor(Date.now() / 1000));
+    const token = await sessionTokenFor(await user());
     headers.cookie = `${SESSION_COOKIE}=${token}`;
   }
   if (init.htmx) headers['HX-Request'] = 'true';
@@ -193,7 +194,7 @@ describe('the Reading section', () => {
 describe('after a saved change', () => {
   it('reloads the page when reading it back fails, rather than failing a change already made', async () => {
     const item = await finished();
-    const token = await createSessionToken(env.SESSION_SECRET, (await createUser(env.DB, { username: 'budget', passwordHash: 'pbkdf2$1$x$y', role: 'member', mustChangePassword: false })).id, Math.floor(Date.now() / 1000));
+    const token = await createSessionToken(env.SESSION_SECRET, await createUser(env.DB, { username: 'budget', passwordHash: 'pbkdf2$1$x$y', role: 'member', mustChangePassword: false }), Math.floor(Date.now() / 1000));
     // the session check, the book, and the write — then nothing left to read the section back with
     const budget = { left: 3 };
     const ctx = createExecutionContext();

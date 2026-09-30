@@ -18,7 +18,7 @@ describe('GET /add', () => {
       role: 'member',
       mustChangePassword: false,
     });
-    const token = await createSessionToken(env.SESSION_SECRET, user.id, Math.floor(Date.now() / 1000));
+    const token = await createSessionToken(env.SESSION_SECRET, user, Math.floor(Date.now() / 1000));
 
     const ctx = createExecutionContext();
     const res = await app.fetch(

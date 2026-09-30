@@ -4,7 +4,7 @@
 // shown to.
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createLibrary } from '../src/db/queries';
+import { createLibrary, deleteUser } from '../src/db/queries';
 import { scanQueueOwner } from '../src/lib/auth';
 import { activateFetchMock, assertNoPendingInterceptors, intercept, json } from './fetch-mock';
 import { as, member, rows } from './member-helpers';
@@ -53,7 +53,7 @@ describe('GET /add/review — one held barcode, looked up', () => {
     expect(html).toContain('<form method="post" action="/items" class="candidate-save" data-review-add="true">');
     expect(html).toContain('<input type="hidden" name="title" value="The Held Book"/>');
     expect(html).toContain(`<input type="hidden" name="isbn13" value="${ISBN}"/>`);
-    expect(html).toContain(`<input type="hidden" name="scanOwner" value="${await scanQueueOwner(env.SESSION_SECRET, ravi.id)}"/>`);
+    expect(html).toContain(`<input type="hidden" name="scanOwner" value="${await scanQueueOwner(env.SESSION_SECRET, ravi)}"/>`);
     expect(html).toMatch(/<select name="libraryId" aria-label="Shelf"><option value="\d+">Fiction<\/option><\/select>/);
     expect(html).toContain('<button type="submit">Add to shelf</button>');
     expect(html).toContain('data-review-drop');
@@ -118,7 +118,7 @@ describe('POST /items from the review list', () => {
   it('adds it for whoever the list was shown to, and answers with the entry, added — not a redirect', async () => {
     const ravi = await member('ravi', 'admin');
     const shelf = await createLibrary(env.DB, 'Fiction');
-    const res = await as(ravi, '/items', { body: fields(shelf.id, await scanQueueOwner(env.SESSION_SECRET, ravi.id)), htmx: true });
+    const res = await as(ravi, '/items', { body: fields(shelf.id, await scanQueueOwner(env.SESSION_SECRET, ravi)), htmx: true });
     expect(res.status).toBe(200);
     const [item] = await rows<{ id: number; library_id: number; added_by: number; copies: number }>(
       'SELECT id, library_id, added_by, copies FROM items WHERE isbn13 = ?',
@@ -134,12 +134,32 @@ describe('POST /items from the review list', () => {
     const ravi = await member('ravi', 'admin');
     const priya = await member('priya');
     const shelf = await createLibrary(env.DB, 'Fiction');
-    const ravisStamp = await scanQueueOwner(env.SESSION_SECRET, ravi.id);
+    const ravisStamp = await scanQueueOwner(env.SESSION_SECRET, ravi);
     for (const stamp of [ravisStamp, '', 'forged-stamp-000000000']) {
       const res = await as(priya, '/items', { body: fields(shelf.id, stamp), htmx: true });
       expect(res.status, stamp).toBe(409);
       expect(await res.text(), stamp).toContain('Nothing was added');
     }
+    expect(await rows('SELECT id FROM items')).toEqual([]);
+  });
+
+  // §16 #56: ids are reused. A member removed and one added after them can share an id, and a phone they shared still
+  // holds the removed member's scans under that account's stamp — the new member must neither see them nor add them.
+  it('stamps an account, not its id: a member given a removed member’s id gets another stamp, and their scans are refused', async () => {
+    await member('ravi', 'admin');
+    const priya = await member('priya');
+    const shelf = await createLibrary(env.DB, 'Fiction');
+    const priyasStamp = await scanQueueOwner(env.SESSION_SECRET, priya);
+    await deleteUser(env.DB, priya.id);
+    const sam = await member('sam');
+    expect(sam.id).toBe(priya.id);
+
+    const samsStamp = await scanQueueOwner(env.SESSION_SECRET, sam);
+    expect(samsStamp).not.toBe(priyasStamp);
+    const page = await (await as(sam, '/loans')).text();
+    expect(/<body data-scan-owner="([^"]+)"/.exec(page)?.[1]).toBe(samsStamp); // the phone empties priya's queue
+    const res = await as(sam, '/items', { body: fields(shelf.id, priyasStamp), htmx: true });
+    expect(res.status).toBe(409);
     expect(await rows('SELECT id FROM items')).toEqual([]);
   });
 
@@ -153,7 +173,7 @@ describe('POST /items from the review list', () => {
 
   it('answers an htmx add that can’t be saved with the reason, in plain text', async () => {
     const ravi = await member('ravi', 'admin');
-    const res = await as(ravi, '/items', { body: { ...fields(9999, await scanQueueOwner(env.SESSION_SECRET, ravi.id)) }, htmx: true });
+    const res = await as(ravi, '/items', { body: { ...fields(9999, await scanQueueOwner(env.SESSION_SECRET, ravi)) }, htmx: true });
     expect(res.status).toBe(400);
     expect(await res.text()).toBe('No such shelf.');
   });

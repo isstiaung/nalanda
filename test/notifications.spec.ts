@@ -66,7 +66,7 @@ afterEach(() => {
 
 async function person(role: 'admin' | 'member') {
   const user = await createUser(env.DB, { username: `${role}-${crypto.randomUUID().slice(0, 6)}`, passwordHash: 'pbkdf2$1$x$y', role, mustChangePassword: false });
-  const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, user.id, Math.floor(Date.now() / 1000))}`;
+  const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, user, Math.floor(Date.now() / 1000))}`;
   return { id: user.id, cookie };
 }
 

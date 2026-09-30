@@ -62,9 +62,47 @@ async function hmacKey(secret: string): Promise<CryptoKey> {
   ]);
 }
 
-export async function createSessionToken(secret: string, userId: number, nowSeconds: number): Promise<string> {
+/**
+ * A new account's session key (§16 #56): 16 random bytes, base64url. User ids are reused — SQLite gives a new row
+ * max(id)+1, so removing the newest member frees theirs for the next one made — but a key never is, so a cookie that
+ * names an id and a key only ever signs in the account it was made for. Anything else that must name one account
+ * across time, rather than an id that may later be someone else's, derives from `accountIdentity()`.
+ */
+export function newSessionKey(): string {
+  return b64url.encode(crypto.getRandomValues(new Uint8Array(16)));
+}
+
+// What a key looks like: 22 characters from newSessionKey(), 32 hex digits from migration 0029's backfill. Anything
+// else — the '' the column's default leaves on a row inserted without one — signs nobody in.
+const SESSION_KEY = /^[A-Za-z0-9_-]{22,64}$/;
+
+/** Whether an account has a usable key. One without (inserted by hand, or restored from an older backup) gets one when
+ * its password next signs in (`ensureSessionKey()`); until then no cookie signs it in. */
+export function isSessionKey(key: string): boolean {
+  return SESSION_KEY.test(key);
+}
+
+/** An account as a session names it: its id, and the key that tells it from anyone given that id before or after. */
+export type AccountRef = { id: number; sessionKey: string };
+
+/** The id and key a genuine cookie names — still to be checked against the user row, by `sessionMatches()`. */
+export type Session = { userId: number; key: string };
+
+/**
+ * One account and no other, ever: its id and its key. For anything derived from who someone is that must not carry
+ * over to whoever is given the same id later — a session, or an HMAC stamp over `"<purpose>:" + accountIdentity(user)`.
+ */
+export function accountIdentity(user: AccountRef): string {
+  if (!SESSION_KEY.test(user.sessionKey)) throw new Error('this account has no session key');
+  return `${user.id}:${user.sessionKey}`;
+}
+
+export async function createSessionToken(secret: string, user: AccountRef, nowSeconds: number): Promise<string> {
   if (!hasSessionSecret(secret)) throw new Error('SESSION_SECRET is not set');
-  const payload = b64url.encode(enc.encode(JSON.stringify({ u: userId, e: nowSeconds + SESSION_TTL_SECONDS })));
+  if (!SESSION_KEY.test(user.sessionKey)) throw new Error('this account has no session key');
+  const payload = b64url.encode(
+    enc.encode(JSON.stringify({ u: user.id, k: user.sessionKey, e: nowSeconds + SESSION_TTL_SECONDS })),
+  );
   const sig = b64url.encode(await crypto.subtle.sign('HMAC', await hmacKey(secret), enc.encode(payload)));
   return `${payload}.${sig}`;
 }
@@ -73,20 +111,28 @@ export async function createSessionToken(secret: string, userId: number, nowSeco
  * Whose scans a device's offline queue holds (ARCH.md §16 #48): an opaque stamp per account, written into every
  * signed-in page. A page signed in as someone else finds a different stamp and empties the queue before anything
  * shows it, and adding from the review list must carry the stamp of whoever is signed in now. An HMAC, so the stamp
- * says nothing about the account; its message ("scan-queue:<id>") has a colon, which a session payload — base64url —
- * never does, so no stamp is ever a valid session signature.
+ * says nothing about the account; its message ("scan-queue:<id>:<key>") has colons, which a session payload —
+ * base64url — never does, so no stamp is ever a valid session signature. It names the account, not its id
+ * (`accountIdentity()`, §16 #56): a member added after one was removed may be given their id, and must not find the
+ * removed member's scans on a shared phone, nor add them.
  */
-export async function scanQueueOwner(secret: string, userId: number): Promise<string> {
-  const sig = await crypto.subtle.sign('HMAC', await hmacKey(secret), enc.encode(`scan-queue:${userId}`));
+export async function scanQueueOwner(secret: string, user: AccountRef): Promise<string> {
+  const message = `scan-queue:${accountIdentity(user)}`;
+  const sig = await crypto.subtle.sign('HMAC', await hmacKey(secret), enc.encode(message));
   return b64url.encode(new Uint8Array(sig).slice(0, 16));
 }
 
-/** Returns the user id for a valid, unexpired token; null otherwise — always null without a session secret. */
+/**
+ * The id and key of a genuine, unexpired token; null otherwise. Always null without a session secret, and for a token
+ * with no key — every cookie signed before keys existed (§16 #56), so upgrading signs everyone out once. A session
+ * returned here may still name an account that is gone, or an id that is someone else's now: `sessionMatches()`
+ * against the user row decides.
+ */
 export async function verifySessionToken(
   secret: string | undefined,
   token: string | undefined,
   nowSeconds: number,
-): Promise<number | null> {
+): Promise<Session | null> {
   if (!token || !hasSessionSecret(secret)) return null;
   const dot = token.lastIndexOf('.');
   if (dot < 0) return null;
@@ -95,13 +141,25 @@ export async function verifySessionToken(
   try {
     const ok = await crypto.subtle.verify('HMAC', await hmacKey(secret), b64url.decode(sig), enc.encode(payload));
     if (!ok) return null;
-    const data = JSON.parse(new TextDecoder().decode(b64url.decode(payload))) as { u?: unknown; e?: unknown };
-    if (typeof data.u !== 'number' || typeof data.e !== 'number') return null;
+    const data = JSON.parse(new TextDecoder().decode(b64url.decode(payload))) as { u?: unknown; k?: unknown; e?: unknown };
+    if (typeof data.u !== 'number' || !Number.isInteger(data.u) || typeof data.e !== 'number') return null;
+    if (typeof data.k !== 'string' || !SESSION_KEY.test(data.k)) return null;
     if (data.e < nowSeconds) return null;
-    return data.u;
+    return { userId: data.u, key: data.k };
   } catch {
     return null;
   }
+}
+
+/**
+ * Whether a genuine session belongs to this user row: same id and same key. A removed member's cookie names their key,
+ * and whoever is given their id next has another, so it signs in nobody. A plain comparison is enough: only a cookie
+ * whose HMAC checked out gets here, and its holder can already read the key inside it — the key is no secret, it is
+ * just never reused.
+ */
+export function sessionMatches(session: Session | null, user: AccountRef | null): boolean {
+  if (!session || !user) return false;
+  return user.id === session.userId && SESSION_KEY.test(user.sessionKey) && user.sessionKey === session.key;
 }
 
 /** Unambiguous alphabet (no 0/O/1/l/I) for admin-issued temp passwords. */

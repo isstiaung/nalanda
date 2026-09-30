@@ -15,7 +15,8 @@ import {
   progressForIdRange,
 } from '../src/db/queries';
 import { EXPORT_COLUMNS, mapLibibRow, progressHistoryCell } from '../src/lib/csv';
-import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
+import { SESSION_COOKIE } from '../src/lib/auth';
+import { sessionTokenFor } from './session-helpers';
 import { progressPercent } from '../src/lib/progress';
 import app from '../src/index';
 
@@ -40,7 +41,7 @@ async function admin() {
 }
 
 async function post(path: string, userId: number, body: Record<string, string> = {}) {
-  const token = await createSessionToken(env.SESSION_SECRET, userId, Math.floor(Date.now() / 1000));
+  const token = await sessionTokenFor(userId);
   const ctx = createExecutionContext();
   const res = await app.fetch(
     new Request(`http://nalanda.test${path}`, {

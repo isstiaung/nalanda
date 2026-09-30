@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `session_key` text DEFAULT '' NOT NULL;

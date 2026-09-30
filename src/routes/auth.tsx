@@ -3,6 +3,7 @@ import { deleteCookie, setCookie } from 'hono/cookie';
 import {
   countUsers,
   createFirstAdmin,
+  ensureSessionKey,
   getUserByUsername,
   recentLoginAttempts,
   recordLoginAttempt,
@@ -12,20 +13,24 @@ import {
   createSessionToken,
   hasSessionSecret,
   hashPassword,
+  isSessionKey,
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
   verifyPassword,
+  type AccountRef,
 } from '../lib/auth';
 import { Brand, page } from '../views/layout';
 
 const auth = new Hono<AppEnv>();
 
-function setSessionCookie(c: Parameters<typeof setCookie>[0], token: string, secure: boolean) {
+/** Signs this account in on this response: a cookie naming its id and session key (§16 #56). */
+async function signIn(c: Context<AppEnv>, secret: string, account: AccountRef): Promise<void> {
+  const token = await createSessionToken(secret, account, Math.floor(Date.now() / 1000));
   setCookie(c, SESSION_COOKIE, token, {
     path: '/',
     httpOnly: true,
     sameSite: 'Lax',
-    secure,
+    secure: new URL(c.req.url).protocol === 'https:', // plain http only for local dev, where Secure would drop it
     maxAge: SESSION_TTL_SECONDS,
   });
 }
@@ -116,8 +121,10 @@ auth.post('/auth/login', async (c) => {
     await recordLoginAttempt(c.env.DB, ip);
     return page(c, 'Log in', <LoginForm error="Wrong username or password." />);
   }
-  const token = await createSessionToken(secret, user.id, Math.floor(Date.now() / 1000));
-  setSessionCookie(c, token, new URL(c.req.url).protocol === 'https:');
+  // an account restored from an older backup, or added by hand, has no key yet: it gets one now
+  const account = isSessionKey(user.sessionKey) ? user : await ensureSessionKey(c.env.DB, user.id);
+  if (!account) return page(c, 'Log in', <LoginForm error="Wrong username or password." />);
+  await signIn(c, secret, account);
   return c.redirect('/');
 });
 
@@ -176,10 +183,9 @@ auth.post('/setup', async (c) => {
   // The count above only saves hashing on a closed setup. The batch decides: of two setups racing, one wins. The
   // loser goes to login, which says why: usually it's the second click of a double-click, whose response is the
   // page the browser shows, and the password just chosen works there.
-  const adminId = await createFirstAdmin(c.env.DB, { username, passwordHash: await hashPassword(password) }, STARTER_SHELVES);
-  if (adminId === null) return c.redirect('/login?raced=1');
-  const token = await createSessionToken(secret, adminId, Math.floor(Date.now() / 1000));
-  setSessionCookie(c, token, new URL(c.req.url).protocol === 'https:');
+  const admin = await createFirstAdmin(c.env.DB, { username, passwordHash: await hashPassword(password) }, STARTER_SHELVES);
+  if (admin === null) return c.redirect('/login?raced=1');
+  await signIn(c, secret, admin);
   return c.redirect('/');
 });
 

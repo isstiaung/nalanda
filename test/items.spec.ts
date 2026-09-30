@@ -17,7 +17,7 @@ async function seedSession() {
     mustChangePassword: false,
   });
   const lib = await createLibrary(env.DB, 'Shelf');
-  const token = await createSessionToken(env.SESSION_SECRET, user.id, Math.floor(Date.now() / 1000));
+  const token = await createSessionToken(env.SESSION_SECRET, user, Math.floor(Date.now() / 1000));
   return { lib, cookie: `${SESSION_COOKIE}=${token}` };
 }
 

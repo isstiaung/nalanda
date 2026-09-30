@@ -16,6 +16,10 @@ export type SessionUser = {
   username: string;
   role: 'admin' | 'member';
   mustChangePassword: boolean;
+  // Which account this is across time, not just which id (§16 #56): anything derived from the signed-in person that
+  // must not carry over to a later account given the same id uses accountIdentity() over this and the id. Never
+  // rendered — not a secret, but nothing a page needs.
+  sessionKey: string;
 };
 
 export type AppEnv = {

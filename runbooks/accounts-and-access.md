@@ -25,13 +25,16 @@ credited to the wrong person moves from the book's page, under *Edit* on it.
 
 Settings → *Reset password* next to their name → a new one-time temp password is shown.
 The reset takes effect immediately — their old password stops working the moment you click,
-and they set their own again at next login.
+and they set their own again at next login. Sessions they already hold stay signed in (a
+reset doesn't sign anyone out); to end those, see *Log everyone out everywhere* below.
 
 ## Remove someone
 
 Settings → *Remove*. Revocation is immediate — every request re-checks that the user row
-still exists, so their session dies on their next click. Their reads, pages, ratings and
-reviews stay, shown as a *Former member*'s: nothing about a book changes on shelves, share
+still exists, so their session dies on their next click. A member added later may be given
+the removed member's id; the removed member's old cookie still signs nobody in, because a
+session names the account's random session key as well as its id, and every account gets
+its own (ARCH.md §16 #56). Their reads, pages, ratings and reviews stay, shown as a *Former member*'s: nothing about a book changes on shelves, share
 pages or connections. An admin can move any of them to someone still here.
 
 ## Admin lockout (you forgot the admin password)
@@ -47,7 +50,10 @@ npm run wrangler:remote -- d1 execute nalanda --remote --file=reset.sql && rm re
 ```
 
 (Expanding `$HASH` is fine — shells don't re-expand a variable's *value*.) For local dev,
-same commands with `--local`.
+same commands with `--local`. Leave `session_key` alone: it is the account's identity, not
+part of its password. **Never add an account with a hand-written `INSERT`**: create it under
+Members, which gives it its own session key. (An account inserted without one gets a key at
+its first password login, and nothing signs it in before.)
 
 Log in with the new password. If you racked up failed attempts first, either wait 10
 minutes or clear the throttle:

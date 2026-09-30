@@ -57,7 +57,7 @@ describe('front door (HOME_SHARE_TOKEN)', () => {
     const user = await seedUser();
     const lib = await createLibrary(env.DB, 'Front shelf');
     const share = await createShare(env.DB, { token: newShareToken(), name: 'Our library', libraryId: lib.id });
-    const session = await createSessionToken(env.SESSION_SECRET, user.id, Math.floor(Date.now() / 1000));
+    const session = await createSessionToken(env.SESSION_SECRET, user, Math.floor(Date.now() / 1000));
 
     const res = await getRoot({ ...env, HOME_SHARE_TOKEN: share.token }, `${SESSION_COOKIE}=${session}`);
     expect(res.status).toBe(200);

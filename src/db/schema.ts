@@ -29,6 +29,13 @@ export const users = sqliteTable('users', {
   // has switched names on there. Optional — without one a member stays unnamed. Never a login, never unique: the
   // username is what signs in, and the username never leaves the app.
   displayName: text('display_name'),
+  // Which account this is, across time (§16 #56): 128 random bits, set when the account is made and never reused.
+  // Ids are reused — SQLite hands a new row max(id)+1, so removing the newest member frees theirs for the next — and a
+  // session cookie names this key as well as the id, so a removed member's cookie never signs in as whoever comes
+  // next. The '' default exists only so SQLite can add the column to a table that has rows (it allows no random
+  // default there); the migration after it fills every row, every insert sets its own, and an empty key never
+  // signs anyone in (sessionMatches in src/lib/auth.ts).
+  sessionKey: text('session_key').notNull().default(''),
 });
 
 export const libraries = sqliteTable('libraries', {

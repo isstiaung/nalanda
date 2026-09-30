@@ -78,7 +78,7 @@ const FIELDS = [
 describe('a Nalanda export, imported again', () => {
   it('comes back field for field', async () => {
     const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-    const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000))}`;
+    const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;
     const shelf = await createLibrary(env.DB, 'Records');
     const record = await createItem(env.DB, {
       libraryId: shelf.id,
@@ -135,7 +135,7 @@ describe('a Nalanda export, imported again', () => {
 
   it('still reads a libib file as libib', async () => {
     const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-    const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000))}`;
+    const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;
     const shelf = await createLibrary(env.DB, 'Main');
     const libib = [
       { item_type: 'book', title: 'Dune', creators: 'Frank Herbert', rating: '4.5', ean_isbn13: '9780441013593' },
@@ -179,7 +179,7 @@ const readsOf = async (itemId: number) =>
 
 async function signedIn() {
   const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-  return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000))}`;
+  return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;
 }
 
 describe('reads through the export and back', () => {
