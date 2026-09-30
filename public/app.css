@@ -1238,7 +1238,8 @@ details.tracklist summary .mono { font-weight: 400; font-size: 11px; }
    its host in mono, the one part of an address a person checks before clicking. */
 .want-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; margin: 0.2rem 0 0.4rem; }
 .want-toggle { font-size: 12.5px; }
-.want-toggle > span { font-family: var(--mono); color: var(--accent); }
+/* the + or ✓ takes the button's own ink: in indigo it vanished into the filled button */
+.want-toggle > span { font-family: var(--mono); color: inherit; }
 button.want-toggle.on { background: var(--accent-tint); border-color: var(--accent); color: var(--accent-strong); }
 button.want-toggle.on:hover { background: var(--accent-tint); border-color: var(--accent-strong); color: var(--accent-strong); }
 .want-note { font-size: 12px; overflow-wrap: anywhere; }
