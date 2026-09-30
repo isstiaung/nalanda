@@ -74,7 +74,8 @@ shape from this file.
 ## Privacy invariants (share links)
 - `/share/:token` pages render a **field whitelist** via `toPublicItem()` in
   `src/lib/share.ts` — never add fields there without checking ARCH.md §9.
-- **Never** render on share pages: private `notes`, loans/borrowers, the `copies` count,
+- **Never** render on share pages: private `notes`, where an item lives (`location`, ARCH.md §16 #51 —
+  never published, and never a key of `toPublicItem()` or `toConnectionItem()`), loans/borrowers, the `copies` count,
   `added_by`, usernames, reads or their dates, whose reads, or links into the authenticated
   app — and nothing per member unless names are switched on (next bullet). (The derived boolean
   `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge. So is
@@ -108,6 +109,9 @@ shape from this file.
   it is deliberately not part of `ItemFilters`, so `shareFilters()`, `itemMatchesShare()` and
   connection views have no room for it, and the publish form carries no field for it. Keep it
   that way — a published "read by ravi" would tell the world who read what.
+- A shelf's search box (`ItemFilters.q`) matches `location`, so share links and connection views
+  must never capture `q` (`shareFilters()`, `shelfPage()` don't) — a view filtered by "loft" would
+  publish where things are kept.
 - Share tokens are random 128-bit, **one per published view** (`shares` table — filters, or a
   tag, captured at publish time; `itemMatchesShare()` guards the public item route, and its
   query-side twin `shareFilters()` must stay in step with it).
@@ -126,7 +130,7 @@ shape from this file.
   behaviour changes.
 - Connections see only `toConnectionItem()` fields (`src/federation/items.ts`, built on
   `toPublicItem()`), and only for items inside a connection view. Availability is a derived
-  boolean — never a borrower, due date or copies count; reading history is a count
+  boolean — never a borrower, due date or copies count, nor where the item is kept (`location`); reading history is a count
   (`readCount`, the household's), never the reads, their dates or their readers; the rating
   and review are the household summary, never a member's name — unless `names_to_connections` is
   on, and then only display names (see above). Triggers on `items` record

@@ -93,7 +93,7 @@ have leaked.
   entire. If you've only published slices of it, it reads "2 views shared" instead —
   the shelf itself is not reachable, just those views.
 - **What's exposed**: title, creators, cover, publisher, date, description, media details,
-  tags, rating, review, and the "Not owned" badge. **Never**: private notes,
+  tags, rating, review, and the "Not owned" badge. **Never**: private notes, where it lives,
   loans/borrowers, copy counts, who added it. A link can't be browsed beyond its
   filters, even by guessing item URLs. Pages carry `noindex`.
 - **Rotate** if a link spread further than intended — a new URL is minted immediately.

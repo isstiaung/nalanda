@@ -21,7 +21,7 @@ manuscripts.
   import too.
 - **Public share links, per view**: publish any filtered slice of a shelf ("my reviews",
   "owned sci-fi"), or everything carrying a tag, at its own unguessable URL — rotate or remove each link independently.
-  Private notes, loans, and copy counts never appear. Reviews can link out to blog posts.
+  Private notes, where things are kept, loans, and copy counts never appear. Reviews can link out to blog posts.
   One admin page lists everything you've published, with the item count each link
   exposes.
 - **An app on your phone, and scanning with no signal**: install it to your home screen
@@ -37,6 +37,9 @@ manuscripts.
   names on, when each member's rating and review appear under the display name they chose, and
   connected households get a feed entry per person. "Read by" can't be published, and usernames
   never leave the app. Admins can move a read or review credited to the wrong person.
+- **Where it lives**: note where each thing is kept — "study, 2nd shelf", "Loft · box 3" —
+  and find it again by searching for the place. Private, like notes: never on share pages or
+  to connections.
 - **Loans**: track who borrowed what, with due dates and history — each item's page lists who has had it before, and for how long.
 - **Play log for games, listening log for records**: press **Played** on a board game or a
   record — today, or any day you pick — and its page keeps count ("Played 12 times · last on
@@ -49,7 +52,7 @@ manuscripts.
   **Notifications** count connection requests, borrowing and comments, and Feed counts what's
   new, per person in the household.
 - **Tags, half-star ratings, full-text search** across the collection, plus a quick
-  title/author filter inside every shelf and sorting by newest, title, rating, or date
+  title/author/location filter inside every shelf and sorting by newest, title, rating, or date
   finished.
 - **Bulk edit**: tick items on a shelf or in search results, or select a whole page, then tag
   or untag them, move them to another shelf, or mark them owned or not owned, up to 250 at

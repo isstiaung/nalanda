@@ -15,6 +15,7 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **A play log for board games and a listening log for records.** A game's or record's page has a **Played** button: press it to log a play today, or pick another day in the date beside it. The page says how many times the household has played it and when last ("Played 12 times · last on 14 Sep"), lists the five most recent plays, and **All N plays** lists every one by year. A play is the household's, not a person's: no players, scores or durations, just the day. Whoever logged a play, or an admin, can remove it; admins see who logged each. Books have reads, not plays. A play changes nothing else about the item: its status, reads and ratings stay as they were.
 - **Share pages say how many times** a shared game or record was played ("Played 3 times"), never when or by whom. Connected households see nothing of plays.
 - **Export and import keep the play log.** A new `plays` column holds each play's date, oldest first, with who logged it. Importing the file back as an admin gives each play back to the member of the same name; a member's import makes them all theirs.
+- **Where it lives.** Every item can have a **Location**, in your own words: "study, 2nd shelf", "Loft · box 3". Set it on the item form when you add or edit something; the item's page shows it. Search finds items by it, and so does a shelf's search box. It's private, like notes: share pages and connected households never see it. `/export.csv` has a new `location` column, and importing a Nalanda export brings it back. A libib-style file with a `location` column fills it too, instead of putting it in the item's details, which share pages show.
 
 ### Fixed
 - **A loan's due date is kept only when it's a real date.** The item page's Lend form stored whatever it was sent, which the export couldn't carry; anything else now means no due date, as it already did when lending to a connected household. Due dates already stored as free text ("next week") still export and import unchanged.
@@ -23,8 +24,10 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **Back up first** (`npm run backup`). Migration `0030_plays` runs when you deploy. It adds the `plays` table and changes nothing already there. `npm run backup` now backs up `plays` too; the restore order in [runbooks/backup-and-restore.md](runbooks/backup-and-restore.md) includes it.
 - **Exports from before this version** have no `plays` column. They still import: their games and records arrive with no plays. An export from this version imports into an older one without its plays, which that version ignores.
 - An export made by this version has a `loans` column. An older Nalanda ignores it when importing the file, so the loans don't come back there.
+- Migrations `0031_location` and `0032_location-fts` run when you deploy. 0031 adds an empty `location` column to items. 0032 rebuilds the search index with the new column: it drops the index and its three triggers, makes them again, and refills the index from your items. Nothing else changes, and search finds what it found before.
+- **Rolling back is safe.** Older code ignores the column and leaves locations as they are. An export from this version imported into an older one leaves the locations out.
 - **No new secrets.**
-- **Connections** are unaffected. Plays and loans aren't sent to connected households on any version.
+- **Connections** are unaffected. Plays, loans and locations aren't sent to connected households on any version.
 
 ## [1.4.0] - 2026-09-30
 
