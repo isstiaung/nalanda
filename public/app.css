@@ -1111,3 +1111,4 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .want-body form.inline { margin-top: 0.35rem; }
 .gift-lists { margin-top: 2rem; max-width: 46rem; }
 .gift-lists .data-table { margin-bottom: 0.75rem; }
+.gift-lists > form { margin-bottom: 0.75rem; }

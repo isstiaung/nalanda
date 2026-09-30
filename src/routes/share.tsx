@@ -270,14 +270,14 @@ async function giftItemPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
             </>
           ) : null}
         </dl>
+        {gift.description ? <p class="prewrap">{gift.description}</p> : null}
         {gift.purchaseLinks.length ? (
           <div class="detail-section">
             <p class="eyebrow">Where to buy</p>
             <BuyLinks links={gift.purchaseLinks} />
           </div>
         ) : null}
-        {gift.description ? <p class="prewrap">{gift.description}</p> : null}
-        <p>
+        <p class="back-link">
           <a href={`/share/${token}`}>← back to {title}</a>
         </p>
       </div>
