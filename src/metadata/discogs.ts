@@ -72,7 +72,8 @@ function artistCredit(artists: DiscogsArtist[] | undefined): string | undefined 
     const name = bare(text(a.anv) || text(a.name));
     if (!name) return;
     credit += name;
-    if (i < artists.length - 1) credit += a.join && a.join !== ',' ? ` ${a.join.trim()} ` : ', ';
+    const join = text(a.join, 20); // a malformed body's non-string join reads as none, like any other field here
+    if (i < artists.length - 1) credit += join && join !== ',' ? ` ${join} ` : ', ';
   });
   return text(credit.replace(/[,\s]+$/, ''));
 }

@@ -167,13 +167,13 @@ function parseSeriesFields(nameRaw: string, numberRaw: string): Pick<ParsedForm,
 type Grades = Partial<Pick<NewItem, 'mediaCondition' | 'sleeveCondition'>>;
 
 /**
- * The form's grades (§16 #55). A field the form didn't send leaves the grade as it is — a book's form has none. One it
- * sent blank clears it; one off the scale is refused. An item that isn't a record keeps no grade: a record whose type
- * is changed to something else loses its grades with the change.
+ * The form's grades (§16 #55). For a record, a field the form didn't send leaves the grade as it is; one it sent
+ * blank clears it; one off the scale is refused. An item that isn't a record keeps no grade, whatever the form sent:
+ * a record whose type is changed to something else loses its grades with the change — even from a form opened
+ * before grades existed, which sends no grade fields at all.
  */
 function formGrades(body: Record<string, string | File>, mediaType: MediaType): { grades: Grades; problem: string | null } {
-  const sent = 'mediaCondition' in body || 'sleeveCondition' in body;
-  if (!isRecord(mediaType)) return { grades: sent ? { mediaCondition: null, sleeveCondition: null } : {}, problem: null };
+  if (!isRecord(mediaType)) return { grades: { mediaCondition: null, sleeveCondition: null }, problem: null };
   const grades: Grades = {};
   let problem: string | null = null;
   if ('mediaCondition' in body) {

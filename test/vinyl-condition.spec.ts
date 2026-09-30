@@ -148,6 +148,13 @@ describe('grading on the edit form', () => {
     await as(asha, `/items/${lp.id}`, { body: { ...formOf(lp), mediaType: 'book', mediaCondition: 'M', sleeveCondition: 'NM' } });
     expect(await gradesOf(lp.id)).toEqual([null, null]);
   });
+
+  it('drops them when a record becomes a book from a form that sends no grade fields (one opened before grades existed)', async () => {
+    const asha = await member('asha', 'admin');
+    const lp = await record(asha, { mediaCondition: 'NM', sleeveCondition: 'VG+' });
+    await as(asha, `/items/${lp.id}`, { body: { ...formOf(lp), mediaType: 'book' } }); // no grade fields at all
+    expect(await gradesOf(lp.id)).toEqual([null, null]);
+  });
 });
 
 // ---------- never outside the app ----------
