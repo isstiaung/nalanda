@@ -71,7 +71,7 @@
         var showCount = function () {
           if (queue) queue.count().then(function (n) { countEl.textContent = String(n); }, function () {});
         };
-        if (!queue || !queue.owner()) {
+        if (!queue || !queue.mine()) {
           document.getElementById('offline-nobody').hidden = false;
           document.getElementById('offline-scan').hidden = true;
         }

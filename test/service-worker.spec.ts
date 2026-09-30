@@ -223,9 +223,30 @@ describe('the service worker keeps static files, never pages', () => {
     for (const path of ['/', '/add', '/loans', '/items/1', '/search?q=dune', '/account']) {
       const res = await sw.request(path, { mode: 'navigate' });
       expect(res, path).not.toBeNull();
-      expect(res!.headers.get('content-type') ?? '', path).not.toBe(''); // the network's own answer
+      expect(res!.headers.get('content-type') ?? '', path).toMatch(/^text\/html/); // the network's own answer
     }
-    expect(sw.puts.length).toBe(installed);
+    // the only thing stored after six signed-in pages: the offline page's hourly refresh, fetched without a cookie
+    expect(sw.puts.slice(installed).map((p) => p.split(' ')[1])).toEqual(['/offline.html']);
+    for (const kept of sw.stores.values()) {
+      for (const [key, res] of kept) {
+        expect(STATIC, key).toContain(key);
+        expect(await res.clone().text(), key).not.toContain('<body data-scan-owner=');
+      }
+    }
+  });
+
+  it('brings its copy of the offline page up to date after a page load, at most hourly, never with a cookie', async () => {
+    let version = 'first';
+    const sw = worker((path, init) =>
+      path === '/offline.html' ? Promise.resolve(new Response(`<h1>No signal</h1>${version}${init?.credentials ?? ''}`)) : served(path),
+    );
+    await sw.lifecycle('install');
+    version = 'second';
+    await sw.request('/loans', { mode: 'navigate' });
+    await sw.request('/add', { mode: 'navigate' });
+    const kept = [...sw.stores.values()][0]!.get('/offline.html')!;
+    expect(await kept.clone().text()).toBe('<h1>No signal</h1>secondomit');
+    expect(sw.fetched.filter((f) => f.path === '/offline.html')).toHaveLength(2); // install, then one refresh
   });
 
   it('shows the offline page — from its cache — for any page the network can’t reach', async () => {

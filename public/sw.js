@@ -68,7 +68,16 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     // A page: the network's answer, never stored. Only when there is no network does the offline page stand in.
-    event.respondWith(fetch(request).catch(() => offlinePage()));
+    event.respondWith(
+      fetch(request).then(
+        (response) => {
+          // nothing else ever asks for the offline page, so a page load is when its kept copy is brought up to date
+          event.waitUntil(refreshOfflinePage());
+          return response;
+        },
+        () => offlinePage(),
+      ),
+    );
     return;
   }
 
@@ -76,7 +85,8 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          // besides install, the one place anything is stored — and only a whole, successful copy of a listed file
+          // besides install and the offline page's refresh, the one place anything is stored — and only a whole,
+          // successful copy of a listed file
           if (response.ok && response.status === 200 && !response.redirected) {
             const copy = response.clone();
             event.waitUntil(caches.open(CACHE).then((cache) => cache.put(url.pathname, copy)));
@@ -88,6 +98,19 @@ self.addEventListener('fetch', (event) => {
   }
   // anything else: no respondWith, so the browser fetches it exactly as it would without a worker
 });
+
+// At most once an hour for each time the browser wakes this worker: a conditional request for a 4 KB file.
+let offlineCheckedAt = 0;
+async function refreshOfflinePage() {
+  if (Date.now() - offlineCheckedAt < 60 * 60 * 1000) return;
+  offlineCheckedAt = Date.now();
+  try {
+    const response = await fetch('/offline.html', { credentials: 'omit' });
+    if (response.status === 200 && !response.redirected) await (await caches.open(CACHE)).put('/offline.html', response);
+  } catch {
+    // no network after all: the kept copy stands
+  }
+}
 
 async function offlinePage() {
   const kept = await caches.match('/offline.html', { cacheName: CACHE });

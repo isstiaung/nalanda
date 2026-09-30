@@ -6,6 +6,8 @@
 // device (app.js copies it from <body data-scan-owner> on every signed-in page, empties the queue when a
 // different account signs in, and empties it and forgets the stamp on logout). With no stamp — nobody has
 // signed in here since the last logout — the queue refuses scans rather than hold them for whoever comes next.
+// A signed-in page also checks the stamp itself (mine()), so a page whose app.js failed to load still never shows
+// or adds to another account's scans.
 window.nalandaScanQueue = (() => {
   const DB = 'nalanda-scans';
   const STORE = 'scans';
@@ -18,6 +20,14 @@ window.nalandaScanQueue = (() => {
     } catch {
       return null; // storage disabled: no owner, so nothing is held
     }
+  };
+
+  // Whether this page may use the queue: someone's stamp is on the device and, on a signed-in page, it's theirs.
+  // The offline page carries no stamp, and holds for whoever the device's stamp names.
+  const mine = () => {
+    const held = owner();
+    const page = document.body?.dataset.scanOwner;
+    return !!held && (page === undefined || page === held);
   };
 
   const supported = () => {
@@ -62,13 +72,13 @@ window.nalandaScanQueue = (() => {
 
   /** Every held scan, oldest first. */
   async function list() {
-    if (!supported()) return [];
+    if (!supported() || !mine()) return [];
     const all = await tx('readonly', (s) => value(s.getAll()));
     return all.sort((a, b) => (a.scannedAt < b.scannedAt ? -1 : a.scannedAt > b.scannedAt ? 1 : 0));
   }
 
   async function count() {
-    if (!supported()) return 0;
+    if (!supported() || !mine()) return 0;
     return tx('readonly', (s) => value(s.count()));
   }
 
@@ -78,7 +88,7 @@ window.nalandaScanQueue = (() => {
    */
   async function hold(barcode) {
     if (!supported()) return { held: false, count: 0, why: 'unsupported' };
-    if (!owner()) return { held: false, count: 0, why: 'nobody' };
+    if (!mine()) return { held: false, count: 0, why: 'nobody' };
     const code = String(barcode).trim();
     if (!/^\d{8,14}$/.test(code)) return { held: false, count: await count(), why: 'invalid' };
     return tx('readwrite', (s) => {
@@ -103,7 +113,7 @@ window.nalandaScanQueue = (() => {
   }
 
   async function remove(barcode) {
-    if (!supported()) return;
+    if (!supported() || !mine()) return;
     await tx('readwrite', (s) => {
       s.delete(String(barcode));
       return () => undefined;
@@ -122,5 +132,5 @@ window.nalandaScanQueue = (() => {
     });
   }
 
-  return { list, count, hold, remove, clear, owner, LIMIT, OWNER_KEY };
+  return { list, count, hold, remove, clear, owner, mine, LIMIT, OWNER_KEY };
 })();
