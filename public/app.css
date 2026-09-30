@@ -67,7 +67,7 @@
     --line-strong: #463d2e;
     --ink: #ece4d2;
     --ink-2: #ab9f88;
-    --ink-3: #8f846d; /* 5.0:1 on paper */
+    --ink-3: #968b73; /* 5.5:1 on paper, 4.7:1 on a hovered table row */
     --accent: #8ba0d9;
     --accent-strong: #a5b7e6;
     --accent-ink: #10141f;
@@ -344,7 +344,7 @@ details[open] summary { margin-bottom: 0.75rem; }
   margin: 0 0 0.75rem;
 }
 article.notice { border: 1px solid var(--line); border-left: 3px solid var(--accent); background: var(--surface); padding: 0.9rem 1rem; }
-p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px solid var(--stamp); padding: 0.55rem 0.8rem; border-radius: var(--radius-sm); }
+p.error { font-size: 12.5px; color: color-mix(in srgb, var(--stamp) 85%, var(--ink)); background: var(--stamp-tint); border-left: 3px solid var(--stamp); padding: 0.55rem 0.8rem; border-radius: var(--radius-sm); }
 
 /* ── stat row (ledger totals) ─────────────────────────────────────────────── */
 
@@ -376,7 +376,7 @@ p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px sol
 }
 .data-table td { padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
 .data-table tbody tr:last-child td { border-bottom: none; }
-.data-table tbody tr:hover { background: var(--accent-tint); }
+.data-table tbody tr:hover { background: color-mix(in srgb, var(--accent-tint) 50%, transparent); } /* half the tint: muted text keeps 4.5:1 */
 .data-table td.num, .data-table td.date { font-family: var(--mono); font-size: 12px; color: var(--ink-2); white-space: nowrap; }
 .data-table .actions-cell { text-align: right; white-space: nowrap; width: 1%; }
 /* row actions stay on one line — the cell is narrow, and a wrapped pair reads as two rows */
@@ -454,6 +454,10 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 
 .acc-no { font-family: var(--mono); font-size: 11px; color: var(--ink-3); letter-spacing: 0.04em; white-space: nowrap; }
 .rating { color: var(--brass); font-size: 12.5px; letter-spacing: 0.08em; white-space: nowrap; }
+/* on light paper the stars take a touch of ink, as the in-progress pill does (4.7:1); the lamp-lit gold reads as is */
+@media not (prefers-color-scheme: dark) {
+  .rating { color: color-mix(in srgb, var(--brass) 80%, var(--ink)); }
+}
 
 /* ── covers & grid view ───────────────────────────────────────────────────── */
 
