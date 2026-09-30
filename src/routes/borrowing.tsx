@@ -598,7 +598,11 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
             </table>
           </div>
         ) : (
-          <p class="muted">No requests yet. Browse a connected household’s shelves below to ask for a book.</p>
+          <p class="muted">
+            {households.length
+              ? 'No requests yet. Browse a connected household’s shelves below to ask for a book.'
+              : 'No requests yet. Once this library is connected to another household, you can ask to borrow from its shelves.'}
+          </p>
         )}
       </section>
 
