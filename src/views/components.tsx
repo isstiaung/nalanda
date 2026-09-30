@@ -1447,6 +1447,19 @@ const CandidateCover: FC<{ candidate: Candidate }> = ({ candidate }) => (
   </div>
 );
 
+/** A metadata source as people know it — "Open Library", not the provider's id; a merged result names both. */
+const PROVIDER_NAMES: Record<string, string> = {
+  openlibrary: 'Open Library',
+  googlebooks: 'Google Books',
+  bgg: 'BoardGameGeek',
+  discogs: 'Discogs',
+};
+const providerName = (id: string): string =>
+  id
+    .split('+')
+    .map((p) => PROVIDER_NAMES[p] ?? p)
+    .join(' + ');
+
 const CandidateSummary: FC<{ candidate: Candidate }> = ({ candidate }) => (
   <>
     <strong>{candidate.title}</strong>
@@ -1456,7 +1469,7 @@ const CandidateSummary: FC<{ candidate: Candidate }> = ({ candidate }) => (
       {candidate.published ? ` · ${candidate.published}` : ''}
       {candidate.publisher ? ` · ${candidate.publisher}` : ''}
       {' · via '}
-      {candidate.provider}
+      {providerName(candidate.provider)}
     </small>
     {/* §16 #63: Discogs' data carries its credit, linked to the release it came from */}
     {candidate.provider === 'discogs' ? (
