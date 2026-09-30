@@ -301,7 +301,7 @@ describe('the page', () => {
     const html = await page(asha, '/year-in-review?year=2025');
     expect(html).toContain('<div class="yr-bars" aria-hidden="true">');
     expect(html).toContain('<figure class="yr-chart" aria-labelledby="yr-chart-mine">');
-    const table = html.slice(html.indexOf('<table class="visually-hidden">'), html.indexOf('</table>') + 8);
+    const table = html.slice(html.indexOf('<div class="visually-hidden"><table>'), html.indexOf('</table>') + 8);
     expect(table).toContain('<caption>You: books finished and pages read in each month of 2025</caption>');
     expect(table).toContain('<th scope="col">Month</th><th scope="col">Books finished</th><th scope="col">Pages read</th>');
     const monthRows = [...table.matchAll(/<tr><th scope="row">(\w+)<\/th><td>(\d+)<\/td><td>(\d+)<\/td><\/tr>/g)].map((m) => [m[1], m[2], m[3]]);

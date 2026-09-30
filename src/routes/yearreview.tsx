@@ -48,27 +48,30 @@ const MonthChart: FC<{ col: Column; year: number }> = ({ col, year }) => {
           </div>
         ))}
       </div>
-      <table class="visually-hidden">
-        <caption>
-          {col.label}: books finished and pages read in each month of {year}
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">Month</th>
-            <th scope="col">Books finished</th>
-            <th scope="col">Pages read</th>
-          </tr>
-        </thead>
-        <tbody>
-          {col.stats.months.map((m, i) => (
+      {/* hidden by its wrapper: a table sizes to its content whatever its own width says, and would widen a phone */}
+      <div class="visually-hidden">
+        <table>
+          <caption>
+            {col.label}: books finished and pages read in each month of {year}
+          </caption>
+          <thead>
             <tr>
-              <th scope="row">{MONTH_NAMES[i]}</th>
-              <td>{m.books}</td>
-              <td>{m.pages}</td>
+              <th scope="col">Month</th>
+              <th scope="col">Books finished</th>
+              <th scope="col">Pages read</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {col.stats.months.map((m, i) => (
+              <tr>
+                <th scope="row">{MONTH_NAMES[i]}</th>
+                <td>{m.books}</td>
+                <td>{m.pages}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </figure>
   );
 };
