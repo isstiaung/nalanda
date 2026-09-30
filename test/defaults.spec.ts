@@ -36,6 +36,7 @@ describe('the switches a household starts with', () => {
       namesOnShares: true,
       namesToConnections: true,
       goalsToConnections: true,
+      currency: null, // §16 #61: none until an admin sets one
     });
     // and setting it up writes no row: the defaults stand until an admin saves a switch
     const admin = (await createFirstAdmin(env.DB, { username: 'owner', passwordHash: 'pbkdf2$1$x$y' }, ['Books']))!.id;
@@ -60,6 +61,7 @@ describe('the switches a household starts with', () => {
       namesOnShares: false,
       namesToConnections: false,
       goalsToConnections: false,
+      currency: null, // §16 #61: an upgrade sets none; the item form asks an admin to
     });
     await setDisplayName(env.DB, admin, 'Asha');
     expect(await outwardName(env.DB, admin)).toBe('A member'); // as before the upgrade
@@ -75,7 +77,8 @@ describe('the switches a household starts with', () => {
       const before = (await settingsRow())[0] as Record<string, unknown>;
       await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
       const after = (await settingsRow())[0] as Record<string, unknown>;
-      expect(after, JSON.stringify(row)).toEqual({ ...before, goals_to_connections: 0 }); // updated_at and all
+      // updated_at and all; 0037 adds the household currency, unset (§16 #61)
+      expect(after, JSON.stringify(row)).toEqual({ ...before, goals_to_connections: 0, currency: null });
     }
   });
 

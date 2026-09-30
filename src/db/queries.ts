@@ -21,6 +21,7 @@ import { MAX_LINKS_PER_ITEM, type LinkDraft } from '../lib/links';
 import { MAX_LOANS_PER_CELL, type LoanDraft } from '../lib/loans';
 import { MAX_PLAYS_PER_ITEM, PLAYABLE_TYPES, RECENT_PLAYS, type CellPlay, type PersonPlay } from '../lib/plays';
 import { reviewOrderSql, stampReviews, summarizeReviews, type PersonReview, type ReviewDraft } from '../lib/reviews';
+import type { CurrencyTotal } from '../lib/money';
 import { seriesKey, type SeriesDraft } from '../lib/series';
 import * as s from './schema';
 import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Series, Share, User } from './schema';
@@ -287,6 +288,60 @@ export async function listLibraries(d1: D1Database): Promise<Array<Library & { i
     .groupBy(s.items.libraryId);
   const byId = new Map(counts.map((c) => [c.libraryId, c.n]));
   return libs.map((l) => ({ ...l, itemCount: byId.get(l.id) ?? 0 }));
+}
+
+/**
+ * A shelf's totals (§16 #61): how many items, of which types, and what the household paid for those with a price —
+ * one sum per currency, never added across currencies (no exchange rates are invented). `priced` counts the items
+ * with a price in any currency.
+ */
+export type ShelfTotals = {
+  items: number;
+  byType: Array<{ mediaType: MediaType; count: number }>;
+  paid: CurrencyTotal[];
+  priced: number;
+};
+
+/**
+ * Totals for one shelf, or for every shelf (keyed by shelf id), and the household's currency they're shown against.
+ * Summed in SQL, in one D1 call: a batch of two grouped reads and the setting. A sum leaves SQLite as text, so a total
+ * is exact however large it grows (formatMoney() takes text).
+ */
+export async function shelfTotals(
+  d1: D1Database,
+  libraryId?: number,
+): Promise<{ shelves: Map<number, ShelfTotals>; currency: string | null }> {
+  const where = libraryId === undefined ? '' : 'WHERE library_id = ?1';
+  const bind = (st: D1PreparedStatement) => (libraryId === undefined ? st : st.bind(libraryId));
+  const [types, money, setting] = await d1.batch([
+    bind(d1.prepare(`SELECT library_id AS libraryId, media_type AS mediaType, count(*) AS n FROM items ${where} GROUP BY library_id, media_type`)),
+    bind(
+      d1.prepare(
+        `SELECT library_id AS libraryId, purchase_currency AS currency, count(*) AS n, CAST(sum(purchase_price) AS TEXT) AS total
+         FROM items ${where ? `${where} AND` : 'WHERE'} purchase_price IS NOT NULL AND purchase_currency IS NOT NULL
+         GROUP BY library_id, purchase_currency`,
+      ),
+    ),
+    d1.prepare('SELECT currency FROM site_settings WHERE id = 1'),
+  ]);
+  const out = new Map<number, ShelfTotals>();
+  const of = (id: number) => {
+    let t = out.get(id);
+    if (!t) out.set(id, (t = { items: 0, byType: [], paid: [], priced: 0 }));
+    return t;
+  };
+  for (const r of (types?.results ?? []) as Array<{ libraryId: number; mediaType: MediaType; n: number }>) {
+    const t = of(r.libraryId);
+    t.items += r.n;
+    t.byType.push({ mediaType: r.mediaType, count: r.n });
+  }
+  for (const r of (money?.results ?? []) as Array<{ libraryId: number; currency: string; n: number; total: string }>) {
+    const t = of(r.libraryId);
+    t.priced += r.n;
+    t.paid.push({ currency: r.currency, count: r.n, total: r.total });
+  }
+  const currency = ((setting?.results ?? [])[0] as { currency: string | null } | undefined)?.currency ?? SITE_DEFAULTS.currency;
+  return { shelves: out, currency };
 }
 
 export async function getLibrary(d1: D1Database, id: number): Promise<Library | null> {
@@ -1382,6 +1437,7 @@ export type SiteSettings = {
   namesOnShares: boolean; // §16 #45 — members' display names, ratings and reviews on share pages
   namesToConnections: boolean; // §16 #45 — per-person feed entries and reviews, with display names, to connections
   goalsToConnections: boolean; // §16 #49 — members' reading goals as per-person entries; only while namesToConnections
+  currency: string | null; // §16 #61 — the household's ISO 4217 code, what purchase prices are entered in; null until an admin sets it
 };
 /**
  * What a new instance starts with (§16 #49): names on share pages and to connections, and goals to connections, on;
@@ -1395,6 +1451,7 @@ const SITE_DEFAULTS: SiteSettings = {
   namesOnShares: true,
   namesToConnections: true,
   goalsToConnections: true,
+  currency: null,
 };
 
 /** One row, id 1. Absent means defaults — only ever on a new instance — so it needs no setup step. */
@@ -1407,6 +1464,7 @@ export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
         namesOnShares: row.namesOnShares,
         namesToConnections: row.namesToConnections,
         goalsToConnections: row.goalsToConnections,
+        currency: row.currency,
       }
     : { ...SITE_DEFAULTS };
 }

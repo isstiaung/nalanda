@@ -121,6 +121,13 @@ export const items = sqliteTable(
     // only once nothing points at it (pruneSeries()).
     seriesId: integer('series_id').references(() => series.id),
     seriesNumber: real('series_number'),
+    // What the household paid for it (§16 #61): an integer count of the currency's minor units — paise, cents; a
+    // yen is its own — never a float, and always with the ISO 4217 code it was entered in. Both set, or both NULL.
+    // The code is kept per item, not only in site_settings, so a household that changes its currency keeps what it
+    // paid before in what it paid it in. Private like `copies`: whitelisted nowhere, never on share pages or to
+    // connections.
+    purchasePrice: integer('purchase_price'),
+    purchaseCurrency: text('purchase_currency'),
   },
   (t) => [
     index('idx_items_library').on(t.libraryId),
@@ -221,6 +228,9 @@ export const siteSettings = sqliteTable('site_settings', {
   // Members' reading goals — set, halfway, reached — reach connections as per-person entries (§16 #49). Takes effect
   // only while namesToConnections is on: a goal entry is always signed, never "A member".
   goalsToConnections: integer('goals_to_connections', { mode: 'boolean' }).notNull().default(false),
+  // The household's currency (§16 #61), an ISO 4217 code an admin sets: what purchase prices are entered in. NULL
+  // until one is set — the item form then asks for it rather than guessing. Never leaves the app.
+  currency: text('currency'),
   updatedAt: text('updated_at').notNull().default(now),
 });
 
