@@ -210,7 +210,8 @@ describe('unread on a closed section', () => {
     const bar = await sidebar(fed, '/', me.cookie);
     const sharing = bar.sections.find((s) => s.id === 'sharing')!;
     expect(sharing.open).toBe(false);
-    expect(sharing.summary).toContain('<span class="nav-unread nav-summary-unread" role="img" aria-label="5 unread">5</span>');
+    expect(sharing.summary).toContain('<span class="nav-unread nav-summary-unread">5<span class="sr-only"> unread</span></span>');
+    expect(sharing.summary).not.toContain('role="img"'); // jsx-a11y prefer-tag-over-role: the text reads it out instead
     expect(sharing.body).toContain('<span class="nav-unread" aria-label="3 unread">3</span>'); // Feed
     expect(sharing.body).toContain('<span class="nav-unread" aria-label="2 unread">2</span>'); // Notifications
     expect(bar.html).toContain('aria-label="2 unread notifications"'); // the phone's top bar, as before
@@ -225,7 +226,7 @@ describe('unread on a closed section', () => {
     expect((await sidebar(fed, '/', me.cookie)).sections.find((s) => s.id === 'sharing')!.summary).not.toContain('nav-unread');
     for (let i = 0; i < 120; i++) await notify(env.DB, { kind: 'comment', householdName: peer.name, subject: `Book ${i}`, href: '/items/1' });
     const summary = (await sidebar(fed, '/', me.cookie)).sections.find((s) => s.id === 'sharing')!.summary;
-    expect(summary).toContain('role="img" aria-label="120 unread">99+</span>');
+    expect(summary).toContain('<span class="nav-unread nav-summary-unread">99+<span class="sr-only"> unread</span></span>');
   });
 
   it('hides the header total only while the section is open, in CSS, so it follows a toggle with or without script', async () => {

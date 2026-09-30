@@ -138,7 +138,7 @@ function navGroups(user: SessionUser, libraries: NavLibrary[], federation: boole
     {
       id: 'reading',
       label: 'Reading',
-      // "Year in review" (/year) goes here, after Reading goals, once its route is on main.
+      // "Year in review" (/year-in-review) goes here, after Reading goals, once its route is on main.
       links: only({ href: '/wants', label: 'Want list' }, { href: '/goals', label: 'Reading goals' }),
     },
     {
@@ -181,8 +181,10 @@ const NavSection: FC<{ group: NavGroup; path: string; open: boolean }> = ({ grou
       <summary class="nav-summary">
         <span class="nav-eyebrow">{group.label}</span>
         {unread ? (
-          <span class="nav-unread nav-summary-unread" role="img" aria-label={`${unread} unread`}>
+          // the count and the word "unread" read out in place, no role: "Sharing & connections, 3 unread, collapsed"
+          <span class="nav-unread nav-summary-unread">
             {unread > 99 ? '99+' : unread}
+            <span class="sr-only"> unread</span>
           </span>
         ) : null}
       </summary>
