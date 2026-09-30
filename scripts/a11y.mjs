@@ -8,17 +8,20 @@
 //
 // It never touches your development database or port: it starts its own `wrangler dev` on 127.0.0.1:8817 with
 // its own --persist-to state in a temporary directory, removed afterwards. It brings what it needs: a throwaway
-// session secret and connections key, seed data from scripts/seed-demo.mjs (offline, --no-covers), and cover
-// images from a tiny server on :8818 that the Worker fetches like any cover URL. (A .dev.vars beside
-// wrangler.jsonc still loads, as it does for `npm run dev`: with BGG or Discogs tokens in it, local runs look up
-// more than CI does.) The one step that needs the internet is looking up a book on the Add page (Open Library):
-// when that finds nothing, the report says which states went unaudited (a warning annotation on GitHub
-// Actions), and A11Y_REQUIRE_LOOKUP=1 turns that into a failure.
+// session secret and connections key (in an --env-file in that state, so a .dev.vars is never read and its
+// provider tokens never used), seed data from scripts/seed-demo.mjs (offline, --no-covers), and cover images from
+// a tiny server on :8818 that the Worker fetches like any cover URL. Wrangler runs --local, with no Cloudflare
+// credentials in its environment and its config home (where a stored login lives) pointed into the scratch
+// state: a local run is as offline as CI's. The one step that needs the internet is looking up a book on the Add
+// page (Open Library, keyless): when that finds nothing, the report says which states went unaudited (a warning
+// annotation on GitHub Actions), and A11Y_REQUIRE_LOOKUP=1 turns that into a failure.
 //
+// A11Y_USE_DEV_VARS=1 lets .dev.vars load after all — your BGG or Discogs tokens, for lookups CI can't do.
+// A11Y_CPU_THROTTLE=4 (or 6) slows the browser that much, with network latency, to reproduce a slow CI runner.
 // A11Y_CHROMIUM=/path/to/chrome uses an installed Chromium-family browser instead of Playwright's
 // (`npx playwright install chromium`).
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -145,10 +148,21 @@ const stateDir = mkdtempSync(join(tmpdir(), 'nalanda-a11y-'));
 // Everything here is local: wrangler runs with --local and a temporary --persist-to, and never with --remote.
 // Its environment also drops any Cloudflare credentials and the production database id, so no wrangler call
 // made by this script could reach a Cloudflare account even by mistake, and sends no usage metrics.
-const LOCAL_ENV = { ...process.env, CI: '1', WRANGLER_SEND_METRICS: 'false' };
+// XDG_CONFIG_HOME points into the scratch state, so wrangler can't see a stored login (its OAuth token file) either.
+const LOCAL_ENV = {
+  ...process.env,
+  CI: '1',
+  WRANGLER_SEND_METRICS: 'false',
+  XDG_CONFIG_HOME: join(stateDir, 'xdg'),
+  // the Worker's variables come from the --env-file below and nothing else: not this process's environment
+  CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'true',
+  CLOUDFLARE_INCLUDE_PROCESS_ENV: 'false',
+};
 for (const key of ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_API_KEY', 'CLOUDFLARE_EMAIL', 'CLOUDFLARE_ACCOUNT_ID', 'CF_API_TOKEN', 'CF_ACCOUNT_ID', 'D1_DATABASE_ID']) {
   delete LOCAL_ENV[key];
 }
+mkdirSync(LOCAL_ENV.XDG_CONFIG_HOME, { recursive: true });
+// A11Y_USE_DEV_VARS=1 lets a developer's .dev.vars load (their BGG or Discogs tokens, for lookups CI can't do).
 let server = null;
 let coverServer = null;
 let browser = null;
@@ -174,6 +188,20 @@ async function federationKey() {
 async function startServer() {
   await run(WRANGLER, ['d1', 'migrations', 'apply', 'nalanda', '--local', '--persist-to', stateDir]);
   const secret = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  // The Worker's secrets, from a file in the scratch state rather than .dev.vars: given --env-file, wrangler doesn't
+  // read .dev.vars at all — and it must not, since a .dev.vars value outranks a --var one, so a developer's real
+  // provider tokens would otherwise be sent to BGG and Discogs from the audit. The tokens are there, empty: off.
+  // Connections switched on (a throwaway key), so Feed, Notifications, Borrowed and Connections render.
+  const useDevVars = process.env.A11Y_USE_DEV_VARS === '1';
+  const envFile = join(stateDir, 'a11y.env');
+  writeFileSync(
+    envFile,
+    [
+      `SESSION_SECRET=${secret}`,
+      `FEDERATION_PRIVATE_KEY='${await federationKey()}'`,
+      ...(useDevVars ? [] : ['DISCOGS_TOKEN=', 'BGG_TOKEN=', 'GOOGLE_BOOKS_KEY=', 'HOME_SHARE_TOKEN=']),
+    ].join('\n') + '\n',
+  );
   let log = '';
   server = spawn(
     WRANGLER,
@@ -185,9 +213,7 @@ async function startServer() {
       '--inspector-port', String(INSPECTOR_PORT),
       '--persist-to', stateDir,
       '--show-interactive-dev-session=false',
-      '--var', `SESSION_SECRET:${secret}`,
-      // connections switched on, so Feed, Notifications, Borrowed and Connections render (without a peer)
-      '--var', `FEDERATION_PRIVATE_KEY:${await federationKey()}`,
+      ...(useDevVars ? ['--env-file', '.dev.vars', '--env-file', envFile] : ['--env-file', envFile]),
     ],
     { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', env: LOCAL_ENV },
   );
@@ -198,7 +224,11 @@ async function startServer() {
     if (server.exitCode !== null) throw new Error(`wrangler dev exited ${server.exitCode}\n${log}`);
     try {
       const res = await fetch(`${BASE}/setup`, { redirect: 'manual' });
-      if (res.status < 500) return;
+      if (res.status < 500) {
+        // which file the Worker's variables came from — never .dev.vars unless A11Y_USE_DEV_VARS=1
+        for (const line of log.split('\n').filter((l) => /Using (secrets|vars|environment variables) defined in/i.test(l))) console.log(`a11y: wrangler: ${line.trim()}`);
+        return;
+      }
     } catch {
       /* not listening yet */
     }
@@ -257,7 +287,11 @@ function startCoverServer() {
     res.writeHead(200, { 'content-type': 'image/png' });
     res.end(coverPng(seed));
   });
-  return new Promise((resolve) => coverServer.listen(COVER_PORT, '127.0.0.1', resolve));
+  // a port already taken (another audit still running) fails the run cleanly, rather than crashing past cleanup
+  return new Promise((resolve, reject) => {
+    coverServer.once('error', (err) => reject(new Error(`the cover server can't listen on ${COVER_PORT}: ${err.code} — is another audit running?`)));
+    coverServer.listen(COVER_PORT, '127.0.0.1', resolve);
+  });
 }
 
 async function cleanup() {
@@ -520,6 +554,15 @@ async function withVariant(context, variant, fn) {
   await page.setViewportSize({ width: variant.width, height: variant.height });
   await page.emulateMedia({ colorScheme: variant.scheme, reducedMotion: 'reduce' });
   page.on('pageerror', (err) => failures.push(`script error on ${page.url()}: ${err.message}`));
+  // A11Y_CPU_THROTTLE=4 (or 6…) runs the browser that many times slower, and adds network latency, to reproduce a
+  // slow CI runner's pace locally (Chromium's own CPU throttling, over the DevTools protocol)
+  const rate = Number(process.env.A11Y_CPU_THROTTLE ?? 1);
+  if (rate > 1) {
+    const cdp = await context.newCDPSession(page);
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate });
+    await cdp.send('Network.enable');
+    await cdp.send('Network.emulateNetworkConditions', { offline: false, latency: 80, downloadThroughput: -1, uploadThroughput: -1 });
+  }
   try {
     await fn(page);
   } finally {
@@ -684,8 +727,33 @@ async function interactions(context, ids, variant) {
     try {
       await fn();
     } catch (err) {
-      failures.push(`interaction · ${name} [${variant.name}]: ${err.message.split('\n')[0]}`);
+      // the first line, and what Playwright was waiting for when it gave up
+      const waiting = err.message.match(/waiting for (.*)/)?.[1];
+      failures.push(`interaction · ${name} [${variant.name}]: ${err.message.split('\n')[0]}${waiting ? ` — waiting for ${waiting.slice(0, 160)}` : ''}`);
     }
+  };
+  // Runs `action` and waits for the htmx request it starts to finish swapping into `sel`: htmx's own
+  // htmx:afterSettle, fired on the new content once the swap has settled. Not a change in the region's HTML — htmx
+  // marks the requesting form with a class the moment the request starts, which reads as a change long before the
+  // answer arrives (a slow CI runner then checked focus mid-swap, and pressed buttons in content about to be
+  // replaced) — and not a fixed delay.
+  const htmxDone = async (page, sel, action, timeout = 15_000) => {
+    await page.evaluate(() => {
+      if (!window.__a11ySettled) {
+        window.__a11ySettled = [];
+        document.addEventListener('htmx:afterSettle', (e) => window.__a11ySettled.push(e.target));
+      }
+      window.__a11yMark = window.__a11ySettled.length;
+    });
+    await action();
+    await page.waitForFunction(
+      (q) => {
+        const region = document.querySelector(q);
+        return !!region && window.__a11ySettled.slice(window.__a11yMark).some((t) => t.isConnected && (t === region || region.contains(t) || t.contains(region)));
+      },
+      sel,
+      { timeout, polling: 25 },
+    );
   };
   // after a swap, keyboard focus must be somewhere, not dropped back to <body> at the top of the page
   const focusKept = async (page, what) => {
@@ -751,10 +819,7 @@ async function interactions(context, ids, variant) {
     // the button), so what happens to focus afterwards is what a keyboard user gets.
     const reading = page.locator('#reading');
     const swap = async (label, fn) => {
-      const before = await reading.innerHTML();
-      await fn();
-      await page.waitForFunction((b) => document.querySelector('#reading')?.innerHTML !== b, before, { timeout: 10_000 });
-      await page.waitForTimeout(50); // htmx settles, and app.js puts focus back, a tick after the swap
+      await htmxDone(page, '#reading', fn);
       await axe(page, where(`Reading → ${label}`), variant.name);
       await focusKept(page, where(`Reading → ${label}`));
     };
@@ -797,25 +862,19 @@ async function interactions(context, ids, variant) {
     // the Holding toggle, on a shelf's table
     await step('Shelf → Holding toggle', async () => {
       await open(page, `/libraries/${ids.shelves.books}`);
-      const toggle = page.locator(`button[hx-post="/items/${ids.book}/mark-not-owned"]`);
-      await toggle.press('Enter');
-      const back = page.locator(`button[hx-post="/items/${ids.book}/mark-owned"]`);
-      await back.waitFor({ timeout: 10_000 });
-      await page.waitForTimeout(50);
+      const toggle = `button[hx-post="/items/${ids.book}/mark-not-owned"]`;
+      const back = `button[hx-post="/items/${ids.book}/mark-owned"]`;
+      await htmxDone(page, back, () => page.locator(toggle).press('Enter'));
       await axe(page, where('Shelf → Holding toggled to Not owned'), variant.name);
       await focusKept(page, where('Shelf → Holding toggle'));
-      await back.press('Enter');
-      await toggle.waitFor({ timeout: 10_000 });
+      await htmxDone(page, toggle, () => page.locator(back).press('Enter'));
       await axe(page, where('Shelf → Holding toggled back to Owned'), variant.name);
     });
 
     // Read next's "Another" (hx-get into #read-next): a new suggestion in place, focus kept on the button
     await step('Overview → Read next → Another', async () => {
       await open(page, '/');
-      const before = await page.locator('#read-next').innerHTML();
-      await page.locator('#read-next-another').press('Enter');
-      await page.waitForFunction((b) => document.querySelector('#read-next')?.innerHTML !== b, before, { timeout: 10_000 });
-      await page.waitForTimeout(50);
+      await htmxDone(page, '#read-next', () => page.locator('#read-next-another').press('Enter'));
       await axe(page, where('Overview → Read next → Another'), variant.name);
       await focusKept(page, where('Overview → Read next → Another'));
     });
@@ -825,10 +884,7 @@ async function interactions(context, ids, variant) {
       await open(page, `/items/${ids.game}`);
       const plays = page.locator('#plays');
       const swapPlays = async (label, fn) => {
-        const before = await plays.innerHTML();
-        await fn();
-        await page.waitForFunction((b) => document.querySelector('#plays')?.innerHTML !== b, before, { timeout: 10_000 });
-        await page.waitForTimeout(50);
+        await htmxDone(page, '#plays', fn);
         await axe(page, where(`Play log → ${label}`), variant.name);
         await focusKept(page, where(`Play log → ${label}`));
       };
@@ -840,10 +896,7 @@ async function interactions(context, ids, variant) {
     await step('Want list and Where to buy', async () => {
       await open(page, `/items/${ids.wanted}`);
       const swapIn = async (sel, label, fn) => {
-        const before = await page.locator(sel).innerHTML();
-        await fn();
-        await page.waitForFunction(([q, b]) => document.querySelector(q)?.innerHTML !== b, [sel, before], { timeout: 10_000 });
-        await page.waitForTimeout(50);
+        await htmxDone(page, sel, fn);
         await axe(page, where(label), variant.name);
         await focusKept(page, where(label));
       };
@@ -915,8 +968,8 @@ async function interactions(context, ids, variant) {
       if (held < 1) throw new Error('the scan queue held nothing (no owner stamp on this device?)');
       await open(page, '/add');
       await page.locator('#scan-review:not([hidden])').waitFor({ timeout: 10_000 });
-      await page.locator('#scan-review-list > *').first().waitFor({ timeout: 20_000 });
-      await page.waitForTimeout(500);
+      // every held scan looked up and listed
+      await page.waitForFunction((n) => document.querySelectorAll('#scan-review-list > *').length >= n, held, { timeout: 30_000 });
       await axe(page, 'Add → scans held offline, the review list', variant.name);
       if (variant.scheme === 'light') await keyboard(page, 'Add → scans held offline, the review list', variant.name);
       await page.evaluate(() => window.nalandaScanQueue.clear());
@@ -1146,10 +1199,17 @@ async function main() {
           // those covered controls invisible for this one run (they were audited above, uncovered). "Covered"
           // means the browser says the menu is on top where they overlap, so a menu that slipped under the page
           // (a z-index slip) hides nothing, and the overlap is reported.
-          await page.evaluate((n) => {
-            for (const d of document.querySelectorAll('details[data-a11y-shut]')) d.open = d.dataset.a11yShut === n;
-          }, i);
-          await page.waitForTimeout(50); // app.js lines an opened menu up with the screen's edge on its toggle event
+          // opened, then past its toggle event, which app.js answers by lining the menu up with the screen's edge
+          await page.evaluate(
+            (n) =>
+              new Promise((resolve) => {
+                const menu = document.querySelector(`details[data-a11y-shut="${n}"]`);
+                if (menu.open) return resolve();
+                menu.addEventListener('toggle', () => setTimeout(resolve), { once: true });
+                for (const d of document.querySelectorAll('details[data-a11y-shut]')) d.open = d.dataset.a11yShut === n;
+              }),
+            i,
+          );
           await page.evaluate((n) => {
             const menu = document.querySelector(`details[data-a11y-shut="${n}"] .filter-menu`);
             if (!menu) return;
@@ -1230,6 +1290,8 @@ async function main() {
   if (needsReview.size) {
     console.log(`\nFor a person to check (${needsReview.size}): axe couldn't decide these itself`);
     for (const [key, variants] of needsReview) console.log(`  ? ${key}  [${[...variants].join(', ')}]`);
+    // on GitHub Actions, the count on the run's summary, so a jump shows without opening the log; never a failure
+    if (process.env.GITHUB_ACTIONS) console.log(`::notice title=a11y::${needsReview.size} contrast/target-size checks need a person (see the log)`);
   }
   // an audit that looked at nothing (an --only that matched no page) proves nothing
   if (!audited.length) failures.push('no page was audited');
