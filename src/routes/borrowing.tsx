@@ -563,7 +563,7 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
       <section>
         <p class="eyebrow">Your requests</p>
         {requests.length ? (
-          <div class="data-table">
+          <div class="data-table cards">
             <table>
               <thead>
                 <tr>
@@ -580,9 +580,11 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
                     <td>
                       <strong>{r.itemTitle}</strong>
                     </td>
-                    <td>{r.householdName}</td>
-                    <td class="date hide-sm">{r.createdAt.slice(0, 10)}</td>
-                    <td>
+                    <td data-label="From">{r.householdName}</td>
+                    <td class="date hide-sm" data-label="Asked">
+                      {r.createdAt.slice(0, 10)}
+                    </td>
+                    <td data-label="Status">
                       {r.returned ? (
                         <span class="pill ghost">Returned</span>
                       ) : (
@@ -632,7 +634,7 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
       {returned.length ? (
         <section>
           <p class="eyebrow">Returned</p>
-          <div class="data-table">
+          <div class="data-table cards">
             <table>
               <thead>
                 <tr>
@@ -645,9 +647,13 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
               <tbody>
                 {returned.map((b) => (
                   <tr>
-                    <td>{b.title}</td>
-                    <td>{b.householdName}</td>
-                    <td class="date">{b.returnedOn}</td>
+                    <td>
+                      <strong>{b.title}</strong>
+                    </td>
+                    <td data-label="From">{b.householdName}</td>
+                    <td class="date" data-label="Returned">
+                      {b.returnedOn}
+                    </td>
                     <td class="actions-cell">
                       <div class="inline-form">
                         <form method="post" action={`/borrowed/${b.id}/remove`} class="inline">
@@ -711,7 +717,7 @@ export async function loanRequestsSection(c: Context<AppEnv>): Promise<Child | n
   return (
     <section>
       <p class="eyebrow">Requests from connections</p>
-      <div class="data-table">
+      <div class="data-table cards">
         <table>
           <thead>
             <tr>
@@ -735,11 +741,13 @@ export async function loanRequestsSection(c: Context<AppEnv>): Promise<Child | n
                     </>
                   ) : null}
                 </td>
-                <td>
+                <td data-label="From">
                   {r.requesterName}
                   <small class="muted"> · {r.householdName}</small>
                 </td>
-                <td class="date hide-sm">{r.createdAt.slice(0, 10)}</td>
+                <td class="date hide-sm" data-label="Asked">
+                  {r.createdAt.slice(0, 10)}
+                </td>
                 <td class="actions-cell">
                   <div class="request-actions">
                     {free.get(r.item.id) ? (

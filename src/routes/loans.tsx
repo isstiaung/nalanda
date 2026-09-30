@@ -42,7 +42,7 @@ loans.get('/loans', async (c) => {
       <section>
         <p class="eyebrow">Out now</p>
         {active.length ? (
-          <div class="data-table">
+          <div class="data-table cards">
             <table>
               <thead>
                 <tr>
@@ -63,12 +63,14 @@ loans.get('/loans', async (c) => {
                           <strong>{l.itemTitle}</strong>
                         </a>
                       </td>
-                      <td>
+                      <td data-label="Borrower">
                         {l.borrower}
                         {l.contact ? <small class="muted"> · {l.contact}</small> : null}
                       </td>
-                      <td class="date hide-sm">{l.loanedOn}</td>
-                      <td class="date due-cell">
+                      <td class="date hide-sm" data-label="Since">
+                        {l.loanedOn}
+                      </td>
+                      <td class="date due-cell" data-label="Due">
                         {/* the date stays when it's passed: how overdue matters as much as that it is */}
                         <span>{l.dueOn ?? '—'}</span>
                         {overdue ? (

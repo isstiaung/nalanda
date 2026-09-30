@@ -439,6 +439,49 @@ p.error { font-size: 12.5px; color: color-mix(in srgb, var(--stamp) 85%, var(--i
 .data-table td.due-cell > span { white-space: nowrap; }
 .data-table + p { margin-top: 0.75rem; }
 
+/* A table of things to act on (.data-table.cards) becomes a stack of cards on a phone, instead of scrolling its
+   buttons off the edge. Still a <table>: the header row stays for screen readers, moved off screen, and each cell
+   shows its column's name from data-label — as alt-less generated content, so it isn't read out a second time.
+   A cell without a data-label is the card's title, full width; the actions cell is the card's foot. */
+@media (max-width: 640px) {
+  .data-table.cards { background: none; border: none; border-radius: 0; overflow: visible; }
+  .data-table.cards::after { content: none; }
+  .data-table.cards table { display: block; }
+  .data-table.cards thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .data-table.cards tbody { display: grid; gap: 0.6rem; }
+  .data-table.cards tr { display: grid; gap: 0.4rem; padding: 0.75rem 0.9rem; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); }
+  .data-table.cards tbody tr:hover { background: var(--surface); }
+  .data-table.cards tbody tr:hover > td:first-child { box-shadow: none; }
+  .data-table.cards td,
+  .data-table.cards td.num,
+  .data-table.cards td.date,
+  .data-table.cards .hide-sm { display: block; position: relative; min-width: 0; width: auto; padding: 0 0 0 6.75rem; border: none; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+  .data-table.cards td[data-label]::before {
+    content: attr(data-label);
+    content: attr(data-label) / '';
+    position: absolute;
+    left: 0;
+    top: 0.2em;
+    width: 6.25rem;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .data-table.cards td:not([data-label]) { padding-left: 0; }
+  /* a cell holding a form takes the card's width, its label above it */
+  .data-table.cards td.card-stack { padding-left: 0; }
+  .data-table.cards td.card-stack::before { position: static; display: block; width: auto; margin-bottom: 0.35rem; }
+  .data-table.cards .sub-settings select { max-width: none; }
+  .data-table.cards td:empty { display: none; }
+  .data-table.cards .actions-cell { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: flex-end; align-items: center; margin-top: 0.35rem; padding: 0.65rem 0 0; border-top: 1px solid var(--line); }
+  .data-table.cards .actions-cell .inline-form { flex-direction: row; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+  .data-table.cards .actions-cell button,
+  .data-table.cards .actions-cell .btn { white-space: nowrap; height: 30px; min-height: 30px; padding: 0 0.75rem; }
+}
+
 /* max-width caps the title column under auto table layout so a long title
    truncates with an ellipsis instead of crowding every other column out */
 .cell-title { display: flex; align-items: center; gap: 0.65rem; min-width: 0; max-width: 420px; }

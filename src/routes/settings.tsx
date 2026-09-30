@@ -99,7 +99,7 @@ const UsersPage = ({
         </small>
       </article>
     ) : null}
-    <div class="data-table">
+    <div class="data-table cards">
       <table>
         <thead>
           <tr>
@@ -123,7 +123,7 @@ const UsersPage = ({
                   </>
                 ) : null}
               </td>
-              <td>
+              <td data-label="Display name">
                 {/* shown outside the app only where names are switched on (§16 #45); an admin can set anyone's */}
                 <form method="post" action={`/settings/users/${u.id}/display-name`} class="inline-form display-name-form">
                   <input
@@ -138,8 +138,12 @@ const UsersPage = ({
                   </button>
                 </form>
               </td>
-              <td class="num">{u.role}</td>
-              <td class="date hide-sm">{u.createdAt.slice(0, 10)}</td>
+              <td class="num" data-label="Role">
+                {u.role}
+              </td>
+              <td class="date hide-sm" data-label="Since">
+                {u.createdAt.slice(0, 10)}
+              </td>
               <td class="actions-cell">
                 <form method="post" action={`/settings/users/${u.id}/reset`} class="inline">
                   <button class="btn" type="submit">

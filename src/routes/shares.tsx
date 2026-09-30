@@ -70,7 +70,7 @@ shares.get('/shares', async (c) => {
         </p>
       ) : (
         <>
-          <div class="data-table">
+          <div class="data-table cards">
             <table>
               <thead>
                 <tr>
@@ -92,7 +92,7 @@ shares.get('/shares', async (c) => {
                         {origin}/share/{v.token}
                       </a>
                     </td>
-                    <td class="hide-sm">
+                    <td class="hide-sm" data-label="Shelf">
                       {v.wantUserId !== null ? (
                         <a href={`/wants?member=${v.wantUserId}`}>Want list</a>
                       ) : v.libraryId === null ? (
@@ -101,11 +101,15 @@ shares.get('/shares', async (c) => {
                         <a href={`/libraries/${v.libraryId}`}>{shelfName.get(v.libraryId) ?? '—'}</a>
                       )}
                     </td>
-                    <td>
+                    <td data-label="Scope">
                       <span class="pill">{shareScopeLabel(v, v.wantUserId !== null ? username.get(v.wantUserId) : undefined)}</span>
                     </td>
-                    <td class="num">{counts[i] ?? 0}</td>
-                    <td class="date hide-sm">{v.createdAt.slice(0, 10)}</td>
+                    <td class="num" data-label="Items">
+                      {counts[i] ?? 0}
+                    </td>
+                    <td class="date hide-sm" data-label="Published">
+                      {v.createdAt.slice(0, 10)}
+                    </td>
                     <td class="actions-cell">
                       {/* onclick, not onsubmit: two buttons in one form, each with its own warning */}
                       <form method="post" action={`/shares/${v.id}`} class="inline-form">

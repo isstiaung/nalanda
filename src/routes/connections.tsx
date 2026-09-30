@@ -129,7 +129,7 @@ const ConnectionTable: FC<{
     <section class="fed-section" style="margin-top:1.5rem">
       <p class="eyebrow">{title}</p>
       {hint ? <p class="muted">{hint}</p> : null}
-      <div class="data-table">
+      <div class="data-table cards">
         <table>
           <thead>
             <tr>
@@ -145,8 +145,12 @@ const ConnectionTable: FC<{
                 <td>
                   <strong>{row.householdName}</strong>
                 </td>
-                <td class="hide-sm mono break-anywhere">{row.baseUrl}</td>
-                <td class="date hide-sm">{since(row).slice(0, 10)}</td>
+                <td class="hide-sm mono break-anywhere" data-label="Address">
+                  {row.baseUrl}
+                </td>
+                <td class="date hide-sm" data-label="Since">
+                  {since(row).slice(0, 10)}
+                </td>
                 <td class="actions-cell">
                   {/* one flex row, so each pair sits the same 0.5rem apart as on /shares and /loans */}
                   <div class="inline-form">{actions(row)}</div>
@@ -249,7 +253,7 @@ const SharedViews: FC<{
         checks. Households on Nalanda 1.3.0 or older skip goal entries and read the rest of your feed as before.
       </p>
       {views.length ? (
-        <div class="data-table">
+        <div class="data-table cards">
           <table>
             <thead>
               <tr>
@@ -266,13 +270,15 @@ const SharedViews: FC<{
                   <td>
                     <strong>{v.name}</strong>
                   </td>
-                  <td class="hide-sm">
+                  <td class="hide-sm" data-label="Shelf">
                     {v.libraryId === null ? <span class="muted">All shelves</span> : (shelfName.get(v.libraryId) ?? '—')}
                   </td>
-                  <td>
+                  <td data-label="Scope">
                     <span class="pill">{scopeLabel(v)}</span>
                   </td>
-                  <td class="num">{v.itemCount}</td>
+                  <td class="num" data-label="Items">
+                    {v.itemCount}
+                  </td>
                   <td class="actions-cell">
                     <form method="post" action={`/connections/views/${v.id}/delete`} class="inline">
                       <button class="btn-danger" type="submit">
@@ -388,7 +394,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
             <button type="submit">Create an invitation</button>
           </form>
           {p.invites.length ? (
-            <div class="data-table">
+            <div class="data-table cards">
               <table>
                 <thead>
                   <tr>
@@ -403,9 +409,13 @@ const ConnectionsPage: FC<PageProps> = (p) => {
                     const state = inviteState(invite);
                     return (
                       <tr>
-                        <td class="date">{invite.createdAt.slice(0, 10)}</td>
-                        <td class="date">{invite.expiresAt.slice(0, 10)}</td>
-                        <td>{state}</td>
+                        <td class="date" data-label="Created">
+                          {invite.createdAt.slice(0, 10)}
+                        </td>
+                        <td class="date" data-label="Expires">
+                          {invite.expiresAt.slice(0, 10)}
+                        </td>
+                        <td data-label="State">{state}</td>
                         <td class="actions-cell">
                           {/* an expired one can't be used either way; without this it stayed listed for good */}
                           {state !== 'Used' ? (
@@ -829,7 +839,7 @@ const ConnectionFeedPage: FC<
         {p.subscriptions.length === 0 ? (
           <p class="muted">You don’t follow any of their views yet.</p>
         ) : (
-          <div class="data-table">
+          <div class="data-table cards">
             <table>
               <thead>
                 <tr>
@@ -853,7 +863,7 @@ const ConnectionFeedPage: FC<
                       ) : null}
                       {sub.lastError ? <small class="muted pull-error">{sub.lastError}</small> : null}
                     </td>
-                    <td>
+                    <td class="card-stack" data-label="Settings">
                       <form method="post" action={`${base}/subscriptions/${sub.id}`} class="sub-settings">
                         <SettingsFields interval={sub.intervalMinutes} days={sub.retentionDays} entries={sub.maxEntries} />
                         <button class="btn" type="submit">
@@ -861,12 +871,14 @@ const ConnectionFeedPage: FC<
                         </button>
                       </form>
                     </td>
-                    <td class="num hide-sm">
+                    <td class="num hide-sm" data-label="Stored">
                       {sub.entries}
                       <br />
                       <small class="muted">{formatBytes(sub.bytes)}</small>
                     </td>
-                    <td class="date hide-sm">{sub.lastPulledAt ? sub.lastPulledAt.slice(0, 16) : 'Not yet'}</td>
+                    <td class="date hide-sm" data-label="Last pulled">
+                      {sub.lastPulledAt ? sub.lastPulledAt.slice(0, 16) : 'Not yet'}
+                    </td>
                     <td class="actions-cell">
                       <div class="inline-form">
                         <form method="post" action={`${base}/subscriptions/${sub.id}/purge`} class="inline">
@@ -901,7 +913,7 @@ const ConnectionFeedPage: FC<
         ) : p.theirViews.length === 0 ? (
           <p class="muted">{p.connection.householdName} isn’t sharing any views yet.</p>
         ) : (
-          <div class="data-table">
+          <div class="data-table cards">
             <table>
               <thead>
                 <tr>
@@ -917,13 +929,15 @@ const ConnectionFeedPage: FC<
                     <td>
                       <strong>{v.name}</strong>
                     </td>
-                    <td class="num">{v.itemCount}</td>
-                    <td class="num hide-sm">
+                    <td class="num" data-label="Items">
+                      {v.itemCount}
+                    </td>
+                    <td class="num hide-sm" data-label="A month">
                       ≈ {perMonth(v.recent, 'activities')} entries
                       <br />
                       <small class="muted">≈ {formatBytes(perMonth(v.recent, 'bytes'))}</small>
                     </td>
-                    <td>
+                    <td class="card-stack" data-label="Follow">
                       {followed.has(v.id) ? (
                         <span class="pill done">Following</span>
                       ) : (
