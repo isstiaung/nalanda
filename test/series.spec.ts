@@ -92,6 +92,8 @@ describe('series from the providers, as recorded', () => {
     expect(await rows('SELECT s.name, i.series_number AS n FROM items i JOIN series s ON s.id = i.series_id WHERE i.id = ?1', id)).toEqual([
       { name: 'The Expanse', n: 3 },
     ]);
+    // and the manual form offers it from then on
+    expect(await html(asha, '/add')).toContain('<option value="The Expanse">');
   });
 });
 
