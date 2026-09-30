@@ -23,45 +23,47 @@ const CurrencySection = ({ currency, error }: { currency: string | null; error?:
     <p class="eyebrow" id="currency-head">
       Household currency
     </p>
-    <form method="post" action="/settings/currency" class="inline-form">
-      <label for="household-currency">Purchase prices are entered in</label>
-      <select
-        id="household-currency"
-        name="currency"
-        required
-        aria-invalid={error ? 'true' : undefined}
-        aria-describedby={error ? 'currency-error currency-help' : 'currency-help'}
-      >
-        {currency ? null : (
-          <option value="" selected>
-            Choose a currency…
-          </option>
+    <form method="post" action="/settings/currency" class="switch-form">
+      <div class="switch-field">
+        <label for="household-currency">Purchase prices are entered in</label>
+        <select
+          id="household-currency"
+          name="currency"
+          required
+          aria-invalid={error ? 'true' : undefined}
+          aria-describedby={error ? 'currency-error currency-help' : 'currency-help'}
+        >
+          {currency ? null : (
+            <option value="" selected>
+              Choose a currency…
+            </option>
+          )}
+          {currencyCodes().map((code) => (
+            <option value={code} selected={code === currency}>
+              {code} — {currencyName(code)}
+            </option>
+          ))}
+        </select>
+      </div>
+      {error ? (
+        <p class="field-error" id="currency-error">
+          {error}
+        </p>
+      ) : null}
+      <p class="muted" id="currency-help">
+        {currency ? (
+          <>
+            Now <strong class="mono">{currency}</strong>.{' '}
+          </>
+        ) : (
+          'Not set yet: members can’t record what they paid until it is. '
         )}
-        {currencyCodes().map((code) => (
-          <option value={code} selected={code === currency}>
-            {code} — {currencyName(code)}
-          </option>
-        ))}
-      </select>
+        One currency for the household, for what everyone paid for books, games and records. Changing it later leaves
+        prices already entered in the currency they were entered in, and shelf totals add up each currency separately —
+        nothing is converted. Prices stay in the app: never on share pages or to connected households.
+      </p>
       <button type="submit">Save</button>
     </form>
-    {error ? (
-      <p class="field-error" id="currency-error">
-        {error}
-      </p>
-    ) : null}
-    <p class="muted" id="currency-help">
-      {currency ? (
-        <>
-          Now <strong class="mono">{currency}</strong>.{' '}
-        </>
-      ) : (
-        'Not set yet: members can’t record what they paid until it is. '
-      )}
-      One currency for the household, for what everyone paid for books, games and records. Changing it later leaves
-      prices already entered in the currency they were entered in, and shelf totals add up each currency separately —
-      nothing is converted. Prices stay in the app: never on share pages or to connected households.
-    </p>
   </section>
 );
 

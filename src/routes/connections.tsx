@@ -189,25 +189,23 @@ const SharedViews: FC<{
         {progressToConnections ? ', and each page you record as you read' : ''} — never notes, loans or how many copies you
         have.
       </p>
-      <form method="post" action="/connections/progress-sharing" class="inline-form">
+      <form method="post" action="/connections/progress-sharing" class="switch-form">
         <label>
           <input type="checkbox" name="progressToConnections" value="on" checked={progressToConnections} /> Share reading
           progress
         </label>
+        <p class="muted">
+          On by default. Each page you record becomes its own entry in their feed. Turning it off stops new entries and
+          withdraws the ones already sent, the next time each connection checks.
+        </p>
         <button type="submit">Save</button>
       </form>
-      <p class="muted">
-        On by default. Each page you record becomes its own entry in their feed. Turning it off stops new entries and
-        withdraws the ones already sent, the next time each connection checks.
-      </p>
-      <form method="post" action="/connections/names-sharing" class="inline-form" id="names-to-connections">
+      <form method="post" action="/connections/names-sharing" class="switch-form" id="names-to-connections">
         <label>
           <input type="checkbox" name="namesToConnections" value="on" checked={namesToConnections} /> Show names to
           connected households
         </label>
-        <button type="submit">Save</button>
-      </form>
-      <p class="muted">
+        <p class="muted">
         Off, they see your household as one — “finished”, “rated” — with no names. On, their feed gets an
         entry per person, signed with each member's <strong>display name</strong> (“Priya finished …”, “Ravi rated …”,
         and when someone starts a book), and a book's page lists everyone's rating and review. Members without a display
@@ -217,13 +215,15 @@ const SharedViews: FC<{
         entries from before and pull the new ones — a household is trusted to, but can keep what it already pulled.
         Households on older versions of Nalanda get the entries without names, as your household's, and skip
         “started”.
-      </p>
+        </p>
+        <button type="submit">Save</button>
+      </form>
       {/* §16 #49: a goal entry is always signed, so this switch only means anything while names go out — greyed and
           inert until then, and the server serves no goal entry without names whatever it holds */}
       <form
         method="post"
         action="/connections/goals-sharing"
-        class={namesToConnections ? 'inline-form' : 'inline-form switch-off'}
+        class={namesToConnections ? 'switch-form' : 'switch-form switch-off'}
         id="goals-to-connections"
       >
         <label>
@@ -236,11 +236,7 @@ const SharedViews: FC<{
           />{' '}
           Share reading goals
         </label>
-        <button type="submit" disabled={!namesToConnections}>
-          Save
-        </button>
-      </form>
-      <p class="muted">
+        <p class="muted">
         {namesToConnections ? null : (
           <>
             <strong>Takes effect only while names are shown to connected households</strong> — switch that on first.{' '}
@@ -251,7 +247,11 @@ const SharedViews: FC<{
         which books or when they were read. A goal goes to every view that can hold books, and a milestone only to views
         holding the book whose finish reached it. Turning it off withdraws goal entries the next time each connection
         checks. Households on Nalanda 1.3.0 or older skip goal entries and read the rest of your feed as before.
-      </p>
+        </p>
+        <button type="submit" disabled={!namesToConnections}>
+          Save
+        </button>
+      </form>
       {views.length ? (
         <div class="data-table cards">
           <table>

@@ -147,41 +147,42 @@ shares.get('/shares', async (c) => {
         </>
       )}
 
-      <section style="margin-top:2rem">
+      <section class="settings-section">
         <p class="eyebrow">Reading progress on share pages</p>
-        <form method="post" action="/shares/settings" class="inline-form">
+        <form method="post" action="/shares/settings" class="switch-form">
           <input type="hidden" name="setting" value="progress" />
           <label>
             <input type="checkbox" name="progressOnShares" value="on" checked={settings.progressOnShares} /> Show how far
             through a book you are
           </label>
+          <p class="muted">
+            Off by default. When on, a book being read now — marked <em>In progress</em>, or finished before and being
+            read again — shows its current page and a progress bar on its share page; finished and unstarted books never
+            do. This applies to public share links only. A page someone already loaded can take up to an hour to catch
+            up.
+          </p>
           <button type="submit">Save</button>
         </form>
-        <p class="muted">
-          Off by default. When on, a book being read now — marked <em>In progress</em>, or finished before and being
-          read again — shows its current page and a progress bar on its share page; finished and unstarted books never
-          do. This applies to public share links only. A page someone
-          already loaded can take up to an hour to catch up.
-        </p>
       </section>
 
       <section class="settings-section" id="names-on-shares">
         <p class="eyebrow">Names on share pages</p>
-        <form method="post" action="/shares/settings" class="inline-form">
+        <form method="post" action="/shares/settings" class="switch-form">
           <input type="hidden" name="setting" value="names" />
           <label>
             <input type="checkbox" name="namesOnShares" value="on" checked={settings.namesOnShares} /> Show each member's rating
             and review, with their display name
           </label>
+          <p class="muted">
+            Off, a shared book shows the household's average rating and its latest review, unsigned. On, it also lists
+            everyone's rating and review, each signed with the member's <strong>display name</strong> — set on their
+            Account page, or by an admin under <a href="/settings/users">Members</a>. A member without one appears as “A
+            member”. Login usernames never appear, and nor does who read what or when: reading history stays “Read N
+            times”. Turning it off hides names from every page served after; a page someone already loaded can take up to
+            an hour to catch up.
+          </p>
           <button type="submit">Save</button>
         </form>
-        <p class="muted">
-          Off, a shared book shows the household's average rating and its latest review, unsigned.
-          On, it also lists everyone's rating and review, each signed with the member's <strong>display name</strong> —
-          set on their Account page, or by an admin under <a href="/settings/users">Members</a>. A member without one appears as “A member”. Login usernames never
-          appear, and nor does who read what or when: reading history stays “Read N times”. Turning it off hides names
-          from every page served after; a page someone already loaded can take up to an hour to catch up.
-        </p>
       </section>
     </>,
   );
