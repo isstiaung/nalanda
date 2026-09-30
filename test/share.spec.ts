@@ -27,6 +27,7 @@ const item: Item = {
   rating: 10,
   review: 'A favorite.',
   notes: 'SECRET: bought as a gift for dad, do not spoil',
+  location: 'SECRET-PLACE: loft, box 3',
   copies: 2,
   beganOn: '2026-01-01',
   completedOn: '2026-01-10',
@@ -73,7 +74,7 @@ describe('share whitelist', () => {
 
   it('never leaks private fields, even as keys', () => {
     const pub = toPublicItem(item) as unknown as Record<string, unknown>;
-    for (const forbidden of ['notes', 'copies', 'addedBy', 'addedAt', 'isbn13', 'status', 'libraryId', 'beganOn', 'completedOn', 'rereading']) {
+    for (const forbidden of ['notes', 'location', 'copies', 'addedBy', 'addedAt', 'isbn13', 'status', 'libraryId', 'beganOn', 'completedOn', 'rereading']) {
       expect(pub).not.toHaveProperty(forbidden);
     }
     expect(JSON.stringify(pub)).not.toContain('SECRET');

@@ -409,11 +409,14 @@ describe('migration 0025', () => {
       { item_id: 2, user_id: 3, rating: 4, review: null, reviewed_at: null, rated_at: '2024-06-06 06:06:06', created_at: '2024-06-06 06:06:06' },
       { item_id: 3, user_id: 3, rating: null, review: 'Gave up', reviewed_at: '2024-07-07 07:07:07', rated_at: null, created_at: '2024-07-07 07:07:07' },
     ]);
-    expect(await rows('SELECT * FROM items ORDER BY id')).toEqual(before);
+    // every column the items had before, unchanged; one a later migration adds (0028's location) isn't 0025's concern
+    const had = Object.keys(before[0]!);
+    const items = async () => (await rows('SELECT * FROM items ORDER BY id')).map((r) => Object.fromEntries(had.map((k) => [k, r[k]])));
+    expect(await items()).toEqual(before);
 
     // and the summaries, recomputed from the new rows, say what the items already said
     await env.DB.batch([refreshReadState(env.DB, [1, 2, 3, 4, 5]), refreshReviewState(env.DB, [1, 2, 3, 4, 5])]);
-    expect(await rows('SELECT * FROM items ORDER BY id')).toEqual(before);
+    expect(await items()).toEqual(before);
   });
 
   it('leaves everything unattributed on an instance with no admin', async () => {

@@ -130,6 +130,7 @@ CREATE TABLE items (
   rating       INTEGER CHECK (rating BETWEEN 0 AND 10),   -- half-stars, rendered as 5 stars; the
   review       TEXT,                                      -- household's average and latest (§16 #43)
   notes        TEXT,            -- private notes — never rendered on share pages
+  location     TEXT,            -- where it lives, free text ("study, 2nd shelf") — private like notes (§16 #51)
   copies       INTEGER NOT NULL DEFAULT 1,
   began_on     TEXT,            -- status, began_on, completed_on, read_count, rereading and
   completed_on TEXT,            -- progress_page are derived from `reads` (§16 #41)
@@ -208,7 +209,7 @@ CREATE TABLE login_attempts (   -- login throttling (§8); old rows pruned oppor
 -- Full-text search (D1 supports FTS5); kept in sync with items via triggers.
 -- Lives in a hand-written custom migration alongside the drizzle-generated ones.
 CREATE VIRTUAL TABLE items_fts USING fts5(
-  title, creators, description, notes,
+  title, creators, description, notes, location,   -- location since 0029 (§16 #51)
   content='items', content_rowid='id'
 );
 ```
@@ -402,8 +403,9 @@ portable, and makes share routes trivially public. CF Access remains available l
   household played it, from the first play on ("Played N times"), never a play's date or who
   logged it (§16 #54). Listing cards don't carry it.
   The rating is the household's average and the review the one written last, with no author
-  (§16 #43). **Never**: private notes, loans/borrowers, the copies count, added_by, usernames,
-  the dates of anyone's reads or plays, or any nav into the authenticated app — and nothing per member
+  (§16 #43). **Never**: private notes, where an item lives (`location`, §16 #51), loans/borrowers,
+  the copies count, added_by, usernames, the dates of anyone's reads or plays, or any nav into the
+  authenticated app — and nothing per member
   unless an admin switches names on (below). The whitelist lives in one view module so it
   can't drift.
 - **Names are the household's choice, off by default** (§16 #45). `site_settings.names_on_shares`
@@ -1574,6 +1576,39 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     offline page refuses to hold scans when nobody is signed in on the device; "add all" skips
     entries with no match; `/offline.html` rather than `/offline`. The §14 non-goal "offline sync"
     stands: nothing is synced — the phone holds barcodes until a person reviews them.
+
+**2026-09-30 — where it lives:**
+51. **An item's location is one free-text column, private like notes, and searchable.** A household
+    with books in three rooms and games in the loft wants to know where a thing is. The owner
+    decided each point:
+    - **Free text, optional, one per item** — `items.location`, "study, 2nd shelf" or "Loft · box 3",
+      in the household's own words. Not a table of places, not per copy: two copies in two rooms
+      are one line of text ("one in the study, one in the loft"). Set on the item form, adding (the
+      manual form) and editing; shown as a Location row on the item's page when there is one. The
+      form keeps it one line with spaces collapsed; blank is none.
+    - **Search finds it.** It joins the FTS index as a fifth column, so global search matches it;
+      a shelf's search box matches it beside title and creators (a `LIKE`, as those are). FTS5
+      can't add a column, so migration 0032 — a custom one, after 0031 adds the column — drops
+      `items_fts` and its three triggers, makes them again with `location` added and bodies
+      otherwise unchanged, and refills the index with `'rebuild'`. The index is external-content
+      (`content='items'`), so dropping it loses nothing. Rehearsed on the backup of 2026-09-29
+      (1,998 items): every table's existing columns identical row for row, and 242 searches
+      returning the same items in the same order.
+    - **Never published.** It is not in `toPublicItem()` or `toConnectionItem()`, so share pages,
+      a connection's shelf, item page and feed never carry it; tests serve each with and without
+      a location and compare byte for byte, names switched off and on. The item activity triggers
+      fire on `review`, `rating`, `status` and `completed_on` only, so changing a location is no
+      news. A shelf's search box matches it, but share links and connection views never capture
+      that box's text (`shareFilters()`, `shelfPage()`), so no published view can be filtered by
+      where things are kept.
+    - **Portable.** `/export.csv` has a `location` column after `notes`, and a Nalanda export maps
+      it back. A libib-style file with a `location` column fills it too: an unrecognized column
+      would otherwise land in `details`, which share pages and connections show.
+
+    **Chosen without asking, overrulable:** the scan and search result cards' one-click "Add to
+    shelf" doesn't ask for a location — it stays one click, and the edit form is a click away;
+    a location isn't a shelf-table column; its search in a shelf's box is a substring match, like
+    title and creators there; a pasted line break becomes a space.
 
 **2026-09-30 — the play log:**
 54. **Board games and records get a play log: each play a dated row, the household's, beside —

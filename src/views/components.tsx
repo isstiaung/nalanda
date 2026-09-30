@@ -1242,6 +1242,10 @@ export const ItemForm: FC<{
       <input name="tags" value={tags?.join(', ') ?? ''} />
     </label>
     <label>
+      Location <small>(where it lives — never shown on share pages)</small>
+      <input name="location" value={item?.location ?? ''} placeholder="Study, 2nd shelf" autocomplete="off" />
+    </label>
+    <label>
       {perMember ? 'Your review' : 'Review'}
       <textarea name="review" rows={3}>
         {item?.review ?? ''}

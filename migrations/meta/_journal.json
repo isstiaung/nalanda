@@ -218,6 +218,20 @@
       "when": 1790749636661,
       "tag": "0030_plays",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1790750857456,
+      "tag": "0031_location",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1790750864672,
+      "tag": "0032_location-fts",
+      "breakpoints": true
     }
   ]
 }

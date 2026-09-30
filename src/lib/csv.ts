@@ -37,6 +37,7 @@ export const EXPORT_COLUMNS = [
   'review',
   'reviews',
   'notes',
+  'location',
   'tags',
   'copies',
   'loans',
@@ -111,6 +112,7 @@ export function itemToCsvLine(
     item.review,
     formatReviewsCell(reviews),
     item.notes,
+    item.location,
     tags.join(', '),
     item.copies,
     formatLoansCell(loans),
@@ -180,6 +182,9 @@ const KNOWN_COLUMNS = new Set([
   'group',
   'tags',
   'notes',
+  // where it lives (§16 #51) is private, like notes: a file's location column must never fall through into `details`,
+  // which share pages and connections render
+  'location',
   'length',
   'rating',
   'review',
@@ -217,6 +222,11 @@ function mapRating(raw: string | undefined): number | undefined {
   const n = Number.parseFloat(raw ?? '');
   if (!Number.isFinite(n) || n <= 0) return undefined;
   return Math.min(10, Math.max(1, Math.round(n * 2)));
+}
+
+/** A location as the edit form keeps it: one line, spaces collapsed; blank is none. */
+function oneLine(raw: string | undefined): string | null {
+  return (raw ?? '').replace(/\s+/g, ' ').trim() || null;
 }
 
 function digits(raw: string | undefined): string {
@@ -267,6 +277,7 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
       rating: mapRating(r['rating']) ?? null,
       review: r['review'] || null,
       notes: r['notes'] || null,
+      location: oneLine(r['location']),
       copies: Number.isFinite(copiesNum) && copiesNum >= 0 ? copiesNum : 1, // 0 = cataloged, not owned
       beganOn: r['began'] || null,
       completedOn: r['completed'] || null,
@@ -358,6 +369,7 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
       rating: summary.rating,
       review: summary.review,
       notes: r['notes'] || null,
+      location: oneLine(r['location']),
       copies: copies ?? 1,
       beganOn: state.beganOn,
       completedOn: state.completedOn,

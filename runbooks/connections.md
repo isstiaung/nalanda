@@ -71,7 +71,7 @@ you do.
 
 - Every connected household sees every view.
 - For the books in a view they see the title, creators, cover, rating, review, when you last
-  finished it, and how many times you have. Never notes, loans, borrowers, how many copies you
+  finished it, and how many times you have. Never notes, where it lives, loans, borrowers, how many copies you
   have, or the dates of your other reads.
 - **Names are off by default.** **Show names to connected households** (in this section) sends one
   feed entry per person, signed with each member's display name — "Priya finished", "Ravi rated",

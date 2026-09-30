@@ -190,6 +190,8 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
       rating: formRating(body['rating']),
       review: orNull(str('review')),
       notes: orNull(str('notes')),
+      // where it lives (§16 #51): free text, one line — a pasted line break would only hide half of it
+      location: orNull(str('location').replace(/\s+/g, ' ')),
       copies: Number.isFinite(copiesNum) && copiesNum >= 0 ? copiesNum : 1, // 0 = cataloged, not owned
       beganOn: orNull(str('beganOn')),
       completedOn: orNull(str('completedOn')),
@@ -346,6 +348,13 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
           <dd>
             <HoldingPill item={item} />
           </dd>
+          {/* where it lives (§16 #51) — private, like notes: share pages and connections never carry it */}
+          {item.location ? (
+            <>
+              <dt>Location</dt>
+              <dd>{item.location}</dd>
+            </>
+          ) : null}
           {item.rating ? (
             <>
               <dt>Rating</dt>

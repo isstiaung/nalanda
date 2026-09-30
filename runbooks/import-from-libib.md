@@ -32,6 +32,7 @@ so a do-over is just delete-and-retry.
 | `status` (“not begun”, …) | reading status |
 | `rating` (0–5, halves) | half-star rating (×2) |
 | `length`, `copies`, `began`, `completed`, `review`, `notes`, `tags` | same fields |
+| `location`, when a file has one | the private location, where it lives — never in details, which share pages show |
 | `group` | becomes a tag |
 | `item_type` (book / board game / video game / music / movie) | media type (music → vinyl if opted in) |
 | anything else (`ensemble`, `esrb`, `aspect_ratio`, prices, …) | kept losslessly in the item's details JSON |

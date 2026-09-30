@@ -76,6 +76,9 @@ export const items = sqliteTable(
     rating: integer('rating'),
     review: text('review'),
     notes: text('notes'),
+    // Where the household keeps it — "study, 2nd shelf", "Loft · box 3" (§16 #51). Free text, optional, and private
+    // like notes: never on share pages or to connections, since it says where things are in someone's home.
+    location: text('location'),
     copies: integer('copies').notNull().default(1),
     beganOn: text('began_on'),
     completedOn: text('completed_on'),
