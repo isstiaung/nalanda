@@ -303,6 +303,14 @@ describe('a recommendation from a connection', () => {
     expect(await rows("SELECT count(*) AS n FROM notifications WHERE kind = 'recommendation'")).toEqual([{ n: 1 }]);
   });
 
+  it('is stored and notified once when two copies arrive at the same moment', async () => {
+    const message = theirRecommendation(peer);
+    const answers = await Promise.all([inbox(peer, message), inbox(peer, message), inbox(peer, message)]);
+    expect(answers.map((r) => r.status)).toEqual([200, 200, 200]);
+    expect(await rows('SELECT count(*) AS n FROM recommendations')).toEqual([{ n: 1 }]);
+    expect(await rows("SELECT count(*) AS n FROM notifications WHERE kind = 'recommendation'")).toEqual([{ n: 1 }]);
+  });
+
   it('arrives by their outbox too, when the push never came', async () => {
     const message = theirRecommendation(peer, { title: 'Pulled' });
     peerSide(peer, { outbox: { latest: 1, more: false, messages: [{ seq: 1, message }] } });
