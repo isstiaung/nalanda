@@ -790,14 +790,16 @@ export async function setItemTags(d1: D1Database, itemId: number, names: string[
  * A new item, its tags, and the read and review the form's status, dates, rating and review stand for — the adder's
  * (§16 #43) — in one batch: a failure between them saved it without them, and the person's second try saved it
  * twice. `wantedBy`: "Want it" on a scan or search result (§16 #53) — the item joins that member's want list in the
- * same batch. Returns its id.
+ * same batch. `before` and `after`: statements of the same change that go first and last in that batch — a
+ * recommendation taken onto the want list (§16 #58) claims itself first, so a claim that can't be made writes nothing.
+ * Returns its id.
  */
 export async function createItemWithTags(
   d1: D1Database,
   values: NewItem,
   names: string[],
   series: SeriesDraft | null = null,
-  opts: { wantedBy?: number } = {},
+  opts: { wantedBy?: number; before?: D1PreparedStatement[]; after?: D1PreparedStatement[] } = {},
 ): Promise<number> {
   const reads = readsFromColumns(values.status ?? 'not_started', values.beganOn, values.completedOn);
   const reviews = stampReviews(reviewsFromColumns(values));
@@ -807,7 +809,9 @@ export async function createItemWithTags(
     .returning({ id: s.items.id })
     .toSQL();
   const upsert = seriesUpsert(d1, series);
+  const before = opts.before ?? [];
   const results = await d1.batch([
+    ...before,
     ...upsert,
     d1.prepare(q.sql).bind(...q.params),
     ...tagLinkStatements(d1, 'newest', names),
@@ -816,8 +820,9 @@ export async function createItemWithTags(
     ...reviewInsertStatements(d1, 'newest', reviews, values.addedBy ?? null),
     refreshReviewState(d1, 'newest'),
     ...(opts.wantedBy !== undefined ? wantInsertStatements(d1, 'newest', [{ userId: opts.wantedBy, at: null }]) : []),
+    ...(opts.after ?? []),
   ]);
-  const row = results[upsert.length]?.results[0] as { id: number } | undefined;
+  const row = results[before.length + upsert.length]?.results[0] as { id: number } | undefined;
   if (!row) throw new Error('failed to create item');
   return row.id;
 }
@@ -2137,15 +2142,17 @@ function finishedWantStatement(d1: D1Database, itemId: number, person: number | 
  * what they already want keeps the date it was first wanted; an item that isn't there is wanted by nobody.
  */
 export async function setWant(d1: D1Database, itemId: number, userId: number, want: boolean): Promise<void> {
-  await (want
-    ? d1
-        .prepare(
-          `INSERT INTO wants (item_id, user_id) SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1)
-           ON CONFLICT DO NOTHING`,
-        )
-        .bind(itemId, userId)
-    : d1.prepare('DELETE FROM wants WHERE item_id = ?1 AND user_id = ?2').bind(itemId, userId)
-  ).run();
+  await (want ? wantStatement(d1, itemId, userId) : d1.prepare('DELETE FROM wants WHERE item_id = ?1 AND user_id = ?2').bind(itemId, userId)).run();
+}
+
+/** setWant's want, as a statement for a caller's batch — a recommendation taken onto the want list (§16 #58). */
+export function wantStatement(d1: D1Database, itemId: number, userId: number): D1PreparedStatement {
+  return d1
+    .prepare(
+      `INSERT INTO wants (item_id, user_id) SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1)
+       ON CONFLICT DO NOTHING`,
+    )
+    .bind(itemId, userId);
 }
 
 /**

@@ -850,6 +850,41 @@ button.comment-delete:hover, button.progress-delete:hover { background: none; co
   .request-actions, .data-table .request-actions .inline-form { flex-wrap: wrap; }
 }
 
+/* ── connections: recommendations (§16 #58) ─────────────────────────────────
+   Sending is a quiet disclosure on the item's page, indigo like any working form —
+   vermilion stays for circulation. The Recommended list reuses the feed's cards:
+   what arrives from a connection reads the same wherever it shows. */
+details.recommend { margin-top: 1.4rem; }
+details.recommend > summary { font-size: 12.5px; }
+.recommend-form { display: grid; gap: 0.35rem; max-width: 30rem; }
+.recommend-form label { margin: 0.3rem 0 0; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.recommend-form select, .recommend-form textarea { margin: 0; width: 100%; }
+.recommend-form textarea { min-height: 3rem; }
+.recommend-form #recommend-hint { margin: 0.1rem 0 0.3rem; font-size: 12px; }
+.recommend-form button { justify-self: start; }
+.recommend-sent { list-style: none; padding: 0; margin: 0.8rem 0 0; font-size: 12.5px; display: grid; gap: 0.2rem; overflow-wrap: anywhere; }
+.recommend-sent .mono { font-size: 11.5px; }
+.recommend-list { list-style: none; padding: 0; margin: 0 0 1.5rem; }
+.recommend-from { margin: 0.1rem 0 0; font-size: 12.5px; color: var(--ink-2); overflow-wrap: anywhere; }
+.recommend-from .mono { font-size: 11.5px; white-space: nowrap; }
+.recommend-note { border-left: 2px solid var(--line-strong); padding-left: 0.6rem; }
+.recommend-actions { display: flex; flex-wrap: wrap; gap: 0.5rem 0.8rem; align-items: center; margin-top: 0.6rem; font-size: 12.5px; }
+.recommend-actions .inline { margin: 0; }
+.recommend-sent-section { margin-top: 1.5rem; }
+
+/* text for screen readers only: a button's accessible name can say which item it acts on */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ── notifications ───────────────────────────────────────────────────────── */
 .notifications { list-style: none; padding: 0; margin: 0 0 1.25rem; display: grid; gap: 0; border-top: 1px solid var(--line); }
 .notifications li { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: 0.6rem 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }

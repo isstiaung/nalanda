@@ -118,6 +118,7 @@ const Sidebar: FC<{ user: SessionUser; path: string; libraries: NavLibrary[]; fe
       {federation ? <NavLink href="/feed" label="Feed" path={path} unread={unread.feed} /> : null}
       {federation ? <NavLink href="/notifications" label="Notifications" path={path} unread={unread.notifications} /> : null}
       {federation ? <NavLink href="/borrowed" label="Borrowed" path={path} /> : null}
+      {federation ? <NavLink href="/recommendations" label="Recommended" path={path} /> : null}
       {user.role === 'admin' ? <NavLink href="/shares" label="Shared links" path={path} /> : null}
       {federation && user.role === 'admin' ? <NavLink href="/connections" label="Connections" path={path} /> : null}
     </nav>

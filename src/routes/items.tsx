@@ -90,6 +90,7 @@ import {
 import { page } from '../views/layout';
 import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
+import { recommendSection } from './recommendations';
 import { SeriesSection } from '../views/series';
 
 const items = new Hono<AppEnv>();
@@ -492,6 +493,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const details = parseDetails(item.details);
   const record = isRecord(item.mediaType);
   const discussion = await itemComments(c, item); // null unless connections are enabled and someone commented
+  const recommending = await recommendSection(c, item); // null unless connections are enabled and one is active (§16 #58)
 
   return page(
     c,
@@ -717,6 +719,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
         </div>
 
         <LendingHistory loans={lent.loans} total={lent.total} />
+
+        {recommending}
 
         <div class="actions">
           <a href={`/items/${item.id}/edit`} role="button">
