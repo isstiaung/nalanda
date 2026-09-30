@@ -3089,32 +3089,49 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       it now — is what it has always said about a first read, and was already inferable: from
       its page on a share page with progress switched on (#41), and from a progress entry's
       `readCount` in a connection's Feed, which says "re-reading".
-    - **A view filtered to In progress carries no finish** (`kindsInView()` in
-      src/db/federation.ts): neither kind `finished` nor a goal milestone, which is one (#49).
-      Before, a finish always took its book out of such a view, so none was ever served there.
-      Now a book finished before enters the view when a re-read starts, and its earlier finish —
-      recorded while the book was outside the view, under an id past a follower's cursor — would
-      have reached followers as news that day, and opened a new follower's first page. On the
-      backup of 2026-09-30 the household's one In progress connection view (books, one shelf)
-      goes from 2 books to 4, and one of the two re-reads has such a finish in the log.
+    - **A view filtered to In progress carries only reading that is still going on**
+      (`readingInView()` in src/db/federation.ts, in both streams, for the feed, a new follower's
+      first page, the removal check and the volume figures). Before, a book was in such a view only
+      while nobody had finished it, so a finish took the book, and every entry about it, out. Now a
+      book stays in while anyone is reading it, so the view keeps the rule per read:
+      - **no finish, nor a goal milestone** (#49), which is one. A book finished before enters the
+        view when a re-read starts, and its earlier finish — recorded while the book was outside,
+        under an id past a follower's cursor — would have reached followers as news that day, and
+        opened a new follower's first page. So would a member's milestone: Asha finishes X and
+        reaches her goal, Ravi starts his first read of X, and X is in the view with the milestone
+        as its entry. On the backup of 2026-09-30 the household's one In progress connection view
+        (books, one shelf) goes from 2 books to 4, and one of the two re-reads has such a finish
+        in the log;
+      - **a start or a page only while its read is open.** Two people reading one book: Asha
+        re-reading X, Ravi on his first read; when Ravi finishes (or stops), X stays in the view
+        because Asha is still reading it, but his `started` entry and his pages — per-person or,
+        with names off, the household's progress entries — are withdrawn at the next removal check
+        and left off new followers' pages. Asha's stay until her read closes. That is what a first
+        read always got: its finish took the book, and so its start and pages, out of the view. A
+        page with no read (from before reads, #41) stays with its book.
     - **Entering or leaving a view is silent.** Starting a re-read records nothing in the
       household's stream (#41), and one `started` entry, as ever, in the per-person stream (#45);
-      its pages are progress entries. Finishing it records a finish (completed_on moves, #41) at
-      the moment the book leaves the view, so the finish isn't served there and the removal check
-      withdraws the re-read's pages and start — as a first read's finish always has. Stopping it
-      likewise. A Completed view is untouched. An entry of a kind the view does carry, recorded
+      its pages are progress entries. Finishing it records a finish (completed_on moves, #41), which
+      the view doesn't carry, and its start and pages are withdrawn as its read closes, whether the
+      book then leaves the view (the last reader) or stays (someone else still reading). Stopping
+      it likewise. A Completed view is untouched. An entry of a kind the view does carry, recorded
       while the book was outside — a rating, a review — arrives when it enters, dated when it
       happened (#40), as it does for any book entering any view (a first read started after
       rating it, an Owned toggle, a move between shelves); left as it is.
+    - **Sorted by date completed**, an In progress share link or view lists its re-reads first,
+      by their last finish: that shows the order of past finishes, never their dates. Accepted —
+      a view filtered to Completed shows far more.
     - **Older peers.** A connected household reads our views' lists and feed from us, so one on
       1.6.0 sees our In progress views include re-reads with nothing to update; its own In progress
       views keep the old meaning until it upgrades. Nothing new goes over the wire.
-    - **Cost.** An OR in the same statement: no D1 call, measured on the shelf page for every
-      status.
+    - **Cost.** An OR in the same statement, and the per-read rule is subqueries inside the feed's
+      own statements: no D1 call. Tests pin the shelf page for every status, and a feed pull plus a
+      removal check on an In progress view at a Completed view's calls.
 
     **Chosen without asking, overrulable:** the pill replaces "Completed" rather than sitting
-    beside it (as #41 had it); an In progress view carries no finishes; a rating or review
-    recorded while a book was outside a view still arrives when it enters.
+    beside it (as #41 had it); an In progress view carries no finishes or milestones, and a
+    reader's start and pages only while their read is open; a rating or review recorded while a
+    book was outside a view still arrives when it enters.
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

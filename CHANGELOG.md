@@ -13,7 +13,7 @@ Each release has an **Upgrading** section. Read it for every version between you
 ### Changed
 - **A book being read again counts as In progress.** Status = **In progress** now lists every book someone in the household is reading, including one finished before and being read again, or one someone else finished that you're reading now. It still also counts as **Completed**, since it was finished; ticking both lists it once. This applies everywhere a status is filtered: shelves, share links and connection views filtered to In progress now include re-reads.
 - **A re-read's status says "Re-reading"** instead of "Completed" on shelves and on its page, so it doesn't look finished in an In progress list. Share pages and connected households still see no status.
-- **A connection view filtered to In progress never sends a finish**, so a book entering it because someone started reading it again doesn't bring its old finish along as news. Starting, finishing or stopping a re-read sends what reading a book for the first time does.
+- **A connection view filtered to In progress shows only reading still going on.** It never sends a finish or a reading-goal milestone, so a book entering it because someone started reading it again doesn't bring an old finish along as news. When one person finishes or stops a book, their start and pages are taken back from households following the view, as they always were — even if the book stays in the view because someone else in your household is still reading it. Starting, finishing or stopping a re-read sends what reading a book for the first time does.
 
 ### Upgrading
 - **No migration and no new secret.** Nothing is stored differently: the change is in how status filters read what's there.

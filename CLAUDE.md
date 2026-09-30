@@ -198,8 +198,9 @@ shape from this file.
   (`readCount`, the household's), never the reads, their dates or their readers; the rating
   and review are the household summary, never a member's name — unless `names_to_connections` is
   on, and then only display names (see above). A view's status filters as the shelf does — In
-  progress holds a re-read (§16 #64) — and a view filtered to In progress serves no finish or goal
-  milestone (`kindsInView()`), so a re-read entering it brings no old finish. Triggers on `items` record
+  progress holds a re-read (§16 #64) — and a view filtered to In progress serves only reading still
+  going on (`readingInView()`): no finish or goal milestone, and a reader's start and pages only while
+  their read is open, though someone else still reading keeps the book in. Triggers on `items` record
   activity only while a connection view exists (migration 0007), dated by when it happened —
   an import's batch brackets itself with `import_in_progress` so old reads aren't news
   (migration 0021, ARCH.md §16 #40).
