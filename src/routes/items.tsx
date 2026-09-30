@@ -39,7 +39,7 @@ import {
 import type { AppEnv } from '../env';
 import { scanQueueOwner } from '../lib/auth';
 import { deleteCover, storeCover } from '../lib/covers';
-import { isPlayable, playDateProblem } from '../lib/plays';
+import { isPlayable, MAX_PLAYS_PER_ITEM, playDateProblem } from '../lib/plays';
 import { MAX_PROGRESS_PAGE } from '../lib/progress';
 import { isReadStatus, readDateProblem, summarizeReads, todayUtc, type ReadDraft } from '../lib/reads';
 import { reviewText } from '../lib/reviews';
@@ -860,7 +860,8 @@ const PLAYS_PAGE = 100;
 items.get('/items/:id/plays', async (c) => {
   const item = await getItem(c.env.DB, Number(c.req.param('id')));
   if (!item) return c.notFound();
-  const pageNum = Math.max(1, Number.parseInt(c.req.query('page') ?? '1', 10) || 1);
+  // held to what an item can hold (MAX_PLAYS_PER_ITEM / PLAYS_PAGE pages): a huge ?page= would bind an offset SQLite refuses
+  const pageNum = Math.min(Math.max(1, Number.parseInt(c.req.query('page') ?? '1', 10) || 1), Math.ceil(MAX_PLAYS_PER_ITEM / PLAYS_PAGE) + 1);
   const [plays, people] = await Promise.all([playLog(c.env.DB, item.id, PLAYS_PAGE, (pageNum - 1) * PLAYS_PAGE), listPeople(c.env.DB)]);
   const pages = Math.max(1, Math.ceil(plays.count / PLAYS_PAGE));
   return page(

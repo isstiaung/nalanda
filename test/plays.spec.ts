@@ -193,6 +193,10 @@ describe('the play log on the item page', () => {
     expect([...second.matchAll(/datetime=/g)]).toHaveLength(50);
     expect(first).toContain('1 / 2');
     expect(await html(asha, `/items/${game.id}/plays?page=9`)).toContain('No plays on this page.');
+    // a page number past anything an item can hold is still a page, not an error
+    const huge = await as(asha, `/items/${game.id}/plays?page=99999999999999999999`);
+    expect(huge.status).toBe(200);
+    expect(await huge.text()).toContain('No plays on this page.');
   });
 
   it('formats a play by the day: the year only when it isn’t this one', () => {
@@ -263,6 +267,11 @@ describe('removing a play', () => {
     const h = await household();
     const elsewhere = await thing(h.asha, 'boardgame', { title: 'Elsewhere' });
     await remove(h.asha, elsewhere, h.his.id);
+    expect(await playsOf(h.game.id)).toHaveLength(2);
+    // and an address that names no play at all is nothing to remove, not an error
+    for (const junk of ['abc', '1e400', '99999999999999999999']) {
+      expect((await as(h.asha, `/items/${h.game.id}/plays/${junk}/delete`, { body: {}, htmx: true })).status).toBe(200);
+    }
     expect(await playsOf(h.game.id)).toHaveLength(2);
   });
 
