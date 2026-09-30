@@ -15,7 +15,9 @@ import {
   setDisplayName,
   setItemTags,
   setWant,
+  shelfFlags,
   tagsForIdRange,
+  wantedAmong,
   updateItem,
   addProgress,
   addPastRead,
@@ -68,6 +70,9 @@ describe('the Wanted badge inside the app', () => {
       expect(around(page, 'Wanted and not owned')).toContain(BADGE);
     }
     expect(tag.match(/pill wanted/g)).toHaveLength(1);
+    // the query itself answers only for what isn't owned — the render's own check is a second line, not the first
+    expect(await wantedAmong(env.DB, [s.wanted.id, s.ownedWanted.id, s.plain.id])).toEqual(new Set([s.wanted.id]));
+    expect((await shelfFlags(env.DB, [s.wanted.id, s.ownedWanted.id, s.plain.id])).wanted).toEqual(new Set([s.wanted.id]));
     expect(await html(s.asha, `/items/${s.wanted.id}`)).toContain(BADGE);
     expect(await html(s.asha, `/items/${s.ownedWanted.id}`)).not.toContain(BADGE); // owned: no badge
     expect(await html(s.asha, `/items/${s.plain.id}`)).not.toContain(BADGE); // nobody wants it
