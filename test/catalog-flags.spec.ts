@@ -150,3 +150,14 @@ describe('counts', () => {
     expect(page).toMatch(/<td class="num">1<\/td>/);
   });
 });
+
+describe('the item table at 1280px', () => {
+  it('starts without Tags below 1400px until someone picks columns — before paint, from <head>', async () => {
+    const asha = await member('asha', 'admin');
+    const page = await html(asha, '/');
+    const head = page.slice(0, page.indexOf('</head>'));
+    expect(head).toContain("if(h===null&&window.matchMedia&&matchMedia('(max-width: 1399px)').matches)h='tags';");
+    // a stored choice, even "show everything" (''), wins over the default
+    expect(head).toContain("h=localStorage.getItem('nalanda:hidden-columns')");
+  });
+});

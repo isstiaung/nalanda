@@ -438,7 +438,7 @@ p.error { font-size: 12.5px; color: color-mix(in srgb, var(--stamp) 85%, var(--i
 
 /* max-width caps the title column under auto table layout so a long title
    truncates with an ellipsis instead of crowding every other column out */
-.cell-title { display: flex; align-items: center; gap: 0.65rem; min-width: 0; max-width: 420px; }
+.cell-title { display: flex; align-items: center; gap: 0.65rem; min-width: 0; max-width: 20rem; } /* a long title ellipsizes (its link's title says it whole) rather than pushing the table past a 1280px window */
 .cell-title .thumb { flex: none; width: 26px; height: 39px; border-radius: 3px; object-fit: cover; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); }
 .cell-title .thumb-fallback { flex: none; width: 26px; height: 39px; border-radius: 3px; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; justify-content: center; font-size: 13px; }
 .cell-title .t { min-width: 0; }
