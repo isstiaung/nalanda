@@ -101,13 +101,25 @@ async function axe(page, where, variant, off = []) {
     window.scrollTo(0, 0);
     for (const el of document.querySelectorAll('.data-table')) el.scrollLeft = 0;
   });
+  // A select's chevron (--chevron in app.css) is a background image, and axe won't judge text over any background
+  // image: every select would land in "needs review" unjudged. The chevron sits in padding kept clear of the text,
+  // so axe runs with it off and judges a select's text as it does an input's. (The chevron itself is --ink-2 on
+  // --surface, past the 3:1 a control's graphics need in both themes.)
   const results = await page.evaluate(
-    ({ tags, extra, off }) =>
-      window.axe.run(document, {
-        runOnly: { type: 'tag', values: tags },
-        rules: Object.fromEntries([...extra.map((id) => [id, { enabled: true }]), ...off.map((id) => [id, { enabled: false }])]),
-        resultTypes: ['violations', 'incomplete'],
-      }),
+    async ({ tags, extra, off }) => {
+      const style = document.createElement('style');
+      style.textContent = 'select { background-image: none !important; }';
+      document.head.append(style);
+      try {
+        return await window.axe.run(document, {
+          runOnly: { type: 'tag', values: tags },
+          rules: Object.fromEntries([...extra.map((id) => [id, { enabled: true }]), ...off.map((id) => [id, { enabled: false }])]),
+          resultTypes: ['violations', 'incomplete'],
+        });
+      } finally {
+        style.remove();
+      }
+    },
     { tags: TAGS, extra: EXPERIMENTAL, off },
   );
   record(where, variant, results);
