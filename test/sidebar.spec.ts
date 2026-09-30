@@ -160,6 +160,8 @@ describe('open sections', () => {
       `reading.${'x'.repeat(200)}`, // longer than any value of ours
       'constructor.__proto__.toString',
       'nav.sections',
+      '%E0%A4%A', // not valid percent-encoding: must not fail the page
+      '%',
     ];
     for (const value of bogus) {
       const bar = await sidebar(fed, '/', withNav(admin.cookie, value));
