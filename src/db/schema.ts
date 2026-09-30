@@ -649,6 +649,7 @@ export const NOTIFICATION_KINDS = [
   'borrow_declined',
   'returned', // the lender recorded our return
   'comment',
+  'recommendation', // a household recommended one of its items to this one (§16 #58)
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 export const ADMIN_NOTIFICATIONS: readonly NotificationKind[] = [
@@ -790,6 +791,61 @@ export const borrowedItems = sqliteTable('borrowed_items', {
   returnedOn: text('returned_on'),
 });
 
+// Recommendations between connected households (ARCH.md §16 #58).
+
+/**
+ * `open`: sent (ours), or waiting in the Recommended list (theirs). `dismissed` and `wanted` are this household's
+ * answers to one of theirs, kept only here — the sender is never told. `refused`: they turned ours away for good.
+ */
+export const RECOMMENDATION_STATUSES = ['open', 'dismissed', 'wanted', 'refused'] as const;
+export type RecommendationStatus = (typeof RECOMMENDATION_STATUSES)[number];
+
+/**
+ * A recommendation of one item, between this household and one connection. `incoming`: they recommended one of
+ * theirs to us, and the row keeps what the list shows — the item's title, creators and cover key as they sent them,
+ * the name it was signed with and the note, all strings from another instance. Otherwise one of ours went to them
+ * (`ourItemId`), sent by `senderId`, with what it carried. The same activity id names it on both sides, and the row
+ * stays after a dismissal, so the same message pulled again from their outbox isn't taken twice.
+ */
+export const recommendations = sqliteTable(
+  'recommendations',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    activityId: text('activity_id').notNull().unique(),
+    connectionId: integer('connection_id')
+      .notNull()
+      .references(() => connections.id, { onDelete: 'cascade' }),
+    incoming: integer('incoming', { mode: 'boolean' }).notNull(),
+    ourItemId: integer('our_item_id').references(() => items.id, { onDelete: 'cascade' }),
+    senderId: integer('sender_id').references(() => users.id, { onDelete: 'set null' }),
+    theirItemId: integer('their_item_id'),
+    theirItemStamp: text('their_item_stamp'),
+    theirViewId: integer('their_view_id'),
+    mediaType: text('media_type', { enum: MEDIA_TYPES }).notNull(),
+    title: text('title').notNull(),
+    creators: text('creators'),
+    published: text('published'),
+    coverKey: text('cover_key'),
+    // the item's public identifiers, as JSON — `bgg_id`, `discogs_id`, from its details — so a want finds a copy
+    // already here (existingForWant) instead of adding a second one
+    identifiers: text('identifiers').notNull().default('{}'),
+    // as signed: a display name while names go to connections, else "A member" — never a username
+    recommender: text('recommender').notNull(),
+    note: text('note'),
+    status: text('status', { enum: RECOMMENDATION_STATUSES }).notNull().default('open'),
+    handledBy: integer('handled_by').references(() => users.id, { onDelete: 'set null' }),
+    // theirs, once wanted: the item here it went onto someone's want list as — so the same book recommended again
+    // by that household finds it, as a scan's want finds a copy by its ISBN
+    wantedItemId: integer('wanted_item_id').references(() => items.id, { onDelete: 'set null' }),
+    createdAt: text('created_at').notNull().default(now),
+    handledAt: text('handled_at'),
+  },
+  (t) => [
+    index('idx_recommendations_connection').on(t.connectionId, t.incoming, t.status),
+    index('idx_recommendations_our_item').on(t.ourItemId),
+  ],
+);
+
 export type User = typeof users.$inferSelect;
 export type Library = typeof libraries.$inferSelect;
 export type Share = typeof shares.$inferSelect;
@@ -815,3 +871,4 @@ export type OutboxRow = typeof outbox.$inferSelect;
 export type BorrowRequestRow = typeof borrowRequests.$inferSelect;
 export type BorrowedItem = typeof borrowedItems.$inferSelect;
 export type PurchaseLink = typeof purchaseLinks.$inferSelect;
+export type Recommendation = typeof recommendations.$inferSelect;

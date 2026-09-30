@@ -61,11 +61,21 @@ manuscripts.
 - **Reading goals**: each member sets how many books they mean to finish in a year, and the
   Overview shows their count and pace. Connected households can hear when a goal is set, passes
   halfway and is reached, signed with the member's display name, if the household chooses.
+- **Year in review**: pick a year and see your reading beside the household's — books finished
+  and pages read month by month, most-read authors and tags, average rating, the highest-rated,
+  longest, shortest and fastest reads — and the household's records spun and games played.
+  Inside the app only.
 - **Loans**: track who borrowed what, with due dates and history — each item's page lists who has had it before, and for how long.
 - **Play log for games, listening log for records**: press **Played** on a board game or a
   record — today, or any day you pick — and its page keeps count ("Played 12 times · last on
   14 Sep") with the recent dates. Plays are the household's, not a person's; share pages show
   only the count, and connections see none of it.
+- **What should we play tonight?** Say how many players, how much time and what weight (light,
+  medium or heavy, from BoardGameGeek's complexity rating), and see the board games on your
+  shelves that fit, in random order, each with when you last played it — or press **Pick one
+  for us**. Games missing a detail are listed separately rather than hidden. **Refresh from BGG**
+  on a game's page fills its weight, player count and playing time where blank, one request per
+  click, never changing what you've typed.
 - **Connections between households** (optional): connect with another household that
   self-hosts Nalanda — follow each other's reading in a feed, comment on each other's
   reviews, and borrow each other's books with the loan tracked on both sides. One-to-one

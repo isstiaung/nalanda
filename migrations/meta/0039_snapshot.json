@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ede07dc3-d012-4954-8642-798b21ec6fff",
-  "prevId": "9f69a748-3c23-4ed2-bfab-28d65ae4259c",
+  "id": "34b3391f-5eaf-402f-806a-5f8059ced943",
+  "prevId": "ede07dc3-d012-4954-8642-798b21ec6fff",
   "tables": {
     "activity_log": {
       "name": "activity_log",
@@ -1448,6 +1448,20 @@
         "series_number": {
           "name": "series_number",
           "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "purchase_price": {
+          "name": "purchase_price",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "purchase_currency": {
+          "name": "purchase_currency",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
@@ -3207,6 +3221,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "updated_at": {
           "name": "updated_at",

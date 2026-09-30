@@ -10,6 +10,7 @@ import {
   createItem,
   createLibrary,
   createUser,
+  gamesForTonight,
   getItem,
   setItemTags,
   startRead,
@@ -132,6 +133,24 @@ describe('a Nalanda export, imported again', () => {
       for (const field of FIELDS) expect(after[field], `${before.title}: ${field}`).toEqual(before[field]);
       expect(await tagsForItem(env.DB, copy)).toEqual(await tagsForItem(env.DB, original));
     }
+  });
+
+  it('brings a board game’s BGG facts back — its weight among them — so it fits tonight’s filters as before (§16 #60)', async () => {
+    const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
+    const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;
+    const shelf = await createLibrary(env.DB, 'Games');
+    const facts = { bgg_id: 13, players_min: 3, players_max: 4, playtime_min: 60, playtime_max: 120, weight: 2.29 };
+    const game = await createItem(env.DB, { libraryId: shelf.id, mediaType: 'boardgame', title: 'CATAN', length: 120, details: JSON.stringify(facts) });
+
+    const rows = parseCsv((await call('/export.csv', cookie)).text);
+    await env.DB.prepare('DELETE FROM items WHERE id = ?1').bind(game.id).run();
+    const target = await createLibrary(env.DB, 'Restored');
+    expect(JSON.parse((await call('/api/import', cookie, { libraryId: target.id, rows })).text)).toMatchObject({ inserted: 1 });
+
+    const [copy] = (await env.DB.prepare('SELECT details FROM items WHERE library_id = ?1').bind(target.id).all<{ details: string }>()).results;
+    expect(JSON.parse(copy!.details)).toEqual(facts);
+    const tonight = await gamesForTonight(env.DB, { players: 4, minutes: 120, weight: 'medium' }, 60);
+    expect(tonight.fit.map((g) => [g.title, g.weight])).toEqual([['CATAN', 2.29]]);
   });
 
   it('still reads a libib file as libib', async () => {

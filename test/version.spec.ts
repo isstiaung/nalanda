@@ -49,6 +49,6 @@ describe('the release this code is', () => {
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).not.toContain(VERSION);
-    expect(Object.keys(JSON.parse(text)).sort()).toEqual(['name', 'protocol', 'publicKey', 'url', 'version']);
+    expect(Object.keys(JSON.parse(text)).sort()).toEqual(['accepts', 'name', 'protocol', 'publicKey', 'url', 'version']); // accepts: message types, §16 #58
   });
 });

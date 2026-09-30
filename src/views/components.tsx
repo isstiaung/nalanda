@@ -1567,6 +1567,7 @@ export const DETAIL_LABELS: Record<string, string> = {
   players_max: 'Max players',
   playtime_min: 'Min playtime',
   playtime_max: 'Max playtime',
+  weight: 'Weight (1–5)', // BGG's complexity rating (§16 #60)
   discogs_id: 'Discogs ID',
   format: 'Format',
   label: 'Label',

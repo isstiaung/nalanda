@@ -17,12 +17,14 @@ import {
   type ReadDraft,
   type ReadRow,
 } from '../lib/reads';
+import { FEWEST_PLAYERS, WEIGHT_BANDS, type GameFilters } from '../lib/games';
 import { MAX_LINKS_PER_ITEM, type LinkDraft } from '../lib/links';
 import { MAX_LOANS_PER_CELL, type LoanDraft } from '../lib/loans';
 import { MAX_PLAYS_PER_ITEM, PLAYABLE_TYPES, RECENT_PLAYS, type CellPlay, type PersonPlay } from '../lib/plays';
 import { reviewOrderSql, stampReviews, summarizeReviews, type PersonReview, type ReviewDraft } from '../lib/reviews';
 import { isCurrencyCode, type CurrencyTotal } from '../lib/money';
 import { seriesKey, type SeriesDraft } from '../lib/series';
+import { emptyPlays, emptyStats, PLAYS_TOP, YEAR_TOP, yearRange, type YearReview } from '../lib/yearreview';
 import * as s from './schema';
 import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Series, Share, User } from './schema';
 
@@ -119,14 +121,22 @@ export async function setDisplayName(d1: D1Database, id: number, displayName: st
  * are switched on for connections, else "A member". Never a username — those never leave the app.
  */
 export async function outwardName(d1: D1Database, userId: number): Promise<string> {
-  const row = await d1
+  return outwardNameOf(await outwardNameStatement(d1, userId).first());
+}
+
+/** outwardName's query, for a caller's batch — the item page's (§16 #58); read its first row with outwardNameOf. */
+export function outwardNameStatement(d1: D1Database, userId: number): D1PreparedStatement {
+  return d1
     .prepare(
       `SELECT u.display_name AS name, coalesce((SELECT names_to_connections FROM site_settings WHERE id = 1), ?2) AS on_
        FROM users u WHERE u.id = ?1`,
     )
-    .bind(userId, SITE_DEFAULTS.namesToConnections ? 1 : 0)
-    .first<{ name: string | null; on_: number }>();
-  return row?.on_ && row.name ? row.name : 'A member';
+    .bind(userId, SITE_DEFAULTS.namesToConnections ? 1 : 0);
+}
+
+export function outwardNameOf(row: unknown): string {
+  const r = row as { name: string | null; on_: number } | null | undefined;
+  return r?.on_ && r.name ? r.name : 'A member';
 }
 
 /**
@@ -616,6 +626,26 @@ export async function applyPressingFill(
   return res.meta.changes > 0;
 }
 
+/**
+ * Writes what "Refresh from BGG" filled in (§16 #60) — only if the game's details and length are still as it read
+ * them, so an edit saved while BGG was asked wins. False when something changed: nothing is written.
+ */
+export async function applyGameFill(
+  d1: D1Database,
+  id: number,
+  before: Pick<Item, 'details' | 'length'>,
+  after: Pick<Item, 'details' | 'length'>,
+): Promise<boolean> {
+  const res = await d1
+    .prepare(
+      `UPDATE items SET details = ?1, length = ?2, updated_at = datetime('now')
+       WHERE id = ?3 AND media_type = 'boardgame' AND details = ?4 AND length IS ?5`,
+    )
+    .bind(after.details, after.length, id, before.details, before.length)
+    .run();
+  return res.meta.changes > 0;
+}
+
 /** Deletes an item, and its series with it if it was the series' last volume here (§16 #52). */
 export async function deleteItem(d1: D1Database, id: number): Promise<void> {
   await d1.batch([d1.prepare('DELETE FROM items WHERE id = ?1').bind(id), pruneSeries(d1)]);
@@ -657,6 +687,153 @@ export async function pickNextRead(d1: D1Database, readerId: number, notId: numb
     .orderBy(...(notId === null ? [] : [sql`${s.items.id} = ${notId}`]), sql`random()`)
     .limit(1);
   return pick ?? null;
+}
+
+// ---------- what should we play tonight (ARCH.md §16 #60) ----------
+
+/** A game as "What should we play tonight?" lists it: what it's filtered on, as the query read it, and its last play. */
+export type TonightGame = Pick<Item, 'id' | 'title' | 'creators' | 'coverKey' | 'mediaType'> & {
+  playersMin: number | null;
+  playersMax: number | null;
+  minutes: number | null;
+  weight: number | null;
+  lastPlayed: string | null;
+};
+
+/**
+ * A number from a game's details: a JSON number, or text that is only a number (a libib import keeps every value as
+ * text). Anything else is no value. `key` is one of this file's constants, never input.
+ */
+const detailNumber = (key: string) => {
+  const at = `'$.${key}'`;
+  const v = `json_extract(d, ${at})`;
+  return `CASE json_type(d, ${at})
+      WHEN 'integer' THEN ${v}
+      WHEN 'real' THEN ${v}
+      WHEN 'text' THEN CASE WHEN trim(${v}) GLOB '[0-9]*' AND trim(${v}) NOT GLOB '*[^0-9.]*' AND trim(${v}) NOT GLOB '*.*.*'
+        THEN CAST(trim(${v}) AS REAL) END
+    END`;
+};
+const atLeastOne = (expr: string) => `CASE WHEN (${expr}) >= 1 THEN (${expr}) END`;
+
+/**
+ * Every board game that could come out tonight, each classed against the filters: `fit` 1 when everything asked
+ * about is known and fits, 0 when nothing known rules it out but something asked about is missing ("not enough
+ * details"), and NULL when something known rules it out. ?1 players, ?2 minutes, ?3–?4 the weight band; NULL is any.
+ *
+ * - Only games that are here: in the collection (copies > 0) with a copy not out on loan.
+ * - Players: inside [players_min, players_max], a range typed backwards read the right way round. Only a maximum starts
+ *   the range at FEWEST_PLAYERS (1); only a minimum reads as exactly that many (src/lib/games.ts).
+ * - Time, conservatively: the longer end of the playing time its details give (playtime_max, else playtime_min, the
+ *   larger when both are there), else the Length column (BGG's playing time), and it fits only within the minutes.
+ * - Weight: BGG's 1–5 average, in the band's [from, below).
+ */
+const TONIGHT_CTE = `
+WITH here AS (
+  SELECT i.id, i.title, i.creators, i.cover_key, i.media_type, i.length,
+         CASE WHEN json_valid(i.details) THEN i.details ELSE '{}' END AS d
+  FROM items i
+  WHERE i.media_type = 'boardgame'
+    AND i.copies > (SELECT count(*) FROM loans l WHERE l.item_id = i.id AND l.returned_on IS NULL)
+),
+-- MATERIALIZED: each game's numbers are worked out once. Left to itself SQLite flattens these CTEs into the query,
+-- copying every json_extract into each place a later step names the value — enough copies to run it out of memory.
+raw AS MATERIALIZED (
+  SELECT id, title, creators, cover_key, media_type, length,
+         ${atLeastOne(detailNumber('players_min'))} AS p1,
+         ${atLeastOne(detailNumber('players_max'))} AS p2,
+         ${atLeastOne(detailNumber('playtime_min'))} AS t1,
+         ${atLeastOne(detailNumber('playtime_max'))} AS t2,
+         ${detailNumber('weight')} AS w
+  FROM here
+),
+g AS MATERIALIZED (
+  SELECT id, title, creators, cover_key, media_type,
+         CASE WHEN p1 IS NULL AND p2 IS NOT NULL THEN ${FEWEST_PLAYERS} ELSE min(coalesce(p1, p2), coalesce(p2, p1)) END AS pmin,
+         max(coalesce(p1, p2), coalesce(p2, p1)) AS pmax,
+         coalesce(max(coalesce(t2, t1), coalesce(t1, t2)), CASE WHEN length >= 1 THEN length END) AS minutes,
+         CASE WHEN w >= 1 AND w <= 5 THEN w END AS weight
+  FROM raw
+),
+c AS (
+  SELECT g.*,
+    CASE
+      WHEN (?1 IS NOT NULL AND pmin IS NOT NULL AND NOT (pmin <= ?1 AND ?1 <= pmax))
+        OR (?2 IS NOT NULL AND minutes IS NOT NULL AND minutes > ?2)
+        OR (?3 IS NOT NULL AND weight IS NOT NULL AND NOT (weight >= ?3 AND weight < ?4)) THEN NULL
+      WHEN (?1 IS NOT NULL AND pmin IS NULL) OR (?2 IS NOT NULL AND minutes IS NULL) OR (?3 IS NOT NULL AND weight IS NULL) THEN 0
+      ELSE 1
+    END AS fit
+  FROM g
+)`;
+
+const TONIGHT_COLUMNS = `id, title, creators, cover_key AS coverKey, media_type AS mediaType, pmin AS playersMin, pmax AS playersMax,
+  minutes, weight, (SELECT max(p.played_on) FROM plays p WHERE p.item_id = r.id) AS lastPlayed`;
+
+const tonightBinds = (f: GameFilters) => {
+  const band = f.weight ? WEIGHT_BANDS[f.weight] : null;
+  return [f.players, f.minutes, band?.from ?? null, band?.below ?? null];
+};
+
+/**
+ * The games that fit tonight and the ones missing a detail it needs, each in random order and at most `limit` of
+ * each, with how many there are in all. One D1 call, however big the catalog: the classing is one pass over the
+ * board games, the random order and the counts are window functions, and the last play is read from
+ * `idx_plays_item_played` for the rows returned.
+ */
+export async function gamesForTonight(
+  d1: D1Database,
+  filters: GameFilters,
+  limit: number,
+): Promise<{ fit: TonightGame[]; fitTotal: number; unknown: TonightGame[]; unknownTotal: number }> {
+  const { results } = await d1
+    .prepare(
+      `${TONIGHT_CTE}
+       SELECT ${TONIGHT_COLUMNS}, fit, n FROM (
+         SELECT c.*, row_number() OVER (PARTITION BY fit ORDER BY random()) AS rn, count(*) OVER (PARTITION BY fit) AS n
+         FROM c WHERE fit IS NOT NULL
+       ) r
+       WHERE rn <= ?5
+       ORDER BY fit DESC, rn`,
+    )
+    .bind(...tonightBinds(filters), limit)
+    .all<TonightGame & { fit: number; n: number }>();
+  const out = { fit: [] as TonightGame[], fitTotal: 0, unknown: [] as TonightGame[], unknownTotal: 0 };
+  for (const { fit, n, ...game } of results) {
+    if (fit === 1) {
+      out.fit.push(game);
+      out.fitTotal = n;
+    } else {
+      out.unknown.push(game);
+      out.unknownTotal = n;
+    }
+  }
+  return out;
+}
+
+/**
+ * "Pick one for us": one random game among those that fit, or null when none does — with how many fit and how many
+ * are missing a detail, for the page to say so. `notId` (the pick just shown) sorts last, so "Pick another" shows it
+ * again only when it is the only game that fits. One D1 call.
+ */
+export async function pickGameForTonight(
+  d1: D1Database,
+  filters: GameFilters,
+  notId: number | null = null,
+): Promise<{ pick: TonightGame | null; fitTotal: number; unknownTotal: number }> {
+  const row = await d1
+    .prepare(
+      `${TONIGHT_CTE}
+       SELECT ${TONIGHT_COLUMNS}, fit, sum(fit) OVER () AS fits, count(*) OVER () AS n
+       FROM c r WHERE fit IS NOT NULL
+       ORDER BY fit DESC, id = ?5, random()
+       LIMIT 1`,
+    )
+    .bind(...tonightBinds(filters), notId ?? 0)
+    .first<TonightGame & { fit: number; fits: number; n: number }>();
+  if (!row) return { pick: null, fitTotal: 0, unknownTotal: 0 };
+  const { fit, fits, n, ...game } = row;
+  return { pick: fit === 1 ? game : null, fitTotal: fits, unknownTotal: n - fits };
 }
 
 /** Reading-log entries: cataloged (reviewed, rated) but not physically owned. */
@@ -849,14 +1026,16 @@ export async function setItemTags(d1: D1Database, itemId: number, names: string[
  * A new item, its tags, and the read and review the form's status, dates, rating and review stand for — the adder's
  * (§16 #43) — in one batch: a failure between them saved it without them, and the person's second try saved it
  * twice. `wantedBy`: "Want it" on a scan or search result (§16 #53) — the item joins that member's want list in the
- * same batch. Returns its id.
+ * same batch. `before` and `after`: statements of the same change that go first and last in that batch — a
+ * recommendation taken onto the want list (§16 #58) claims itself first, so a claim that can't be made writes nothing.
+ * Returns its id.
  */
 export async function createItemWithTags(
   d1: D1Database,
   values: NewItem,
   names: string[],
   series: SeriesDraft | null = null,
-  opts: { wantedBy?: number } = {},
+  opts: { wantedBy?: number; before?: D1PreparedStatement[]; after?: D1PreparedStatement[] } = {},
 ): Promise<number> {
   const reads = readsFromColumns(values.status ?? 'not_started', values.beganOn, values.completedOn);
   const reviews = stampReviews(reviewsFromColumns(values));
@@ -866,7 +1045,9 @@ export async function createItemWithTags(
     .returning({ id: s.items.id })
     .toSQL();
   const upsert = seriesUpsert(d1, series);
+  const before = opts.before ?? [];
   const results = await d1.batch([
+    ...before,
     ...upsert,
     d1.prepare(q.sql).bind(...q.params),
     ...tagLinkStatements(d1, 'newest', names),
@@ -875,8 +1056,9 @@ export async function createItemWithTags(
     ...reviewInsertStatements(d1, 'newest', reviews, values.addedBy ?? null),
     refreshReviewState(d1, 'newest'),
     ...(opts.wantedBy !== undefined ? wantInsertStatements(d1, 'newest', [{ userId: opts.wantedBy, at: null }]) : []),
+    ...(opts.after ?? []),
   ]);
-  const row = results[upsert.length]?.results[0] as { id: number } | undefined;
+  const row = results[before.length + upsert.length]?.results[0] as { id: number } | undefined;
   if (!row) throw new Error('failed to create item');
   return row.id;
 }
@@ -1664,19 +1846,24 @@ export async function readingLog(
 
 /**
  * The item page's reading log and its want list and purchase links (§16 #53) in the same one D1 call — readingLog's
- * batch with wantsAndLinks' two statements after it — so want lists add nothing to the page's calls.
+ * batch with wantsAndLinks' two statements after it — so want lists add nothing to the page's calls. `extra`: the
+ * caller's own read-only statements, run last in the same batch, their results handed back in order — "Recommend
+ * to…"'s households and signing name (§16 #58), which then cost the page no call either.
  */
 export async function itemPageLog(
   d1: D1Database,
   itemId: number,
+  extra: D1PreparedStatement[] = [],
 ): Promise<{
   reads: ReadEntry[];
   entries: ProgressEntry[];
   reviews: ReviewEntry[];
   want: { wanters: Array<{ id: number; username: string; at: string }>; links: Array<{ id: number; label: string; url: string }> };
+  extra: D1Result[];
 }> {
-  const results = await d1.batch([...readingLogStatements(d1, itemId), ...wantsAndLinksStatements(d1, itemId)]);
-  return { ...readingLogOf(results), want: wantsAndLinksOf(results.slice(3)) };
+  const own = [...readingLogStatements(d1, itemId), ...wantsAndLinksStatements(d1, itemId)];
+  const results = await d1.batch([...own, ...extra]);
+  return { ...readingLogOf(results), want: wantsAndLinksOf(results.slice(3)), extra: results.slice(own.length) };
 }
 
 function readingLogStatements(d1: D1Database, itemId: number): D1PreparedStatement[] {
@@ -2199,15 +2386,17 @@ function finishedWantStatement(d1: D1Database, itemId: number, person: number | 
  * what they already want keeps the date it was first wanted; an item that isn't there is wanted by nobody.
  */
 export async function setWant(d1: D1Database, itemId: number, userId: number, want: boolean): Promise<void> {
-  await (want
-    ? d1
-        .prepare(
-          `INSERT INTO wants (item_id, user_id) SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1)
-           ON CONFLICT DO NOTHING`,
-        )
-        .bind(itemId, userId)
-    : d1.prepare('DELETE FROM wants WHERE item_id = ?1 AND user_id = ?2').bind(itemId, userId)
-  ).run();
+  await (want ? wantStatement(d1, itemId, userId) : d1.prepare('DELETE FROM wants WHERE item_id = ?1 AND user_id = ?2').bind(itemId, userId)).run();
+}
+
+/** setWant's want, as a statement for a caller's batch — a recommendation taken onto the want list (§16 #58). */
+export function wantStatement(d1: D1Database, itemId: number, userId: number): D1PreparedStatement {
+  return d1
+    .prepare(
+      `INSERT INTO wants (item_id, user_id) SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1)
+       ON CONFLICT DO NOTHING`,
+    )
+    .bind(itemId, userId);
 }
 
 /**
@@ -2790,6 +2979,243 @@ export async function deleteGoal(d1: D1Database, id: number, by: Actor): Promise
     .bind(id, ...actorBinds(by))
     .run();
   return result.meta.changes > 0;
+}
+
+// ---------- year in review (ARCH.md §16 #59) ----------
+//
+// A year of reading and playing, counted in SQL and fetched in one batch — one D1 call, however large the catalogue.
+// A finish counts in the year its `ended_on` falls in (calendar dates, UTC); an undated finish is in no year. Reading
+// is books only, as a goal's count is (§16 #49). Every reading statement returns rows for two scopes, 'mine' (the
+// member's own reads, `reader_id`) and 'household' (everyone's, former members' included), from the one CTE below, so
+// the two columns can never be counted two different ways. Plays are the household's log (§16 #54), counted once.
+
+/**
+ * The year's finished books, twice over: `?1` is the member, `?2`/`?3` the year's first day and the next year's. `work`
+ * is the book whatever the edition — its title and creators, folded — so two editions of one book count once where a
+ * list counts books; a finish is still a finish, so re-reads count wherever finishes do. `fin` is materialized and the
+ * two scopes joined onto it, so each statement reads the year's finishes from `reads` once, not once per scope.
+ */
+const YEAR_FINISHES = `WITH fin AS MATERIALIZED (
+    SELECT r.item_id, r.reader_id, r.began_on, r.ended_on, i.title, i.creators, i.length,
+      lower(trim(i.title)) || char(31) || lower(trim(coalesce(i.creators, ''))) AS work
+    FROM reads r JOIN items i ON i.id = r.item_id
+    WHERE r.status = 'completed' AND r.ended_on >= ?2 AND r.ended_on < ?3 AND i.media_type = 'book'
+  ),
+  scoped AS (
+    SELECT s.scope, fin.* FROM (SELECT 'mine' AS scope UNION ALL SELECT 'household') s CROSS JOIN fin
+    WHERE s.scope = 'household' OR fin.reader_id = ?1
+  )`;
+
+/**
+ * Each reader's rating of each book they finished that year — once per reader and book, however often they finished it
+ * and in however many editions, so neither a re-read nor a second edition counts a rating twice: a reader who rated two
+ * editions of one book gave it the average of the two. Only the editions they finished that year count. A former
+ * member's reads (no reader) meet former members' reviews (no writer), as the app's own checks treat them as one nobody
+ * (§16 #43), so former members together are one reader here too.
+ */
+const YEAR_RATED = `${YEAR_FINISHES},
+  pairs AS (SELECT scope, reader_id, item_id, work, max(ended_on) AS last FROM scoped GROUP BY scope, reader_id, item_id),
+  rated AS (
+    SELECT p.scope, min(p.item_id) AS item_id, p.work, max(p.last) AS last, avg(rv.rating) AS rating FROM pairs p
+    JOIN reviews rv ON rv.item_id = p.item_id AND rv.user_id IS p.reader_id
+    WHERE rv.rating IS NOT NULL
+    GROUP BY p.scope, p.reader_id, p.work
+  )`;
+
+/**
+ * The creators of the year's finishes, one row each, ready to split into people on commas. Every provider and importer
+ * joins several authors with ", " (Open Library, Google Books, BoardGameGeek, Goodreads' author and additional authors),
+ * so a comma usually separates people — but a catalogue typed or imported by hand can hold one person written
+ * "Last, First": "Le Guin, Ursula K.", "Tolkien, J. R. R.", "Herbert, Frank". Such a string is one person, turned round
+ * ("Ursula K. Le Guin") so it meets the same author written the usual way. It is one when it has exactly one comma, no
+ * ';' or '&', no full stop before the comma (so "James S. A. Corey, Someone" stays two), and given names after it: a
+ * single word, or names ending in an initial ("Ursula K.", "J. R. R."), and not a suffix ("Martin Luther King, Jr."
+ * keeps its order, and the lone "Jr." is dropped as nobody). Two full names ("Terry Pratchett, Neil Gaiman") stay two
+ * people. ';' and ' & ' separate people too ("Pratchett & Gaiman").
+ */
+const YEAR_CREATORS = `named AS (
+    SELECT scope, work, ended_on, cr, trim(substr(cr, 1, instr(cr, ',') - 1)) AS a, trim(substr(cr, instr(cr, ',') + 1)) AS b
+    FROM (SELECT scope, work, ended_on, trim(coalesce(creators, '')) AS cr FROM scoped)
+  ),
+  people AS (
+    SELECT scope, work, ended_on,
+      CASE WHEN instr(cr, ',') > 0 AND instr(b, ',') = 0 AND instr(cr, ';') = 0 AND instr(cr, '&') = 0
+             AND a <> '' AND b <> '' AND instr(a, '.') = 0
+             AND lower(b) NOT IN ('jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv')
+             AND (instr(b, ' ') = 0 OR b GLOB '*[A-Z].')
+           THEN b || ' ' || a
+           ELSE replace(replace(cr, ';', ','), ' & ', ',')
+      END AS names
+    FROM named
+  )`;
+
+/** The first `n` rows of `inner` in each scope, by `order`. */
+const topPerScope = (inner: string, order: string, n: number) =>
+  `SELECT * FROM (SELECT *, row_number() OVER (PARTITION BY scope ORDER BY ${order}) AS rn FROM (${inner})) WHERE rn <= ${n}`;
+
+const scopeOf = (s: string): 'mine' | 'household' => (s === 'mine' ? 'mine' : 'household');
+
+/**
+ * Everything the Year in review page shows for `year`, for `userId` and for the household, in one D1 batch: ten
+ * statements, each an aggregate over at most a year of finishes or plays, returning a few dozen rows between them.
+ */
+export async function yearInReview(d1: D1Database, userId: number, year: number): Promise<YearReview> {
+  const [from, to] = yearRange(year);
+  const inYear = (query: string) => d1.prepare(query).bind(userId, from, to);
+  const [months, authors, tags, ratings, topRated, lengths, fastest, plays, meta, years] = await d1.batch([
+    // finishes and pages by month
+    inYear(
+      `${YEAR_FINISHES}
+       SELECT scope, CAST(substr(ended_on, 6, 2) AS INTEGER) AS month, count(*) AS books,
+         coalesce(sum(CASE WHEN length > 0 THEN length END), 0) AS pages, count(CASE WHEN length > 0 THEN 1 END) AS withLength
+       FROM scoped GROUP BY scope, month`,
+    ),
+    // most-read authors: creators split into people (YEAR_CREATORS: "A, B" is two, "Le Guin, Ursula K." one), and a
+    // lone "Jr." is nobody
+    inYear(
+      `${YEAR_FINISHES},
+       ${YEAR_CREATORS},
+       split(scope, work, ended_on, name, rest) AS (
+         SELECT scope, work, ended_on, '', names || ',' FROM people
+         UNION ALL
+         SELECT scope, work, ended_on, trim(substr(rest, 1, instr(rest, ',') - 1)), substr(rest, instr(rest, ',') + 1)
+         FROM split WHERE rest <> ''
+       )
+       ${topPerScope(
+         `SELECT scope, min(name) AS name, count(DISTINCT work) AS books, count(*) AS finishes, max(ended_on) AS last
+          FROM split WHERE name <> '' AND lower(name) NOT IN ('jr', 'jr.', 'sr', 'sr.')
+          GROUP BY scope, lower(name)`,
+         'books DESC, finishes DESC, last DESC, name',
+         YEAR_TOP,
+       )} ORDER BY scope, rn`,
+    ),
+    // most-used tags on the year's books
+    inYear(
+      `${YEAR_FINISHES}
+       ${topPerScope(
+         `SELECT s.scope, t.name, count(DISTINCT s.work) AS books, count(*) AS finishes, max(s.ended_on) AS last
+          FROM scoped s CROSS JOIN item_tags it ON it.item_id = s.item_id JOIN tags t ON t.id = it.tag_id
+          GROUP BY s.scope, t.id`,
+         'books DESC, finishes DESC, last DESC, name',
+         YEAR_TOP,
+       )} ORDER BY scope, rn`,
+    ),
+    // the average rating given
+    inYear(`${YEAR_RATED} SELECT scope, avg(rating) AS average, count(*) AS n FROM rated GROUP BY scope`),
+    // the highest-rated books: a book's ratings averaged across its readers and editions
+    inYear(
+      `${YEAR_RATED}
+       SELECT t.scope, t.item_id AS id, i.title, i.creators, t.rating FROM (
+         ${topPerScope(
+           'SELECT scope, work, min(item_id) AS item_id, avg(rating) AS rating, max(last) AS last FROM rated GROUP BY scope, work',
+           'rating DESC, last DESC, item_id',
+           YEAR_TOP,
+         )}
+       ) t JOIN items i ON i.id = t.item_id ORDER BY t.scope, t.rn`,
+    ),
+    // the longest and the shortest book with a length
+    inYear(
+      `${YEAR_FINISHES}
+       SELECT 'longest' AS which, * FROM (${topPerScope('SELECT scope, item_id, title, length, ended_on FROM scoped WHERE length > 0', 'length DESC, ended_on DESC, item_id', 1)})
+       UNION ALL
+       SELECT 'shortest' AS which, * FROM (${topPerScope('SELECT scope, item_id, title, length, ended_on FROM scoped WHERE length > 0', 'length ASC, ended_on DESC, item_id', 1)})`,
+    ),
+    // the fastest read, began to ended with both days counted; a read with no start, or ending before it starts, has none
+    inYear(
+      `${YEAR_FINISHES}
+       ${topPerScope(
+         `SELECT scope, item_id, title, CAST(julianday(ended_on) - julianday(began_on) AS INTEGER) + 1 AS days, ended_on
+          FROM scoped WHERE julianday(began_on) IS NOT NULL AND julianday(ended_on) >= julianday(began_on)`,
+         'days ASC, ended_on DESC, item_id',
+         1,
+       )}`,
+    ),
+    // the household's plays: a total and the most played, per type — a range on idx_plays_played_item
+    d1
+      .prepare(
+        `WITH p AS (
+           SELECT i.media_type AS type, p.item_id, i.title, count(*) AS plays, max(p.played_on) AS last
+           FROM plays p JOIN items i ON i.id = p.item_id
+           WHERE p.played_on >= ?1 AND p.played_on < ?2 AND i.media_type IN (${PLAYABLE_SQL})
+           GROUP BY p.item_id
+         )
+         SELECT type, NULL AS id, NULL AS title, sum(plays) AS plays, count(*) AS items, 0 AS rn FROM p GROUP BY type
+         UNION ALL
+         SELECT type, item_id, title, plays, 1, rn FROM (
+           SELECT *, row_number() OVER (PARTITION BY type ORDER BY plays DESC, last DESC, title, item_id) AS rn FROM p
+         ) WHERE rn <= ${PLAYS_TOP}
+         ORDER BY type, rn`,
+      )
+      .bind(from, to),
+    // the finished books with no end date, which are in no year, and how many members there are
+    d1
+      .prepare(
+        `SELECT (SELECT count(*) FROM users) AS members,
+           count(CASE WHEN r.reader_id = ?1 THEN 1 END) AS mine, count(*) AS household
+         FROM reads r JOIN items i ON i.id = r.item_id
+         WHERE r.status = 'completed' AND r.ended_on IS NULL AND i.media_type = 'book'`,
+      )
+      .bind(userId),
+    // the years there is anything to show for
+    d1.prepare(
+      `SELECT y FROM (
+         SELECT substr(r.ended_on, 1, 4) AS y FROM reads r JOIN items i ON i.id = r.item_id
+         WHERE r.status = 'completed' AND r.ended_on IS NOT NULL AND i.media_type = 'book'
+         UNION
+         SELECT substr(p.played_on, 1, 4) FROM plays p JOIN items i ON i.id = p.item_id WHERE i.media_type IN (${PLAYABLE_SQL})
+       ) WHERE y GLOB '[1-9][0-9][0-9][0-9]' ORDER BY y DESC`,
+    ),
+  ]);
+
+  const review: YearReview = {
+    year,
+    mine: emptyStats(),
+    household: emptyStats(),
+    plays: { vinyl: emptyPlays(), boardgame: emptyPlays() },
+    undated: { mine: 0, household: 0 },
+    years: [],
+    members: 0,
+  };
+  const rowsOf = <T>(r: D1Result | undefined) => (r?.results ?? []) as T[];
+  for (const m of rowsOf<{ scope: string; month: number; books: number; pages: number; withLength: number }>(months)) {
+    const s = review[scopeOf(m.scope)];
+    const slot = s.months[m.month - 1];
+    if (!slot) continue; // not a month: a date the app never writes
+    slot.books = m.books;
+    slot.pages = m.pages;
+    s.books += m.books;
+    s.pages += m.pages;
+    s.withLength += m.withLength;
+  }
+  for (const a of rowsOf<{ scope: string; name: string; books: number; finishes: number }>(authors)) {
+    review[scopeOf(a.scope)].authors.push({ name: a.name, books: a.books, finishes: a.finishes });
+  }
+  for (const t of rowsOf<{ scope: string; name: string; books: number }>(tags)) {
+    review[scopeOf(t.scope)].tags.push({ name: t.name, books: t.books });
+  }
+  for (const r of rowsOf<{ scope: string; average: number; n: number }>(ratings)) {
+    review[scopeOf(r.scope)].rating = { average: r.average, count: r.n };
+  }
+  for (const r of rowsOf<{ scope: string; id: number; title: string; creators: string | null; rating: number }>(topRated)) {
+    review[scopeOf(r.scope)].topRated.push({ id: r.id, title: r.title, creators: r.creators, rating: r.rating });
+  }
+  for (const l of rowsOf<{ which: string; scope: string; item_id: number; title: string; length: number }>(lengths)) {
+    review[scopeOf(l.scope)][l.which === 'longest' ? 'longest' : 'shortest'] = { id: l.item_id, title: l.title, length: l.length };
+  }
+  for (const f of rowsOf<{ scope: string; item_id: number; title: string; days: number }>(fastest)) {
+    review[scopeOf(f.scope)].fastest = { id: f.item_id, title: f.title, days: f.days };
+  }
+  for (const p of rowsOf<{ type: string; id: number | null; title: string | null; plays: number; items: number; rn: number }>(plays)) {
+    const log = p.type === 'vinyl' ? review.plays.vinyl : p.type === 'boardgame' ? review.plays.boardgame : null;
+    if (!log) continue;
+    if (p.rn === 0) Object.assign(log, { plays: p.plays, items: p.items });
+    else if (p.id !== null) log.top.push({ id: p.id, title: p.title ?? '', plays: p.plays });
+  }
+  const counts = rowsOf<{ members: number; mine: number; household: number }>(meta)[0];
+  review.undated = { mine: counts?.mine ?? 0, household: counts?.household ?? 0 };
+  review.members = counts?.members ?? 0;
+  review.years = rowsOf<{ y: string }>(years).map((r) => Number(r.y));
+  return review;
 }
 
 // ---------- cover backfill ----------

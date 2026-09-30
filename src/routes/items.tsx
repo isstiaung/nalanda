@@ -4,6 +4,7 @@ import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import {
   activeLoansForItem,
   addPastRead,
+  applyGameFill,
   applyPressingFill,
   addPurchaseLink,
   deletePurchaseLink,
@@ -51,6 +52,7 @@ import type { AppEnv } from '../env';
 import { scanQueueOwner } from '../lib/auth';
 import { isRecord, parseGrade } from '../lib/condition';
 import { deleteCover, storeCover } from '../lib/covers';
+import { bggIdOf, fillGame } from '../lib/games';
 import { isPlayable, MAX_PLAYS_PER_ITEM, playDateProblem } from '../lib/plays';
 import { fillPressing, recordBarcode, releaseIdOf } from '../lib/pressing';
 import { checkPurchaseLink, MAX_LINKS_PER_ITEM } from '../lib/links';
@@ -60,7 +62,7 @@ import { isReadStatus, readDateProblem, summarizeReads, todayUtc, type ReadDraft
 import { reviewText } from '../lib/reviews';
 import { cleanSeriesName, formatSeriesNumber, parseSeriesNumber, type SeriesDraft } from '../lib/series';
 import { parseDetails } from '../lib/share';
-import { discogsPressing } from '../metadata';
+import { bggRefresh, discogsPressing } from '../metadata';
 import {
   accNo,
   BuySection,
@@ -94,6 +96,7 @@ import {
 import { page } from '../views/layout';
 import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
+import { recommendOnItemPage } from './recommendations';
 import { SeriesSection } from '../views/series';
 
 const items = new Hono<AppEnv>();
@@ -511,6 +514,61 @@ function DiscogsRefresh({ item, token, notice }: { item: Item; token: boolean; n
   );
 }
 
+/** What "Refresh from BGG" came back with (§16 #60), by the code its redirect carries. Never text from the URL or BGG. */
+const BGG_NOTICE: Record<string, string> = {
+  nothing: 'BoardGameGeek had nothing to add: players, playing time and weight are already filled in here.',
+  not_found: 'BoardGameGeek has no game with this bgg_id.',
+  busy: 'BoardGameGeek is busy — it asks apps to wait a few seconds between requests. Try again shortly.',
+  refused: 'BoardGameGeek refused the BGG_TOKEN — it may have been revoked or mistyped.',
+  unavailable: 'BoardGameGeek didn’t answer. Try again in a moment.',
+  changed: 'This game was saved by someone else while BoardGameGeek was asked, so nothing was written. Refresh again.',
+  noid: 'Nothing to look it up by: add its BoardGameGeek id as bgg_id in details.',
+  notoken: 'Set the BGG_TOKEN secret to fill game details from BoardGameGeek.',
+};
+
+const BGG_FILLED_LABEL: Record<string, string> = {
+  players_min: 'min players',
+  players_max: 'max players',
+  playtime_min: 'min playtime',
+  playtime_max: 'max playtime',
+  weight: 'weight',
+  length: 'length',
+};
+
+function bggNotice(c: Context<AppEnv>): string | null {
+  const code = c.req.query('bgg');
+  if (!code) return null;
+  if (code === 'filled') {
+    const fields = (c.req.query('f') ?? '').split(',').filter((f) => Object.hasOwn(BGG_FILLED_LABEL, f)).map((f) => BGG_FILLED_LABEL[f]);
+    return `Filled from BoardGameGeek: ${fields.length ? fields.join(', ') : 'nothing new'}.`;
+  }
+  return Object.hasOwn(BGG_NOTICE, code) ? BGG_NOTICE[code]! : null;
+}
+
+/** A board game's details, with the Refresh button — or why there isn't one — below them. */
+function GameDetails({ item, details, token, notice }: { item: Item; details: Record<string, unknown>; token: boolean; notice: string | null }) {
+  const lookup = !!bggIdOf(details);
+  return (
+    <div class="detail-section" id="details">
+      <p class="eyebrow">Details</p>
+      {Object.keys(details).length ? <DetailsList details={details} /> : <p class="muted">No details yet.</p>}
+      {notice ? <p class="notice">{notice}</p> : null}
+      {!token ? (
+        notice ? null : <p class="muted bgg-note">Set the BGG_TOKEN secret to fill game details from BoardGameGeek.</p>
+      ) : !lookup ? (
+        notice ? null : <p class="muted bgg-note">Add its BoardGameGeek id as bgg_id in details to fill these from BoardGameGeek.</p>
+      ) : (
+        <form method="post" action={`/items/${item.id}/bgg`} class="inline-form bgg-refresh">
+          <button type="submit" class="btn">
+            Refresh from BGG
+          </button>
+          <small class="muted">Fills players, playing time and weight where blank — never changes what’s here.</small>
+        </form>
+      )}
+    </div>
+  );
+}
+
 /**
  * The item page. `reviewError` says why a change to a review from this page was refused; `link` why a purchase link
  * was, with what was sent, so the form shows it again.
@@ -519,13 +577,15 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
   const viewer = viewerOf(c);
+  // "Recommend to…" (§16 #58): its queries ride in the reading log's batch — no call of their own
+  const recommend = await recommendOnItemPage(c, item);
   const [lib, tags, loans, people, log, lent, plays, inSeries] = await Promise.all([
     getLibrary(c.env.DB, item.libraryId),
     tagsForItem(c.env.DB, id),
     activeLoansForItem(c.env.DB, id),
     listPeople(c.env.DB),
-    // with its want list and purchase links, in the same call (§16 #53)
-    itemPageLog(c.env.DB, id),
+    // with its want list and purchase links, in the same call (§16 #53), and Recommend to…'s (§16 #58)
+    itemPageLog(c.env.DB, id, recommend.statements),
     pastLoansForItem(c.env.DB, id),
     playLog(c.env.DB, id),
     // its series, with the viewer's own reading of every volume (§16 #52): one call, only for an item in one
@@ -542,6 +602,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const details = parseDetails(item.details);
   const record = isRecord(item.mediaType);
   const discussion = await itemComments(c, item); // null unless connections are enabled and someone commented
+  const recommending = recommend.render(log.extra); // null unless connections are enabled and one is active (§16 #58)
 
   return page(
     c,
@@ -693,6 +754,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
             details={details}
             after={<DiscogsRefresh item={item} token={!!c.env.DISCOGS_TOKEN} notice={discogsNotice(c, details)} />}
           />
+        ) : item.mediaType === 'boardgame' ? (
+          <GameDetails item={item} details={details} token={!!c.env.BGG_TOKEN} notice={bggNotice(c)} />
         ) : Object.keys(details).length ? (
           <div class="detail-section">
             <p class="eyebrow">Details</p>
@@ -776,6 +839,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
         </div>
 
         <LendingHistory loans={lent.loans} total={lent.total} />
+
+        {recommending}
 
         <div class="actions">
           <a href={`/items/${item.id}/edit`} role="button">
@@ -1279,6 +1344,28 @@ items.post('/items/:id/links/:linkId/delete', async (c) => {
   const linkId = Number(c.req.param('linkId'));
   if (Number.isSafeInteger(linkId)) await deletePurchaseLink(c.env.DB, id, linkId);
   return linksResponse(c, id);
+});
+
+/**
+ * "Refresh from BGG" (§16 #60): one BGG request per click — the game by its stored bgg_id — then the blanks it can
+ * fill, written only if nothing changed meanwhile. It never overwrites a value: fillGame() says exactly which fields it
+ * may write. Never called on a page load. Answers with a redirect back to the details section.
+ */
+items.post('/items/:id/bgg', async (c) => {
+  const id = Number(c.req.param('id'));
+  const item = await getItem(c.env.DB, id);
+  if (!item) return c.notFound();
+  if (item.mediaType !== 'boardgame') return c.text('BoardGameGeek details are for board games.', 400);
+  const back = (query: string) => c.redirect(`/items/${id}?${query}#details`);
+  if (!c.env.BGG_TOKEN) return back('bgg=notoken');
+  const bggId = bggIdOf(parseDetails(item.details));
+  if (!bggId) return back('bgg=noid');
+  const found = await bggRefresh(c.env, bggId);
+  if (!found.ok) return back(`bgg=${found.failure}`);
+  const fill = fillGame(item, found.game);
+  if (!fill.filled.length) return back('bgg=nothing');
+  if (!(await applyGameFill(c.env.DB, id, item, fill))) return back('bgg=changed');
+  return back(`bgg=filled&f=${fill.filled.join(',')}`);
 });
 
 items.post('/items/:id/mark-owned', async (c) => {

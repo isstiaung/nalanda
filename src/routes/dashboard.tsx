@@ -55,6 +55,8 @@ dashboard.get('/', async (c) => {
   // "Read next" is for books: a catalog without any leaves it off, rather than saying there's nothing to read
   const books = holdings.find((h) => h.mediaType === 'book');
   const hasBooks = !!books && books.owned + books.notOwned > 0;
+  // "What should we play tonight?" (§16 #60) is for games in the collection: linked once there is one, at no D1 cost
+  const gamesOwned = holdings.find((h) => h.mediaType === 'boardgame')?.owned ?? 0;
   const typeLine = (pick: (h: (typeof holdings)[number]) => number) =>
     holdings
       .filter((h) => pick(h) > 0)
@@ -114,6 +116,20 @@ dashboard.get('/', async (c) => {
           <div id="read-next" aria-live="polite">
             <ReadNextCard pick={pick} />
           </div>
+        </section>
+      ) : null}
+
+      {gamesOwned > 0 ? (
+        <section aria-labelledby="game-night-head">
+          <p class="eyebrow" id="game-night-head">
+            Game night
+          </p>
+          <p class="game-night">
+            <a href="/play">What should we play tonight?</a>{' '}
+            <span class="muted">
+              Pick from {gamesOwned === 1 ? 'the board game' : `${gamesOwned} board games`} by players, time and weight.
+            </span>
+          </p>
         </section>
       ) : null}
 

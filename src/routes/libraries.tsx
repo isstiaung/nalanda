@@ -189,6 +189,12 @@ libraries.get('/libraries/:id', async (c) => {
           </span>
         </div>
         <div class="page-actions">
+          {/* the board games here, or a view filtered to them: "What should we play tonight?" is a click away (§16 #60) */}
+          {mediaTypes.includes('boardgame') || items.some((i) => i.mediaType === 'boardgame') ? (
+            <a href="/play" class="btn">
+              Play tonight
+            </a>
+          ) : null}
           <a href="/add" role="button">
             Add items
           </a>
