@@ -1662,8 +1662,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       fold ("#6–40") so a typo can't fill a page.
     - **Next up** is the lowest-numbered volume the signed-in member hasn't finished — a finished read of
       theirs (`reads.reader_id`), never the household's status — counting a number finished in any edition,
-      and preferring the edition they're reading. Missing numbers between their last finish below it and it
-      are named ("#4 comes first — not in the catalog"); with every numbered volume finished it points at the
+      and preferring the edition they're reading. Missing numbers between their last finish below it
+      (whole numbers only: a finished #2.5 says nothing about #2) and it are named ("#4 comes first —
+      not in the catalog"); with every numbered volume finished it points at the
       next missing number, if the series is known to go on. Unnumbered volumes have no place in the order.
     - **Where it shows.** A book's page gets a Series section — the numbers as a strip (held, current,
       finished by you, missing), the gaps, next up — for one batch, one D1 call (a page measured 10 calls with
