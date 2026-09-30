@@ -2273,8 +2273,14 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       (`hx-disabled-elt`) and is never swapped; public/app.js says "Asking Discogs…" in the
       region meanwhile, gives focus back to the button once the answer is in (Chromium drops
       focus from a disabled button to `<body>`), and says a fixed "Something went wrong — try
-      again." on a failed request (`htmx:responseError`, `htmx:sendError`) — for these forms
-      only (`data-refresh-status`).
+      again." on a request that ends with nothing to swap (`htmx:responseError`, `sendError`,
+      `sendAbort`, `timeout`) — for these forms only (`data-refresh-status`). Focus goes back
+      to the button unless it is still inside the form or the person has since focused
+      something themselves: a second click on the disabled button leaves it on `<main>`
+      (`tabindex="-1"`), which doesn't count. A "changed" answer (the guarded write lost the
+      race) reads the record again, on that rare path only (4 D1 calls), so the swapped regions
+      show the edit that won rather than the row the click first read. `npm run a11y` drives
+      both buttons in a browser (§18).
       Without htmx: the same redirect as before.
     - **CPU.** Parsing is one pass over Discogs' JSON with caps on every string; tests keep
       a record's page, with a 400-line tracklist, at the same D1 calls as a book's.
@@ -2800,7 +2806,8 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     shape BGG's API2 returns. **Amended (after 1.6.0): it updates in place, as #55's refresh does, with
     the redirect as the no-script fallback.** With `HX-Request`: a 200 whatever the result, holding the
     details list (`#game-details`), the length row out of band (`#item-filled`) and the sentence out of
-    band into `#bgg-status`, the section's persistent `<output>`; 3 D1 calls filled, 2 otherwise. The
+    band into `#bgg-status`, the section's persistent `<output>`; 3 D1 calls filled, 2 otherwise, and 4 for
+    "changed", which reads the game again to show the edit that won (as #55's does). The
     button is disabled while BGG is asked, which with the five-second pacing keeps a double click from
     spending the isolate's one request on nothing, and app.js says "Asking BGG…" meanwhile.
 
@@ -3136,7 +3143,13 @@ pages have no repeated navigation to skip); keyboard focus survives an htmx swap
   from the keyboard and audits what comes back, failing one that drops focus to `<body>`; submits the
   refused and one-time forms (a temporary password, an invitation link, a bulk delete's
   confirmation, a bulk action's notice); loads the Add page with scans held offline, and
-  `/offline.html`; opens the phone menu; and
+  `/offline.html`; opens the phone menu; drives the Refresh from Discogs and Refresh from BGG buttons
+  (#55, #60) on a second scratch server (:8819) with placeholder provider tokens — the main one keeps
+  none, since a token would send its Add-page lookups to Discogs — where the browser answers each
+  refresh itself (a fill in the handler's shape, a dropped connection, a 500) or lets it reach a Worker
+  with no id to look up, so nothing reaches Discogs or BGG, checking "Asking…" and the disabled button
+  while it waits, the sentence after, focus back on the button (from the keyboard and after a mouse
+  double-click), and axe after the swap; and
   walks the keyboard: the first Tab is the skip link, following it lands in `<main>`, every stop
   shows a focus indicator that draws something (an outline not clipped away, a ring that isn't a
   faint tint, or a border that changes), every visible control is reached, and the tab order comes
