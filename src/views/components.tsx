@@ -5,6 +5,7 @@ import { ITEM_STATUSES, MEDIA_GRADES, MEDIA_TYPES, SLEEVE_GRADES } from '../db/s
 import { GRADE_NAME, isRecord } from '../lib/condition';
 import { splitPressing, trackCount, type Track } from '../lib/pressing';
 import { goalPace, goalPercent, paceLabel, pacePercent } from '../lib/goals';
+import { currencyDigits, formatMoney, minorToDecimal, type CurrencyTotal } from '../lib/money';
 import { progressPercent } from '../lib/progress';
 import { linkHost } from '../lib/links';
 import { isPlayable, playDate } from '../lib/plays';
@@ -1167,7 +1168,9 @@ export const ItemForm: FC<{
   series?: { name: string; number: string } | null;
   // every series' name, offered as the series field is typed
   seriesNames?: string[];
-}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverUrl, removeCover, perMember, series, seriesNames }) => {
+  // the purchase price field (§16 #61): the household's currency (null: none set yet) and whether the viewer can set one
+  money?: PriceFieldProps;
+}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverUrl, removeCover, perMember, series, seriesNames, money }) => {
   // a book being read again: status and dates describe its last finish, and the re-read is managed on its page
   const readingLocked = item?.mediaType === 'book' && !!item?.rereading;
   // A book finished before: the form edits that finish, so it offers Completed only — reading it again, or a stop, is
@@ -1326,6 +1329,7 @@ export const ItemForm: FC<{
       Location <small>(where it lives — never shown on share pages)</small>
       <input name="location" value={item?.location ?? ''} placeholder="Study, 2nd shelf" autocomplete="off" />
     </label>
+    {money ? <PriceField {...money} item={item} /> : null}
     <label>
       {perMember ? 'Your review' : 'Review'}
       <textarea name="review" rows={3}>
@@ -1654,6 +1658,135 @@ export const GradeFields: FC<{ media: string | null; sleeve: string | null }> = 
     <p class="muted form-note">Your copy's condition, on the Goldmine scale Discogs uses — never on share pages or to connections.</p>
   </>
 );
+
+export type PriceFieldProps = {
+  household: string | null;
+  admin: boolean;
+  item?: Item | null;
+  // what a refused form sent, so nothing typed is lost, and why it was refused — tied to the field
+  sent?: { amount: string; currency: string };
+  error?: string | null;
+};
+
+/**
+ * What was paid (§16 #61): an amount in a currency the form shows beside it and in its label. The currency is the
+ * household's — or, for a price entered before the household changed currency, the one it was entered in, offered
+ * beside the household's. With no household currency and no price there is no field, only where to set one: the
+ * form never guesses a currency.
+ */
+export const PriceField: FC<PriceFieldProps> = ({ household, admin, item, sent, error }) => {
+  const own = item?.purchasePrice !== null && item?.purchasePrice !== undefined && item?.purchaseCurrency ? item.purchaseCurrency : null;
+  const choices = [...new Set([own, household].filter((c): c is string => !!c))];
+  if (!choices.length) {
+    return (
+      <p class="muted form-note">
+        Purchase price:{' '}
+        {admin ? (
+          <>
+            <a href="/settings/users#currency">set the household currency</a> first — prices are entered in it.
+          </>
+        ) : (
+          'an admin sets the household currency first, under Members — prices are entered in it.'
+        )}
+      </p>
+    );
+  }
+  const currency = sent && choices.includes(sent.currency) ? sent.currency : (own ?? household)!;
+  const value = sent ? sent.amount : own ? minorToDecimal(item!.purchasePrice!, own) : '';
+  const described = [choices.length > 1 ? 'purchase-price-note' : null, error ? 'purchase-price-error' : null].filter(Boolean).join(' ');
+  return (
+    <div class="money-field">
+      <label for="purchase-price">
+        Purchase price{' '}
+        <small>
+          ({choices.length > 1 ? 'what you paid' : `what you paid, in ${currency}`} — never on share pages)
+        </small>
+      </label>
+      <div class="money-input">
+        {choices.length > 1 ? (
+          <select name="purchaseCurrency" aria-label="Currency it was paid in">
+            {choices.map((c) => (
+              <option value={c} selected={c === currency}>
+                {c}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <>
+            <span class="money-code" aria-hidden="true">
+              {currency}
+            </span>
+            <input type="hidden" name="purchaseCurrency" value={currency} />
+          </>
+        )}
+        <input
+          id="purchase-price"
+          name="purchasePrice"
+          value={value}
+          inputmode="decimal"
+          autocomplete="off"
+          placeholder={currencyDigits(currency) ? '0.00' : '0'}
+          aria-invalid={error ? 'true' : undefined}
+          aria-describedby={described || undefined}
+        />
+      </div>
+      {choices.length > 1 ? (
+        <p class="muted form-note" id="purchase-price-note">
+          Entered in {own} before the household's currency became {household}. It stays in {own} unless you choose {household}.
+        </p>
+      ) : null}
+      {error ? (
+        <p class="field-error" id="purchase-price-error">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+};
+
+/** What was paid for an item, on its page (§16 #61). */
+export const Money: FC<{ minor: number | string; currency: string }> = ({ minor, currency }) => (
+  <span class="money">{formatMoney(minor, currency)}</span>
+);
+
+/** "12 records", "3 board games", "40 items": what a shelf holds, by its one type when it holds only one. */
+export function shelfNoun(byType: Array<{ mediaType: MediaType; count: number }>, n: number): string {
+  const types = [...new Set(byType.filter((t) => t.count > 0).map((t) => (t.mediaType === 'music' ? 'vinyl' : t.mediaType)))];
+  const only = types.length === 1 ? types[0]! : null;
+  const plural = only === 'vinyl' ? 'records' : only && only !== 'other' ? MEDIA_PLURAL[only] : 'items';
+  const single = only === 'vinyl' ? 'record' : only && only !== 'other' ? MEDIA_LABEL[only].toLowerCase() : 'item';
+  return `${n} ${n === 1 ? single : plural}`;
+}
+
+/**
+ * A shelf's totals (§16 #61): "Paid ₹30,200 for 9 · US$45 for 2, in USD — of 12 records on this shelf". One sum per
+ * currency, never added across currencies, the household's first. Nothing at all while nothing on it has a price.
+ */
+export const PaidTotals: FC<{ totals: { items: number; byType: Array<{ mediaType: MediaType; count: number }>; paid: CurrencyTotal[] }; household: string | null }> = ({
+  totals,
+  household,
+}) => {
+  if (!totals.paid.length) return null;
+  const ordered = [...totals.paid].sort((a, b) =>
+    a.currency === household ? -1 : b.currency === household ? 1 : a.currency.localeCompare(b.currency),
+  );
+  return (
+    <p class="paid-totals">
+      <span class="eyebrow">Paid</span>{' '}
+      {ordered.map((t, i) => (
+        <>
+          {i ? <span class="muted"> · </span> : null}
+          <span class="money">{formatMoney(t.total, t.currency)}</span>{' '}
+          <span class="muted">
+            for {t.count}
+            {household && t.currency !== household ? `, in ${t.currency}` : ''}
+          </span>
+        </>
+      ))}{' '}
+      <span class="muted">— of {shelfNoun(totals.byType, totals.items)} on this shelf</span>
+    </p>
+  );
+};
 
 /** One grade on the item page: its code in a mono pill, Discogs' wording beside it. */
 export const Grade: FC<{ grade: string }> = ({ grade }) => {

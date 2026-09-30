@@ -26,6 +26,7 @@ import {
   getRead,
   getSeries,
   getReview,
+  getSiteSettings,
   listLibraries,
   listPeople,
   logPlay,
@@ -53,6 +54,7 @@ import { deleteCover, storeCover } from '../lib/covers';
 import { isPlayable, MAX_PLAYS_PER_ITEM, playDateProblem } from '../lib/plays';
 import { fillPressing, recordBarcode, releaseIdOf } from '../lib/pressing';
 import { checkPurchaseLink, MAX_LINKS_PER_ITEM } from '../lib/links';
+import { isCurrencyCode, parseMoney } from '../lib/money';
 import { MAX_PROGRESS_PAGE } from '../lib/progress';
 import { isReadStatus, readDateProblem, summarizeReads, todayUtc, type ReadDraft } from '../lib/reads';
 import { reviewText } from '../lib/reviews';
@@ -70,6 +72,8 @@ import {
   ItemForm,
   MarkNotOwnedButton,
   MarkOwnedButton,
+  Money,
+  type PriceFieldProps,
   ItemStatusPills,
   LendingHistory,
   MEDIA_LABEL,
@@ -198,6 +202,41 @@ function formGrades(body: Record<string, string | File>, mediaType: MediaType): 
   }
   return { grades, problem };
 }
+
+/**
+ * The form's purchase price (§16 #61), or nothing to change when the form didn't send the field — one opened before
+ * prices existed, or one shown while no currency was set. Blank clears it. The amount is in the currency the form sent,
+ * which may only be the household's, or the one the item's price is already in (entered before the household changed
+ * currency): the form offers nothing else, and a request that sends another is refused rather than stored.
+ */
+function formPrice(
+  body: Record<string, string | File>,
+  household: string | null,
+  existing: Item | null,
+): { values: Pick<NewItem, 'purchasePrice' | 'purchaseCurrency'> | null; sent?: { amount: string; currency: string }; problem: string | null } {
+  if (!('purchasePrice' in body)) return { values: null, problem: null };
+  const amount = typeof body['purchasePrice'] === 'string' ? body['purchasePrice'].trim() : '';
+  const sentCurrency = typeof body['purchaseCurrency'] === 'string' ? body['purchaseCurrency'].trim() : '';
+  const own = existing?.purchasePrice !== null && existing?.purchasePrice !== undefined ? existing.purchaseCurrency : null;
+  const allowed = [own, household].filter((c): c is string => !!c && isCurrencyCode(c));
+  const currency = sentCurrency ? (allowed.includes(sentCurrency) ? sentCurrency : null) : (household ?? own ?? null);
+  const sent = { amount, currency: currency ?? sentCurrency };
+  if (!amount) return { values: { purchasePrice: null, purchaseCurrency: null }, sent, problem: null };
+  if (!currency || !isCurrencyCode(currency)) {
+    return { values: null, sent, problem: household ? `Enter the price in ${household}.` : 'Set the household currency first: prices are entered in it.' };
+  }
+  const parsed = parseMoney(amount, currency);
+  if (!parsed.ok) return { values: null, sent, problem: parsed.problem };
+  return { values: { purchasePrice: parsed.minor, purchaseCurrency: parsed.minor === null ? null : currency }, sent, problem: null };
+}
+
+/** The price field's props, for a form shown to `c`'s user. */
+const priceField = (c: Context<AppEnv>, household: string | null, price?: ReturnType<typeof formPrice>): PriceFieldProps => ({
+  household,
+  admin: c.get('user').role === 'admin',
+  ...(price?.sent ? { sent: price.sent } : {}),
+  error: price?.problem ?? null,
+});
 
 /** A rating from a form: half-stars 1–10, or none. */
 const formRating = (raw: unknown): number | null => {
@@ -333,7 +372,11 @@ items.post('/items', async (c) => {
     parsed.values.copies = 0;
   }
 
-  const problem = formProblem(formReadProblem(null, readFields(parsed.values)), parsed);
+  // a price is read only from a form that has the field: a scan's or a search result's add costs no extra call
+  const household = 'purchasePrice' in body ? (await getSiteSettings(c.env.DB)).currency : null;
+  const price = formPrice(body, household, null);
+  if (price.values) Object.assign(parsed.values, price.values);
+  const problem = formProblem(formReadProblem(null, readFields(parsed.values)), parsed) ?? price.problem;
   if (problem && htmx) return c.text(problem, 400);
   if (problem) {
     const [libs, people, names] = await Promise.all([listLibraries(c.env.DB), listPeople(c.env.DB), seriesNames(c.env.DB)]);
@@ -356,6 +399,7 @@ items.post('/items', async (c) => {
           perMember={people.length > 1}
           series={parsed.seriesSent}
           seriesNames={names}
+          money={priceField(c, household, price)}
         />
       </>,
     );
@@ -538,6 +582,15 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
             <>
               <dt>Location</dt>
               <dd>{item.location}</dd>
+            </>
+          ) : null}
+          {/* what was paid (§16 #61): this page only — money is never on share pages or to connections */}
+          {item.purchasePrice !== null && item.purchaseCurrency ? (
+            <>
+              <dt>Paid</dt>
+              <dd>
+                <Money minor={item.purchasePrice} currency={item.purchaseCurrency} />
+              </dd>
             </>
           ) : null}
           {/* the copy's own condition (§16 #55): this page only — never on share pages or to connections */}
@@ -744,13 +797,14 @@ items.get('/items/:id/edit', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
-  const [libs, tags, log, people, names, current] = await Promise.all([
+  const [libs, tags, log, people, names, current, settings] = await Promise.all([
     listLibraries(c.env.DB),
     tagsForItem(c.env.DB, id),
     readingLog(c.env.DB, id),
     listPeople(c.env.DB),
     seriesNames(c.env.DB),
     item.seriesId !== null ? getSeries(c.env.DB, item.seriesId) : null,
+    getSiteSettings(c.env.DB), // the household's currency, for the price field (§16 #61)
   ]);
   return page(
     c,
@@ -771,6 +825,7 @@ items.get('/items/:id/edit', async (c) => {
         perMember={people.length > 1}
         series={current ? { name: current.name, number: item.seriesNumber !== null ? formatSeriesNumber(item.seriesNumber) : '' } : null}
         seriesNames={names}
+        money={priceField(c, settings.currency)}
       />
     </>,
   );
@@ -1247,8 +1302,15 @@ items.post('/items/:id', async (c) => {
   const body = await c.req.parseBody();
   const parsed = parseItemForm(body);
   if (!parsed) return c.text('Title and shelf are required.', 400);
-  const [lib, log, people] = await Promise.all([getLibrary(c.env.DB, parsed.values.libraryId), readingLog(c.env.DB, id), listPeople(c.env.DB)]);
+  const [lib, log, people, settings] = await Promise.all([
+    getLibrary(c.env.DB, parsed.values.libraryId),
+    readingLog(c.env.DB, id),
+    listPeople(c.env.DB),
+    getSiteSettings(c.env.DB), // the household's currency (§16 #61)
+  ]);
   if (!lib) return c.text('No such shelf.', 400);
+  const price = formPrice(body, settings.currency, existing);
+  if (price.values) Object.assign(parsed.values, price.values);
   const user = c.get('user');
   // the form's reading, rating and review are the editor's own (§16 #43)
   const mine = personalItem(existing, log, user.id);
@@ -1263,7 +1325,7 @@ items.post('/items/:id', async (c) => {
         : null
       : formReadProblem(mine, sent),
     parsed,
-  );
+  ) ?? price.problem;
   if (problem) {
     const [libs, names] = await Promise.all([listLibraries(c.env.DB), seriesNames(c.env.DB)]);
     c.status(400);
@@ -1289,6 +1351,7 @@ items.post('/items/:id', async (c) => {
           perMember={people.length > 1}
           series={parsed.seriesSent}
           seriesNames={names}
+          money={priceField(c, settings.currency, price)}
         />
       </>,
     );

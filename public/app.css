@@ -1115,3 +1115,35 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 /* someone in the household wants it, and it isn't owned (§16 #53): the working accent, dotted — it pairs with the
    dashed ghost "Not owned" beside it, and is never a name */
 .pill.wanted { border-color: var(--accent); border-style: dotted; color: var(--accent); }
+
+/* ── money (ARCH.md §16 #61) ──────────────────────────────────────────────────
+   What was paid is data, so it is set in the registrar's mono like every other figure —
+   in ink, never gold (that's ratings) or vermilion (that's circulation). The currency code
+   sits in a ruled cell at the head of the input, as a ledger's column heading would. */
+.money, .money-cell { font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.money-field { margin-bottom: 0.9rem; }
+.money-field > label { margin-bottom: 0; }
+.money-input { display: flex; align-items: stretch; max-width: 18rem; margin-top: 0.3rem; }
+.money-input input, .money-input select { margin: 0; }
+.money-input input { font-family: var(--mono); min-width: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.money-code, .money-input select {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  padding: 0 0.6rem;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-right: none;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+.money-input input[aria-invalid='true'] { border-color: var(--stamp); }
+.money-field .form-note { margin: 0.35rem 0 0; }
+.field-error { color: var(--stamp); font-size: 12.5px; margin: 0.35rem 0 0; }
+.paid-totals { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.35rem; margin: -0.4rem 0 1rem; font-size: 12.5px; }
+.paid-totals .eyebrow { margin: 0 0.25rem 0 0; }
+#currency select { width: auto; max-width: 100%; }
