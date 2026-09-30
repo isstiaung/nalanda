@@ -241,3 +241,26 @@ document.addEventListener('htmx:afterSettle', (e) => {
   }
   region.focus({ preventScroll: true });
 });
+
+// "Refresh from Discogs" and "Refresh from BGG" (ARCH.md §16 #55, #60) swap their section in place and say the result
+// in a live region that stays on the page, named by the form's data-refresh-status. While the request is out, that
+// region says so ("Asking Discogs…", the form's own fixed words). A request that fails — a 500, or no answer at all —
+// swaps nothing, so without this the button would come back with nothing said: the region gets a fixed sentence,
+// never the answer's body. Scoped to these forms; other htmx buttons are unchanged.
+(() => {
+  const statusOf = (e) => {
+    const form = e.detail && e.detail.elt && e.detail.elt.closest ? e.detail.elt.closest('form[data-refresh-status]') : null;
+    const status = form ? document.getElementById(form.dataset.refreshStatus) : null;
+    return status ? { form, status } : null;
+  };
+  document.addEventListener('htmx:beforeRequest', (e) => {
+    const found = statusOf(e);
+    if (found && found.form.dataset.refreshBusy) found.status.textContent = found.form.dataset.refreshBusy;
+  });
+  const failed = (e) => {
+    const found = statusOf(e);
+    if (found) found.status.textContent = 'Something went wrong — try again.';
+  };
+  document.addEventListener('htmx:responseError', failed);
+  document.addEventListener('htmx:sendError', failed);
+})();
