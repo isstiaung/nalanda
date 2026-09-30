@@ -204,15 +204,15 @@ const SharedViews: FC<{
         <button type="submit">Save</button>
       </form>
       <p class="muted">
-        Off, they see your household as one — "finished", "rated" — with no names. On, their feed gets an
-        entry per person, signed with each member's <strong>display name</strong> ("Priya finished …", "Ravi rated …",
+        Off, they see your household as one — “finished”, “rated” — with no names. On, their feed gets an
+        entry per person, signed with each member's <strong>display name</strong> (“Priya finished …”, “Ravi rated …”,
         and when someone starts a book), and a book's page lists everyone's rating and review. Members without a display
         name stay unnamed; login usernames never leave this library, and nor do the dates of anyone's reads. Comments
-        and borrow requests your members send are signed with their display name while this is on, "A member" while
+        and borrow requests your members send are signed with their display name while this is on, “A member” while
         it's off. Turning it on or off swaps what they hold the next time they check: they're asked to delete the
         entries from before and pull the new ones — a household is trusted to, but can keep what it already pulled.
         Households on older versions of Nalanda get the entries without names, as your household's, and skip
-        "started".
+        “started”.
       </p>
       {/* §16 #49: a goal entry is always signed, so this switch only means anything while names go out — greyed and
           inert until then, and the server serves no goal entry without names whatever it holds */}
@@ -242,8 +242,8 @@ const SharedViews: FC<{
             <strong>Takes effect only while names are shown to connected households</strong> — switch that on first.{' '}
           </>
         )}
-        With it on, their feed gets an entry when a member sets a reading goal, passes halfway and reaches it ("Priya
-        reached their 2026 goal"), with the target and the count so far — only for members with a display name, never
+        With it on, their feed gets an entry when a member sets a reading goal, passes halfway and reaches it (“Priya
+        reached their 2026 goal”), with the target and the count so far — only for members with a display name, never
         which books or when they were read. A goal goes to every view that can hold books, and a milestone only to views
         holding the book whose finish reached it. Turning it off withdraws goal entries the next time each connection
         checks. Households on Nalanda 1.3.0 or older skip goal entries and read the rest of your feed as before.
@@ -407,10 +407,11 @@ const ConnectionsPage: FC<PageProps> = (p) => {
                         <td class="date">{invite.expiresAt.slice(0, 10)}</td>
                         <td>{state}</td>
                         <td class="actions-cell">
-                          {state === 'Unused' ? (
+                          {/* an expired one can't be used either way; without this it stayed listed for good */}
+                          {state !== 'Used' ? (
                             <form method="post" action={`/connections/invites/${invite.id}/revoke`} class="inline">
                               <button class="btn" type="submit">
-                                Revoke
+                                {state === 'Unused' ? 'Revoke' : 'Remove'}
                               </button>
                             </form>
                           ) : null}
@@ -476,7 +477,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
             <>
               {usage && usage.entries > 0 ? (
                 <small class="muted">
-                  {usage.entries} stored · {formatBytes(usage.bytes)}
+                  {usage.entries.toLocaleString('en-US')} feed {usage.entries === 1 ? 'entry' : 'entries'} · {formatBytes(usage.bytes)}
                 </small>
               ) : null}
               <a class="btn" href={`/connections/${row.id}/feed`}>
@@ -486,7 +487,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
                 method="post"
                 action={`/connections/${row.id}/disconnect`}
                 class="inline"
-                onsubmit="return confirm('Disconnect from this library? Everything stored from them is deleted, and you would need a new invitation to reconnect.')"
+                data-confirm="Disconnect from this library? Everything stored from them is deleted, and you would need a new invitation to reconnect."
               >
                 <button class="btn-danger" type="submit">
                   Disconnect
