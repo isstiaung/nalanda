@@ -349,6 +349,7 @@ details[open] summary { margin-bottom: 0.75rem; }
   border-radius: var(--radius-sm);
   margin: 0 0 0.75rem;
 }
+output.notice { display: block; } /* a status message (<output>, bulk edit's result) set as any notice */
 article.notice { border: 1px solid var(--line); border-left: 3px solid var(--accent); background: var(--surface); padding: 0.9rem 1rem; }
 p.error { font-size: 12.5px; color: color-mix(in srgb, var(--stamp) 85%, var(--ink)); background: var(--stamp-tint); border-left: 3px solid var(--stamp); padding: 0.55rem 0.8rem; border-radius: var(--radius-sm); }
 

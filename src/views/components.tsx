@@ -938,8 +938,10 @@ export const ItemGrid: FC<{ items: Item[]; onLoanIds?: Set<number>; wantedIds?: 
         {items.map((item) => (
           <div class="pick-cell">
             <ItemCard item={item} onLoan={onLoanIds?.has(item.id)} wanted={wantedIds?.has(item.id)} />
+            {/* the label is the bigger tap target; its words are the ones the box is named by */}
             <label class="pick">
               <PickBox id={item.id} title={item.title} />
+              <span class="sr-only">Select {item.title}</span>
             </label>
           </div>
         ))}
@@ -1126,7 +1128,8 @@ export const GoalMeter: FC<{ count: number; target: number; year: number; today:
         </span>{' '}
         <span class="muted mono">{target === 1 ? 'book' : 'books'}</span> <span class={pill}>{paceLabel(pace)}</span>
       </p>
-      <div class="goal-track" role="img" aria-label={`${count} of ${target} books read in ${year}, ${paceLabel(pace)}`}>
+      {/* the count and the pace are in words just above */}
+      <div class="goal-track" aria-hidden="true">
         <div class="progress-track">
           <div class="progress-fill" style={`width:${goalPercent(count, target)}%`} />
         </div>

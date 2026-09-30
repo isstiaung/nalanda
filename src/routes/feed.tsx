@@ -330,7 +330,8 @@ const GoalFeedCard: FC<{ card: GoalCard; showHousehold: boolean }> = ({ card, sh
             {goal.target === 1 ? 'book' : 'books'} in {goal.year}
           </span>
         </p>
-        <div class="progress-track" role="img" aria-label={`${goal.count} of ${goal.target} books`}>
+        {/* the figures above say the same */}
+        <div class="progress-track" aria-hidden="true">
           <div class="progress-fill" style={`width:${goalPercent(goal.count, goal.target)}%`} />
         </div>
       </div>

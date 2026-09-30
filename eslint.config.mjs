@@ -28,7 +28,7 @@ export default [
       'jsx-a11y': {
         attributes: { for: ['for', 'htmlFor'] },
         // components that render one native control, so a <label> wrapping them is associated
-        components: { RatingSelect: 'select' },
+        components: { RatingSelect: 'select', PickBox: 'input' },
       },
     },
     rules: {
@@ -41,7 +41,7 @@ export default [
       'jsx-a11y/no-aria-hidden-on-focusable': 'error',
       'jsx-a11y/prefer-tag-over-role': 'error',
       // label-has-associated-control: every label here wraps its control; `either` also accepts for=.
-      'jsx-a11y/label-has-associated-control': ['error', { assert: 'either', depth: 3, controlComponents: ['RatingSelect'] }],
+      'jsx-a11y/label-has-associated-control': ['error', { assert: 'either', depth: 3, controlComponents: ['RatingSelect', 'PickBox'] }],
       'no-restricted-syntax': [
         'error',
         // no-autofocus compares the prop name exactly ("React only recognizes autoFocus"), so hono/jsx's lowercase
