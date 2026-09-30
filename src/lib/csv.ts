@@ -19,6 +19,7 @@ import {
 import { formatLoansCell, parseLoansCell, type LoanDraft } from './loans';
 import { formatPlaysCell, parsePlaysCell, type CellPlay, type PersonPlay } from './plays';
 import { formatReviewsCell, parseReviewsCell, summarizeReviews, type CellReview, type PersonReview } from './reviews';
+import { cleanSeriesName, formatSeriesNumber, parseSeriesNumber, parseSeriesTotal, parseTitleSeries, type SeriesDraft } from './series';
 
 export const EXPORT_COLUMNS = [
   'library',
@@ -29,6 +30,9 @@ export const EXPORT_COLUMNS = [
   'isbn10_upc',
   'publisher',
   'published',
+  'series', // §16 #52: the series' name, the item's number in it, and how many volumes the series has
+  'series_number',
+  'series_total',
   'description',
   'length',
   'progress_page',
@@ -92,6 +96,7 @@ export function itemToCsvLine(
   reviews: CellReview[] = [],
   loans: LoanDraft[] = [],
   plays: CellPlay[] = [],
+  series: { name: string; total: number | null } | null = null,
 ): string {
   const ordered = inDisplayOrder(reads);
   const position = new Map(ordered.map((r, i) => [r.id, i + 1]));
@@ -104,6 +109,9 @@ export function itemToCsvLine(
     item.isbn10Upc,
     item.publisher,
     item.published,
+    series?.name,
+    series && item.seriesNumber !== null ? formatSeriesNumber(item.seriesNumber) : '',
+    series?.total,
     item.description,
     item.length,
     item.progressPage,
@@ -148,6 +156,8 @@ export type MappedRow = {
   goodreads?: GoodreadsReading;
   // a Nalanda export's `loans`, restored onto the item the row makes (§16 #57); libib and Goodreads have none
   loans?: LoanDraft[];
+  // its series (§16 #52): a Nalanda export's columns, libib's "group", or the suffix a Goodreads title carries
+  series?: SeriesDraft | null;
 };
 
 /** Columns we map onto real item fields; everything else lands in `details` (lossless). */
@@ -193,6 +203,9 @@ const KNOWN_COLUMNS = new Set([
   'completed',
   'added',
   'copies',
+  // a file with series columns of its own (§16 #52) — libib's own word for a series is "group"
+  'series',
+  'series_number',
 ]);
 
 function mapMediaType(raw: string | undefined, opts: ImportOptions): MediaType {
@@ -260,9 +273,14 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
     .split(',')
     .map((t) => t.trim())
     .filter(Boolean);
-  if (r['group']) tags.push(r['group']); // libib "group" becomes a tag
+  if (r['group']) tags.push(r['group']); // libib "group" becomes a tag, as it always has
+  // …and, since libib documents it as "what series an item belongs to", the item's series (§16 #52). libib keeps no
+  // number; a file with a series column of its own is taken at its word first.
+  const seriesName = cleanSeriesName(r['series'] || r['group']);
+  const series = seriesName ? { name: seriesName, number: parseSeriesNumber(r['series_number']) ?? null } : null;
 
   return {
+    series,
     item: {
       mediaType: mapMediaType(r['item_type'] ?? r['type'], opts),
       title,
@@ -354,7 +372,13 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
   const summary = reviews ? summarizeReviews(reviews) : { rating: rating && rating >= 1 && rating <= 10 ? rating : null, review: r['review'] || null };
   // The play log (§16 #54). An export from before plays has no such column, and its games and records arrive unplayed.
   const plays = parsePlaysCell(r['plays']);
+  // Its series (§16 #52). A number or total that isn't one — someone edited the spreadsheet — is dropped, not guessed.
+  const seriesName = cleanSeriesName(r['series']);
+  const series = seriesName
+    ? { name: seriesName, number: parseSeriesNumber(r['series_number']) ?? null, total: parseSeriesTotal(r['series_total']) ?? null }
+    : null;
   return {
+    series,
     item: {
       mediaType: (MEDIA_TYPES as readonly string[]).includes(r['media_type'] ?? '') ? (r['media_type'] as MediaType) : 'book',
       title,
@@ -550,11 +574,16 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
   // a new book's reads come from the same rules a merge applies, starting from none
   const reads = reconcileGoodreads([], goodreads).map((op) => op.read);
   const state = summarizeReads(reads);
+  // Goodreads has no series column, but its titles carry one: "The Gunslinger (The Dark Tower, #1)". The suffix
+  // becomes the series (§16 #52), and the title reads as a provider's would. Only a new book gets it — a merge never
+  // touches bibliographic fields (§16 #14) — and matching ignores the suffix either way.
+  const split = parseTitleSeries(title);
 
   return {
+    series: split?.series ?? null,
     item: {
       mediaType: 'book',
-      title,
+      title: split?.title ?? title,
       creators: [r['author'], r['additional_authors']].filter(Boolean).join(', ') || null,
       isbn13: isbn13.length === 13 ? isbn13 : null,
       isbn10Upc: isbn10 || null,

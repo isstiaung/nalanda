@@ -33,7 +33,7 @@ so a do-over is just delete-and-retry.
 | `rating` (0–5, halves) | half-star rating (×2) |
 | `length`, `copies`, `began`, `completed`, `review`, `notes`, `tags` | same fields |
 | `location`, when a file has one | the private location, where it lives — never in details, which share pages show |
-| `group` | becomes a tag |
+| `group` | becomes a tag, and the item's series — libib documents `group` as "what series an item belongs to" (it has no volume number; add it on the edit form) |
 | `item_type` (book / board game / video game / music / movie) | media type (music → vinyl if opted in) |
 | anything else (`ensemble`, `esrb`, `aspect_ratio`, prices, …) | kept losslessly in the item's details JSON |
 

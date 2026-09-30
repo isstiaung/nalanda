@@ -232,6 +232,13 @@
       "when": 1790750864672,
       "tag": "0032_location-fts",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1790751138497,
+      "tag": "0033_series",
+      "breakpoints": true
     }
   ]
 }

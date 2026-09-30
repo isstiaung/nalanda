@@ -584,6 +584,61 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 
 .actions { display: flex; gap: 0.5rem; align-items: center; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 
+/* ── series (§16 #52) ─────────────────────────────────────────────────────────
+   A series reads as a row of numbered slots, like a ledger's column of accession
+   numbers: held volumes are ruled boxes, the one you're on is inked indigo, the
+   ones you've finished carry the indigo rule, and missing numbers are dashed
+   blanks — the same dashed hand as "Not owned". No vermilion: a gap is not danger. */
+.series-fields { grid-template-columns: minmax(0, 1fr) 9rem; }
+.series-title { margin: 0 0 0.5rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.5rem; }
+.series-title a { font-weight: 600; }
+.series-title .mono { font-size: 12px; }
+.series-strip { list-style: none; padding: 0; margin: 0 0 0.6rem; display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.series-strip .vol {
+  font-family: var(--mono);
+  font-size: 11px;
+  min-width: 1.9rem;
+  height: 1.9rem;
+  padding: 0 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink-2);
+}
+.series-strip a.vol:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+.series-strip .vol.finished { border-color: var(--accent); color: var(--accent); background: var(--accent-tint); }
+.series-strip .vol.current { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.series-strip .vol.missing { border-style: dashed; background: transparent; color: var(--ink-3); }
+.next-up, .series-gaps { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.5rem; margin: 0 0 0.5rem; font-size: 13px; }
+.next-up .eyebrow, .series-gaps .eyebrow { margin: 0; }
+.next-up .mono, .series-gaps .mono { font-size: 12px; }
+.next-skipped { flex-basis: 100%; }
+.series-panel { margin-bottom: 1.25rem; }
+.series-panel > :last-child { margin-bottom: 0; }
+.series-edit { margin-top: 1.5rem; }
+.series-list { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
+.series-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; padding: 0.6rem 0; border-bottom: 1px solid var(--line); }
+.series-list .series-name { font-weight: 600; overflow-wrap: anywhere; }
+.series-list .mono { font-size: 12px; }
+.volume-ledger { list-style: none; padding: 0; margin: 0; border-top: 1px solid var(--line); }
+.volume-ledger li { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr) auto; gap: 0.2rem 0.75rem; align-items: baseline; padding: 0.6rem 0; border-bottom: 1px solid var(--line); }
+.volume-ledger .vol-no { font-size: 12px; color: var(--ink-2); }
+.volume-ledger .vol-body { min-width: 0; display: flex; flex-direction: column; }
+.volume-ledger .vol-title { font-weight: 600; overflow-wrap: anywhere; }
+.volume-ledger .vol-state { display: flex; flex-wrap: wrap; gap: 0.3rem; justify-content: flex-end; }
+.volume-ledger li.finished .vol-no { color: var(--accent); }
+.volume-ledger li.gap { border-bottom-style: dashed; }
+.volume-ledger li.gap .vol-no, .volume-ledger li.gap .vol-body { color: var(--ink-3); font-style: italic; }
+.candidate-series { display: block; }
+@media (max-width: 560px) {
+  .series-fields { grid-template-columns: minmax(0, 1fr) 6.5rem; }
+  .volume-ledger li { grid-template-columns: 3.5rem minmax(0, 1fr); }
+  .volume-ledger .vol-state { grid-column: 2; justify-content: flex-start; }
+}
+
 /* ── add flow ─────────────────────────────────────────────────────────────── */
 
 .tab-bar { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow: hidden; margin-bottom: 1.25rem; }

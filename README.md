@@ -51,6 +51,11 @@ manuscripts.
   and invite-only, never a network or the fediverse; off unless you give the instance a key.
   **Notifications** count connection requests, borrowing and comments, and Feed counts what's
   new, per person in the household.
+- **Series**: give a book its series and number ("The Expanse", #3 — or #2.5 for the novella
+  between), filled in from Open Library when it knows. Each series shows its volumes in order,
+  the numbers you're missing ("#4, #6–9" once you set how many there are), and your own
+  **next up** — the lowest-numbered volume *you* haven't finished. Share pages show a book's
+  series and number, never the gaps or anyone's reading.
 - **Tags, half-star ratings, full-text search** across the collection, plus a quick
   title/author/location filter inside every shelf and sorting by newest, title, rating, or date
   finished.

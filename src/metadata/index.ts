@@ -38,6 +38,8 @@ export function mergeBookCandidates(ol: Candidate | null, gb: Candidate | null):
     publisher: ol.publisher || gb.publisher,
     published: ol.published || gb.published,
     isbn10Upc: ol.isbn10Upc || gb.isbn10Upc,
+    // Open Library's alone in practice — Google Books never names a series (§16 #52) — but kept symmetric
+    series: ol.series ?? gb.series,
     provider: 'openlibrary+googlebooks',
   };
 }

@@ -37,6 +37,8 @@ const item: Item = {
   addedBy: 3,
   addedAt: '2026-01-01 10:00:00',
   updatedAt: '2026-01-10 10:00:00',
+  seriesId: 4,
+  seriesNumber: 1,
 };
 
 describe('share whitelist', () => {

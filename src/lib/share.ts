@@ -92,6 +92,10 @@ export type PublicItem = {
   // Only when an admin has switched names on for share pages (§16 #45): each member's rating and review, signed with
   // their display name or unsigned (null). Never a username, never a read or its date.
   reviews?: Array<{ by: string | null; rating: number | null; review: string | null }>;
+  // Its series and number in it (§16 #52): public catalogue data, like the publisher. Only when the caller passed the
+  // series in — the share item page does; listings and connections don't, so what they serve is unchanged. Never the
+  // gaps or anyone's "next up", which are about the household's shelves and reading.
+  series?: { name: string; number: number | null };
 };
 
 export function parseDetails(json: string | null | undefined): Record<string, unknown> {
@@ -116,7 +120,12 @@ export function parseDetails(json: string | null | undefined): Record<string, un
  */
 export function toPublicItem(
   item: Item,
-  opts: { progress?: boolean; reviews?: Array<{ by: string | null; rating: number | null; review: string | null }>; plays?: number } = {},
+  opts: {
+    progress?: boolean;
+    reviews?: Array<{ by: string | null; rating: number | null; review: string | null }>;
+    plays?: number;
+    series?: { id: number; name: string } | null;
+  } = {},
 ): PublicItem {
   const readingNow = item.status === 'in_progress' || item.rereading;
   const showProgress = opts.progress === true && item.mediaType === 'book' && readingNow && !!item.progressPage;
@@ -142,6 +151,8 @@ export function toPublicItem(
       : {}),
     // the key only when the caller passed names in, which it does only with names switched on for share pages
     ...(opts.reviews ? { reviews: opts.reviews.map((r) => ({ by: r.by || null, rating: r.rating, review: r.review })) } : {}),
+    // the name from the series row, the number from the item — and only for the item's own series
+    ...(opts.series && opts.series.id === item.seriesId ? { series: { name: opts.series.name, number: item.seriesNumber } } : {}),
   };
 }
 

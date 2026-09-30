@@ -81,7 +81,10 @@ shape from this file.
   `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge. So is
   `readCount`, the household's finishes, only from two on — "Read N times", ARCH.md §16 #41 —
   and, on a shared game's or record's page, `playCount`, the household's plays, never a play's
-  date or who logged it, §16 #54.)
+  date or who logged it, §16 #54. And a shared item's page shows its series name and number —
+  public catalogue data, like the publisher — only through `toPublicItem(item, { series })`,
+  ARCH.md §16 #52: never the numbers missing from a series or anyone's "next up", and not on
+  listings or to connections.)
   `rating` and `review` there are the household summary: the average of everyone's ratings
   and the review written last, with no author (§16 #43). Reading progress appears only when an
   admin turns on `site_settings.progress_on_shares` (off by default), and then only for a book
@@ -188,7 +191,8 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    summary, the export's reviews cell), loans.ts (the export's loans cell),
                    names.ts (display names, and names peers send), plays.ts (the household's play
                    log for games and records: which types take plays, the export's plays cell —
-                   ARCH.md §16 #54)
+                   ARCH.md §16 #54), series.ts (series names and numbers, the gaps, each member's next up;
+                   its queries are in db/queries.ts, its pages in routes/series.tsx, ARCH.md §16 #52)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments and borrowing (comments.ts,

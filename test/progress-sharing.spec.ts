@@ -46,6 +46,8 @@ const reading: Item = {
   addedBy: null,
   addedAt: '2026-09-20 10:00:00',
   updatedAt: '2026-09-28 10:00:00',
+  seriesId: null,
+  seriesNumber: null,
 };
 
 describe('the whitelist', () => {
