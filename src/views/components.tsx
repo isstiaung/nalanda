@@ -673,6 +673,47 @@ export const ItemCard: FC<{ item: Item; onLoan?: boolean; href?: string }> = ({ 
   </a>
 );
 
+/**
+ * The Overview's "Read next" card (ARCH.md §16 #46): one book the signed-in member hasn't finished and isn't reading,
+ * or a line saying there's none. "Start reading" is the book page's own start route, posted without htmx, so it opens
+ * the member's read and lands on the book. "Another" asks the Overview for a new pick without this one; htmx swaps the
+ * card inside #read-next, and puts focus back on the new "Another" by its id. Without htmx it reloads the Overview.
+ */
+export const ReadNextCard: FC<{ pick: Pick<Item, 'id' | 'title' | 'creators' | 'coverKey' | 'copies' | 'mediaType'> | null }> = ({
+  pick,
+}) =>
+  pick ? (
+    <div class="panel read-next">
+      {/* the title below is the link a reader or keyboard uses; the cover is a second, larger target for a pointer */}
+      <a href={`/items/${pick.id}`} class="read-next-cover" tabindex={-1} aria-hidden="true">
+        <Cover coverKey={pick.coverKey} title={pick.title} mediaType={pick.mediaType} />
+      </a>
+      <div class="read-next-body">
+        <a href={`/items/${pick.id}`} class="read-next-title">
+          {pick.title}
+        </a>
+        {pick.creators ? <p class="read-next-by">{pick.creators}</p> : null}
+        <p class="read-next-line">
+          <small class="acc-no">{accNo(pick.id)}</small>
+          {pick.copies === 0 ? <NotOwnedPill /> : null}
+        </p>
+        <div class="read-actions">
+          <form method="post" action={`/items/${pick.id}/reads/start`}>
+            <button type="submit">Start reading</button>
+          </form>
+          <form method="get" action="/" hx-get="/" hx-target="#read-next" hx-swap="innerHTML">
+            <input type="hidden" name="not" value={String(pick.id)} />
+            <button type="submit" class="btn" id="read-next-another">
+              Another
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  ) : (
+    <p class="muted read-next-empty">Nothing to suggest: you’ve finished or are reading every book in the catalog.</p>
+  );
+
 export const ItemGrid: FC<{ items: Item[]; onLoanIds?: Set<number> }> = ({ items, onLoanIds }) => (
   <div class="item-grid">
     {items.map((item) => (

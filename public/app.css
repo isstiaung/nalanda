@@ -838,3 +838,22 @@ form.search-by-reader { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items
 form.search-by-reader input[type='search'] { flex: 1 1 16rem; width: auto; margin: 0; }
 form.search-by-reader select { width: auto; margin: 0; max-width: 100%; }
 .toolbar select[name='readBy'] { max-width: 100%; }
+
+/* ── read next (ARCH.md §16 #46) ─────────────────────────────────────────────
+   The Overview's one suggestion: a framed panel (the manuscript double rule), its
+   cover beside the title, like an add-flow candidate. Existing tokens only — the
+   accession number in mono, "Not owned" as the ghost pill it is everywhere. */
+.read-next { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 1rem; max-width: 46rem; padding: 0.9rem; }
+.read-next-cover { display: block; width: 84px; aspect-ratio: 2 / 3; border-radius: var(--radius-sm); overflow: hidden; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); }
+.read-next-cover .cover-fallback { font-size: 1.8rem; }
+.read-next-body { min-width: 0; }
+.read-next-title { display: block; color: var(--ink); font-size: 15px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.read-next-title:hover { color: var(--accent); }
+.read-next-by { margin: 0.15rem 0 0; color: var(--ink-2); font-size: 12.5px; overflow-wrap: anywhere; }
+.read-next-line { display: flex; flex-wrap: wrap; gap: 0.15rem 0.5rem; align-items: center; margin: 0.35rem 0 0; }
+.read-next .read-actions { gap: 0.5rem; margin-top: 0.8rem; }
+.read-next-empty { margin: 0; font-size: 13px; }
+@media (max-width: 880px) {
+  .read-next { grid-template-columns: 64px minmax(0, 1fr); gap: 0.8rem; }
+  .read-next-cover { width: 64px; }
+}
