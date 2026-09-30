@@ -296,11 +296,12 @@ export const Layout: FC<
 );
 
 /**
- * The path the sidebar marks for a page with no link of its own. A connected household's pages — its shelves, their
- * items, and its feed settings — belong under Lending → Borrowed, where that household is browsed from.
+ * The path the sidebar marks for a page with no link of its own: the one it's reached from. A connected household's
+ * pages — its shelves and their items — belong under Lending → Borrowed, where that household is browsed from. (Its
+ * feed settings, reached from Connections, already sit under Connections by their path.)
  */
 export function navPath(path: string): string {
-  if (/^\/households\/\d+(\/|$)/.test(path) || /^\/connections\/\d+\/feed\/?$/.test(path)) return '/borrowed';
+  if (/^\/households\/\d+(\/|$)/.test(path)) return '/borrowed';
   return path;
 }
 
