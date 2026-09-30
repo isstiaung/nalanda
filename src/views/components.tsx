@@ -1508,11 +1508,20 @@ const CandidateSummary: FC<{ candidate: Candidate }> = ({ candidate }) => (
 );
 
 /** A lookup result with a one-click "add to shelf" form. */
-export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[] }> = ({ candidate, libraries }) => (
+/** A result the catalog already has (catalogMatches): a pill that opens it, so a second copy is a choice, not a slip. */
+const InCatalogPill: FC<{ id: number | null | undefined }> = ({ id }) =>
+  id ? (
+    <a href={`/items/${id}`} class="pill in-catalog">
+      In your catalog
+    </a>
+  ) : null;
+
+export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[]; inCatalog?: number | null }> = ({ candidate, libraries, inCatalog }) => (
   <article class="candidate">
     <CandidateCover candidate={candidate} />
     <div class="candidate-body">
       <CandidateSummary candidate={candidate} />
+      <InCatalogPill id={inCatalog} />
       <form method="post" action="/items" class="candidate-save">
         <CandidateFields candidate={candidate} />
         <ShelfSelect libraries={libraries} />
@@ -1551,7 +1560,8 @@ export const ReviewEntry: FC<{
   notices: string[];
   libraries: Library[];
   scanOwner: string;
-}> = ({ barcode, scannedAt, candidate, notices, libraries, scanOwner }) => {
+  inCatalog?: number | null;
+}> = ({ barcode, scannedAt, candidate, notices, libraries, scanOwner, inCatalog }) => {
   const drop = (
     <button type="button" class="btn" data-review-drop>
       Drop
@@ -1581,6 +1591,7 @@ export const ReviewEntry: FC<{
         {candidate ? (
           <>
             <CandidateSummary candidate={candidate} />
+            <InCatalogPill id={inCatalog} />
             {libraries.length ? (
               <form method="post" action="/items" class="candidate-save" data-review-add>
                 <CandidateFields candidate={candidate} />

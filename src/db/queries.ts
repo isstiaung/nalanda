@@ -2568,17 +2568,58 @@ export async function deletePurchaseLink(d1: D1Database, itemId: number, linkId:
  * only) or its Discogs release id; a board game by its BGG id. Ids in details compare as text, whatever JSON type they
  * were stored as. The oldest match, or null. One query.
  */
-export async function existingForWant(
-  d1: D1Database,
-  c: { mediaType: MediaType; isbn13?: string | null; isbn10Upc?: string | null; details: Record<string, unknown> },
-): Promise<number | null> {
+type CatalogProbe = { mediaType: MediaType; isbn13?: string | null; isbn10Upc?: string | null; details: Record<string, unknown> };
+
+/** What names a scan or search result in the catalog: a book's ISBN-13; a record's barcode or Discogs id; a game's BGG id. */
+function catalogKeys(c: CatalogProbe): { isbn: string | null; barcode: string | null; discogs: string | null; bgg: string | null } {
   const digits = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '') || null;
   const idOf = (v: unknown) => (typeof v === 'number' && Number.isSafeInteger(v) && v > 0) || (typeof v === 'string' && /^\d{1,15}$/.test(v)) ? String(v) : null;
   const music = c.mediaType === 'vinyl' || c.mediaType === 'music';
-  const isbn = c.mediaType === 'book' ? digits(c.isbn13) : null;
-  const barcode = music ? (digits(c.isbn10Upc) ?? digits(c.isbn13)) : null;
-  const discogs = music ? idOf(c.details['discogs_id']) : null;
-  const bgg = c.mediaType === 'boardgame' ? idOf(c.details['bgg_id']) : null;
+  return {
+    isbn: c.mediaType === 'book' ? digits(c.isbn13) : null,
+    barcode: music ? (digits(c.isbn10Upc) ?? digits(c.isbn13)) : null,
+    discogs: music ? idOf(c.details['discogs_id']) : null,
+    bgg: c.mediaType === 'boardgame' ? idOf(c.details['bgg_id']) : null,
+  };
+}
+
+/**
+ * For each scan or search result, the item already in the catalog it names — by the same keys as existingForWant — or
+ * null: the Add page's "In your catalog" pill. The oldest match. One query for the whole list, none when no result has
+ * a key to match by.
+ */
+export async function catalogMatches(d1: D1Database, candidates: CatalogProbe[]): Promise<Array<number | null>> {
+  const keys = candidates.map(catalogKeys);
+  const list = (k: 'isbn' | 'barcode' | 'discogs' | 'bgg') => JSON.stringify([...new Set(keys.map((x) => x[k]).filter((v): v is string => !!v))]);
+  if (!keys.some((k) => k.isbn || k.barcode || k.discogs || k.bgg)) return candidates.map(() => null);
+  const { results } = await d1
+    .prepare(
+      `SELECT id, media_type AS mediaType, isbn13, isbn10_upc AS isbn10Upc,
+         CAST(json_extract(details, '$.discogs_id') AS TEXT) AS discogs, CAST(json_extract(details, '$.bgg_id') AS TEXT) AS bgg
+       FROM items WHERE
+         isbn13 IN (SELECT value FROM json_each(?1))
+         OR (media_type IN ('vinyl', 'music') AND (isbn10_upc IN (SELECT value FROM json_each(?2)) OR isbn13 IN (SELECT value FROM json_each(?2))))
+         OR (media_type IN ('vinyl', 'music') AND CAST(json_extract(details, '$.discogs_id') AS TEXT) IN (SELECT value FROM json_each(?3)))
+         OR (media_type = 'boardgame' AND CAST(json_extract(details, '$.bgg_id') AS TEXT) IN (SELECT value FROM json_each(?4)))
+       ORDER BY id`,
+    )
+    .bind(list('isbn'), list('barcode'), list('discogs'), list('bgg'))
+    .all<{ id: number; mediaType: MediaType; isbn13: string | null; isbn10Upc: string | null; discogs: string | null; bgg: string | null }>();
+  const music = (t: MediaType) => t === 'vinyl' || t === 'music';
+  return keys.map(
+    (k) =>
+      results.find(
+        (r) =>
+          (k.isbn !== null && r.isbn13 === k.isbn) ||
+          (k.barcode !== null && music(r.mediaType) && (r.isbn10Upc === k.barcode || r.isbn13 === k.barcode)) ||
+          (k.discogs !== null && music(r.mediaType) && r.discogs === k.discogs) ||
+          (k.bgg !== null && r.mediaType === 'boardgame' && r.bgg === k.bgg),
+      )?.id ?? null,
+  );
+}
+
+export async function existingForWant(d1: D1Database, c: CatalogProbe): Promise<number | null> {
+  const { isbn, barcode, discogs, bgg } = catalogKeys(c);
   if (!isbn && !barcode && !discogs && !bgg) return null;
   const row = await d1
     .prepare(

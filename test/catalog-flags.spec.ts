@@ -1,9 +1,13 @@
 // The badges and counts the catalog sweep added (PR #89), checked by value: the Overview's recent cards' "Lent" and
 // "Wanted", a series' "Wanted", and what Delete shelf says it will take with it.
-import { env } from 'cloudflare:test';
-import { describe, expect, it } from 'vitest';
-import { createLibrary, createLoan, recentItems, returnLoan, setWant } from '../src/db/queries';
+import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
+import { afterEach, describe, expect, it } from 'vitest';
+import { catalogMatches, createLibrary, createLoan, recentItems, returnLoan, setWant } from '../src/db/queries';
+import type { Bindings } from '../src/env';
+import { budgeted } from '../src/federation/budget';
+import app from '../src/index';
 import { formatCount } from '../src/lib/money';
+import { activateFetchMock, assertNoPendingInterceptors, intercept } from './fetch-mock';
 import { book, html, member, rows } from './member-helpers';
 
 /** Each recent card on the Overview, by item id: whether it shows the Lent and Wanted pills. */
@@ -205,6 +209,67 @@ describe('games and records have no reading status', () => {
     expect(statusFilter(await html(asha, `/libraries/${mixed.id}?type=boardgame`))).toBe(false); // the view is games only
     expect(statusFilter(await html(asha, `/libraries/${mixed.id}?type=boardgame&status=completed`))).toBe(true); // clearable
     expect(await html(asha, `/libraries/${mixed.id}`)).toContain('>Not started<'); // the book keeps its pill
+  });
+});
+
+describe('"In your catalog" on the Add page', () => {
+  afterEach(() => assertNoPendingInterceptors());
+
+  it('matches by ISBN, barcode, Discogs id and BGG id — and nothing else', async () => {
+    const asha = await member('asha', 'admin');
+    const shelf = await createLibrary(env.DB, 'Shelf');
+    const bookHeld = await book(asha, { libraryId: shelf.id, isbn13: '9780547773742' });
+    const byBarcode = await book(asha, { libraryId: shelf.id, mediaType: 'vinyl', title: 'Kind of Blue', isbn10Upc: '074646393523' });
+    const byDiscogs = await book(asha, { libraryId: shelf.id, mediaType: 'vinyl', title: 'A Love Supreme', details: '{"discogs_id":1188547}' });
+    const byBgg = await book(asha, { libraryId: shelf.id, mediaType: 'boardgame', title: 'Cascadia', details: '{"bgg_id":"267609"}' });
+    const probe = (mediaType: 'book' | 'vinyl' | 'boardgame', v: { isbn13?: string; isbn10Upc?: string; details?: Record<string, unknown> }) => ({
+      mediaType,
+      isbn13: v.isbn13 ?? null,
+      isbn10Upc: v.isbn10Upc ?? null,
+      details: v.details ?? {},
+    });
+    expect(
+      await catalogMatches(env.DB, [
+        probe('book', { isbn13: '978-0-547-77374-2' }),
+        probe('vinyl', { isbn13: '074646393523' }), // a scanned barcode lands in isbn13
+        probe('vinyl', { details: { discogs_id: '1188547' } }),
+        probe('boardgame', { details: { bgg_id: 267609 } }),
+        probe('book', { isbn13: '9780000000002' }), // not here
+        probe('boardgame', { details: { discogs_id: 1188547 } }), // a game isn't matched by a Discogs id
+        probe('book', {}), // nothing to match by
+      ]),
+    ).toEqual([bookHeld.id, byBarcode.id, byDiscogs.id, byBgg.id, null, null, null]);
+    expect(await catalogMatches(env.DB, [probe('book', {})])).toEqual([null]);
+  });
+
+  it('pills each held result, linked to it, in one D1 query however many results there are', async () => {
+    activateFetchMock();
+    const asha = await member('asha', 'admin');
+    const shelf = await createLibrary(env.DB, 'Games');
+    const held = await book(asha, { libraryId: shelf.id, mediaType: 'boardgame', title: 'Catan', details: '{"bgg_id":13}' });
+    const BGG = 'https://boardgamegeek.com';
+    const results = async (ids: number[]) => {
+      intercept(BGG, (p) => p.startsWith('/xmlapi2/search?'), {
+        body: `<items total="${ids.length}">${ids.map((id) => `<item type="boardgame" id="${id}"/>`).join('')}</items>`,
+      });
+      intercept(BGG, (p) => p.startsWith('/xmlapi2/thing?'), {
+        body: `<items>${ids.map((id) => `<item type="boardgame" id="${id}"><name type="primary" value="Game ${id}"/></item>`).join('')}</items>`,
+      });
+      const budget = { left: 1000 };
+      const ctx = createExecutionContext();
+      const res = await app.fetch(
+        new Request('http://nalanda.test/add/results?q=Catan&type=boardgame', { headers: { cookie: asha.cookie } }),
+        { ...env, BGG_TOKEN: 'tok', DB: budgeted(env.DB, budget) } as Bindings,
+        ctx,
+      );
+      await waitOnExecutionContext(ctx);
+      return { page: await res.text(), calls: 1000 - budget.left };
+    };
+    const one = await results([13]);
+    expect(one.page).toContain(`<a href="/items/${held.id}" class="pill in-catalog">In your catalog</a>`);
+    const three = await results([13, 14, 15]);
+    expect(three.page.match(/class="pill in-catalog"/g)).toHaveLength(1); // only Game 13 is here
+    expect(three.calls).toBe(one.calls); // the whole list is matched in the one query
   });
 });
 

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { getSiteSettings, listLibraries, listPeople, seriesNames } from '../db/queries';
+import { catalogMatches, getSiteSettings, listLibraries, listPeople, seriesNames } from '../db/queries';
 import type { AppEnv } from '../env';
 import { lookupByBarcode, searchByName, type SearchType } from '../metadata';
 import { BggAttribution, DiscogsNotice } from '../views/attribution';
@@ -146,14 +146,15 @@ add.get('/add/results', async (c) => {
       ? await searchByName(c.env, q, type)
       : { candidates: [], notices: ['Enter a barcode or search term.'] };
 
-  const libs = await listLibraries(c.env.DB);
+  // the shelves, and which results the catalog already has ("In your catalog"): two calls, whatever the list's length
+  const [libs, held] = await Promise.all([listLibraries(c.env.DB), catalogMatches(c.env.DB, result.candidates)]);
   return c.html(
     <>
       {result.notices.map((n) => (
         <p class="notice">{n}</p>
       ))}
-      {result.candidates.map((candidate) => (
-        <CandidateCard candidate={candidate} libraries={libs} />
+      {result.candidates.map((candidate, i) => (
+        <CandidateCard candidate={candidate} libraries={libs} inCatalog={held[i]} />
       ))}
       {result.candidates.some((candidate) => candidate.provider === 'bgg') ? <BggAttribution /> : null}
       {/* §16 #63: each Discogs result carries its own credit; the terms' notice goes once, below them */}
@@ -176,6 +177,7 @@ add.get('/add/review', async (c) => {
     listLibraries(c.env.DB),
     scanQueueOwner(c.env.SESSION_SECRET ?? '', c.get('user')),
   ]);
+  const [held] = result.candidates[0] ? await catalogMatches(c.env.DB, [result.candidates[0]]) : [null];
   return c.html(
     <ReviewEntry
       barcode={barcode}
@@ -184,6 +186,7 @@ add.get('/add/review', async (c) => {
       notices={result.notices}
       libraries={libs}
       scanOwner={scanOwner}
+      inCatalog={held}
     />,
   );
 });

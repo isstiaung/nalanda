@@ -722,6 +722,9 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .candidate-cover img, .candidate-cover .cover-fallback { width: 84px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: var(--radius-sm); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; justify-content: center; font-size: 1.8rem; background: var(--surface-2); }
 .candidate-body strong { font-size: 14px; display: block; } /* its own line, even when no creator line follows */
 .candidate-body small { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.03em; }
+/* a result the catalog already has: a pill on a line of its own, opening that item */
+.candidate-body .in-catalog { display: block; width: fit-content; margin-top: 0.35rem; text-decoration: none; }
+.candidate-body .in-catalog:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
 .candidate-save { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.65rem; }
 #tab-search .inline-form input[type='search'] { flex: 1 1 16rem; }
 /* the typed-barcode field: its label beside it, wrapping under it on a phone */
