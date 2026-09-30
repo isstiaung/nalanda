@@ -32,6 +32,7 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **New instances start with names and goals on.** On a new install, **Names on share pages**, **Show names to connected households** and **Share reading goals** are all on until an admin turns them off. Existing instances keep what they have (see Upgrading).
 
 ### Fixed
+- **Development tools only:** undici, which the test runner pulls in, is pinned to 7.29.1 for six advisories (Dependabot). It isn't part of the app that runs on Cloudflare, so nothing changes for a running instance.
 - **A loan's due date is kept only when it's a real date.** The item page's Lend form stored whatever it was sent, which the export couldn't carry; anything else now means no due date, as it already did when lending to a connected household. Due dates already stored as free text ("next week") still export and import unchanged.
 
 ### Upgrading
