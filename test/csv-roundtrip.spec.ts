@@ -72,7 +72,7 @@ const HOUSEHOLD = { id: null, admin: true };
 
 const FIELDS = [
   'mediaType', 'title', 'creators', 'isbn13', 'isbn10Upc', 'publisher', 'published', 'description', 'length',
-  'status', 'rating', 'review', 'notes', 'copies', 'beganOn', 'completedOn', 'readCount', 'rereading', 'addedAt', 'details',
+  'status', 'rating', 'review', 'notes', 'location', 'copies', 'beganOn', 'completedOn', 'readCount', 'rereading', 'addedAt', 'details',
 ] as const;
 
 describe('a Nalanda export, imported again', () => {
@@ -92,6 +92,7 @@ describe('a Nalanda export, imported again', () => {
       rating: 7,
       review: 'Modal, patient, "perfect" —\nstill, after all these years.',
       notes: 'Bought at the fair, 2019',
+      location: 'Living room, "the good crate"',
       copies: 1,
       beganOn: '2026-01-02',
       completedOn: '2026-01-03',
