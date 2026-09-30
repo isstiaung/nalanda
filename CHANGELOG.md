@@ -8,7 +8,9 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
-## [Unreleased]
+## [1.4.0] - 2026-09-30
+
+What to read next, a book's lending history, bulk edit, and Nalanda on your phone's home screen with scanning that works offline. Also a security fix: a removed member's session could sign in as the next member created.
 
 ### Added
 - **"Lent before" on an item's page**: every past loan of it, newest first, with who borrowed it, when it went out and came back, and for how many days. Loans to connected households are listed too, as "household (their member)". The latest 20 show, and older ones are counted. It appears only once something has been lent and returned, and only inside the app: share pages and connected households never see loans or borrowers. Nothing to do when upgrading — it reads the loans you already have.
@@ -26,10 +28,10 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **Everyone is signed out once.** Cookies from before this update carry no session key, so they no longer work, and everyone, you included, logs in again with their password. Passwords don't change. Anyone in the middle of a form when you deploy loses what they hadn't saved, so deploy when nobody is using the app.
 - **Restoring a backup taken before this update** leaves its accounts without a key. Each account gets one the next time it logs in with its password, and nothing signs it in before that. [runbooks/backup-and-restore.md](runbooks/backup-and-restore.md) has the details.
 - **Don't roll back past this release** without restoring the backup. Older code works with the new column, but it signs cookies without a key, and this version signs everyone out again when you come back to it.
-- **No new secrets.** Connections are unaffected by the new session keys: households never hold sessions here.
+- **No new secrets.**
 - `wrangler.jsonc` now serves `.html` files under their own names (`"html_handling": "none"`), for the offline page. If you keep your own copy of `wrangler.jsonc`, add that line to its `assets` block.
 - Phones that already added Nalanda to their home screen pick up the new icon when the browser next checks the manifest; removing and re-adding it is quicker.
-- Connections to households on older versions are unaffected.
+- **Connections** are unaffected, including households on older versions: they never hold sessions here.
 
 ## [1.3.0] - 2026-09-29
 
