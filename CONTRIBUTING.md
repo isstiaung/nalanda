@@ -17,7 +17,7 @@ npm test           # vitest, inside the real Workers runtime
 npm run typecheck
 npm run lint       # accessibility rules (eslint-plugin-jsx-a11y) over the TSX views
 npx playwright install chromium   # once, for the next line
-npm run a11y       # axe-core on every page in a real browser — its own scratch server on :8817
+npm run a11y       # axe-core on every page in a real browser — its own scratch servers on :8817 and :8819
 ```
 
 Everything runs offline. Local D1 is a real SQLite file and R2 is emulated, so you never need

@@ -1860,33 +1860,32 @@ export const Tracklist: FC<{ tracks: Track[] }> = ({ tracks }) => {
   );
 };
 
-/**
- * A record's pressing — label, catalogue number, country, year, format — and its tracklist, then whatever else its
- * details hold, as the plain list every item page has. Used by the item page and the share page alike: pressing
- * details are public catalogue data (§9). `after` sits between the pressing and the rest (the Refresh button).
- * Discogs' credit (§16 #63) goes right below the pressing it credits — or, for a record whose only Discogs data is
- * in the plain list (its genres), below that — when `discogsLink()` says the record owes one.
- */
-export const RecordDetails: FC<{ details: Record<string, unknown>; after?: unknown; publicPage?: boolean }> = ({
-  details,
-  after,
-  publicPage,
-}) => {
+/** How a record's details divide: the pressing and tracklist, the rest, and whether Discogs is owed a credit. */
+function pressingParts(details: Record<string, unknown>) {
   const { pressing, tracklist, rest } = splitPressing(details);
   const empty = !pressing.length && !tracklist.length;
   const discogs = discogsLink({ mediaType: 'vinyl', details }); // only ever called for a record
+  return { pressing, tracklist, rest, empty, discogs };
+}
+
+/** The pressing section's own content, above its Refresh button: the pressing, the tracklist, Discogs' credit. */
+const PressingBody: FC<{ details: Record<string, unknown> }> = ({ details }) => {
+  const { pressing, tracklist, empty, discogs } = pressingParts(details);
   return (
     <>
-      {empty && publicPage ? null : (
-        <div class="detail-section" id="pressing">
-          <p class="eyebrow">Pressing</p>
-          {pressing.length ? <DetailsList details={Object.fromEntries(pressing)} /> : null}
-          {empty ? <p class="muted">No pressing details yet.</p> : null}
-          <Tracklist tracks={tracklist} />
-          {discogs && !empty ? <DiscogsAttribution href={discogs} /> : null}
-          {after}
-        </div>
-      )}
+      {pressing.length ? <DetailsList details={Object.fromEntries(pressing)} /> : null}
+      {empty ? <p class="muted">No pressing details yet.</p> : null}
+      <Tracklist tracks={tracklist} />
+      {discogs && !empty ? <DiscogsAttribution href={discogs} /> : null}
+    </>
+  );
+};
+
+/** What follows the pressing section: the rest of the details, and Discogs' credit when they're all it credits. */
+const PressingMore: FC<{ details: Record<string, unknown> }> = ({ details }) => {
+  const { rest, empty, discogs } = pressingParts(details);
+  return (
+    <>
       {Object.keys(rest).length ? (
         <div class="detail-section">
           <p class="eyebrow">Details</p>
@@ -1897,6 +1896,62 @@ export const RecordDetails: FC<{ details: Record<string, unknown>; after?: unkno
     </>
   );
 };
+
+/**
+ * A record's pressing — label, catalogue number, country, year, format — and its tracklist, then whatever else its
+ * details hold, as the plain list every item page has. Used by the item page and the share page alike: pressing
+ * details are public catalogue data (§9). `after` sits between the pressing and the rest (the Refresh button).
+ * Discogs' credit (§16 #63) goes right below the pressing it credits — or, for a record whose only Discogs data is
+ * in the plain list (its genres), below that — when `discogsLink()` says the record owes one. `inPlace` (the item
+ * page's) wraps what "Refresh from Discogs" can change in the ids `PressingSwap` answers with.
+ */
+export const RecordDetails: FC<{ details: Record<string, unknown>; after?: unknown; publicPage?: boolean; inPlace?: boolean }> = ({
+  details,
+  after,
+  publicPage,
+  inPlace,
+}) => {
+  const { empty } = pressingParts(details);
+  return (
+    <>
+      {empty && publicPage ? null : (
+        <div class="detail-section" id="pressing">
+          <p class="eyebrow">Pressing</p>
+          {inPlace ? (
+            <div id="pressing-body">
+              <PressingBody details={details} />
+            </div>
+          ) : (
+            <PressingBody details={details} />
+          )}
+          {after}
+        </div>
+      )}
+      {inPlace ? (
+        <div id="pressing-more">
+          <PressingMore details={details} />
+        </div>
+      ) : (
+        <PressingMore details={details} />
+      )}
+    </>
+  );
+};
+
+/**
+ * What "Refresh from Discogs" answers htmx with (§16 #55): the pressing section's content, which its form swaps, and
+ * what follows the section, out of band. The section's Refresh button and live region stay where they are.
+ */
+export const PressingSwap: FC<{ details: Record<string, unknown> }> = ({ details }) => (
+  <>
+    <div id="pressing-body">
+      <PressingBody details={details} />
+    </div>
+    <div id="pressing-more" hx-swap-oob="true">
+      <PressingMore details={details} />
+    </div>
+  </>
+);
 // ---------- want lists and purchase links (ARCH.md §16 #53) ----------
 
 /** What the toggle says: a book is read; a record or a game is only wanted. */
