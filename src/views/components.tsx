@@ -870,7 +870,7 @@ export const ItemCard: FC<{ item: Item; onLoan?: boolean; href?: string; wanted?
  * the member's read and lands on the book. "Another" asks the Overview for a new pick without this one; htmx swaps the
  * card inside #read-next, and puts focus back on the new "Another" by its id. Without htmx it reloads the Overview.
  */
-export const ReadNextCard: FC<{ pick: Pick<Item, 'id' | 'title' | 'creators' | 'coverKey' | 'copies' | 'mediaType'> | null }> = ({
+export const ReadNextCard: FC<{ pick: (Pick<Item, 'id' | 'title' | 'creators' | 'coverKey' | 'copies' | 'mediaType'> & { wanted?: boolean }) | null }> = ({
   pick,
 }) =>
   pick ? (
@@ -887,6 +887,7 @@ export const ReadNextCard: FC<{ pick: Pick<Item, 'id' | 'title' | 'creators' | '
         <p class="read-next-line">
           <small class="acc-no">{accNo(pick.id)}</small>
           {pick.copies === 0 ? <NotOwnedPill /> : null}
+          {pick.copies === 0 && pick.wanted ? <WantedPill /> : null}
         </p>
         <div class="read-actions">
           <form method="post" action={`/items/${pick.id}/reads/start`}>

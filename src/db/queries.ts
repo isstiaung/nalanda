@@ -567,7 +567,7 @@ export async function recentItems(d1: D1Database, limit = 12): Promise<Item[]> {
 }
 
 /** What the Overview's "Read next" card shows of its pick. */
-export type ReadNextPick = Pick<Item, 'id' | 'title' | 'creators' | 'coverKey' | 'copies' | 'mediaType'>;
+export type ReadNextPick = Pick<Item, 'id' | 'title' | 'creators' | 'coverKey' | 'copies' | 'mediaType'> & { wanted: boolean };
 
 /**
  * A random book for `readerId` to read next, or null when there is none: any book, owned or not, that they haven't
@@ -585,6 +585,8 @@ export async function pickNextRead(d1: D1Database, readerId: number, notId: numb
       coverKey: s.items.coverKey,
       copies: s.items.copies,
       mediaType: s.items.mediaType,
+      // the "Wanted" badge beside "Not owned" (§16 #53), in the same query
+      wanted: sql`${s.items.copies} = 0 AND EXISTS (SELECT 1 FROM ${s.wants} WHERE ${s.wants.itemId} = ${s.items.id})`.mapWith(Boolean),
     })
     .from(s.items)
     .where(

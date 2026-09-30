@@ -86,6 +86,24 @@ describe('the Wanted badge inside the app', () => {
   });
 });
 
+describe('the Wanted badge on the Overview', () => {
+  it('shows on the Read next card, from the same query, when the pick is wanted and not owned', async () => {
+    const asha = await member('asha', 'admin');
+    const shelf = await createLibrary(env.DB, 'Fiction');
+    const only = await book(asha, { libraryId: shelf.id, title: 'The only book', copies: 0 });
+    const card = async () => {
+      const page = await html(asha, '/');
+      return page.slice(page.indexOf('read-next'), page.indexOf('read-next') + 2500);
+    };
+    expect(await card()).toContain('The only book'); // negative control: the card is there, and picks it
+    expect(await card()).not.toContain('pill wanted');
+    await setWant(env.DB, only.id, asha.id, true);
+    expect(await card()).toContain(BADGE);
+    await updateItem(env.DB, only.id, { copies: 1 });
+    expect(await card()).not.toContain('pill wanted');
+  });
+});
+
 describe('the Wanted badge on share pages', () => {
   it('shows on a share list and item page as a boolean — no name, and no key for anything else', async () => {
     const s = await scene();
