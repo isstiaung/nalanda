@@ -10,9 +10,19 @@ Each release has an **Upgrading** section. Read it for every version between you
 
 ## [Unreleased]
 
+### Added
+- **In your catalog.** A scan or search result on the Add page, or a held scan being reviewed, that the catalog already has — the same book by ISBN, record by barcode or Discogs id, game by BGG id — says so, with a pill that opens it.
+
+### Changed
+- **Games and records show no reading status.** Board games and records take plays, not reads: their status pill, reading dates and reads are gone from tables and their pages, their edit form has no Status or dates, and a shelf showing only them has no Status or Read by filter. Nothing is removed from the data or the export.
+- **Want to read** isn't offered on a book the household owns and someone has read or is reading (a want already there stays removable), and **Where to buy** shows only for items nobody owns or someone wants. Links on other items are kept, and still export.
+- **One date format everywhere:** 2026-09-28, and 2026-09-28 18:28 where a time shows — plays and held scans too, which read "28 Sep" and "Sep 30, 06:28 PM". The export is unchanged.
+- Under 1,400 px wide, a shelf's table starts without its Tags column so it fits beside the sidebar; **Columns** brings it back, and a choice made there is kept as before.
+
 ### Fixed
-- Catalog polish: on a shelf, Columns and the Table/Covers toggle wrap together; the publish forms show their whole link-name hint; a review's "You" is set as the Reading section sets it, and an open edit keeps its buttons apart; Add results say "via Open Library" rather than "via openlibrary"; the import page says "shelf" and "1 row"; playing times say they're in minutes; and "1 TAGS", "its last finished read's" and "Pick from the board game" are gone.
-- The Overview's recently added cards, and a series' volumes, show **Lent** and **Wanted** as a shelf does.
+- Catalog polish: on a shelf, Columns and the Table/Covers toggle wrap together; the publish forms show their whole link-name hint; a review's "You" is set as the Reading section sets it, and an open edit keeps its buttons apart; Add results say "via Open Library" rather than "via openlibrary"; the import page says "shelf" and "1 row"; playing times say they're in minutes; the lend form's date box says **Due**; the Paid line's counts are monospace and grouped (1,681), as the Overview's are; and "1 TAGS", "its last finished read's" and "Pick from the board game" are gone.
+- The Overview's recently added cards, and a series' volumes, show **Lent** and **Wanted** as a shelf does — an item lent again after an earlier loan came back included.
+- **Read next** says plainly when nobody owns the book it suggests.
 - **Delete shelf** asks about every item on the shelf, not just those the filters show.
 - Search says when it's showing only its 50 best matches.
 
