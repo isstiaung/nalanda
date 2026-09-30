@@ -84,6 +84,18 @@ describe('the filters', () => {
     const six = await gamesForTonight(env.DB, f({ players: 6 }), 60);
     expect(titles(six.fit)).toEqual(titles([g.libib, g.twoCopies]));
 
+    // only a maximum: from one player up to it; only a minimum: exactly that many
+    const onlyMax = await game(asha, 'Only max 5', { players_max: 5 });
+    const onlyMin = await game(asha, 'Only min 2', { players_min: 2 });
+    const forFour = titles((await gamesForTonight(env.DB, f({ players: 4 }), 60)).fit);
+    expect(forFour).toContain(onlyMax.title);
+    expect(forFour).not.toContain(onlyMin.title);
+    const forOne = titles((await gamesForTonight(env.DB, f({ players: 1 }), 60)).fit);
+    expect(forOne).toContain(onlyMax.title);
+    expect(titles((await gamesForTonight(env.DB, f({ players: 6 }), 60)).fit)).not.toContain(onlyMax.title);
+    expect(titles((await gamesForTonight(env.DB, f({ players: 2 }), 60)).fit)).toContain(onlyMin.title);
+    expect((await gamesForTonight(env.DB, ANY, 60)).fit.find((x) => x.id === onlyMax.id)).toMatchObject({ playersMin: 1, playersMax: 5 });
+
     // a range typed backwards reads the right way round
     const backwards = await game(asha, 'Five down to two', { players_min: 5, players_max: 2 });
     expect(titles((await gamesForTonight(env.DB, f({ players: 3 }), 60)).fit)).toContain(backwards.title);

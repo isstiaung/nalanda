@@ -17,7 +17,7 @@ import {
   type ReadDraft,
   type ReadRow,
 } from '../lib/reads';
-import { WEIGHT_BANDS, type GameFilters } from '../lib/games';
+import { FEWEST_PLAYERS, WEIGHT_BANDS, type GameFilters } from '../lib/games';
 import { MAX_LINKS_PER_ITEM, type LinkDraft } from '../lib/links';
 import { MAX_LOANS_PER_CELL, type LoanDraft } from '../lib/loans';
 import { MAX_PLAYS_PER_ITEM, PLAYABLE_TYPES, RECENT_PLAYS, type CellPlay, type PersonPlay } from '../lib/plays';
@@ -654,8 +654,8 @@ const atLeastOne = (expr: string) => `CASE WHEN (${expr}) >= 1 THEN (${expr}) EN
  * details"), and NULL when something known rules it out. ?1 players, ?2 minutes, ?3–?4 the weight band; NULL is any.
  *
  * - Only games that are here: in the collection (copies > 0) with a copy not out on loan.
- * - Players: a missing bound takes the other's value — a single number reads as exactly that many — and a range typed
- *   backwards reads the right way round.
+ * - Players: inside [players_min, players_max], a range typed backwards read the right way round. Only a maximum starts
+ *   the range at FEWEST_PLAYERS (1); only a minimum reads as exactly that many (src/lib/games.ts).
  * - Time, conservatively: the longer end of the playing time its details give (playtime_max, else playtime_min, the
  *   larger when both are there), else the Length column (BGG's playing time), and it fits only within the minutes.
  * - Weight: BGG's 1–5 average, in the band's [from, below).
@@ -668,7 +668,9 @@ WITH here AS (
   WHERE i.media_type = 'boardgame'
     AND i.copies > (SELECT count(*) FROM loans l WHERE l.item_id = i.id AND l.returned_on IS NULL)
 ),
-raw AS (
+-- MATERIALIZED: each game's numbers are worked out once. Left to itself SQLite flattens these CTEs into the query,
+-- copying every json_extract into each place a later step names the value — enough copies to run it out of memory.
+raw AS MATERIALIZED (
   SELECT id, title, creators, cover_key, media_type, length,
          ${atLeastOne(detailNumber('players_min'))} AS p1,
          ${atLeastOne(detailNumber('players_max'))} AS p2,
@@ -677,9 +679,9 @@ raw AS (
          ${detailNumber('weight')} AS w
   FROM here
 ),
-g AS (
+g AS MATERIALIZED (
   SELECT id, title, creators, cover_key, media_type,
-         min(coalesce(p1, p2), coalesce(p2, p1)) AS pmin,
+         CASE WHEN p1 IS NULL AND p2 IS NOT NULL THEN ${FEWEST_PLAYERS} ELSE min(coalesce(p1, p2), coalesce(p2, p1)) END AS pmin,
          max(coalesce(p1, p2), coalesce(p2, p1)) AS pmax,
          coalesce(max(coalesce(t2, t1), coalesce(t1, t2)), CASE WHEN length >= 1 THEN length END) AS minutes,
          CASE WHEN w >= 1 AND w <= 5 THEN w END AS weight

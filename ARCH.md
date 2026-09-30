@@ -2375,9 +2375,11 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       minimum known counts as the whole game), else the Length column (BGG's `playingtime`, which may
       be all a game typed in by hand has), and it fits when that is at most the minutes you have — an
       exact fit fits. A 60–120 minute game is not offered for an hour, however short its best case.
-    - **Players:** fits when the count is inside `[players_min, players_max]`; a missing bound takes
-      the other's value, so a single number reads as exactly that many — the narrowest reading — and
-      a range typed backwards reads the right way round.
+    - **Players:** fits when the count is inside `[players_min, players_max]`, a range typed backwards
+      read the right way round. Only a maximum reads as 1 up to it (`FEWEST_PLAYERS`): "up to 5" says
+      nothing against a table of four. Only a minimum reads as exactly that many — the narrowest
+      reading, since "2" with no maximum may be a two-player game. (Found by nalanda-review: a max-only
+      game first read as exactly its maximum, so "up to 5" never came out for four.)
     - **Games missing a detail get their own group, "Not enough details",** under what fits, each
       unknown fact shown as unknown. It is per filter: a game is there only when something you asked
       about is missing *and* nothing known already rules it out, so a two-player game with no weight
@@ -2410,7 +2412,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     number with `json_extract` — a JSON number, or text that is only a number (a libib import keeps
     every value as text); `json_valid()` guards details that aren't JSON, and zero or junk is no value —
     then marks each game fits (1), missing a detail (0) or ruled out (NULL) from four bound parameters,
-    NULL meaning "any". `row_number()` and `count(*)` over `PARTITION BY fit ORDER BY random()` return
+    NULL meaning "any". The two steps that work out the numbers are `MATERIALIZED`: left to flatten
+    them into the query, SQLite copies each `json_extract` into every place a later step names the
+    value, and one more reference (the max-only player rule) was enough to fail every query with
+    `SQLITE_NOMEM` in the tests, even on ten games. `row_number()` and `count(*)` over `PARTITION BY fit ORDER BY random()` return
     at most 60 of each group, at random, with the totals, so a big collection costs rows scanned, not
     rows sent; the page says "Showing 60 of 205". `pickGameForTonight()` is the same CTE with `LIMIT 1`.
     The page is 4 D1 calls (the session, the sidebar's two, the results) and its htmx answer 2, with or

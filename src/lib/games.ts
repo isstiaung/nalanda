@@ -31,6 +31,14 @@ export const TIME_CHOICES = [20, 30, 45, 60, 90, 120, 180, 240] as const;
 export const MAX_MINUTES = 24 * 60;
 export const MAX_PLAYERS = 99;
 
+/**
+ * How a game's player count is read (the query in src/db/queries.ts follows this): the count must be inside
+ * `[players_min, players_max]`, a range typed backwards read the right way round. With only `players_max`, the range
+ * starts at FEWEST_PLAYERS — "up to 5" says nothing against a smaller table. With only `players_min`, it is exactly
+ * that many: "2 players" with no maximum is the narrowest reading, and the conservative one.
+ */
+export const FEWEST_PLAYERS = 1;
+
 /** "45 min", "1 hour", "1½ hours", "3 hours". */
 export function minutesLabel(m: number): string {
   if (m < 60) return `${m} min`;
