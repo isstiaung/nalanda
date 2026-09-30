@@ -132,10 +132,12 @@ function formatOf(formats: DiscogsRelease['formats']): string | undefined {
 /** Pressing details from a release (GET /releases/{id}). One pass over plain JSON: cheap, whatever its size. */
 export function pressingFromRelease(r: DiscogsRelease): Pressing {
   const labels = Array.isArray(r.labels) ? r.labels.filter((l) => l && typeof l === 'object') : [];
+  const names = labels.map((l) => bare(text(l.name)));
   const year = Number.isSafeInteger(r.year) && (r.year as number) > 0 ? (r.year as number) : undefined;
   return {
     discogsId: positiveId(r.id),
-    label: joined(labels.map((l) => bare(text(l.name)))),
+    label: joined(names),
+    firstLabel: names.find((n) => !!n),
     // Discogs writes "none" where a label printed no catalogue number
     catno: joined(labels.map((l) => text(l.catno, 60)).filter((c) => c && c.toLowerCase() !== 'none')),
     country: text(r.country, 60),
@@ -149,13 +151,15 @@ export function pressingFromRelease(r: DiscogsRelease): Pressing {
 /** Pressing details from a search result: everything but the tracklist, which only the release has. */
 export function pressingFromSearch(r: DiscogsResult): Pressing {
   const year = Number.parseInt(r.year ?? '', 10);
+  const names = (Array.isArray(r.label) ? r.label : []).map((l) => bare(text(l)));
   return {
     discogsId: positiveId(r.id),
-    label: joined((r.label ?? []).map((l) => bare(text(l)))),
+    label: joined(names),
+    firstLabel: names.find((n) => !!n),
     catno: text(r.catno, 120) && r.catno!.trim().toLowerCase() !== 'none' ? text(r.catno, 120) : undefined,
     country: text(r.country, 60),
     year: Number.isSafeInteger(year) && year > 0 ? year : undefined,
-    format: joined((r.format ?? []).map((f) => text(f, 60))),
+    format: joined((Array.isArray(r.format) ? r.format : []).map((f) => text(f, 60))),
     genres: genreList(r.genre),
   };
 }
@@ -197,7 +201,7 @@ export function discogs(token: string | undefined): MetadataProvider & {
           mediaType: 'vinyl',
           title,
           creators,
-          publisher: r.label?.[0],
+          publisher: p.firstLabel,
           published: r.year,
           coverUrl: r.cover_image,
           // the scanned code, kept: it is what "Refresh from Discogs" looks the record up by when no release id is

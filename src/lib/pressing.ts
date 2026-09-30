@@ -12,6 +12,7 @@ export type Track = { position?: string; title: string; duration?: string; artis
 export type Pressing = {
   discogsId?: number;
   label?: string; // every label, joined — "Parlophone, EMI"
+  firstLabel?: string; // the first of them: a record's publisher column
   catno?: string; // every catalogue number, joined
   country?: string;
   year?: number;
@@ -79,7 +80,7 @@ export function fillPressing(item: Columns & { details: string | null }, p: Pres
     details[k] = v;
     filled.push(k);
   }
-  const firstLabel = p.label?.split(', ')[0]?.trim() || null;
+  const firstLabel = p.firstLabel?.trim() || null;
   let { publisher, published, length } = item;
   if (isBlank(publisher) && firstLabel) {
     publisher = firstLabel;
