@@ -8,6 +8,7 @@ import {
   addPurchaseLink,
   deletePurchaseLink,
   existingForWant,
+  itemPageLog,
   setWant,
   wantsAndLinks,
   addProgress,
@@ -468,17 +469,17 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
   const viewer = viewerOf(c);
-  const [lib, tags, loans, people, log, lent, plays, inSeries, want] = await Promise.all([
+  const [lib, tags, loans, people, log, lent, plays, inSeries] = await Promise.all([
     getLibrary(c.env.DB, item.libraryId),
     tagsForItem(c.env.DB, id),
     activeLoansForItem(c.env.DB, id),
     listPeople(c.env.DB),
-    readingLog(c.env.DB, id),
+    // with its want list and purchase links, in the same call (§16 #53)
+    itemPageLog(c.env.DB, id),
     pastLoansForItem(c.env.DB, id),
     playLog(c.env.DB, id),
     // its series, with the viewer's own reading of every volume (§16 #52): one call, only for an item in one
     item.seriesId !== null ? seriesWithVolumes(c.env.DB, item.seriesId, viewer.id) : null,
-    wantsAndLinks(c.env.DB, id),
   ]);
   const addedBy = item.addedBy ? (people.find((p) => p.id === item.addedBy) ?? null) : null;
   const grouped = showsPeople(people, viewer, log);
@@ -513,7 +514,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
             ))}
           </p>
         ) : null}
-        <WantBar item={item} wanters={want.wanters} viewer={viewer} />
+        <WantBar item={item} wanters={log.want.wanters} viewer={viewer} />
 
         <dl class="props">
           <dt>Accession</dt>
@@ -530,7 +531,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           <dt>Holding</dt>
           <dd>
             <HoldingPill item={item} />
-            {item.copies === 0 && want.wanters.length ? <WantedPill /> : null}
+            {item.copies === 0 && log.want.wanters.length ? <WantedPill /> : null}
           </dd>
           {/* where it lives (§16 #51) — private, like notes: share pages and connections never carry it */}
           {item.location ? (
@@ -646,7 +647,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           <PlaysSection item={item} count={plays.count} plays={plays.plays} today={todayUtc()} viewer={viewer} people={people} />
         ) : null}
 
-        <BuySection itemId={item.id} links={want.links} error={link?.error} label={link?.label} url={link?.url} />
+        <BuySection itemId={item.id} links={log.want.links} error={link?.error} label={link?.label} url={link?.url} />
 
         {grouped ? (
           <>

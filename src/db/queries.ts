@@ -1595,7 +1595,28 @@ export async function readingLog(
   d1: D1Database,
   itemId: number,
 ): Promise<{ reads: ReadEntry[]; entries: ProgressEntry[]; reviews: ReviewEntry[] }> {
-  const [reads, entries, reviews] = await d1.batch([
+  return readingLogOf(await d1.batch(readingLogStatements(d1, itemId)));
+}
+
+/**
+ * The item page's reading log and its want list and purchase links (§16 #53) in the same one D1 call — readingLog's
+ * batch with wantsAndLinks' two statements after it — so want lists add nothing to the page's calls.
+ */
+export async function itemPageLog(
+  d1: D1Database,
+  itemId: number,
+): Promise<{
+  reads: ReadEntry[];
+  entries: ProgressEntry[];
+  reviews: ReviewEntry[];
+  want: { wanters: Array<{ id: number; username: string; at: string }>; links: Array<{ id: number; label: string; url: string }> };
+}> {
+  const results = await d1.batch([...readingLogStatements(d1, itemId), ...wantsAndLinksStatements(d1, itemId)]);
+  return { ...readingLogOf(results), want: wantsAndLinksOf(results.slice(3)) };
+}
+
+function readingLogStatements(d1: D1Database, itemId: number): D1PreparedStatement[] {
+  return [
     d1
       .prepare(
         `SELECT r.id, r.status, r.began_on AS beganOn, r.ended_on AS endedOn, r.created_at AS createdAt, r.reader_id AS readerId
@@ -1611,7 +1632,10 @@ export async function readingLog(
          FROM reviews v WHERE v.item_id = ?1 ORDER BY ${reviewOrderSql('v')}`,
       )
       .bind(itemId),
-  ]);
+  ];
+}
+
+function readingLogOf([reads, entries, reviews]: D1Result[]): { reads: ReadEntry[]; entries: ProgressEntry[]; reviews: ReviewEntry[] } {
   return {
     reads: (reads?.results ?? []) as ReadEntry[],
     entries: (entries?.results ?? []) as ProgressEntry[],
@@ -2151,12 +2175,22 @@ export async function wantsAndLinks(
   d1: D1Database,
   itemId: number,
 ): Promise<{ wanters: Array<{ id: number; username: string; at: string }>; links: Array<{ id: number; label: string; url: string }> }> {
-  const [w, l] = await d1.batch([
+  return wantsAndLinksOf(await d1.batch(wantsAndLinksStatements(d1, itemId)));
+}
+
+function wantsAndLinksStatements(d1: D1Database, itemId: number): D1PreparedStatement[] {
+  return [
     d1
       .prepare('SELECT u.id, u.username, w.created_at AS at FROM wants w JOIN users u ON u.id = w.user_id WHERE w.item_id = ?1 ORDER BY w.created_at, u.id')
       .bind(itemId),
     d1.prepare('SELECT id, label, url FROM purchase_links WHERE item_id = ?1 ORDER BY id').bind(itemId),
-  ]);
+  ];
+}
+
+function wantsAndLinksOf([w, l]: D1Result[]): {
+  wanters: Array<{ id: number; username: string; at: string }>;
+  links: Array<{ id: number; label: string; url: string }>;
+} {
   return {
     wanters: (w?.results ?? []) as Array<{ id: number; username: string; at: string }>,
     links: (l?.results ?? []) as Array<{ id: number; label: string; url: string }>,
