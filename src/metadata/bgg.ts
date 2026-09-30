@@ -79,11 +79,23 @@ type ThingItem = {
   minplaytime?: { '@_value'?: string };
   maxplaytime?: { '@_value'?: string };
   link?: Array<{ '@_type'?: string; '@_value'?: string }>;
+  // only with `stats=1`: BGG's community ratings, among them the complexity ("weight") poll's average
+  statistics?: { ratings?: { averageweight?: { '@_value'?: string } } };
 };
 
 function num(v: string | undefined): number | undefined {
   const n = Number.parseInt(v ?? '', 10);
   return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+/**
+ * BGG's complexity rating ("weight"): the average of its users' votes on a 1–5 scale, which `thing` answers with
+ * `stats=1`. Kept to two decimals, as BGG's own game pages show it ("2.29 / 5"). A game nobody has voted on reads
+ * 0 — no weight, not the lightest — and anything off the scale is no weight either (ARCH.md §16 #60).
+ */
+export function parseWeight(raw: string | undefined): number | undefined {
+  const n = Number.parseFloat(raw ?? '');
+  return Number.isFinite(n) && n >= 1 && n <= 5 ? Math.round(n * 100) / 100 : undefined;
 }
 
 function toCandidate(item: ThingItem): Candidate | null {
@@ -118,6 +130,7 @@ function toCandidate(item: ThingItem): Candidate | null {
       players_max: num(item.maxplayers?.['@_value']),
       playtime_min: num(item.minplaytime?.['@_value']),
       playtime_max: num(item.maxplaytime?.['@_value']),
+      weight: parseWeight(item.statistics?.ratings?.averageweight?.['@_value']),
       year: num(year),
     },
     provider: 'bgg',
@@ -133,6 +146,35 @@ export function firstIds(xml: string, limit: number): string[] {
   const re = /<item\b[^>]*\bid="(\d+)"/g;
   for (let m = re.exec(xml); m && ids.length < limit; m = re.exec(xml)) ids.push(m[1]!);
   return ids;
+}
+
+/** What one `thing` request for a stored BGG id came back with — never text from BGG's answer, only a code. */
+export type BggFailure = 'not_found' | 'busy' | 'refused' | 'unavailable';
+export type BggGameResult = { ok: true; game: Candidate } | { ok: false; failure: BggFailure };
+
+/**
+ * One game by its BGG id, in exactly one request (`thing` with `stats=1`, which carries the weight) — for "Refresh
+ * from BGG" (ARCH.md §16 #60). A failure is a result, never a throw: the page says why by code.
+ */
+export async function bggGame(token: string, id: number): Promise<BggGameResult> {
+  let xml: string;
+  try {
+    xml = await fetchText(`${API}/thing?id=${id}&stats=1`, token);
+  } catch (err) {
+    if (err instanceof BggAuthError) return { ok: false, failure: 'refused' };
+    if (err instanceof BggBusyError) return { ok: false, failure: 'busy' };
+    return { ok: false, failure: 'unavailable' }; // a 403 from BGG's edge, another status, a timeout
+  }
+  let doc: { items?: { item?: ThingItem[] } } | null;
+  try {
+    doc = parser.parse(xml) as typeof doc;
+  } catch {
+    return { ok: false, failure: 'unavailable' };
+  }
+  // an unknown id answers 200 with no <item>; the one asked for is the only one that counts
+  const item = (doc?.items?.item ?? []).find((i) => num(i['@_id']) === id);
+  const game = item ? toCandidate(item) : null;
+  return game ? { ok: true, game } : { ok: false, failure: 'not_found' };
 }
 
 export function bgg(token: string | undefined): MetadataProvider {

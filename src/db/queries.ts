@@ -557,6 +557,26 @@ export async function applyPressingFill(
   return res.meta.changes > 0;
 }
 
+/**
+ * Writes what "Refresh from BGG" filled in (§16 #60) — only if the game's details and length are still as it read
+ * them, so an edit saved while BGG was asked wins. False when something changed: nothing is written.
+ */
+export async function applyGameFill(
+  d1: D1Database,
+  id: number,
+  before: Pick<Item, 'details' | 'length'>,
+  after: Pick<Item, 'details' | 'length'>,
+): Promise<boolean> {
+  const res = await d1
+    .prepare(
+      `UPDATE items SET details = ?1, length = ?2, updated_at = datetime('now')
+       WHERE id = ?3 AND media_type = 'boardgame' AND details = ?4 AND length IS ?5`,
+    )
+    .bind(after.details, after.length, id, before.details, before.length)
+    .run();
+  return res.meta.changes > 0;
+}
+
 /** Deletes an item, and its series with it if it was the series' last volume here (§16 #52). */
 export async function deleteItem(d1: D1Database, id: number): Promise<void> {
   await d1.batch([d1.prepare('DELETE FROM items WHERE id = ?1').bind(id), pruneSeries(d1)]);
