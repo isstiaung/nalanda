@@ -8,6 +8,18 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [Unreleased]
+
+### Changed
+- **A book being read again counts as In progress.** Status = **In progress** now lists every book someone in the household is reading, including one finished before and being read again, or one someone else finished that you're reading now. It still also counts as **Completed**, since it was finished; ticking both lists it once. This applies everywhere a status is filtered: shelves, share links and connection views filtered to In progress now include re-reads.
+- **A re-read's status says "Re-reading"** instead of "Completed" on shelves and on its page, so it doesn't look finished in an In progress list. Share pages and connected households still see no status.
+- **A connection view filtered to In progress never sends a finish**, so a book entering it because someone started reading it again doesn't bring its old finish along as news. Starting, finishing or stopping a re-read sends what reading a book for the first time does.
+
+### Upgrading
+- **No migration and no new secret.** Nothing is stored differently: the change is in how status filters read what's there.
+- **Share links and connection views filtered to In progress grow** to include books being read again. Check **Shared links** and **Connections** if that matters to you.
+- **Connections:** nothing changes on the wire. Households on 1.6.0 or older following your In progress views simply see the re-reads in them; their own In progress views keep the old meaning until they update.
+
 ## [1.6.0] - 2026-09-30
 
 Year in review, game night, recommendations between connected households, what you paid for things, a sidebar in sections, an accessibility audit in CI, and Discogs' credit beside a record's pressing.

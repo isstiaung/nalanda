@@ -160,7 +160,8 @@ shape from this file.
   publish where things are kept.
 - Share tokens are random 128-bit, **one per published view** (`shares` table — filters, or a
   tag, captured at publish time; `itemMatchesShare()` guards the public item route, and its
-  query-side twin `shareFilters()` must stay in step with it).
+  query-side twin `shareFilters()` must stay in step with it; a captured In progress holds a
+  re-read too, through `matchesStatus()`/`statusWhere()`, ARCH.md §16 #64).
   Publish/rotate/remove is admin-only; `/shares` (`src/routes/shares.tsx`) is the
   admin-only inventory of everything published. A shelf is only "Shared" when a
   filterless link exposes it entire — `shareVisibility()`, ARCH.md §16 #23. Share pages are memory-cached per isolate for
@@ -196,7 +197,9 @@ shape from this file.
   boolean — never a borrower, due date or copies count, nor where the item is kept (`location`); reading history is a count
   (`readCount`, the household's), never the reads, their dates or their readers; the rating
   and review are the household summary, never a member's name — unless `names_to_connections` is
-  on, and then only display names (see above). Triggers on `items` record
+  on, and then only display names (see above). A view's status filters as the shelf does — In
+  progress holds a re-read (§16 #64) — and a view filtered to In progress serves no finish or goal
+  milestone (`kindsInView()`), so a re-read entering it brings no old finish. Triggers on `items` record
   activity only while a connection view exists (migration 0007), dated by when it happened —
   an import's batch brackets itself with `import_in_progress` so old reads aren't news
   (migration 0021, ARCH.md §16 #40).
@@ -361,9 +364,12 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
   `completed_on`, `read_count`, `rereading` and `progress_page` are the **household's** summary
   of everyone's reads: write reads and `refreshReadState()` in one batch, never those columns
   directly. Completed once anyone has finished it; a re-read — or anyone's read of a book
-  someone finished — keeps it Completed (`rereading` marks it), so nothing moves between
-  status-filtered views. Each person has at most one open read of an item; "Read again",
-  Finish, Stop and Record act on the signed-in person's own reads, and the edit form's status
+  someone finished — keeps it Completed (`rereading` marks it). Every Status filter — the shelf,
+  share links, connection views — lists a re-read under In progress **and** Completed
+  (`matchesStatus()` in src/lib/reads.ts, `statusWhere()` its SQL twin, ARCH.md §16 #64; never
+  compare `items.status` to a filter by hand), and its status pill says "Re-reading". Each
+  person has at most one open read of an item; "Read again", Finish, Stop and Record act on the
+  signed-in person's own reads, and the edit form's status
   and dates are theirs. Pages belong to their read's reader (`reading_progress.added_by`
   follows a moved read). A finished book takes no page from you until you "Read again".
 - Ratings and reviews live in `reviews`, one per member per item (§16 #43). `items.rating`
