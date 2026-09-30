@@ -266,9 +266,9 @@ describe('D1 calls', () => {
     const small = { page: await calls(asha, '/'), card: await calls(asha, '/?not=1', true) };
     // the session's user, then the pick — nothing else
     expect(small.card).toBe(2);
-    // the Overview made 9 calls before this card (measured with the pick left out): the pick is one more, and the
-    // signed-in member's reading goal (§16 #49) one more again
-    expect(small.page).toBe(11);
+    // the Overview made 9 calls before this card (measured with the pick left out): the pick is one more, the
+    // signed-in member's reading goal (§16 #49) one more again, and the shelves' paid totals (§16 #61) one more
+    expect(small.page).toBe(12);
 
     // about 2,000 books, a third finished by asha and a third read by ravi, and some records
     await env.DB.prepare(
