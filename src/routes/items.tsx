@@ -4,6 +4,7 @@ import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import {
   activeLoansForItem,
   addPastRead,
+  applyPressingFill,
   addProgress,
   closeRead,
   createItemWithTags,
@@ -41,18 +42,22 @@ import {
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { scanQueueOwner } from '../lib/auth';
+import { isRecord, parseGrade } from '../lib/condition';
 import { deleteCover, storeCover } from '../lib/covers';
 import { isPlayable, MAX_PLAYS_PER_ITEM, playDateProblem } from '../lib/plays';
+import { fillPressing, recordBarcode, releaseIdOf } from '../lib/pressing';
 import { MAX_PROGRESS_PAGE } from '../lib/progress';
 import { isReadStatus, readDateProblem, summarizeReads, todayUtc, type ReadDraft } from '../lib/reads';
 import { reviewText } from '../lib/reviews';
 import { cleanSeriesName, formatSeriesNumber, parseSeriesNumber, type SeriesDraft } from '../lib/series';
 import { parseDetails } from '../lib/share';
+import { discogsPressing } from '../metadata';
 import {
   accNo,
   CopiesPill,
   Cover,
   DetailsList,
+  Grade,
   HoldingPill,
   ItemForm,
   MarkNotOwnedButton,
@@ -64,6 +69,7 @@ import {
   Pagination,
   PlaysSection,
   ReadingSection,
+  RecordDetails,
   ReadsByPerson,
   ReviewAdded,
   ReviewsSection,
@@ -145,6 +151,8 @@ type ParsedForm = {
   series: SeriesDraft | null;
   seriesSent: { name: string; number: string };
   seriesProblem: string | null;
+  /** Why a grade was refused: one off the fixed scale (§16 #55). */
+  gradeProblem: string | null;
 };
 
 /** The series fields: a name, and a number that needs one. Blank both, and the item is in no series. */
@@ -154,6 +162,31 @@ function parseSeriesFields(nameRaw: string, numberRaw: string): Pick<ParsedForm,
   if (number === undefined) return { series: null, seriesProblem: 'A number in a series is like 3, or 2.5 for a book between two others.' };
   if (!name) return { series: null, seriesProblem: number === null ? null : 'A number in a series needs the series’ name too.' };
   return { series: { name, number }, seriesProblem: null };
+}
+
+type Grades = Partial<Pick<NewItem, 'mediaCondition' | 'sleeveCondition'>>;
+
+/**
+ * The form's grades (§16 #55). For a record, a field the form didn't send leaves the grade as it is; one it sent
+ * blank clears it; one off the scale is refused. An item that isn't a record keeps no grade, whatever the form sent:
+ * a record whose type is changed to something else loses its grades with the change — even from a form opened
+ * before grades existed, which sends no grade fields at all.
+ */
+function formGrades(body: Record<string, string | File>, mediaType: MediaType): { grades: Grades; problem: string | null } {
+  if (!isRecord(mediaType)) return { grades: { mediaCondition: null, sleeveCondition: null }, problem: null };
+  const grades: Grades = {};
+  let problem: string | null = null;
+  if ('mediaCondition' in body) {
+    const g = parseGrade(body['mediaCondition'], 'media');
+    if (g === undefined) problem = 'Choose the media grade from the list — Mint to Poor, or Not graded.';
+    else grades.mediaCondition = g;
+  }
+  if ('sleeveCondition' in body) {
+    const g = parseGrade(body['sleeveCondition'], 'sleeve');
+    if (g === undefined) problem ??= 'Choose the sleeve grade from the list — Mint to Poor, Generic, No Cover, or Not graded.';
+    else grades.sleeveCondition = g;
+  }
+  return { grades, problem };
 }
 
 /** A rating from a form: half-stars 1–10, or none. */
@@ -192,6 +225,7 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
     .filter((u) => /^https?:\/\//.test(u));
   if (reviewedIn.length) detailsObj['reviewed_in'] = reviewedIn;
   const details = JSON.stringify(detailsObj);
+  const { grades, problem: gradeProblem } = formGrades(body, mediaType);
 
   return {
     values: {
@@ -215,17 +249,19 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
       beganOn: orNull(str('beganOn')),
       completedOn: orNull(str('completedOn')),
       details,
+      ...grades,
     },
     tags: str('tags').split(',').map((t) => t.trim()).filter(Boolean),
     coverUrl: str('coverUrl'),
     removeCover: str('removeCover') === '1',
     ...parseSeriesFields(str('seriesName'), str('seriesNumber')),
     seriesSent: { name: str('seriesName'), number: str('seriesNumber') },
+    gradeProblem,
   };
 }
 
-/** Why the form can't be saved — its reading, or its series — or null. */
-const formProblem = (readProblem: string | null, parsed: ParsedForm) => readProblem ?? parsed.seriesProblem;
+/** Why the form can't be saved — a grade off the scale (§16 #55), its reading, or its series — or null. */
+const formProblem = (readProblem: string | null, parsed: ParsedForm) => parsed.gradeProblem ?? readProblem ?? parsed.seriesProblem;
 
 /** The form's status and dates, as the read they describe. */
 const readFields = (v: ParsedForm['values']) => ({ status: v.status ?? 'not_started', beganOn: v.beganOn ?? null, completedOn: v.completedOn ?? null });
@@ -298,6 +334,22 @@ items.post('/items', async (c) => {
     );
   }
 
+  // A Discogs result: one request for its release, before anything is written, for the tracklist and the full
+  // pressing the search result lacked (§16 #55). A failure adds the record as the search described it.
+  if (body['source'] === 'discogs' && isRecord(parsed.values.mediaType) && c.env.DISCOGS_TOKEN) {
+    const releaseId = releaseIdOf(parseDetails(parsed.values.details));
+    const found = releaseId ? await discogsPressing(c.env, { releaseId }) : null;
+    if (found?.ok) {
+      const v = parsed.values;
+      const fill = fillPressing(
+        { details: v.details ?? '{}', publisher: v.publisher ?? null, published: v.published ?? null, length: v.length ?? null },
+        found.pressing,
+        'add',
+      );
+      Object.assign(v, { details: fill.details, publisher: fill.publisher, published: fill.published, length: fill.length });
+    }
+  }
+
   const coverKey = await storeCover(c.env.COVERS, parsed.coverUrl);
   let id: number;
   try {
@@ -310,6 +362,71 @@ items.post('/items', async (c) => {
   if (htmx && !logOnly) return c.html(<ReviewAdded id={id} title={parsed.values.title} shelf={lib.name} />);
   return c.redirect(logOnly ? `/items/${id}/edit` : `/items/${id}`);
 });
+
+/** What "Refresh from Discogs" came back with (§16 #55), by the code its redirect carries. Never text from the URL. */
+const DISCOGS_NOTICE: Record<string, string> = {
+  nothing: 'Discogs had nothing to add: every field it knows is already filled in here.',
+  not_found: 'Discogs has no release for this record’s release id or barcode.',
+  busy: 'Discogs is busy — it allows 60 requests a minute. Try again in a minute.',
+  refused: 'Discogs refused the DISCOGS_TOKEN — it may have been revoked or mistyped.',
+  unavailable: 'Discogs didn’t answer. Try again in a moment.',
+  changed: 'This record was saved by someone else while Discogs was asked, so nothing was written. Refresh again.',
+  nosource: 'Nothing to look it up by: add its barcode, or its Discogs release id as discogs_id in details.',
+  notoken: 'Set the DISCOGS_TOKEN secret to fill pressing details from Discogs.',
+};
+
+const FILLED_LABEL: Record<string, string> = {
+  discogs_id: 'release id',
+  label: 'label',
+  catno: 'catalogue number',
+  country: 'country',
+  year: 'year',
+  format: 'format',
+  genres: 'genres',
+  tracklist: 'tracklist',
+  publisher: 'publisher',
+  published: 'published',
+  length: 'length',
+};
+
+function discogsNotice(c: Context<AppEnv>, details: Record<string, unknown>): string | null {
+  const code = c.req.query('discogs');
+  if (!code) return null;
+  // found by barcode: a search result has no tracklist, but the release id it stored fetches one next time — a
+  // promise only while there is a usable id to fetch it by (a hand-typed discogs_id that isn't one keeps the barcode)
+  const more =
+    c.req.query('via') === 'barcode' && !Array.isArray(details['tracklist']) && releaseIdOf(details)
+      ? ' Found by barcode — refresh again for the tracklist.'
+      : '';
+  if (code === 'filled') {
+    const fields = (c.req.query('f') ?? '').split(',').filter((f) => Object.hasOwn(FILLED_LABEL, f)).map((f) => FILLED_LABEL[f]);
+    return `Filled from Discogs: ${fields.length ? fields.join(', ') : 'nothing new'}.${more}`;
+  }
+  const notice = Object.hasOwn(DISCOGS_NOTICE, code) ? DISCOGS_NOTICE[code]! : null;
+  return notice ? notice + (code === 'nothing' ? more : '') : null;
+}
+
+/** The Refresh button, or why there isn't one. */
+function DiscogsRefresh({ item, token, notice }: { item: Item; token: boolean; notice: string | null }) {
+  const lookup = !!releaseIdOf(parseDetails(item.details)) || !!recordBarcode(item);
+  return (
+    <>
+      {notice ? <p class="notice">{notice}</p> : null}
+      {!token ? (
+        notice ? null : <p class="muted discogs-note">Set the DISCOGS_TOKEN secret to fill pressing details from Discogs.</p>
+      ) : !lookup ? (
+        notice ? null : <p class="muted discogs-note">Add its barcode, or its Discogs release id, to fill these from Discogs.</p>
+      ) : (
+        <form method="post" action={`/items/${item.id}/discogs`} class="inline-form discogs-refresh">
+          <button type="submit" class="btn">
+            Refresh from Discogs
+          </button>
+          <small class="muted">Fills what’s blank — never changes what’s here.</small>
+        </form>
+      )}
+    </>
+  );
+}
 
 /** The item page. `reviewError` says why a change to a review from this page was refused. */
 async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
@@ -336,6 +453,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
   const loan = loans[0] ?? null; // for the status pill: lent at all, and overdue if any is
   const copyFree = item.copies > loans.length;
   const details = parseDetails(item.details);
+  const record = isRecord(item.mediaType);
   const discussion = await itemComments(c, item); // null unless connections are enabled and someone commented
 
   return page(
@@ -381,6 +499,23 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
             <>
               <dt>Location</dt>
               <dd>{item.location}</dd>
+            </>
+          ) : null}
+          {/* the copy's own condition (§16 #55): this page only — never on share pages or to connections */}
+          {record && item.mediaCondition ? (
+            <>
+              <dt>Media grade</dt>
+              <dd>
+                <Grade grade={item.mediaCondition} />
+              </dd>
+            </>
+          ) : null}
+          {record && item.sleeveCondition ? (
+            <>
+              <dt>Sleeve grade</dt>
+              <dd>
+                <Grade grade={item.sleeveCondition} />
+              </dd>
             </>
           ) : null}
           {item.rating ? (
@@ -455,7 +590,12 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
 
         {item.description ? <p class="prewrap">{item.description}</p> : null}
 
-        {Object.keys(details).length ? (
+        {record ? (
+          <RecordDetails
+            details={details}
+            after={<DiscogsRefresh item={item} token={!!c.env.DISCOGS_TOKEN} notice={discogsNotice(c, details)} />}
+          />
+        ) : Object.keys(details).length ? (
           <div class="detail-section">
             <p class="eyebrow">Details</p>
             <DetailsList details={details} />
@@ -945,6 +1085,30 @@ items.post('/items/:id/plays/:playId/delete', async (c) => {
   const back = c.req.query('back');
   if (back && /^plays(\?page=\d{1,6})?$/.test(back)) return c.redirect(`/items/${id}/${back}`);
   return playsResponse(c, id);
+});
+
+/**
+ * "Refresh from Discogs" (§16 #55): one Discogs request per click — the release by its stored id, else a barcode
+ * search — then the blanks it can fill, written only if nothing changed meanwhile. It never overwrites a value:
+ * fillPressing() says exactly which fields it may write. Answers with a redirect back to the pressing section.
+ */
+items.post('/items/:id/discogs', async (c) => {
+  const id = Number(c.req.param('id'));
+  const item = await getItem(c.env.DB, id);
+  if (!item) return c.notFound();
+  if (!isRecord(item.mediaType)) return c.text('Pressing details are for records.', 400);
+  const back = (query: string) => c.redirect(`/items/${id}?${query}#pressing`);
+  if (!c.env.DISCOGS_TOKEN) return back('discogs=notoken');
+  const releaseId = releaseIdOf(parseDetails(item.details));
+  const barcode = recordBarcode(item);
+  if (!releaseId && !barcode) return back('discogs=nosource');
+  const found = await discogsPressing(c.env, releaseId ? { releaseId } : { barcode: barcode! });
+  if (!found.ok) return back(`discogs=${found.failure}`);
+  const via = found.via === 'barcode' ? '&via=barcode' : '';
+  const fill = fillPressing(item, found.pressing, 'gaps');
+  if (!fill.filled.length) return back(`discogs=nothing${via}`);
+  if (!(await applyPressingFill(c.env.DB, id, item, fill))) return back('discogs=changed');
+  return back(`discogs=filled&f=${fill.filled.join(',')}${via}`);
 });
 
 items.post('/items/:id/mark-owned', async (c) => {

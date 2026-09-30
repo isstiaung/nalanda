@@ -10,6 +10,7 @@ import { olEditionCover, olSearchLean, olWorkDescription, openLibrary } from './
 import { creatorsMatch, titlesMatch, type Candidate, type LookupResult } from './provider';
 
 export type { Candidate, LookupResult } from './provider';
+export type { DiscogsFailure, PressingResult } from './discogs';
 export { cleanDescription, creatorsMatch, normTitle, titlesMatch } from './provider';
 
 export type BarcodeKind = 'isbn13' | 'upc';
@@ -244,6 +245,25 @@ function blanksOf(base: Candidate, extra: Candidate): Partial<Candidate> {
 export async function findDescription(candidate: Candidate | null): Promise<string | null> {
   if (!candidate?.workKey) return null;
   return olWorkDescription(candidate.workKey).catch(() => null);
+}
+
+/**
+ * A record's pressing details from Discogs, in exactly one request (ARCH.md §16 #55): the release by its id when
+ * one is known — the full answer, tracklist included — or else the first release matching its barcode, which
+ * carries everything but the tracklist, and the release id the next refresh then uses. A failed request is a
+ * result, never a throw: the page says why.
+ */
+export async function discogsPressing(
+  env: Bindings,
+  source: { releaseId: number } | { barcode: string },
+): Promise<import('./discogs').PressingResult> {
+  if (!env.DISCOGS_TOKEN) return { ok: false, failure: 'refused' };
+  const client = discogs(env.DISCOGS_TOKEN);
+  try {
+    return 'releaseId' in source ? await client.release(source.releaseId) : await client.pressingByBarcode(source.barcode);
+  } catch {
+    return { ok: false, failure: 'unavailable' }; // a timeout, a dropped connection, a body that wasn't JSON
+  }
 }
 
 export type SearchType = 'book' | 'boardgame' | 'vinyl';

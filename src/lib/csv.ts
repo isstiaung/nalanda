@@ -3,6 +3,7 @@
 // ever sees pre-parsed JSON rows (10 ms CPU budget, ARCH.md §12).
 import type { Item, ItemStatus, MediaType, NewItem } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
+import { isRecord, parseGrade } from './condition';
 import {
   formatReadsCell,
   inDisplayOrder,
@@ -45,6 +46,8 @@ export const EXPORT_COLUMNS = [
   'tags',
   'copies',
   'loans',
+  'media_condition', // a record's grades (§16 #55): Discogs' codes, M to P — the sleeve's also Generic or No Cover
+  'sleeve_condition',
   'began_on',
   'completed_on',
   'read_count',
@@ -124,6 +127,8 @@ export function itemToCsvLine(
     tags.join(', '),
     item.copies,
     formatLoansCell(loans),
+    item.mediaCondition,
+    item.sleeveCondition,
     item.beganOn,
     item.completedOn,
     item.readCount,
@@ -133,6 +138,15 @@ export function itemToCsvLine(
     progressHistoryCell(progress, position),
     item.details === '{}' ? '' : item.details,
   ]);
+}
+
+/**
+ * A row's grades (§16 #55), by code or by Discogs' wording, for a record only. A grade off the scale is dropped — never
+ * kept in details, which share pages render: a condition is private.
+ */
+export function rowGrades(mediaType: MediaType, media: string | undefined, sleeve: string | undefined): Pick<NewItem, 'mediaCondition' | 'sleeveCondition'> {
+  if (!isRecord(mediaType)) return { mediaCondition: null, sleeveCondition: null };
+  return { mediaCondition: parseGrade(media ?? '', 'media') ?? null, sleeveCondition: parseGrade(sleeve ?? '', 'sleeve') ?? null };
 }
 
 // ---------- libib import mapping ----------
@@ -173,6 +187,9 @@ const KNOWN_COLUMNS = new Set([
   'reviews',
   // and so is every loan, with its borrower (§9)
   'loans',
+  // a record's condition is its own (§16 #55), never public: it maps to its columns, and never falls into details
+  'media_condition',
+  'sleeve_condition',
   // and the dates a game or record was played (§16 #54): share pages may say how many, never when
   'plays',
   'item_type',
@@ -279,10 +296,11 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
   const seriesName = cleanSeriesName(r['series'] || r['group']);
   const series = seriesName ? { name: seriesName, number: parseSeriesNumber(r['series_number']) ?? null } : null;
 
+  const mediaType = mapMediaType(r['item_type'] ?? r['type'], opts);
   return {
     series,
     item: {
-      mediaType: mapMediaType(r['item_type'] ?? r['type'], opts),
+      mediaType,
       title,
       creators: creators ?? null,
       isbn13: isbn13.length === 13 ? isbn13 : null,
@@ -300,6 +318,7 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
       beganOn: r['began'] || null,
       completedOn: r['completed'] || null,
       details: Object.keys(details).length ? JSON.stringify(details) : '{}',
+      ...rowGrades(mediaType, r['media_condition'], r['sleeve_condition']),
     },
     tags,
   };
@@ -377,10 +396,11 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
   const series = seriesName
     ? { name: seriesName, number: parseSeriesNumber(r['series_number']) ?? null, total: parseSeriesTotal(r['series_total']) ?? null }
     : null;
+  const mediaType = (MEDIA_TYPES as readonly string[]).includes(r['media_type'] ?? '') ? (r['media_type'] as MediaType) : 'book';
   return {
     series,
     item: {
-      mediaType: (MEDIA_TYPES as readonly string[]).includes(r['media_type'] ?? '') ? (r['media_type'] as MediaType) : 'book',
+      mediaType,
       title,
       creators: r['creators'] || null,
       isbn13: /^\d{13}$/.test(r['isbn13'] ?? '') ? r['isbn13']! : null,
@@ -399,6 +419,7 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
       completedOn: state.completedOn,
       ...(SQL_DATETIME.test(r['added_at'] ?? '') ? { addedAt: r['added_at'] } : {}),
       details,
+      ...rowGrades(mediaType, r['media_condition'], r['sleeve_condition']),
     },
     reads,
     ...(reviews ? { reviews } : {}),
@@ -502,6 +523,9 @@ const KNOWN_GOODREADS = new Set([
   // reading: read_count and date_started become reads (ARCH.md §16 #41), so they no longer land in details
   'read_count',
   'date_started',
+  // not a Goodreads column, but private if a file carried one: never into details (§16 #55)
+  'media_condition',
+  'sleeve_condition',
 ]);
 
 /** Goodreads' three built-in exclusive shelves — they map to status, not tags. */

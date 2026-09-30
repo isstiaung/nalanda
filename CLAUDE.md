@@ -76,7 +76,8 @@ shape from this file.
   `src/lib/share.ts` — never add fields there without checking ARCH.md §9.
 - **Never** render on share pages: private `notes`, where an item lives (`location`, ARCH.md §16 #51 —
   never published, and never a key of `toPublicItem()` or `toConnectionItem()`), loans/borrowers, the `copies` count,
-  `added_by`, usernames, reads or their dates, whose reads, or links into the authenticated
+  a record's condition (`media_condition`, `sleeve_condition`, §16 #55), `added_by`, usernames, reads or their
+  dates, whose reads, or links into the authenticated
   app — and nothing per member unless names are switched on (next bullet). (The derived boolean
   `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge. So is
   `readCount`, the household's finishes, only from two on — "Read N times", ARCH.md §16 #41 —
@@ -123,6 +124,12 @@ shape from this file.
   filterless link exposes it entire — `shareVisibility()`, ARCH.md §16 #23. Share pages are memory-cached per isolate for
   1 h (burst shield); every successful mutation clears the handling isolate's cache,
   but rotation can lag up to 1 h on untouched isolates (ARCH.md §16 #19).
+- A record's **condition** (ARCH.md §16 #55) — its media and sleeve grades — describes this
+  household's copy, like `copies`: it is never published, not on share pages and not to
+  connections. It lives in its own columns precisely because `details` is public; never move a
+  grade into `details`, and an import drops an off-scale grade rather than keeping it there. Its
+  **pressing** (label, catno, country, year, format, tracklist) is public catalogue data in
+  `details`; connections get its plain values, not the tracklist.
 - `/covers/:key` is intentionally public — keys are random UUIDs; never make them
   enumerable or derived from item data.
 - **The service worker never stores a page or an API answer** (ARCH.md §16 #48): only the
@@ -192,7 +199,9 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    names.ts (display names, and names peers send), plays.ts (the household's play
                    log for games and records: which types take plays, the export's plays cell —
                    ARCH.md §16 #54), series.ts (series names and numbers, the gaps, each member's next up;
-                   its queries are in db/queries.ts, its pages in routes/series.tsx, ARCH.md §16 #52)
+                   its queries are in db/queries.ts, its pages in routes/series.tsx, ARCH.md §16 #52),
+                   condition.ts (a record's grades and their fixed scale), pressing.ts (what an add
+                   and "Refresh from Discogs" may write into a record's details, and reading it back)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments and borrowing (comments.ts,

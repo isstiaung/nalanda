@@ -6,9 +6,10 @@ import { getItem, getSeries, getShareByToken, getSiteSettings, listItems, namedR
 import type { AppEnv } from '../env';
 import { timesPlayed } from '../lib/plays';
 import { formatSeriesNumber } from '../lib/series';
+import { isRecord } from '../lib/condition';
 import { itemMatchesShare, shareFilters, toPublicItem, type PublicItem } from '../lib/share';
 import { BggCredit, fromBgg } from '../views/attribution';
-import { DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, stars } from '../views/components';
+import { DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, RecordDetails, stars } from '../views/components';
 
 const share = new Hono<AppEnv>();
 
@@ -302,7 +303,11 @@ share.get('/:token/items/:id', async (c) => {
           ) : null}
         </dl>
         {pub.description ? <p class="prewrap">{pub.description}</p> : null}
-        {Object.keys(pub.details).length ? (
+        {/* a record's pressing and tracklist are public catalogue data (§9, §16 #55); its grades are not, and
+            toPublicItem() never carries them */}
+        {isRecord(pub.mediaType) ? (
+          <RecordDetails details={pub.details} publicPage />
+        ) : Object.keys(pub.details).length ? (
           <div class="detail-section">
             <p class="eyebrow">Details</p>
             <DetailsList details={pub.details} />

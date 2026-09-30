@@ -137,6 +137,8 @@ CREATE TABLE items (
   read_count   INTEGER NOT NULL DEFAULT 0,  -- finished reads
   rereading    INTEGER NOT NULL DEFAULT 0,  -- finished before, and read again now
   details      TEXT NOT NULL DEFAULT '{}',  -- JSON: type-specific + unmapped import fields
+  media_condition  TEXT,        -- a record's grades, Goldmine codes M…P (§16 #55): this copy's,
+  sleeve_condition TEXT,        -- private like copies — never on share pages or to connections
   added_by     INTEGER REFERENCES users(id),
   added_at     TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
@@ -235,8 +237,13 @@ columns also land here so imports are lossless):
   pages (a deliberate lightweight alternative to a posts table — the blog side holds
   the post→books direction).
 - `boardgame`: `{ bgg_id, players_min, players_max, playtime_min, playtime_max, year }`
-- `vinyl`: `{ discogs_id, format, label, catno, year, genres }` — format/pressing and
-  catalog number are what collectors actually care about.
+- `vinyl` (and `music`): `{ discogs_id, label, catno, country, year, format, genres,
+  tracklist }` — the pressing, from Discogs (§16 #55). `label` and `catno` hold every label
+  and catalogue number, joined; `format` is one line (`2×Vinyl, LP, Album, 180 Gram, Red
+  Translucent`); `tracklist` is `[{ position, title, duration, artist, index } | { heading }]`.
+  Format/pressing and catalog number are what collectors actually care about. A record's
+  **condition** is not here: `details` is public on share pages, and a grade describes this
+  household's copy, so it has its own two columns.
 
 Reading and reviews are **per member** since 1.3.0 (§16 #43); they were one shared household
 opinion in v1. Reading state lives in `reads`, one row per time someone read the item, and
@@ -273,7 +280,13 @@ the search tab — type a name, pick from BGG results (with player count, play t
 confirm. Same confirm screen, different entry point.
 
 **Search-to-add**: same name-search flow works for books (Open Library search) and vinyl
-(Discogs search) when there's no scannable barcode.
+(Discogs search) when there's no scannable barcode. Saving a Discogs result fetches its
+release once — search results carry no tracklist — and a scanned record keeps its barcode
+(§16 #55).
+
+**Refresh from Discogs**: a record's page fills its pressing details from Discogs — one
+request per click, by the stored release id or else the barcode, filling blanks only
+(§16 #55).
 
 **Manual add/edit**: plain form, all media types, works from day one.
 
@@ -345,12 +358,13 @@ interface MetadataProvider {
 | Open Library | books | none | ✓ (ISBN) | default; covers via covers.openlibrary.org |
 | Google Books | books | free API key (optional) | ✓ (ISBN) | fallback — coverage differs from OL |
 | BoardGameGeek XML API2 | board games | **`BGG_TOKEN`** (free, approved non-commercial app) | ✗ | XML (hence `fast-xml-parser`); name search + `thing` detail; `Authorization: Bearer` since BGG went registration-only in 2025 — 401 without it; throttles with 500/503 (429 at its edge, 202 = queued), which search reports as "busy"; its terms require the "Powered by BGG" logo (§16 #44) |
-| Discogs | vinyl (all music) | free personal token | **✓ (UPC/EAN)** | 60 req/min with token; returns format, label, catno |
+| Discogs | vinyl (all music) | free personal token | **✓ (UPC/EAN)** | 60 req/min with token; search returns format, label, catno, country, year; the release (`/releases/{id}`) adds the tracklist (§16 #55) |
 
 - **Series** (§16 #52): Open Library's search index carries `series_name` and `series_position` for many
   works, which fill a candidate's series; Google Books never names one (its rare `seriesInfo` holds a number
   and an id, and `series/get` refuses API keys), so it contributes nothing there.
-- Providers are called only at add/import time — zero runtime dependency on them for
+- Providers are called only at add/import time, or when someone asks — "Refresh from
+  Discogs", one request per click (§16 #55) — zero runtime dependency on them for
   browsing, and no background sync to burn anyone's quota.
 - Secrets: `DISCOGS_TOKEN` and `BGG_TOKEN` (recommended — vinyl and board games need them),
   `GOOGLE_BOOKS_KEY` (optional) via `wrangler secret put`.
@@ -425,6 +439,11 @@ portable, and makes share routes trivially public. CF Access remains available l
   authenticated app — and nothing per member
   unless an admin switches names on (below). The whitelist lives in one view module so it
   can't drift.
+- **A record's pressing is public; its condition is not** (§16 #55). "Media details" includes
+  a record's pressing — label, catalogue number, country, year, format — and its tracklist,
+  all in `details`: catalogue data anyone can look up on Discogs. The media and sleeve grades
+  describe this household's copy, like the copies count, and live in their own columns, which
+  no whitelist carries.
 - **Names are the household's choice, off by default** (§16 #45). `site_settings.names_on_shares`
   (admin-only, on **Shared links**) adds one field to a shared book's page: `reviews`, each
   member's rating and review signed with their **display name** — or "A member", for a member
@@ -1770,6 +1789,66 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     but loses the button; the share count shows from one play, where `readCount` waits for two — a
     single read is what "Completed" already says, and nothing else says a game was played once;
     the logger is shown to admins only; the 5,000 cap; plays aren't in the import preview's tally.
+
+**2026-09-30 — a record's condition and pressing:**
+55. **A record's grades are private columns; its pressing is public `details`, filled from
+    Discogs on add and by a refresh that only fills blanks.** The owner decided three things:
+    grade each record's media and sleeve by hand, in-app only; take its pressing from Discogs;
+    and let a button fill that pressing for records already in the catalog without overwriting
+    anything edited by hand.
+    - **Grades: two columns, `media_condition` and `sleeve_condition` (migration 0034).** Not
+      `details`, for privacy first: share pages render `details` whole and connections get
+      its plain values, so a grade there would publish itself. A column is in no whitelist
+      until someone adds it (§9), and it filters and exports as its own CSV column. Stored
+      as Discogs' marketplace codes — M, NM, VG+, VG, G+, G, F, P, and for a sleeve only
+      Generic and No Cover (Discogs' own list, which also has "Not Graded": here that is NULL).
+      The form and the imports check the same fixed scale (`parseGrade()`), and an import
+      also reads Discogs' wording ("Near Mint (NM or M-)", and "M-"). A grade off the scale
+      is refused by the form and dropped by an import — never kept in `details`, where a
+      libib import puts columns it doesn't know. Only a record (`vinyl`, `music`) takes a
+      grade; a record whose type changes loses them.
+    - **Pressing: `details`, as §5 already listed for vinyl.** It is public catalogue data
+      and was already in `details` (label, catno, format, year), which round-trips through
+      the CSV's `details` column. Added: `country` and `tracklist`, and `label` and `catno`
+      now hold every label and catalogue number, not the first. The tracklist is a list of
+      tracks and headings, capped at 400 lines; an index track (a suite, a medley) is
+      marked `index` and followed by its parts, which are what the track count counts.
+    - **What goes out.** Share pages show the pressing and the tracklist, folded, on a
+      record's page. Connections get what `plainDetails()` has always sent — the plain
+      values: label, catalogue number, country, year, format, Discogs id — and not the
+      tracklist (or genres), which are lists. Sending them would be a protocol change, an
+      older peer's parser drops lists anyway, and the Discogs id it does get finds them.
+      No grade goes anywhere outside, and tests compare share pages and the feed, shelf and
+      item routes with graded records.
+    - **Filled on add.** A Discogs search result has no tracklist, so saving one (the
+      candidate form marks itself `source=discogs`) fetches its release once, before the
+      write; the release's pressing keys replace the search's in `details`, since both came
+      from Discogs a moment ago. Publisher, published and length (the track count) fill only
+      when blank. A failed fetch adds the record as the search described it. A barcode
+      lookup's candidate now carries the scanned code (EAN-13 in `isbn13`, else
+      `isbn10_upc`), so the record can be found again.
+    - **Refresh from Discogs: one request per click, blanks only.** It fetches the release by
+      `details.discogs_id` when there is one — the full answer — else searches by barcode,
+      which gives everything but the tracklist and stores the release id, so the next click
+      fetches the tracklist. It writes only `details` keys `discogs_id`, `label`, `catno`,
+      `country`, `year`, `format`, `genres`, `tracklist`, and the columns `publisher` (first
+      label), `published` (year) and `length` (track count) — each only while blank (absent,
+      null, empty text or an empty list). Anything with a value stays, whoever put it there:
+      the app keeps no provenance, so "never overwrite a hand edit" is "never overwrite".
+      Title, creators, description, cover, barcode, notes and grades are never touched. The
+      write is guarded on the four fields it read (`applyPressingFill()`), so an edit saved
+      while Discogs was asked wins and the page says to refresh again. A click is the
+      session check, one read and one write (3 D1 calls). Discogs' 429 ("busy"), 404, 401
+      and timeouts come back as a notice by code, never as text from the URL.
+    - **CPU.** Parsing is one pass over Discogs' JSON with caps on every string; tests keep
+      a record's page, with a 400-line tracklist, at the same D1 calls as a book's.
+
+    **Chosen without asking, overrulable:** grades are for `vinyl` and `music` both; a field
+    the owner cleared is a blank, which a refresh fills again; a record added before this
+    keeps the flat format a search gave it, since refresh never replaces a value — clear
+    `format` in the details box and refresh to take Discogs' fuller one; by barcode a
+    refresh is two clicks to the tracklist rather than two requests in one click; genres
+    stay a list and so stay off connections, as before; the refresh never fetches a cover.
 
 **2026-09-30 — session identity:**
 56. **A session names an account by its id and a random key, because ids are reused.** `users.id`

@@ -11,6 +11,16 @@ export type ItemStatus = (typeof ITEM_STATUSES)[number];
 export const READ_STATUSES = ['in_progress', 'completed', 'abandoned'] as const;
 export type ReadStatus = (typeof READ_STATUSES)[number];
 
+/**
+ * A record's condition, graded by hand on the Goldmine scale Discogs uses (ARCH.md §16 #55): the codes of its
+ * marketplace grades, best first. A sleeve can also be Generic (not the original) or missing altogether; Discogs'
+ * "Not Graded" is no grade, stored as NULL. It describes this household's copy, like `copies`: never published.
+ */
+export const MEDIA_GRADES = ['M', 'NM', 'VG+', 'VG', 'G+', 'G', 'F', 'P'] as const;
+export type MediaGrade = (typeof MEDIA_GRADES)[number];
+export const SLEEVE_GRADES = [...MEDIA_GRADES, 'Generic', 'No Cover'] as const;
+export type SleeveGrade = (typeof SLEEVE_GRADES)[number];
+
 const now = sql`(datetime('now'))`;
 
 export const users = sqliteTable('users', {
@@ -99,6 +109,10 @@ export const items = sqliteTable(
     readCount: integer('read_count').notNull().default(0), // finished reads
     rereading: integer('rereading', { mode: 'boolean' }).notNull().default(false), // finished before, and read again now
     details: text('details').notNull().default('{}'),
+    // The record's own condition (§16 #55), set by hand: private like `copies` — whitelisted nowhere, so share pages
+    // and connections never see it. Real columns, not `details`, which share pages render whole. NULL = not graded.
+    mediaCondition: text('media_condition', { enum: MEDIA_GRADES }),
+    sleeveCondition: text('sleeve_condition', { enum: SLEEVE_GRADES }),
     addedBy: integer('added_by').references(() => users.id),
     addedAt: text('added_at').notNull().default(now),
     updatedAt: text('updated_at').notNull().default(now),

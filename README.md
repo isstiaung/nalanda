@@ -21,7 +21,8 @@ manuscripts.
   import too.
 - **Public share links, per view**: publish any filtered slice of a shelf ("my reviews",
   "owned sci-fi"), or everything carrying a tag, at its own unguessable URL — rotate or remove each link independently.
-  Private notes, where things are kept, loans, and copy counts never appear. Reviews can link out to blog posts.
+  Private notes, where things are kept, loans, copy counts and a record's condition never
+  appear. Reviews can link out to blog posts.
   One admin page lists everything you've published, with the item count each link
   exposes.
 - **An app on your phone, and scanning with no signal**: install it to your home screen
@@ -40,6 +41,12 @@ manuscripts.
 - **Where it lives**: note where each thing is kept — "study, 2nd shelf", "Loft · box 3" —
   and find it again by searching for the place. Private, like notes: never on share pages or
   to connections.
+- **Records, properly**: grade each record's media and sleeve on the Goldmine scale Discogs
+  uses (Mint to Poor, plus Generic or No Cover for a sleeve) — your copy's condition stays
+  inside the app, never on a share page. Scanning or searching a record fills its pressing from
+  Discogs: labels, catalogue number, country, year, format (colour vinyl, 180 g, 2×LP) and the
+  tracklist, folded on its page; **Refresh from Discogs** fills the blanks for records already on
+  your shelves, one request per click, and never changes what you've typed.
 - **Loans**: track who borrowed what, with due dates and history — each item's page lists who has had it before, and for how long.
 - **Play log for games, listening log for records**: press **Played** on a board game or a
   record — today, or any day you pick — and its page keeps count ("Played 12 times · last on

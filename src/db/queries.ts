@@ -506,6 +506,27 @@ export async function updateItem(d1: D1Database, id: number, values: Partial<New
     .where(eq(s.items.id, id));
 }
 
+/**
+ * Writes what "Refresh from Discogs" filled in (§16 #55) — only if the fields it read are still as it read them.
+ * The Discogs request between the read and this write takes a moment; an edit saved meanwhile would otherwise be
+ * replaced wholesale by a `details` built from the older copy. False when something changed: nothing is written.
+ */
+export async function applyPressingFill(
+  d1: D1Database,
+  id: number,
+  before: Pick<Item, 'details' | 'publisher' | 'published' | 'length'>,
+  after: Pick<Item, 'details' | 'publisher' | 'published' | 'length'>,
+): Promise<boolean> {
+  const res = await d1
+    .prepare(
+      `UPDATE items SET details = ?1, publisher = ?2, published = ?3, length = ?4, updated_at = datetime('now')
+       WHERE id = ?5 AND details = ?6 AND publisher IS ?7 AND published IS ?8 AND length IS ?9`,
+    )
+    .bind(after.details, after.publisher, after.published, after.length, id, before.details, before.publisher, before.published, before.length)
+    .run();
+  return res.meta.changes > 0;
+}
+
 /** Deletes an item, and its series with it if it was the series' last volume here (§16 #52). */
 export async function deleteItem(d1: D1Database, id: number): Promise<void> {
   await d1.batch([d1.prepare('DELETE FROM items WHERE id = ?1').bind(id), pruneSeries(d1)]);
