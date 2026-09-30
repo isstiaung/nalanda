@@ -228,7 +228,7 @@ describe('Pick one for us', () => {
     const card = await (await as(asha, '/play?players=12&pick=1', { htmx: true })).text();
     expect(card).toContain('Nothing to pick from');
     expect(card).toContain('See the 1 game missing details');
-    expect(card).toContain('No game fits for 12 players, so there is nothing to pick. 1 game more might, but is missing details.');
+    expect(card).toContain('No game fits for 12 players, so there is nothing to pick. 1 more game might fit, but is missing details.');
   });
 
   it('shows the pick with its facts, and a "Pick another" that keeps the filters and its id', async () => {
@@ -261,7 +261,7 @@ describe('the page', () => {
     expect(page).toMatch(/<label>Time we have<select name="time">/);
     expect(page).toMatch(/<label>Weight<select name="weight">/);
     expect(page).toContain('<p id="play-status" class="play-status" role="status" aria-live="polite">');
-    expect(page).toContain('5 games fit for 4 players. 1 game more might, but is missing details.');
+    expect(page).toContain('5 games fit for 4 players. 1 more game might fit, but is missing details.');
     expect(page).toContain('Pick one for us');
     expect(page).toContain('<div id="play-results">');
 

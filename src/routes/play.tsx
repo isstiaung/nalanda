@@ -102,7 +102,8 @@ type View = ListView | PickView;
 /** The one sentence the live region reads out after every swap: how many fit, or what was picked. */
 export function statusLine(view: View, f: GameFilters): string {
   const asked = describeFilters(f);
-  const more = view.unknownTotal ? ` ${games(view.unknownTotal)} more might, but ${view.unknownTotal === 1 ? 'is' : 'are'} missing details.` : '';
+  const n = view.unknownTotal;
+  const more = n ? ` ${n} more ${n === 1 ? 'game might fit, but is' : 'games might fit, but are'} missing details.` : '';
   if (!view.fitTotal && !view.unknownTotal) {
     return anyFilter(f) ? `No game fits ${asked}.` : 'No board games to play: none in the collection, or every copy is out on loan.';
   }
