@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { activeLoanItemIds, listLibraries, listPeople, searchItems } from '../db/queries';
 import type { AppEnv } from '../env';
 import { ItemTable } from '../views/components';
+import { BulkBar, BulkNotice } from '../views/bulk';
 import { page } from '../views/layout';
 import { parseReadBy, ReadByMenu } from './libraries';
 
@@ -17,9 +18,16 @@ search.get('/search', async (c) => {
   const items = q ? await searchItems(c.env.DB, q, 50, reader) : [];
   const [onLoanIds, libs] = await Promise.all([
     activeLoanItemIds(c.env.DB, items.map((i) => i.id)),
-    items.length ? listLibraries(c.env.DB) : Promise.resolve([]),
+    // the Shelf column, and bulk edit's "Move to shelf" and its notice (§16 #47)
+    items.length || c.req.query('bulk') ? listLibraries(c.env.DB) : Promise.resolve([]),
   ]);
   const libraryNames = new Map(libs.map((l) => [l.id, l.name]));
+  // where a bulk action comes back to: this search, as it was asked
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (readBy) params.set('readBy', readBy);
+  const qs = params.toString();
+  const back = `/search${qs ? `?${qs}` : ''}`;
 
   return page(
     c,
@@ -37,6 +45,7 @@ search.get('/search', async (c) => {
           )}
         </div>
       </div>
+      <BulkNotice query={c.req.query()} libraries={libs} />
       <form method="get" action="/search" role="search" class={people.length > 1 ? 'search-by-reader' : undefined}>
         <input type="search" name="q" value={q} placeholder="Search the catalog…" autofocus />
         {people.length > 1 || reader ? (
@@ -49,7 +58,10 @@ search.get('/search', async (c) => {
       </form>
       {q ? (
         items.length ? (
-          <ItemTable items={items} onLoanIds={onLoanIds} libraryNames={libraryNames} />
+          <>
+            <ItemTable items={items} onLoanIds={onLoanIds} libraryNames={libraryNames} selectable />
+            <BulkBar back={back} admin={user.role === 'admin'} libraries={libs} />
+          </>
         ) : (
           <p class="muted">Nothing found for “{q}”. Search covers titles, creators, descriptions, and notes.</p>
         )
