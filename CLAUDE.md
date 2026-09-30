@@ -98,8 +98,9 @@ shape from this file.
   row); migration 0029 pinned every instance that already had members to what it had, so an upgrade
   never flips one. Tests about names off say so (`upgradedSwitches()` in test/member-helpers.ts).
   `names_on_shares`: a shared book's page adds `reviews` (each member's rating and review, signed
-  with their display name or "A member"), still with no reads, no read dates and no "who read it". `names_to_connections`: the feed serves one entry per person with `by` (a display
-  name), including kind `started`, and an item page adds `reviews`. Resolve names when serving,
+  with their display name or "A member"), still with no reads, no read dates and no "who read it".
+  `names_to_connections`: the feed serves one entry per person with `by` (a display name),
+  including kind `started`, and an item page adds `reviews`. Resolve names when serving,
   never when recording — `member_activity` rows point at a read, review, page or goal, never a person.
   **With both off, every served byte stays as before**: no `reviews` or `by` key at all, the
   household's `activity_log` stream and ids untouched; tests compare with and without display

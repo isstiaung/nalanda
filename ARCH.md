@@ -1673,7 +1673,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     entries with their goal. As #45 does, entries are recorded whatever the switches say and chosen at
     serve time (`memberStillShows(goals)`): a goal entry goes out only while goals and names both go to
     connections, its member has a display name, its goal still asks for the target it carries, and —
-    for a milestone — the finish that crossed the line is still a finish.
+    for a milestone — the finish that crossed the line is still a finish. A third trigger deletes a
+    milestone once that finish stops being one — stopped, reopened, or re-dated out of the goal's year —
+    as a deleted read's cascade does: left hidden, it held the goal's one row of that kind and turned
+    away the finish that genuinely reached the goal later (found by the adversarial pass).
 
     **No read's date, even by implication.** A milestone keeps the finished read that crossed the line
     (`read_id`, `item_id`), and goes only to views that hold that book — where that finish is already
@@ -1734,6 +1737,12 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     and runs on `SITE_DEFAULTS` — names and goals on. **An existing instance** that never saved a
     switch had been running on the old defaults; the row writes them down. One that saved one keeps its
     row; 0028's new column gives it goals off. `outwardName()`'s SQL fallback follows `SITE_DEFAULTS`.
+    Restoring a pre-1.4 backup therefore restores at 0027 and migrates after, as the backup runbook says:
+    migrated first on an empty database, 0029 finds no members and the restored instance would start
+    with names on. 0029 is `--custom`, so its snapshot was written by hand to the new `member_activity`
+    shape; `drizzle-kit check` doesn't compare snapshots with the schema, but `drizzle-kit generate`
+    against a copy reports no changes — the pass found the first snapshot stale, which would have made
+    the next `db:generate` emit a failing rebuild.
 
     **Rehearsed** on production's backup of 2026-09-29 (0000–0027, the per-table restore in `TABLES`
     order, then 0028–0029): 28 of 29 tables identical in every pre-existing column (5,120 rows — 1,998
