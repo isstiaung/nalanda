@@ -120,7 +120,8 @@ describe('the CSRF check', () => {
   it('marks its refusal of an htmx request for app.js, and answers a browser exactly as before', async () => {
     const asha = await member('asha', 'admin');
     const b = await book(asha);
-    for (const headers of [{ 'sec-fetch-site': 'cross-site', origin: 'https://evil.example' }, { origin: 'https://evil.example' }]) {
+    const tries: Record<string, string>[] = [{ 'sec-fetch-site': 'cross-site', origin: 'https://evil.example' }, { origin: 'https://evil.example' }];
+    for (const headers of tries) {
       const htmx = await request(`/items/${b.id}/mark-not-owned`, { htmx: true, post: true, cookie: asha.cookie, headers });
       expect(htmx.status).toBe(403);
       expect(htmx.headers.get('X-Nalanda-Refused')).toBe('origin');
@@ -163,7 +164,7 @@ describe('the message region', () => {
     expect(count(await (await request('/login')).text())).toBe(0);
 
     const share = await createShare(env.DB, { token: newShareToken(), name: 'Ours', libraryId: b.libraryId });
-    const want = await createShare(env.DB, { token: newShareToken(), name: 'Wants', wantUserId: asha.id });
+    const want = await createShare(env.DB, { token: newShareToken(), name: 'Wants', libraryId: null, wantUserId: asha.id });
     for (const path of [`/share/${share.token}`, `/share/${share.token}/items/${b.id}`, `/share/${want.token}`]) {
       const res = await request(path);
       expect(res.status, path).toBe(200);
