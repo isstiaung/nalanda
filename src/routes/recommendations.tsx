@@ -17,7 +17,8 @@ import {
   linkWantedItem,
   openRecommendations,
   recommendableItem,
-  recommendTargets,
+  recommendTargetsOf,
+  recommendTargetsStatement,
   recommendToConnection,
   sentRecommendations,
   recommendedToday,
@@ -26,7 +27,16 @@ import {
   wantRecommendedAs,
   type RecommendTarget,
 } from '../db/federation';
-import { createItemWithTags, existingForWant, getItem, getLibrary, listLibraries, outwardName } from '../db/queries';
+import {
+  createItemWithTags,
+  existingForWant,
+  getItem,
+  getLibrary,
+  listLibraries,
+  outwardName,
+  outwardNameOf,
+  outwardNameStatement,
+} from '../db/queries';
 import type { FederationSettings, Item, RecommendationStatus } from '../db/schema';
 import type { AppEnv } from '../env';
 import { refreshInBackground } from '../federation/background';
@@ -93,19 +103,34 @@ const OUTCOMES: Record<string, { error: boolean; field: 'to' | 'note'; text: (ho
 const SENT_STATE: Partial<Record<RecommendationStatus, string>> = { open: 'recommended', refused: 'refused' };
 
 /**
- * "Recommend to…" for an item's page: null unless connections are on and there is a household to send to, so the page
- * is otherwise unchanged. One D1 call for the households, a second for the name it would be signed with.
+ * "Recommend to…" for an item's page, in two steps so it costs the page no D1 call: `statements` — none unless
+ * connections are on; else the households and the name it would be signed with — go into the page's own batch
+ * (itemPageLog), and `render` builds the section from their results. The section is null without a household to send
+ * to, so the page is otherwise unchanged.
  */
-export async function recommendSection(c: Context<AppEnv>, item: Item): Promise<Child | null> {
-  if (!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY))) return null;
-  const { shared, households } = await recommendTargets(c.env.DB, item.id);
+export async function recommendOnItemPage(
+  c: Context<AppEnv>,
+  item: Item,
+): Promise<{ statements: D1PreparedStatement[]; render: (results: D1Result[]) => Child | null }> {
+  if (!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY))) return { statements: [], render: () => null };
+  return {
+    statements: [recommendTargetsStatement(c.env.DB, item.id), outwardNameStatement(c.env.DB, c.get('user').id)],
+    render: ([targets, name]) => recommendSection(c, item, recommendTargetsOf(targets), outwardNameOf(name?.results[0])),
+  };
+}
+
+function recommendSection(
+  c: Context<AppEnv>,
+  item: Item,
+  { shared, households }: { shared: boolean; households: RecommendTarget[] },
+  signedAs: string,
+): Child | null {
   if (!households.length) return null;
   const code = c.req.query('recommend');
   const outcome = code && Object.hasOwn(OUTCOMES, code) ? OUTCOMES[code]! : null;
   const to = digits(c.req.query('to'));
   const named = households.find((h) => h.id === to)?.householdName ?? 'them';
   const open = households.filter((h) => h.lastStatus !== 'open');
-  const signedAs = shared && open.length ? await outwardName(c.env.DB, c.get('user').id) : null;
   const errorFor = (field: 'to' | 'note') => (outcome?.error && outcome.field === field ? 'recommend-status' : undefined);
 
   return (

@@ -2239,22 +2239,30 @@ export type RecommendTarget = { id: number; householdName: string; lastStatus: R
 /**
  * For an item's page, in one query: the households it could be recommended to — every active connection — each with
  * our latest recommendation of this item to them, and whether a connection view holds the item at all. With no
- * households there is no answer about the view, and the page shows no section.
+ * households there is no answer about the view, and the page shows no section. The item page runs the statement in
+ * its reading log's batch (itemPageLog), so the section costs no D1 call of its own.
  */
 export async function recommendTargets(d1: D1Database, itemId: number): Promise<{ shared: boolean; households: RecommendTarget[] }> {
+  return recommendTargetsOf(await recommendTargetsStatement(d1, itemId).all());
+}
+
+export function recommendTargetsStatement(d1: D1Database, itemId: number): D1PreparedStatement {
   const latest = (column: string) =>
     `(SELECT r.${column} FROM recommendations r WHERE r.connection_id = c.id AND r.incoming = 0 AND r.our_item_id = ?1 ORDER BY r.id DESC LIMIT 1)`;
-  const { results } = await d1
+  return d1
     .prepare(
       `SELECT c.id AS id, c.household_name AS householdName, ${latest('status')} AS lastStatus, ${latest('created_at')} AS lastAt,
               ${HOLDING_VIEW} AS viewId
        FROM connections c WHERE c.status = 'active' ORDER BY c.household_name, c.id`,
     )
-    .bind(itemId)
-    .all<RecommendTarget & { viewId: number | null }>();
+    .bind(itemId);
+}
+
+export function recommendTargetsOf(result: D1Result | undefined): { shared: boolean; households: RecommendTarget[] } {
+  const rows = (result?.results ?? []) as Array<RecommendTarget & { viewId: number | null }>;
   return {
-    shared: results[0]?.viewId != null,
-    households: results.map(({ id, householdName, lastStatus, lastAt }) => ({ id, householdName, lastStatus, lastAt })),
+    shared: rows[0]?.viewId != null,
+    households: rows.map(({ id, householdName, lastStatus, lastAt }) => ({ id, householdName, lastStatus, lastAt })),
   };
 }
 

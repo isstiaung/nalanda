@@ -569,6 +569,22 @@ describe('the Recommended list', () => {
     expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; style-src 'unsafe-inline'; sandbox");
   });
 
+  it('refuses a peer’s cover that doesn’t say what it is, rather than guessing its type', async () => {
+    const id = await received();
+    const asha = await member('asha');
+    const log = answerOutbound((req) => {
+      const url = new URL(req.url);
+      // raster-sized bytes, and no Content-Type at all
+      if (url.pathname === `/covers/${COVER_KEY}`) return new Response(new Uint8Array(900).fill(7), { headers: {} });
+      return json({}, 404);
+    });
+    await a.postForm(`/recommendations/${id}/want`, { libraryId: String(shelfId) }, asha.cookie);
+    const cover = to(log, `/covers/${COVER_KEY}`);
+    expect(cover).toHaveLength(1);
+    expect(await rows('SELECT copies, cover_key FROM items WHERE title = ?1', 'The Left Hand of Darkness')).toEqual([{ copies: 0, cover_key: null }]);
+    expect((await env.COVERS.list()).objects).toHaveLength(0);
+  });
+
   it('says plainly that a wanted item shows on a shelf shared with them', async () => {
     await received();
     expect(await (await a.get('/recommendations', await sessionCookie('member'))).text()).toMatch(
@@ -643,18 +659,25 @@ describe('D1 calls', () => {
     peerSide(peer);
     // nothing due in the background, so each count is the page's own
     await env.DB.prepare("UPDATE connections SET outbox_pulled_at = datetime('now')").run();
+    const page = await (await a.get(`/items/${book.id}`, cookie)).text();
+    expect(page).toContain(`action="/items/${book.id}/recommend"`); // the form renders, signing name and all
     const withSection = await calls((app) => app.get(`/items/${book.id}`, cookie));
     await env.DB.prepare("UPDATE connections SET status = 'awaiting_them'").run(); // no household to send to
     const withoutHouseholds = await calls((app) => app.get(`/items/${book.id}`, cookie));
     await env.DB.prepare("UPDATE connections SET status = 'active'").run();
+    const budgetOff = { left: 1000 };
+    const off = instanceA({ ...env, DB: budgeted(env.DB, budgetOff) } as Bindings);
+    expect((await off.get(`/items/${book.id}`, cookie)).status).toBe(200);
+    const connectionsOff = 1000 - budgetOff.left;
     const send = await calls((app) => app.postForm(`/items/${book.id}/recommend`, { connectionId: String(connectionId) }, cookie));
     const receive = await calls((app) => app.signedPost('/federation/inbox', peer, theirRecommendation(peer)));
     for (let i = 0; i < 30; i++) await inbox(peer, theirRecommendation(peer, { id: 200 + i }));
     await env.DB.prepare("UPDATE recommendations SET created_at = datetime('now', '-1 day')").run();
     const list = await calls((app) => app.get('/recommendations', cookie));
-    console.info(`recommendation D1 calls: ${JSON.stringify({ withSection, withoutHouseholds, send, receive, list })}`);
-    // the section is one call for the households, and one more for the name it would be signed with
-    expect(withSection - withoutHouseholds).toBeLessThanOrEqual(1);
+    console.info(`recommendation D1 calls: ${JSON.stringify({ withSection, withoutHouseholds, connectionsOff, send, receive, list })}`);
+    // the section's households and signing name ride in the reading log's batch: the item page costs what it did on
+    // main before recommendations — 14 with connections on, form or no form, and 11 with them off
+    expect({ withSection, withoutHouseholds, connectionsOff }).toEqual({ withSection: 14, withoutHouseholds: 14, connectionsOff: 11 });
     for (const n of [withSection, send, receive, list]) expect(n).toBeLessThanOrEqual(50);
     expect(receive).toBeLessThanOrEqual(8);
   });

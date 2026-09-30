@@ -118,14 +118,22 @@ export async function setDisplayName(d1: D1Database, id: number, displayName: st
  * are switched on for connections, else "A member". Never a username — those never leave the app.
  */
 export async function outwardName(d1: D1Database, userId: number): Promise<string> {
-  const row = await d1
+  return outwardNameOf(await outwardNameStatement(d1, userId).first());
+}
+
+/** outwardName's query, for a caller's batch — the item page's (§16 #58); read its first row with outwardNameOf. */
+export function outwardNameStatement(d1: D1Database, userId: number): D1PreparedStatement {
+  return d1
     .prepare(
       `SELECT u.display_name AS name, coalesce((SELECT names_to_connections FROM site_settings WHERE id = 1), ?2) AS on_
        FROM users u WHERE u.id = ?1`,
     )
-    .bind(userId, SITE_DEFAULTS.namesToConnections ? 1 : 0)
-    .first<{ name: string | null; on_: number }>();
-  return row?.on_ && row.name ? row.name : 'A member';
+    .bind(userId, SITE_DEFAULTS.namesToConnections ? 1 : 0);
+}
+
+export function outwardNameOf(row: unknown): string {
+  const r = row as { name: string | null; on_: number } | null | undefined;
+  return r?.on_ && r.name ? r.name : 'A member';
 }
 
 /**
@@ -1607,19 +1615,24 @@ export async function readingLog(
 
 /**
  * The item page's reading log and its want list and purchase links (§16 #53) in the same one D1 call — readingLog's
- * batch with wantsAndLinks' two statements after it — so want lists add nothing to the page's calls.
+ * batch with wantsAndLinks' two statements after it — so want lists add nothing to the page's calls. `extra`: the
+ * caller's own read-only statements, run last in the same batch, their results handed back in order — "Recommend
+ * to…"'s households and signing name (§16 #58), which then cost the page no call either.
  */
 export async function itemPageLog(
   d1: D1Database,
   itemId: number,
+  extra: D1PreparedStatement[] = [],
 ): Promise<{
   reads: ReadEntry[];
   entries: ProgressEntry[];
   reviews: ReviewEntry[];
   want: { wanters: Array<{ id: number; username: string; at: string }>; links: Array<{ id: number; label: string; url: string }> };
+  extra: D1Result[];
 }> {
-  const results = await d1.batch([...readingLogStatements(d1, itemId), ...wantsAndLinksStatements(d1, itemId)]);
-  return { ...readingLogOf(results), want: wantsAndLinksOf(results.slice(3)) };
+  const own = [...readingLogStatements(d1, itemId), ...wantsAndLinksStatements(d1, itemId)];
+  const results = await d1.batch([...own, ...extra]);
+  return { ...readingLogOf(results), want: wantsAndLinksOf(results.slice(3)), extra: results.slice(own.length) };
 }
 
 function readingLogStatements(d1: D1Database, itemId: number): D1PreparedStatement[] {
