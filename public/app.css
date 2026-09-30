@@ -1042,6 +1042,9 @@ form.search-by-reader select { width: auto; margin: 0; max-width: 100%; }
 .read-next-by { margin: 0.15rem 0 0; color: var(--ink-2); font-size: 12.5px; overflow-wrap: anywhere; }
 .read-next-line { display: flex; flex-wrap: wrap; gap: 0.15rem 0.5rem; align-items: center; margin: 0.35rem 0 0; }
 .read-next .read-actions { gap: 0.5rem; margin-top: 0.8rem; }
+/* not owned: its own line, in ink rather than muted, with the pill drawn solid so it can't be missed */
+.read-next-unowned { font-size: 12.5px; color: var(--ink); }
+.read-next-unowned .pill.ghost { border-style: solid; border-color: var(--ink-2); color: var(--ink); }
 .read-next-empty { margin: 0; font-size: 13px; }
 @media (max-width: 880px) {
   .read-next { grid-template-columns: 64px minmax(0, 1fr); gap: 0.8rem; }

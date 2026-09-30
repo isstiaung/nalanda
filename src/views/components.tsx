@@ -914,9 +914,15 @@ export const ReadNextCard: FC<{ pick: (Pick<Item, 'id' | 'title' | 'creators' | 
         {pick.creators ? <p class="read-next-by">{pick.creators}</p> : null}
         <p class="read-next-line">
           <small class="acc-no">{accNo(pick.id)}</small>
-          {pick.copies === 0 ? <NotOwnedPill /> : null}
-          {pick.copies === 0 && pick.wanted ? <WantedPill /> : null}
         </p>
+        {/* a book nobody here owns is still a fair pick — but the card says so plainly, not only in a faint pill */}
+        {pick.copies === 0 ? (
+          <p class="read-next-line read-next-unowned">
+            <NotOwnedPill />
+            {pick.wanted ? <WantedPill /> : null}
+            <span>No copy here — borrow or buy one to read it.</span>
+          </p>
+        ) : null}
         <div class="read-actions">
           <form method="post" action={`/items/${pick.id}/reads/start`}>
             <button type="submit">Start reading</button>
