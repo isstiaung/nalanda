@@ -2,8 +2,9 @@
 // toPublicItem() (src/lib/share.ts). See ARCH.md §9 and CLAUDE.md privacy invariants.
 import { Hono, type Context } from 'hono';
 import type { Child, FC, PropsWithChildren } from 'hono/jsx';
-import { getItem, getShareByToken, getSiteSettings, listItems, namedReviews, tagsForItems } from '../db/queries';
+import { getItem, getShareByToken, getSiteSettings, listItems, namedReviews, playCount, tagsForItems } from '../db/queries';
 import type { AppEnv } from '../env';
+import { timesPlayed } from '../lib/plays';
 import { itemMatchesShare, shareFilters, toPublicItem, type PublicItem } from '../lib/share';
 import { BggCredit, fromBgg } from '../views/attribution';
 import { DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, stars } from '../views/components';
@@ -169,21 +170,24 @@ share.get('/:token/items/:id', async (c) => {
   const token = c.req.param('token');
   const view = await getShareByToken(c.env.DB, token);
   if (!view) return c.notFound();
-  // Past a live token, every answer does the same work — the item, its tags and the settings, all at once —
-  // and only then decides. Stopping early on a missing item made "no such item" measurably faster than "an item
+  // Past a live token, every answer does the same work — the item, its tags, its play count and the settings, all at
+  // once — and only then decides. Stopping early on a missing item made "no such item" measurably faster than "an item
   // outside this view", so a link's holder could time which ids exist. A non-numeric id looks up 0, which never does.
   const raw = Number(c.req.param('id'));
   const id = Number.isSafeInteger(raw) && raw > 0 ? raw : 0;
-  const [item, tagMap, settings] = await Promise.all([
+  const [item, tagMap, plays, settings] = await Promise.all([
     getItem(c.env.DB, id),
     tagsForItems(c.env.DB, [id]),
+    // counted for every id, played or not, so a hit and a miss still do the same work; the whitelist keeps it for games
+    // and records only (§16 #54)
+    playCount(c.env.DB, id),
     getSiteSettings(c.env.DB),
   ]);
   const tags = tagMap.get(id) ?? [];
   if (!item || !itemMatchesShare(view, item, tags)) return c.notFound(); // token only unlocks its own view
   // §16 #45: each member's rating and review, by display name, only while an admin has names on for share pages
   const reviews = settings.namesOnShares ? await namedReviews(c.env.DB, item.id) : undefined;
-  const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews });
+  const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews, plays });
 
   return renderShare(
     c,
@@ -255,6 +259,13 @@ share.get('/:token/items/:id', async (c) => {
             <>
               <dt>Read</dt>
               <dd class="mono">{pub.readCount} times</dd>
+            </>
+          ) : null}
+          {pub.playCount ? (
+            <>
+              {/* how many times, never when (§16 #54) */}
+              <dt>Played</dt>
+              <dd class="mono">{timesPlayed(pub.playCount)}</dd>
             </>
           ) : null}
           {pub.published ? (

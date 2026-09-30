@@ -18,6 +18,7 @@ import { MAX_DETAIL_TEXT_CHARS, MAX_FEED_REVIEW_CHARS, MAX_FEED_TEXT_CHARS } fro
 export type ConnectionItem = PublicItem & { completedOn: string | null; updatedAt: string; readCount: number };
 
 export function toConnectionItem(item: Item): ConnectionItem {
+  // No play count: plays stay home (§16 #54), so toPublicItem is given none and leaves `playCount` out
   return { ...toPublicItem(item), completedOn: item.completedOn, updatedAt: item.updatedAt, readCount: item.readCount };
 }
 
