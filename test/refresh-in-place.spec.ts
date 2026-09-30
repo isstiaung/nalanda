@@ -420,10 +420,11 @@ describe('the item page', () => {
     }
   });
 
-  it('has app.js say "Asking…" while a refresh is out, and a fixed sentence when it fails', async () => {
+  it('has app.js say "Asking…" while a refresh is out, hand focus back to the button, and say a fixed sentence when it fails', async () => {
     const js = await (await env.ASSETS.fetch('http://nalanda.test/app.js')).text();
     const block = js.slice(js.indexOf('form[data-refresh-status]'));
     expect(block).toContain("'htmx:beforeRequest'");
+    expect(block).toContain("'htmx:afterRequest'"); // focus back to the button, which was disabled while it waited
     expect(block).toContain("'htmx:responseError'");
     expect(block).toContain("'htmx:sendError'");
     expect(block).toContain("'Something went wrong — try again.'");
