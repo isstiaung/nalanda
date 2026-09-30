@@ -61,6 +61,17 @@ describe('books and pages', () => {
     expect((await yearInReview(env.DB, asha.id, 2026)).mine.months.map((m) => m.books)).toEqual([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 
+  it('counts a book finished twice in one month twice, pages and all', async () => {
+    const asha = await member('asha', 'admin');
+    const b = await book(asha, { length: 150 });
+    await finish(b.id, asha, '2025-07-01');
+    await finish(b.id, asha, '2025-07-30');
+    const r = await yearInReview(env.DB, asha.id, 2025);
+    expect([r.mine.books, r.mine.pages]).toEqual([2, 300]);
+    expect(r.mine.months[6]).toEqual({ books: 2, pages: 300 });
+    expect([r.household.books, r.household.pages]).toEqual([2, 300]);
+  });
+
   it('keeps a removed member’s reads in the household, and out of everyone’s own', async () => {
     const asha = await member('asha', 'admin');
     const ravi = await member('ravi');
@@ -100,6 +111,21 @@ describe('authors and tags', () => {
       { name: 'Neil Gaiman', books: 2, finishes: 3 },
     ]);
     expect(r.household.authors.map((a) => a.name)).not.toContain('Jr.');
+  });
+
+  it('puts two books by one author ahead of one book re-read three times by another', async () => {
+    const asha = await member('asha', 'admin');
+    const again = await book(asha, { title: 'Comfort', creators: 'Re Reader' });
+    const one = await book(asha, { title: 'One', creators: 'Two Books' });
+    const two = await book(asha, { title: 'Two', creators: 'Two Books' });
+    for (const d of ['2025-01-01', '2025-02-01', '2025-03-01']) await finish(again.id, asha, d);
+    await finish(one.id, asha, '2025-04-01');
+    await finish(two.id, asha, '2025-05-01');
+    expect((await yearInReview(env.DB, asha.id, 2025)).mine.authors).toEqual([
+      { name: 'Two Books', books: 2, finishes: 2 },
+      { name: 'Re Reader', books: 1, finishes: 3 },
+    ]);
+    expect(await page(asha, '/year-in-review?year=2025')).toContain('1 book · 3 finishes');
   });
 
   it('ranks tags by the year’s books carrying them', async () => {
