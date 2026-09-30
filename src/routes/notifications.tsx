@@ -66,6 +66,12 @@ const Sentence: FC<{ n: Notification }> = ({ n }) => {
           {who} commented on {n.subject ? what : 'a review'}
         </>
       );
+    case 'recommendation':
+      return (
+        <>
+          {who} recommended {n.subject ? what : 'something'} to you
+        </>
+      );
   }
 };
 
@@ -87,7 +93,7 @@ notificationsRoutes.get('/notifications', async (c) => {
       <div class="page-head">
         <div>
           <h1>Notifications</h1>
-          <span class="sub">CONNECTIONS, BORROWING AND COMMENTS</span>
+          <span class="sub">CONNECTIONS, BORROWING, COMMENTS AND RECOMMENDATIONS</span>
         </div>
       </div>
       {list.length ? (
@@ -102,7 +108,7 @@ notificationsRoutes.get('/notifications', async (c) => {
           ))}
         </ol>
       ) : (
-        <p class="muted">Nothing yet. When a household asks to connect, wants to borrow something or comments on a review, it shows up here.</p>
+        <p class="muted">Nothing yet. When a household asks to connect, wants to borrow something, comments on a review or recommends something to you, it shows up here.</p>
       )}
       <p class="muted">New activity from the households you follow is counted on Feed instead. Notifications are kept for six months.</p>
     </>,

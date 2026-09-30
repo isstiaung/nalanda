@@ -78,3 +78,8 @@ the Add page. Where and why: ARCH.md §16 #63. Nalanda ships no Discogs file or 
 ask for none, and Discogs' [Application Name and Description
 Policy](https://support.discogs.com/hc/en-us/articles/360009207054-Application-Name-and-Description-Policy)
 limits how its mark may be used. A fork that drops Discogs drops the credit with it.
+
+The terms split Discogs' data into CC0 Data — release titles, formats, track listings,
+barcodes, labels — and **Restricted Data**, which includes *"'Marketplace Data' such as …
+pricing"*. They also forbid showing their data more than six hours older than Discogs' own,
+which is why Nalanda fetches and stores no marketplace prices (ARCH.md §16 #61).

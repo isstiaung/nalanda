@@ -20,7 +20,19 @@ export type Descriptor = {
   name: string;
   url: string;
   publicKey: PublicJwk;
+  // §16 #58: directed message types taken beyond version 1's own. Absent from 1.4.0 and older, whose isDescriptor —
+  // unchanged since connections began — checks the fields above and ignores any other.
+  accepts?: string[];
 };
+
+/**
+ * Whether a household's descriptor says its inbox takes `type`. Only a list of short strings counts; anything else —
+ * absent, as from 1.4.0 and older, or malformed — is "no", so nothing is queued that it would refuse.
+ */
+export function peerAccepts(descriptor: Descriptor, type: string): boolean {
+  const list: unknown = descriptor.accepts;
+  return Array.isArray(list) && list.length <= 50 && list.every((t) => typeof t === 'string' && t.length <= 64) && list.includes(type);
+}
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 

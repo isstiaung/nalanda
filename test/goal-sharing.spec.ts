@@ -543,7 +543,15 @@ describe('migration 0036', () => {
     await applyD1Migrations(env.DB, env.TEST_MIGRATIONS.filter((x) => x.name < '0036'));
     const asha = await member('u-asha', 'admin');
     await createConnectionView(env.DB, { name: 'All', libraryId: null, mediaType: null, status: null, owned: null });
-    for (const title of ['One', 'Two', 'Three']) await finished(asha, { title });
+    // Raw SQL, not book(): a Drizzle insert names every column schema.ts has today, and migrations after 0036 add some
+    // (0037's want lists touch no item column; 0038's recommendations none either; 0039's purchase price does) that this database, stopped before 0036, lacks.
+    const shelf = await createLibrary(env.DB, 'Household shelf');
+    for (const title of ['One', 'Two', 'Three']) {
+      const item = await env.DB.prepare("INSERT INTO items (library_id, media_type, title, length, details, added_by) VALUES (?1, 'book', ?2, 300, '{}', ?3) RETURNING id")
+        .bind(shelf.id, title, asha.id)
+        .first<{ id: number }>();
+      await addPastRead(env.DB, item!.id, { status: 'completed', beganOn: null, endedOn: today() }, asha.id);
+    }
     const before = await rows<Record<string, unknown>>('SELECT id, item_id, kind, at, read_id, review_id, progress_id FROM member_activity ORDER BY id');
     expect(before).toHaveLength(3);
     // the newest entry withdrawn — its id is still in a connection's hands

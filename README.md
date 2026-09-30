@@ -21,8 +21,8 @@ manuscripts.
   import too.
 - **Public share links, per view**: publish any filtered slice of a shelf ("my reviews",
   "owned sci-fi"), or everything carrying a tag, at its own unguessable URL — rotate or remove each link independently.
-  Private notes, where things are kept, loans, copy counts and a record's condition never
-  appear. Reviews can link out to blog posts.
+  Private notes, where things are kept, loans, copy counts, what you paid and a record's
+  condition never appear. Reviews can link out to blog posts.
   One admin page lists everything you've published, with the item count each link
   exposes.
 - **An app on your phone, and scanning with no signal**: install it to your home screen
@@ -52,14 +52,30 @@ manuscripts.
   Discogs: labels, catalogue number, country, year, format (colour vinyl, 180 g, 2×LP) and the
   tracklist, folded on its page; **Refresh from Discogs** fills the blanks for records already on
   your shelves, one request per click, and never changes what you've typed.
+- **What you paid**: an optional purchase price on anything — book, game or record — in the
+  household's currency, which an admin sets once (₹, $, ¥ — any ISO currency, with its own
+  decimals). Each shelf shows what it cost, one total per currency and never converted, and the
+  Overview lists every shelf's. Prices stay in the app: never on share pages or to connections,
+  and they round-trip through the CSV. (Market values from Discogs were considered and
+  dropped: its API terms forbid showing marketplace prices more than six hours old — ARCH.md §16 #61.)
 - **Reading goals**: each member sets how many books they mean to finish in a year, and the
   Overview shows their count and pace. Connected households can hear when a goal is set, passes
   halfway and is reached, signed with the member's display name, if the household chooses.
+- **Year in review**: pick a year and see your reading beside the household's — books finished
+  and pages read month by month, most-read authors and tags, average rating, the highest-rated,
+  longest, shortest and fastest reads — and the household's records spun and games played.
+  Inside the app only.
 - **Loans**: track who borrowed what, with due dates and history — each item's page lists who has had it before, and for how long.
 - **Play log for games, listening log for records**: press **Played** on a board game or a
   record — today, or any day you pick — and its page keeps count ("Played 12 times · last on
   14 Sep") with the recent dates. Plays are the household's, not a person's; share pages show
   only the count, and connections see none of it.
+- **What should we play tonight?** Say how many players, how much time and what weight (light,
+  medium or heavy, from BoardGameGeek's complexity rating), and see the board games on your
+  shelves that fit, in random order, each with when you last played it — or press **Pick one
+  for us**. Games missing a detail are listed separately rather than hidden. **Refresh from BGG**
+  on a game's page fills its weight, player count and playing time where blank, one request per
+  click, never changing what you've typed.
 - **Connections between households** (optional): connect with another household that
   self-hosts Nalanda — follow each other's reading in a feed, comment on each other's
   reviews, and borrow each other's books with the loan tracked on both sides. One-to-one

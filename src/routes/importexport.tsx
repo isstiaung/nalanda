@@ -4,6 +4,7 @@ import { MEDIA_TYPES } from '../db/schema';
 import {
   countBackfillable,
   getLibrary,
+  getSiteSettings,
   importItems,
   listLibraries,
   listPeople,
@@ -30,6 +31,7 @@ import {
   type PeopleTally,
 } from '../lib/csv';
 import { findCover, findDescription } from '../metadata';
+import { parseDetails } from '../lib/share';
 import { MEDIA_LABEL } from '../views/components';
 import { page } from '../views/layout';
 
@@ -159,13 +161,16 @@ importexport.post('/api/import', async (c) => {
   }
   const libraryId = Number(body.libraryId);
   if (!Number.isInteger(libraryId)) return c.json({ error: 'libraryId required.' }, 400);
-  if (!(await getLibrary(c.env.DB, libraryId))) return c.json({ error: 'No such shelf.' }, 400);
+  // the household's currency (§16 #61): what a price the file gives no currency for was paid in
+  const [lib, settings] = await Promise.all([getLibrary(c.env.DB, libraryId), getSiteSettings(c.env.DB)]);
+  if (!lib) return c.json({ error: 'No such shelf.' }, 400);
 
   const opts: ImportOptions = {
     defaultType: (MEDIA_TYPES as readonly string[]).includes(body.defaultType ?? '')
       ? (body.defaultType as MediaType)
       : 'book',
     musicAsVinyl: body.musicAsVinyl !== false,
+    currency: settings.currency,
   };
 
   const headers = rows.length > 0 ? Object.keys(rows[0]!) : [];
@@ -176,7 +181,7 @@ importexport.post('/api/import', async (c) => {
   const mapped = [];
   let skipped = sent.length - rows.length;
   for (const row of rows) {
-    const m = format === 'nalanda' ? mapNalandaRow(row) : isGoodreads ? mapGoodreadsRow(row) : mapLibibRow(row, opts);
+    const m = format === 'nalanda' ? mapNalandaRow(row, settings.currency) : isGoodreads ? mapGoodreadsRow(row) : mapLibibRow(row, opts);
     if (m) mapped.push(m);
     else skipped++;
   }
@@ -211,6 +216,11 @@ importexport.post('/api/import', async (c) => {
       // a Nalanda export's loans, and how many of them are still out (§16 #57)
       loans: mapped.reduce((n, m) => n + (m.loans?.length ?? 0), 0),
       loansOut: mapped.reduce((n, m) => n + (m.loans?.filter((l) => l.returnedOn === null).length ?? 0), 0),
+      // purchase prices the rows bring (§16 #61), and the household's currency, which any without their own are in
+      prices: mapped.filter((m) => m.item.purchasePrice !== null && m.item.purchasePrice !== undefined).length,
+      currency: settings.currency,
+      // libib prices that couldn't be read as one in the household's currency (or there is none): they stay in details
+      pricesLeft: mapped.filter((m) => m.item.purchasePrice == null && 'price' in parseDetails(m.item.details)).length,
       // A household of one importing its own file has nobody to tell apart: the preview says nothing new then.
       ...(people.length > 1 || [...tally.keys()].some((name) => name !== undefined && name !== user.username)
         ? { importer: user.username, keepsNames: keepNames }

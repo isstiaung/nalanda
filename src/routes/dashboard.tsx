@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
-import { activeLoans, goalOf, holdingsByType, listLibraries, listShares, pickNextRead, recentItems } from '../db/queries';
+import { activeLoans, goalOf, holdingsByType, listLibraries, listShares, pickNextRead, recentItems, shelfTotals } from '../db/queries';
+import { formatMoney } from '../lib/money';
 import type { Share } from '../db/schema';
 import type { AppEnv } from '../env';
 import { todayUtc } from '../lib/reads';
@@ -27,7 +28,7 @@ dashboard.get('/', async (c) => {
 
   const today = todayUtc();
   const year = Number(today.slice(0, 4));
-  const [libraries, recent, loans, holdings, shares, pick, goal] = await Promise.all([
+  const [libraries, recent, loans, holdings, shares, pick, goal, totals] = await Promise.all([
     listLibraries(c.env.DB),
     recentItems(c.env.DB, 12),
     activeLoans(c.env.DB),
@@ -36,7 +37,16 @@ dashboard.get('/', async (c) => {
     pickNextRead(c.env.DB, reader, notId),
     // the signed-in member's own goal for this year (§16 #49) — one call, its count worked out in it
     goalOf(c.env.DB, reader, year),
+    // what the household paid, per shelf and currency (§16 #61) — one call, summed in SQL
+    shelfTotals(c.env.DB),
   ]);
+  const anyPaid = [...totals.shelves.values()].some((t) => t.paid.length > 0);
+  /** A shelf's paid totals, one per currency — the household's first; never added across currencies. */
+  const paidCell = (id: number) =>
+    [...(totals.shelves.get(id)?.paid ?? [])]
+      .sort((a, b) => (a.currency === totals.currency ? -1 : b.currency === totals.currency ? 1 : a.currency.localeCompare(b.currency)))
+      .map((t) => formatMoney(t.total, t.currency))
+      .join(' · ');
   const sharesByLibrary = new Map<number | null, Share[]>();
   for (const v of shares) sharesByLibrary.set(v.libraryId, [...(sharesByLibrary.get(v.libraryId) ?? []), v]);
   const overdue = loans.filter((l) => l.dueOn && l.dueOn < today).length;
@@ -45,6 +55,8 @@ dashboard.get('/', async (c) => {
   // "Read next" is for books: a catalog without any leaves it off, rather than saying there's nothing to read
   const books = holdings.find((h) => h.mediaType === 'book');
   const hasBooks = !!books && books.owned + books.notOwned > 0;
+  // "What should we play tonight?" (§16 #60) is for games in the collection: linked once there is one, at no D1 cost
+  const gamesOwned = holdings.find((h) => h.mediaType === 'boardgame')?.owned ?? 0;
   const typeLine = (pick: (h: (typeof holdings)[number]) => number) =>
     holdings
       .filter((h) => pick(h) > 0)
@@ -107,6 +119,20 @@ dashboard.get('/', async (c) => {
         </section>
       ) : null}
 
+      {gamesOwned > 0 ? (
+        <section aria-labelledby="game-night-head">
+          <p class="eyebrow" id="game-night-head">
+            Game night
+          </p>
+          <p class="game-night">
+            <a href="/play">What should we play tonight?</a>{' '}
+            <span class="muted">
+              Pick from {gamesOwned === 1 ? 'the board game' : `${gamesOwned} board games`} by players, time and weight.
+            </span>
+          </p>
+        </section>
+      ) : null}
+
       <section>
         <p class="eyebrow">Shelves</p>
         {libraries.length ? (
@@ -117,6 +143,7 @@ dashboard.get('/', async (c) => {
                   <th>Shelf</th>
                   <th>Items</th>
                   <th>Visibility</th>
+                  {anyPaid ? <th class="num">Paid</th> : null}
                   <th class="hide-sm">Created</th>
                 </tr>
               </thead>
@@ -136,6 +163,7 @@ dashboard.get('/', async (c) => {
                           {shareVisibilityLabel(visibility)}
                         </span>
                       </td>
+                      {anyPaid ? <td class="num money-cell">{paidCell(l.id) || '—'}</td> : null}
                       <td class="date hide-sm">{l.createdAt.slice(0, 10)}</td>
                     </tr>
                   );

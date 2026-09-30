@@ -41,6 +41,9 @@ const item: Item = {
   updatedAt: '2026-01-10 10:00:00',
   seriesId: 4,
   seriesNumber: 1,
+  // what was paid (§16 #61): private, like copies — the whitelist test below proves it stays out
+  purchasePrice: 49900,
+  purchaseCurrency: 'INR',
 };
 
 describe('share whitelist', () => {

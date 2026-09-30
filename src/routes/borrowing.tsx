@@ -107,7 +107,7 @@ function parseShelf(value: unknown): Shelf | null {
   return { name: view.name, total, page: current, pages, items };
 }
 
-const TheirCover: FC<{ baseUrl: string; coverKey: string | null; title: string; mediaType: ShelfItem['mediaType'] }> = (p) => {
+export const TheirCover: FC<{ baseUrl: string; coverKey: string | null; title: string; mediaType: ShelfItem['mediaType'] }> = (p) => {
   const url = coverUrl(p.baseUrl, p.coverKey);
   return url ? (
     <img

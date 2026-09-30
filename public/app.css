@@ -169,8 +169,52 @@ table { border-collapse: collapse; }
 /* the narrow sidebar needs a slightly denser sub-line to stay on one line */
 .sidebar .brand-sub { font-size: 9.5px; letter-spacing: 0.08em; }
 
-.nav-section { display: flex; flex-direction: column; gap: 1px; }
-.nav-eyebrow { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); padding: 0 0.45rem; margin-bottom: 0.35rem; }
+/* Navigation (ARCH.md §16 #62): three pinned links, then sections that fold. Each section is a <details> whose
+   <summary> is its eyebrow, with a chevron that turns as it opens; it opts out of the global details frame. */
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-pinned, .nav-links { display: flex; flex-direction: column; gap: 1px; }
+.nav-pinned { margin-bottom: 0.75rem; }
+.sidebar .nav-section { border: none; border-radius: 0; padding: 0; margin: 0; background: none; }
+.sidebar .nav-section::after { content: none; }
+.nav-section[open] > .nav-links { margin: 1px 0 0.6rem; }
+.nav-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 28px; /* the hit target: past 24px, the size of a nav link */
+  padding: 0 0.45rem;
+  margin: 0;
+  border-radius: var(--radius-sm);
+  font-weight: 400; /* the global summary rule bolds panel titles */
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent; /* a phone's tap flash isn't one of our colours; :hover and focus show it */
+}
+.nav-section[open] > .nav-summary { margin: 0; } /* the global details[open] summary rule adds a bottom margin */
+.nav-summary::-webkit-details-marker { display: none; }
+.nav-summary:hover { background: var(--surface-2); }
+.nav-summary:hover .nav-eyebrow { color: var(--ink-2); }
+/* the chevron: two borders of a small square, pointing right while closed and down once open */
+.nav-summary::after {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-right: 2px;
+  border-right: 1.5px solid var(--ink-3);
+  border-bottom: 1.5px solid var(--ink-3);
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+.nav-section[open] > .nav-summary::after { transform: rotate(45deg); }
+/* tracked a little tighter than .eyebrow, so "Sharing & connections" keeps one line beside its unread count */
+.nav-eyebrow { flex: 1; min-width: 0; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+/* a closed section still says something in it is unread; open, each link shows its own */
+/* Text for screen readers only (the same rule the a11y audit's branch adds). */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.nav-summary .nav-summary-unread { margin-left: 0; }
+.nav-section[open] .nav-summary-unread { display: none; }
 
 .nav-link {
   display: flex;
@@ -740,6 +784,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
     box-shadow: var(--shadow);
   }
   body.nav-open .sidebar { transform: translateX(0); visibility: visible; transition: transform 160ms ease, visibility 0s; }
+  /* a section header is tapped with a thumb in the drawer: a taller target than the pointer needs */
+  .nav-summary { min-height: 34px; }
   .mobile-bar {
     display: flex;
     align-items: center;
@@ -862,6 +908,41 @@ button.comment-delete:hover, button.progress-delete:hover { background: none; co
   .request-actions, .data-table .request-actions .inline-form { flex-wrap: wrap; }
 }
 
+/* ── connections: recommendations (§16 #58) ─────────────────────────────────
+   Sending is a quiet disclosure on the item's page, indigo like any working form —
+   vermilion stays for circulation. The Recommended list reuses the feed's cards:
+   what arrives from a connection reads the same wherever it shows. */
+details.recommend { margin-top: 1.4rem; }
+details.recommend > summary { font-size: 12.5px; }
+.recommend-form { display: grid; gap: 0.35rem; max-width: 30rem; }
+.recommend-form label { margin: 0.3rem 0 0; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.recommend-form select, .recommend-form textarea { margin: 0; width: 100%; }
+.recommend-form textarea { min-height: 3rem; }
+.recommend-form #recommend-hint { margin: 0.1rem 0 0.3rem; font-size: 12px; }
+.recommend-form button { justify-self: start; }
+.recommend-sent { list-style: none; padding: 0; margin: 0.8rem 0 0; font-size: 12.5px; display: grid; gap: 0.2rem; overflow-wrap: anywhere; }
+.recommend-sent .mono { font-size: 11.5px; }
+.recommend-list { list-style: none; padding: 0; margin: 0 0 1.5rem; }
+.recommend-from { margin: 0.1rem 0 0; font-size: 12.5px; color: var(--ink-2); overflow-wrap: anywhere; }
+.recommend-from .mono { font-size: 11.5px; white-space: nowrap; }
+.recommend-note { border-left: 2px solid var(--line-strong); padding-left: 0.6rem; }
+.recommend-actions { display: flex; flex-wrap: wrap; gap: 0.5rem 0.8rem; align-items: center; margin-top: 0.6rem; font-size: 12.5px; }
+.recommend-actions .inline { margin: 0; }
+.recommend-sent-section { margin-top: 1.5rem; }
+
+/* text for screen readers only: a button's accessible name can say which item it acts on */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ── notifications ───────────────────────────────────────────────────────── */
 .notifications { list-style: none; padding: 0; margin: 0 0 1.25rem; display: grid; gap: 0; border-top: 1px solid var(--line); }
 .notifications li { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: 0.6rem 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
@@ -944,6 +1025,33 @@ form.search-by-reader select { width: auto; margin: 0; max-width: 100%; }
   .read-next { grid-template-columns: 64px minmax(0, 1fr); gap: 0.8rem; }
   .read-next-cover { width: 64px; }
 }
+
+/* ── what should we play tonight (ARCH.md §16 #60) ───────────────────────────
+   Three labelled controls and two buttons, then a ledger of games: a small cover, the
+   title, and its facts in mono — players, time, weight, last played. A fact the page
+   doesn't know is set in the faint ink, italic, since the filters depend on it. The pick
+   borrows Read next's framed panel. Existing tokens only. */
+.play-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0 1rem; align-items: end; max-width: 46rem; }
+.play-filters label { margin-bottom: 0.8rem; }
+.play-buttons { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.8rem; }
+.play-status { max-width: 46rem; margin: 0.2rem 0 1rem; font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+.game-list { list-style: none; margin: 0; padding: 0; max-width: 46rem; border-top: 1px solid var(--line); }
+.game-row { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 0.85rem; padding: 0.7rem 0; border-bottom: 1px solid var(--line); }
+.game-thumb { display: block; width: 44px; aspect-ratio: 2 / 3; border-radius: var(--radius-sm); overflow: hidden; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); }
+.game-thumb .cover-fallback { font-size: 1.2rem; }
+.game-body { min-width: 0; }
+.game-title { display: block; color: var(--ink); font-size: 14px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.game-title:hover { color: var(--accent); }
+.game-by { display: block; margin-top: 0.1rem; color: var(--ink-2); font-size: 12px; overflow-wrap: anywhere; }
+.game-facts { display: flex; flex-wrap: wrap; gap: 0.15rem 0.9rem; margin: 0.3rem 0 0; font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); }
+.game-facts .missing { color: var(--ink-3); font-style: italic; }
+.play-pick .eyebrow { margin-bottom: 0.2rem; }
+.play-pick .game-facts { margin-top: 0.45rem; }
+.play-pick .read-actions a { font-size: 13px; }
+.play-unknown { margin-top: 2rem; max-width: 46rem; }
+.play-unknown > .muted { font-size: 12.5px; margin: 0 0 0.6rem; }
+.play-more, .play-empty { max-width: 46rem; margin: 0.8rem 0 0; font-size: 12.5px; }
+.game-night { margin: 0; font-size: 13px; }
 
 /* ── bulk edit (ARCH.md §16 #47) ─────────────────────────────────────────────
    A checkbox per item, and a bar that stays within reach at the foot of the screen
@@ -1047,8 +1155,8 @@ details.tracklist summary .mono { font-weight: 400; font-size: 11px; }
 .track-artist { font-size: 12px; }
 .track-time { font-size: 11.5px; color: var(--ink-2); text-align: right; }
 .tracks > li.track-heading { display: block; font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-3); padding-top: 0.7rem; }
-.discogs-refresh, .discogs-note { margin: 0.8rem 0 0; }
-.discogs-refresh small, .discogs-note { font-size: 12px; }
+.discogs-refresh, .discogs-note, .bgg-refresh, .bgg-note { margin: 0.8rem 0 0; }
+.discogs-refresh small, .discogs-note, .bgg-refresh small, .bgg-note { font-size: 12px; }
 #pressing .notice { margin: 0.8rem 0 0; }
 
 /* ── reading goals (ARCH.md §16 #49) ──────────────────────────────────────────
@@ -1127,3 +1235,101 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 /* someone in the household wants it, and it isn't owned (§16 #53): the working accent, dotted — it pairs with the
    dashed ghost "Not owned" beside it, and is never a name */
 .pill.wanted { border-color: var(--accent); border-style: dotted; color: var(--accent); }
+
+/* ── year in review (ARCH.md §16 #59) ────────────────────────────────────────
+   The member's year beside the household's, each column its own figures. Counts in the
+   registrar's mono; the month bars in the indigo working accent, ratings in turmeric.
+   The bars are for the eye only (aria-hidden): a visually hidden table carries them. */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.yr-picker label { margin: 0 0.15rem 0 0; font-size: 12.5px; }
+.yr-picker select { height: 30px; }
+.yr-intro { max-width: 46rem; font-size: 12.5px; }
+.yr-empty { max-width: 40rem; margin-bottom: 2rem; }
+.yr-empty p { margin: 0; }
+.yr-section h3 { font-family: var(--mono); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-2); margin-bottom: 0.6rem; }
+.yr-section h4 { margin: 1rem 0 0.35rem; }
+.yr-section h3 + h4 { margin-top: 0; }
+.yr-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem 2rem; }
+.yr-pair.yr-solo { grid-template-columns: minmax(0, 1fr); max-width: 34rem; }
+.yr-col { min-width: 0; }
+.yr-col > .stat-row { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.yr-list { list-style: none; counter-reset: yr; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.yr-list > li {
+  counter-increment: yr;
+  display: grid;
+  grid-template-columns: 1.4rem minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.yr-list > li::before { content: counter(yr); font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+.yr-name { min-width: 0; overflow-wrap: anywhere; }
+.yr-list .tag.yr-name { justify-self: start; margin: 0; white-space: normal; } /* a long tag wraps inside its chip rather than widen a phone */
+.yr-count { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); white-space: nowrap; text-align: right; }
+.yr-rating { white-space: nowrap; }
+.yr-rating .mono { font-size: 11.5px; color: var(--ink-2); }
+.yr-average { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 0.6rem; margin: 0; }
+.yr-average .rating { font-size: 15px; }
+.yr-average .yr-rating .mono { font-size: 15px; font-weight: 600; color: var(--ink); }
+.yr-props { grid-template-columns: 110px minmax(0, 1fr); }
+.yr-props dd a { overflow-wrap: anywhere; }
+.yr-undated { font-size: 12.5px; }
+
+/* the month chart: twelve columns, each a count over its bar and the month under it */
+.yr-chart { position: relative; margin: 0.9rem 0 0; } /* holds its hidden table, so the table never sits past the page's edge */
+.yr-chart-cap { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-3); margin-bottom: 0.3rem; }
+.yr-bars { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.yr-month { display: flex; flex-direction: column; min-width: 0; }
+.yr-n { font-family: var(--mono); font-size: 10px; line-height: 1.5; min-height: 1.5em; text-align: center; color: var(--ink-2); }
+.yr-bar { display: flex; align-items: flex-end; height: 84px; padding: 0 2px; border-bottom: 1px solid var(--line-strong); }
+.yr-fill { display: block; width: 100%; background: var(--accent); border-radius: 2px 2px 0 0; }
+.yr-m { font-family: var(--mono); font-size: 9.5px; text-align: center; color: var(--ink-3); padding-top: 0.25rem; overflow: hidden; }
+
+@media (max-width: 720px) {
+  .yr-pair { grid-template-columns: minmax(0, 1fr); gap: 1.75rem; }
+  .yr-props { grid-template-columns: 96px minmax(0, 1fr); }
+}
+
+/* ── money (ARCH.md §16 #61) ──────────────────────────────────────────────────
+   What was paid is data, so it is set in the registrar's mono like every other figure —
+   in ink, never gold (that's ratings) or vermilion (that's circulation). The currency code
+   sits in a ruled cell at the head of the input, as a ledger's column heading would. */
+.money, .money-cell { font-family: var(--mono); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.money-field { margin-bottom: 0.9rem; }
+.money-field > label { margin-bottom: 0; }
+.money-input { display: flex; align-items: stretch; max-width: 18rem; margin-top: 0.3rem; }
+.money-input input, .money-input select { margin: 0; }
+.money-input input { font-family: var(--mono); min-width: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.money-code, .money-input select {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  padding: 0 0.6rem;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-right: none;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+.money-input input[aria-invalid='true'] { border-color: var(--stamp); }
+.money-field .form-note { margin: 0.35rem 0 0; }
+.field-error { color: var(--stamp); font-size: 12.5px; margin: 0.35rem 0 0; }
+.paid-totals { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.35rem; margin: -0.4rem 0 1rem; font-size: 12.5px; }
+.paid-totals .eyebrow { margin: 0 0.25rem 0 0; }
+#currency select { width: auto; max-width: 100%; }
