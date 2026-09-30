@@ -132,6 +132,19 @@ describe('selecting items', () => {
     expect(page).toContain('<input type="hidden" name="back" value="/search?q=ficciones"/>');
   });
 
+  it('offers no move when there is no other shelf to move to, and every other shelf when there is', async () => {
+    const admin = await member('asha', 'admin');
+    const only = await createLibrary(env.DB, 'The only shelf');
+    await item(only.id, { title: 'A' });
+    const alone = await html(admin, `/libraries/${only.id}`);
+    expect(alone).not.toContain('value="move"');
+    expect(alone).toContain('<option value="owned">Mark owned</option>');
+    const other = await createLibrary(env.DB, 'Attic');
+    const page = await html(admin, `/libraries/${only.id}`);
+    expect(page).toContain('<option value="move">Move to shelf</option>');
+    expect(page).toContain(`<select class="bulk-shelf" name="libraryId" aria-label="Shelf to move to"><option value="${other.id}">Attic</option></select>`);
+  });
+
   it('offers no bar on an empty shelf', async () => {
     const { admin, shelf } = await household();
     const page = await html(admin, `/libraries/${shelf.id}`);

@@ -30,7 +30,10 @@ export const BulkBar: FC<{
   currentLibrary?: number;
 }> = ({ back, admin, libraries, currentLibrary }) => {
   const targets = libraries.filter((l) => l.id !== currentLibrary);
-  const actions: BulkAction[] = ['tag-add', 'tag-remove', 'move', 'owned', 'not-owned', ...(admin ? (['delete'] as const) : [])];
+  // no other shelf, nowhere to move to
+  const actions = (['tag-add', 'tag-remove', 'move', 'owned', 'not-owned', 'delete'] as const).filter(
+    (a) => (a !== 'move' || targets.length > 0) && (a !== 'delete' || admin),
+  );
   return (
     <form id={BULK_FORM} method="post" action="/bulk" class="bulk-bar" data-max={String(BULK_MAX)} aria-label="Change selected items">
       <input type="hidden" name="back" value={back} />

@@ -153,6 +153,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (tag) tag.required = action.value.startsWith('tag-');
     });
     sync();
+    // Back to this page, the browser may restore checked boxes after load, without a change event: count again then.
+    window.addEventListener('pageshow', sync);
+    window.addEventListener('load', sync);
   }
 
   // The phone drawer. aria-expanded follows it, so a screen reader hears whether the menu is open; while closed,
