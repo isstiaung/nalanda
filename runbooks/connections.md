@@ -26,7 +26,7 @@ endpoint answers 404 and nothing shows in the sidebar. Only admins see **Connect
 3. **Keep a copy in your password manager.** The key is your library's identity to every
    household you connect with. It isn't in D1, so `npm run backup` doesn't save it, and
    losing it means reconnecting with everyone (*Lost or leaked key*, below).
-4. Reload the app as an admin. **Connections** appears under Circulation.
+4. Reload the app as an admin. **Connections** appears in the sidebar under Sharing & connections.
 
 ## Name your library
 

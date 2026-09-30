@@ -8,6 +8,11 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [Unreleased]
+
+### Changed
+- **The sidebar folds into sections.** Overview, Add items and Search stay at the top. Everything else is grouped by what you came to do: **Library** (Tags, Series), **Shelves**, **Reading** (Want list, Reading goals), **Lending** (Loans, Borrowed), **Sharing & connections** (Shared links, Feed, Notifications, Connections) and **Settings** (Import / export, Members, Account — Account moved here from the bottom; Log out stays there). Each section opens and closes from its header, with a click, a tap, or Enter and Space from the keyboard, and works without JavaScript. The section holding the page you're on is always open; the others start closed, and the ones you open stay open on that device, remembered in a small `nav` cookie so the page draws them open from the start. A closed section's header shows how many things in it are unread. Admin-only and connections-only links show to the same people as before.
+
 ## [1.5.0] - 2026-09-30
 
 A lot for games, records and reading: a play and listening log, reading goals (shared with connected households if you like), want lists with shop links and gift-list shares, series with what's missing and what's next, a record's condition and pressing from Discogs, where each thing lives, and loans in the export.
