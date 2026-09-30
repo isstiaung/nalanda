@@ -1,7 +1,9 @@
 import type { FC } from 'hono/jsx';
 import type { PastLoan } from '../db/queries';
 import type { Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
-import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
+import { ITEM_STATUSES, MEDIA_GRADES, MEDIA_TYPES, SLEEVE_GRADES } from '../db/schema';
+import { GRADE_NAME, isRecord } from '../lib/condition';
+import { splitPressing, trackCount, type Track } from '../lib/pressing';
 import { progressPercent } from '../lib/progress';
 import { isPlayable, playDate } from '../lib/plays';
 import { latestReadDate, ordinal, summarizeReads, todayUtc, type ReadDraft, type ReadRow } from '../lib/reads';
@@ -1266,6 +1268,7 @@ export const ItemForm: FC<{
         Status, dates, rating and review here are yours; everyone's show on the item's page.
       </p>
     ) : null}
+    {isRecord(item?.mediaType) ? <GradeFields media={item?.mediaCondition ?? null} sleeve={item?.sleeveCondition ?? null} /> : null}
     <label>
       Tags <small>(comma-separated)</small>
       <input name="tags" value={tags?.join(', ') ?? ''} />
@@ -1328,6 +1331,8 @@ const CandidateFields: FC<{ candidate: Candidate }> = ({ candidate }) => (
     <input type="hidden" name="seriesNumber" value={candidate.series?.number != null ? formatSeriesNumber(candidate.series.number) : ''} />
     <input type="hidden" name="coverUrl" value={candidate.coverUrl ?? ''} />
     <input type="hidden" name="details" value={JSON.stringify(candidate.details)} />
+    {/* a Discogs result's release is fetched once on save, for its tracklist and full pressing (§16 #55) */}
+    {candidate.provider === 'discogs' ? <input type="hidden" name="source" value="discogs" /> : null}
   </>
 );
 
@@ -1503,6 +1508,7 @@ export const DETAIL_LABELS: Record<string, string> = {
   format: 'Format',
   label: 'Label',
   catno: 'Catalog #',
+  country: 'Country',
   year: 'Year',
   genres: 'Genres',
   subtitle: 'Subtitle',
@@ -1547,5 +1553,120 @@ export const DetailsList: FC<{ details: Record<string, unknown>; fromConnection?
         </>
       ))}
     </dl>
+  );
+};
+
+// ---------- a record's condition and pressing (ARCH.md §16 #55) ----------
+
+/**
+ * The edit form's grades: media and sleeve, each on Discogs' scale, blank for not graded. Only a record's form has
+ * them; the route validates what comes back against the same fixed lists.
+ */
+export const GradeFields: FC<{ media: string | null; sleeve: string | null }> = ({ media, sleeve }) => (
+  <>
+    <div class="grid">
+      <label>
+        Media grade
+        <select name="mediaCondition">
+          <option value="" selected={!media}>
+            Not graded
+          </option>
+          {MEDIA_GRADES.map((g) => (
+            <option value={g} selected={media === g}>
+              {GRADE_NAME[g]}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Sleeve grade
+        <select name="sleeveCondition">
+          <option value="" selected={!sleeve}>
+            Not graded
+          </option>
+          {SLEEVE_GRADES.map((g) => (
+            <option value={g} selected={sleeve === g}>
+              {GRADE_NAME[g]}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+    <p class="muted form-note">Your copy's condition, on the Goldmine scale Discogs uses — never on share pages or to connections.</p>
+  </>
+);
+
+/** One grade on the item page: its code in a mono pill, Discogs' wording beside it. */
+export const Grade: FC<{ grade: string }> = ({ grade }) => {
+  const name = GRADE_NAME[grade as keyof typeof GRADE_NAME] ?? grade;
+  // "Very Good Plus (VG+)" → "Very Good Plus": the pill already says VG+
+  const words = name.replace(/\s*\([^)]*\)$/, '');
+  return (
+    <>
+      <span class="pill grade">{grade}</span>
+      {words !== grade ? <span class="muted">{words}</span> : null}
+    </>
+  );
+};
+
+/** A record's tracklist, folded: a long one shouldn't push the rest of the page off a phone. */
+export const Tracklist: FC<{ tracks: Track[] }> = ({ tracks }) => {
+  if (!tracks.length) return null;
+  const n = trackCount(tracks);
+  return (
+    <details class="tracklist">
+      <summary>
+        Tracklist <span class="mono muted">· {n === 1 ? '1 track' : `${n} tracks`}</span>
+      </summary>
+      <ol class="tracks">
+        {tracks.map((t) =>
+          'heading' in t ? (
+            <li class="track-heading">{t.heading}</li>
+          ) : (
+            <li>
+              <span class="track-pos mono">{t.position ?? ''}</span>
+              <span class="track-title">
+                {t.title}
+                {t.artist ? <span class="track-artist muted"> — {t.artist}</span> : null}
+              </span>
+              <span class="track-time mono">{t.duration ?? ''}</span>
+            </li>
+          ),
+        )}
+      </ol>
+    </details>
+  );
+};
+
+/**
+ * A record's pressing — label, catalogue number, country, year, format — and its tracklist, then whatever else its
+ * details hold, as the plain list every item page has. Used by the item page and the share page alike: pressing
+ * details are public catalogue data (§9). `after` sits between the pressing and the rest (the Refresh button).
+ */
+export const RecordDetails: FC<{ details: Record<string, unknown>; after?: unknown; publicPage?: boolean }> = ({
+  details,
+  after,
+  publicPage,
+}) => {
+  const { pressing, tracklist, rest } = splitPressing(details);
+  const empty = !pressing.length && !tracklist.length;
+  return (
+    <>
+      {empty && publicPage ? null : (
+        <div class="detail-section" id="pressing">
+          <p class="eyebrow">Pressing</p>
+          {pressing.length ? <DetailsList details={Object.fromEntries(pressing)} /> : null}
+          {empty ? <p class="muted">No pressing details yet.</p> : null}
+          <Tracklist tracks={tracklist} />
+          {after}
+        </div>
+      )}
+      {Object.keys(rest).length ? (
+        <div class="detail-section">
+          <p class="eyebrow">Details</p>
+          <DetailsList details={rest} />
+        </div>
+      ) : null}
+    </>
   );
 };
