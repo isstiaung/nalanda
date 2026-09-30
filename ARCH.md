@@ -1588,7 +1588,7 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       form keeps it one line with spaces collapsed; blank is none.
     - **Search finds it.** It joins the FTS index as a fifth column, so global search matches it;
       a shelf's search box matches it beside title and creators (a `LIKE`, as those are). FTS5
-      can't add a column, so migration 0029 — a custom one, after 0028 adds the column — drops
+      can't add a column, so migration 0032 — a custom one, after 0031 adds the column — drops
       `items_fts` and its three triggers, makes them again with `location` added and bodies
       otherwise unchanged, and refills the index with `'rebuild'`. The index is external-content
       (`content='items'`), so dropping it loses nothing. Rehearsed on the backup of 2026-09-29
