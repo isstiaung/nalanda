@@ -287,9 +287,98 @@ document.addEventListener('htmx:afterSettle', (e) => {
   });
   const failed = (e) => {
     const found = statusOf(e);
-    if (found) found.status.textContent = 'Something went wrong — try again.';
+    if (!found) return;
+    found.status.textContent = 'Something went wrong — try again.';
+    e.preventDefault(); // said here, so not again in the page's own message region below (§16 #65)
   };
   for (const type of ['htmx:responseError', 'htmx:sendError', 'htmx:sendAbort', 'htmx:timeout']) {
     document.addEventListener(type, failed);
   }
+})();
+
+// Every other htmx control (ARCH.md §16 #65). htmx swaps nothing when a request fails — a 4xx or 5xx, or no answer at
+// all — so without this Played, Finish, the Holding toggle, Another and the rest would silently do nothing. The page's
+// one message region (#app-status, rendered by the layout after <main>) says what happened in a fixed sentence chosen
+// by the kind of failure: never the answer's body, never the URL. A control with its own status says it there
+// instead: its handler, on the document, runs first and calls preventDefault(), and this one — on the window, so it
+// runs after every handler on the document — leaves that failure alone. The next request that succeeds empties the
+// region. htmx itself re-enables the control and drops its htmx-request class; the button pressed gets focus back if
+// the browser dropped it to <body> while it was disabled.
+(() => {
+  const SAY = {
+    network: 'Couldn’t reach Nalanda — check your connection and try again.',
+    server: 'Something went wrong — try again.',
+    origin: 'Nalanda couldn’t tell that came from this page — reload it and try again.',
+    refused: 'You can’t do that here.',
+    gone: 'That’s no longer here — reload the page.',
+    other: 'That didn’t go through — reload the page and try again.',
+  };
+  const kindOf = (xhr) => {
+    const status = xhr ? xhr.status : 0;
+    if (status >= 500) return 'server';
+    // the CSRF check's refusal says which it is in a header (src/index.ts): only its value picks a sentence
+    if (status === 403) return xhr.getResponseHeader('X-Nalanda-Refused') === 'origin' ? 'origin' : 'refused';
+    if (status === 404 || status === 410) return 'gone';
+    return 'other';
+  };
+
+  let again = 0;
+  const say = (text) => {
+    const region = document.getElementById('app-status');
+    if (!region) return;
+    clearTimeout(again);
+    if (region.textContent !== text) {
+      region.textContent = text;
+      return;
+    }
+    // the same sentence twice is still news: empty the region, then say it again, so a screen reader hears it
+    region.textContent = '';
+    again = setTimeout(() => {
+      region.textContent = text;
+    }, 150);
+  };
+  const clear = () => {
+    const region = document.getElementById('app-status');
+    clearTimeout(again);
+    if (region && region.textContent) region.textContent = '';
+  };
+
+  window.addEventListener('htmx:responseError', (e) => {
+    if (!e.defaultPrevented) say(SAY[kindOf(e.detail && e.detail.xhr)]);
+  });
+  const unreached = (e) => {
+    if (!e.defaultPrevented) say(SAY.network);
+  };
+  window.addEventListener('htmx:sendError', unreached);
+  window.addEventListener('htmx:timeout', unreached);
+
+  const pressed = new WeakMap(); // the element a request went out from → what had focus in it then
+  window.addEventListener('htmx:beforeRequest', (e) => {
+    const elt = e.detail && e.detail.elt;
+    const active = document.activeElement;
+    if (elt && active && active !== document.body && elt.contains(active)) pressed.set(elt, active);
+  });
+  window.addEventListener('htmx:afterRequest', (e) => {
+    const elt = e.detail && e.detail.elt;
+    if (e.detail && e.detail.successful === true) clear();
+    const button = elt ? pressed.get(elt) : null;
+    if (elt) pressed.delete(elt);
+    if (e.detail && e.detail.successful === true) return; // a swap: the afterSettle handler above looks after focus
+    // dropped to <body> when the button was disabled, or to <main> by a second click on it while it was
+    const active = document.activeElement;
+    const dropped = !active || active === document.body || active === document.getElementById('main');
+    if (button && button.isConnected && dropped) button.focus({ preventScroll: true });
+  });
+
+  // An HX-Redirect (a lapsed session sent to log in, src/index.ts) leaves this page with its control still disabled
+  // and busy: htmx keeps it so while the browser navigates. Back to it from the browser's page cache, it would stay
+  // stuck, so the page loads again instead — as it is now, or the login page again if still signed out.
+  let redirected = false;
+  window.addEventListener('htmx:beforeOnLoad', (e) => {
+    const xhr = e.detail && e.detail.xhr;
+    if (xhr && xhr.getResponseHeader('HX-Redirect')) redirected = true;
+  });
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted && redirected) location.reload();
+  });
 })();

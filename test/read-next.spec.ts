@@ -242,8 +242,10 @@ describe('the Overview card', () => {
   it('needs a session', async () => {
     await household();
     const res = await as(null, '/?not=1', { htmx: true });
-    expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toBe('/login');
+    // not a 302: htmx would swap the login page into the card. HX-Redirect loads it as the page (§16 #65)
+    expect(res.status).toBe(401);
+    expect(res.headers.get('HX-Redirect')).toBe('/login');
+    expect(res.headers.get('location')).toBeNull();
   });
 });
 

@@ -119,7 +119,9 @@
     const path = e.detail?.pathInfo?.finalRequestPath ?? '';
     if (!path.startsWith('/add/results')) return;
     const code = new URL(path, location.origin).searchParams.get('barcode')?.trim();
-    if (code) hold(code);
+    if (!code) return;
+    hold(code);
+    e.preventDefault(); // the scanner's own status says what became of it, not the page's message region (§16 #65)
   });
 
   async function start() {

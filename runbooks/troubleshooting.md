@@ -43,10 +43,26 @@ Local dev prints to the `npm run dev` terminal.
   details kept the short format a search gave it — clear that key in the edit form's details
   JSON, save, and refresh. **"Found by barcode — refresh again for the tracklist"**: a barcode search has no
   tracklist; the release id it stored fetches one on the next click.
-- **"Something went wrong — try again."** after Refresh from Discogs or Refresh from BGG: the
-  request never came back with an answer — a server error (look in `wrangler tail`) or a dropped
-  connection. Discogs' and BGG's own refusals say so in their own words instead. Reload the page
-  and click again.
+- **"Something went wrong — try again."** after Refresh from Discogs or Refresh from BGG (above
+  the button), or after any other in-place button — Played, Finish, the Holding toggle, Another —
+  (at the bottom of the page): the server answered with an error. Look in `wrangler tail` for the
+  request, then reload the page and click again. Discogs' and BGG's own refusals say so in their
+  own words instead. The message at the bottom of the page is always one of a few fixed
+  sentences, never the server's own text (ARCH.md §16 #65):
+  - **"Couldn't reach Nalanda — check your connection and try again."** — no answer at all: the
+    phone or laptop is offline, or the Worker is unreachable. Nothing was saved.
+  - **"That's no longer here — reload the page."** — a 404: the item, read or play was deleted,
+    perhaps from another device.
+  - **"You can't do that here."** — a 403 from a route: an admin-only action, or someone else's
+    read or review. The page doesn't offer those, so a role changed since the page loaded.
+  - **"Nalanda couldn't tell that came from this page — reload it and try again."** — the CSRF
+    check refused the request: the browser didn't send `Sec-Fetch-Site: same-origin`, or sent an
+    `Origin` other than the Worker's own (a proxy rewriting the host, an extension).
+  - **"That didn't go through — reload the page and try again."** — any other refusal (a 400 or
+    409): the page is out of date with what's saved.
+- **A click lands on the login page**: the session expired (30 days), the member was removed, or
+  the Worker's `SESSION_SECRET` changed. Sign in again; nothing was done. A member who still has to
+  choose a password lands on Account instead.
 - **Weird edition data** (wrong publisher/year): providers return their "best" edition.
   Edit the item after saving — lookup fills the form, it doesn't own the data.
 - **Backfill stops with "request failed (500)"**: a large backfill can trip the free plan's
