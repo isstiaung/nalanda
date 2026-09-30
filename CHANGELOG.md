@@ -8,7 +8,9 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
-## [Unreleased]
+## [1.6.0] - 2026-09-30
+
+Year in review, game night, recommendations between connected households, what you paid for things, a sidebar in sections, an accessibility audit in CI, and Discogs' credit beside a record's pressing.
 
 ### Added
 - **Year in review.** A new **Year in review** page in the sidebar shows a year of your reading beside the household's: books finished (a re-read counts again) and pages read, with a month-by-month chart; most-read authors and most-used tags; the average rating given, the highest-rated books, the longest and shortest book and the fastest read. The household's records spun and games played, with the most played of each, show once below. Pick any year with a finished book or a play, or this one. A book counts in the year it was finished; finishes with no date count in no year, and the page says how many there are. It's inside the app only: share pages and connected households never see it.
@@ -42,15 +44,17 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **Discogs attribution, as its API terms require.** A record whose pressing came from Discogs now says **Data provided by Discogs.** right below its pressing details, linked to that release's page on discogs.com, with Discogs' notice under it: "This application uses Discogs’ API but is not affiliated with, sponsored or endorsed by Discogs. ‘Discogs’ is a trademark of Zink Media, LLC." It shows on the record's page, on a share page showing the record, on a connected household's record, and beside each Discogs result on the Add page. A record counts as coming from Discogs when its details hold a Discogs release id and something Discogs filled in, so records you typed in yourself show no credit. Share pages show nothing new besides the credit: the release id in its link is the Discogs ID they already list, and a record's grades stay private. The notice is also in the README and THIRD-PARTY.md. No migration and no new secret: nothing to do when upgrading.
 
 ### Upgrading
-- **Year in review** needs no migration and no new secret, and connected households see nothing of it.
-- **What should we play tonight** needs no migration: a game's weight lives in its details. Games added before it have no weight until you press **Refresh from BGG** on their page (one game per click, a few seconds apart); until then they appear under **Not enough details** when you filter by weight. A connected household on an older version sees the weight among a game's details, as it sees its player count.
-- **Back up first** (`npm run backup`). Migration `0038_recommendations` runs when you deploy. It adds a `recommendations` table and changes nothing already there; rehearsed on a production backup, every existing table came through identical. `npm run backup` now backs it up too, restored after `borrowed_items` ([runbooks/backup-and-restore.md](runbooks/backup-and-restore.md)).
-- **No new secrets.**
-- **Connections:** the protocol is still version 1. Your library's descriptor now also lists the message types it takes (`accepts`), which older versions ignore. **Households on 1.5.0 or older can't receive recommendations**: their library refuses a message type it doesn't know, so yours checks first and sends nothing to them, saying they run an older version. Once they update, recommending to them works with nothing to do on either side. Everything else between you works as before, in both directions.
-- **Back up first** (`npm run backup`). Migration `0039_purchase-price` runs when you deploy. It adds two empty columns to items (`purchase_price`, `purchase_currency`) and an empty `currency` to the household settings, and changes no existing data — rehearsed on a production backup, every existing table and value came through identical. Rolling back is safe: older code ignores the columns.
+- **Back up first** (`npm run backup`). Two migrations run when you deploy, in order. Each was rehearsed on a copy of a real backup, and the two together on the latest one: every existing table came through identical, and neither changes your existing data:
+  - `0038_recommendations` adds the `recommendations` table;
+  - `0039_purchase-price` adds two empty columns to items (`purchase_price`, `purchase_currency`) and an empty `currency` to the household settings.
+- **Rolling back** to 1.5.0 is safe: its code ignores the new table and columns.
 - **Set the household currency** under **Members** before entering prices, and before importing a libib file whose prices you want as purchase prices. Until then no one can enter a price, and libib prices stay in the item's details (never on share pages now).
-- An export from this version imports into an older one without its purchase prices, which older versions ignore. **No new secrets.** **Connections** are unaffected: prices never go to connected households, on any version.
-- Contributors: run `npm install`, then `npx playwright install chromium` once before `npm run a11y`.
+- **Board games added before this version have no weight** until you press **Refresh from BGG** on their page (one game per click, a few seconds apart); until then they appear under **Not enough details** when you filter by weight.
+- **Backups** now also export `recommendations`, restored after `borrowed_items`. To restore a backup from before this version (a 1.5.0 backup is at migration 0037), restore it at its own migration level and apply 0038–0039 afterwards, as [runbooks/backup-and-restore.md](runbooks/backup-and-restore.md) says.
+- **Exports** gain `purchase_price` and `purchase_currency`. Exports from before this version still import; an export from this version imports into an older one without purchase prices, which that version ignores. Recommendations, sent and received, are in **Borrowed → Export connections data**, not in `/export.csv`.
+- **No new secrets.** **Refresh from BGG** uses the `BGG_TOKEN` that search already needs.
+- **Connections:** the protocol is still version 1, and households on older versions keep working with yours. Your library's descriptor now also lists the message types it takes (`accepts`), which older versions ignore. **Households on 1.5.0 or older can't receive recommendations**: yours checks first and sends nothing to them, saying they run an older version; once they update, it works with nothing to do on either side. A game's weight travels among its details, as its player count does. Purchase prices are never sent to any connected household, on any version.
+- **Contributors:** run `npm install`, then `npx playwright install chromium` once before `npm run a11y`.
 
 ## [1.5.0] - 2026-09-30
 
