@@ -92,6 +92,7 @@ import {
 import { page } from '../views/layout';
 import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
+import { recommendOnItemPage } from './recommendations';
 import { SeriesSection } from '../views/series';
 
 const items = new Hono<AppEnv>();
@@ -526,13 +527,15 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
   const viewer = viewerOf(c);
+  // "Recommend to…" (§16 #58): its queries ride in the reading log's batch — no call of their own
+  const recommend = await recommendOnItemPage(c, item);
   const [lib, tags, loans, people, log, lent, plays, inSeries] = await Promise.all([
     getLibrary(c.env.DB, item.libraryId),
     tagsForItem(c.env.DB, id),
     activeLoansForItem(c.env.DB, id),
     listPeople(c.env.DB),
-    // with its want list and purchase links, in the same call (§16 #53)
-    itemPageLog(c.env.DB, id),
+    // with its want list and purchase links, in the same call (§16 #53), and Recommend to…'s (§16 #58)
+    itemPageLog(c.env.DB, id, recommend.statements),
     pastLoansForItem(c.env.DB, id),
     playLog(c.env.DB, id),
     // its series, with the viewer's own reading of every volume (§16 #52): one call, only for an item in one
@@ -549,6 +552,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const details = parseDetails(item.details);
   const record = isRecord(item.mediaType);
   const discussion = await itemComments(c, item); // null unless connections are enabled and someone commented
+  const recommending = recommend.render(log.extra); // null unless connections are enabled and one is active (§16 #58)
 
   return page(
     c,
@@ -776,6 +780,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
         </div>
 
         <LendingHistory loans={lent.loans} total={lent.total} />
+
+        {recommending}
 
         <div class="actions">
           <a href={`/items/${item.id}/edit`} role="button">

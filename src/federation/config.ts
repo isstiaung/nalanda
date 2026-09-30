@@ -4,6 +4,13 @@
 
 export const PROTOCOL = 'nalanda-connections';
 export const PROTOCOL_VERSION = 1;
+/**
+ * Directed message types this instance takes beyond what every version-1 instance does, advertised in its descriptor
+ * (§16 #58). Additive: an older instance's descriptor has no such list, and the protocol stays version 1. A sender
+ * checks a household's list before queuing one of these for it, since an older household refuses a type it doesn't know.
+ */
+export const ACCEPTS = ['Recommend'] as const;
+export type AcceptedType = (typeof ACCEPTS)[number];
 
 export const DESCRIPTOR_PATH = '/.well-known/nalanda';
 export const INVITE_PATH = '/connect';
@@ -119,3 +126,14 @@ export const PUSH_RETRIES_PER_REQUEST = 1;
 export const PUSH_RETRY_MINUTES = 10;
 export const PUSH_RETRY_DAYS = 2;
 
+// ---------- recommendations (§16 #58) ----------
+
+export const MAX_RECOMMEND_NOTE_CHARS = 500;
+/** Recommendations from one connection waiting in the Recommended list at once; past it, theirs are refused. */
+export const MAX_OPEN_RECOMMENDATIONS_PER_CONNECTION = 50;
+/** Recommendations taken from one connection per UTC day — well inside MAX_PUSHES_PER_DAY, which still applies. */
+export const MAX_RECOMMENDATIONS_PER_DAY = 20;
+/** A dismissed or taken recommendation is kept this long — past any outbox's retention, so a replay finds it — then pruned. */
+export const RECOMMENDATIONS_KEPT_DAYS = 60;
+/** Most recommendations the Recommended page lists, each way. */
+export const RECOMMENDATIONS_SHOWN = 100;

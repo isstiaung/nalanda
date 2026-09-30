@@ -126,7 +126,7 @@ you do.
 **Notifications** in the sidebar lists what happened with your connections: a household asking to
 connect (waiting on your confirmation), accepting or declining yours, disconnecting; someone asking
 to borrow a book, withdrawing, lending you one, declining, or recording a return; a comment on a
-review. The number beside it is how many you haven't seen. Each person in the household has their
+review; a recommendation. The number beside it is how many you haven't seen. Each person in the household has their
 own, and requests to connect only reach admins, who are the ones who can confirm them.
 
 New entries in the feed of a household you follow aren't notified one by one. **Feed** shows how
@@ -184,11 +184,41 @@ What connections see of your books is whether a copy is free — never who has i
 or your loan history. Shelves are read from your library when they look, never copied to theirs.
 
 **Export:** admins can use **Borrowed → Export connections data** to download everything about
-your connections as JSON: active connections, shared views, what you follow, comments, and
-borrowing.
+your connections as JSON: active connections, shared views, what you follow, comments,
+borrowing, and recommendations sent and received.
 
 If a book lent to a household is deleted from your catalog, or one they asked for, they're told
 — as a return, or a declined request — so nothing stays waiting on their side.
+
+## Recommendations
+
+**Sending:** open an item on a shelf you share with connections, choose **Recommend to…**, pick a
+household, add a note if you like (up to 500 characters) and **Send recommendation**. Any member
+can. They see the item as your shared shelves show it, your note, and your display name while
+**Show names to connected households** is on — "A member" otherwise, never your username. Items on
+a shelf you don't share can't be recommended; the page says so. Each item goes to each household
+once, and the page lists where it has gone.
+
+What the page tells you:
+
+- **Recommended to …** — it arrived.
+- **… didn't answer just now** — their library is offline; it waits in yours and reaches them
+  when they next open Feed, Loans, Borrowed or Recommended, for up to 30 days.
+- **… runs an older version of Nalanda** — they're on 1.5.0 or older, which can't take
+  recommendations. Nothing was sent. It works once they update; nothing to do on either side.
+- **… couldn't take it** — they have 50 waiting, or had 20 from you today. It's marked refused
+  and can be sent again later.
+
+**Receiving:** **Recommended** in the sidebar lists what households recommend to you, with the
+note and who sent it; a notification says when one arrives. Anyone in your household can
+**Add to my want list** — it joins the shelf you choose as a Not owned item, or the want goes on
+the copy you already have — or **Dismiss** it. Either way it leaves the list for everyone. The household
+that sent it gets no reply, but an item added to a shelf you share with them shows there like any
+other, Not owned and Wanted included. The page also lists what your household has recommended.
+
+**Limits:** from one household, 20 a day and 50 waiting at once; past that theirs are turned away
+until you dismiss some. Your household sends each household at most 20 a day too, refused ones
+included. There's no block: dismiss, or disconnect, which removes all of theirs.
 
 ## Changing address
 
@@ -258,6 +288,9 @@ Delete `.wrangler/connections/` to start over.
   a page.
 - **"Connections need this library to be served over https."** You opened the page over
   `http://` at an address other than localhost.
+- **"… runs an older version of Nalanda that can't take recommendations yet."** Their descriptor
+  (`<their address>/.well-known/nalanda`) has no `"accepts": ["Recommend"]`. They need to update to
+  the release that brought recommendations (CHANGELOG.md); nothing else between you is affected.
 - **Connect fails.** The page says why. Most often the invitation was already used,
   expired or revoked — ask for a new one — or their library couldn't be reached.
 - **"No answer from …" after Connect.** The request may still have reached them, so it stays

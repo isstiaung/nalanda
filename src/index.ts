@@ -23,6 +23,7 @@ import loanRoutes from './routes/loans';
 import { MISSING_ASSET, notFound } from './routes/notfound';
 import notificationsRoutes from './routes/notifications';
 import playRoutes from './routes/play';
+import recommendationsRoutes from './routes/recommendations';
 import searchRoutes from './routes/search';
 import settingsRoutes from './routes/settings';
 import shareRoutes, { clearSharePageCache } from './routes/share';
@@ -139,6 +140,7 @@ app.route('/', connectionsRoutes);
 app.route('/', feedRoutes);
 app.route('/', commentsRoutes);
 app.route('/', borrowingRoutes);
+app.route('/', recommendationsRoutes);
 app.route('/', notificationsRoutes);
 
 app.notFound(notFound);

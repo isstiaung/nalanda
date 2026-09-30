@@ -120,14 +120,22 @@ export async function setDisplayName(d1: D1Database, id: number, displayName: st
  * are switched on for connections, else "A member". Never a username — those never leave the app.
  */
 export async function outwardName(d1: D1Database, userId: number): Promise<string> {
-  const row = await d1
+  return outwardNameOf(await outwardNameStatement(d1, userId).first());
+}
+
+/** outwardName's query, for a caller's batch — the item page's (§16 #58); read its first row with outwardNameOf. */
+export function outwardNameStatement(d1: D1Database, userId: number): D1PreparedStatement {
+  return d1
     .prepare(
       `SELECT u.display_name AS name, coalesce((SELECT names_to_connections FROM site_settings WHERE id = 1), ?2) AS on_
        FROM users u WHERE u.id = ?1`,
     )
-    .bind(userId, SITE_DEFAULTS.namesToConnections ? 1 : 0)
-    .first<{ name: string | null; on_: number }>();
-  return row?.on_ && row.name ? row.name : 'A member';
+    .bind(userId, SITE_DEFAULTS.namesToConnections ? 1 : 0);
+}
+
+export function outwardNameOf(row: unknown): string {
+  const r = row as { name: string | null; on_: number } | null | undefined;
+  return r?.on_ && r.name ? r.name : 'A member';
 }
 
 /**
@@ -959,14 +967,16 @@ export async function setItemTags(d1: D1Database, itemId: number, names: string[
  * A new item, its tags, and the read and review the form's status, dates, rating and review stand for — the adder's
  * (§16 #43) — in one batch: a failure between them saved it without them, and the person's second try saved it
  * twice. `wantedBy`: "Want it" on a scan or search result (§16 #53) — the item joins that member's want list in the
- * same batch. Returns its id.
+ * same batch. `before` and `after`: statements of the same change that go first and last in that batch — a
+ * recommendation taken onto the want list (§16 #58) claims itself first, so a claim that can't be made writes nothing.
+ * Returns its id.
  */
 export async function createItemWithTags(
   d1: D1Database,
   values: NewItem,
   names: string[],
   series: SeriesDraft | null = null,
-  opts: { wantedBy?: number } = {},
+  opts: { wantedBy?: number; before?: D1PreparedStatement[]; after?: D1PreparedStatement[] } = {},
 ): Promise<number> {
   const reads = readsFromColumns(values.status ?? 'not_started', values.beganOn, values.completedOn);
   const reviews = stampReviews(reviewsFromColumns(values));
@@ -976,7 +986,9 @@ export async function createItemWithTags(
     .returning({ id: s.items.id })
     .toSQL();
   const upsert = seriesUpsert(d1, series);
+  const before = opts.before ?? [];
   const results = await d1.batch([
+    ...before,
     ...upsert,
     d1.prepare(q.sql).bind(...q.params),
     ...tagLinkStatements(d1, 'newest', names),
@@ -985,8 +997,9 @@ export async function createItemWithTags(
     ...reviewInsertStatements(d1, 'newest', reviews, values.addedBy ?? null),
     refreshReviewState(d1, 'newest'),
     ...(opts.wantedBy !== undefined ? wantInsertStatements(d1, 'newest', [{ userId: opts.wantedBy, at: null }]) : []),
+    ...(opts.after ?? []),
   ]);
-  const row = results[upsert.length]?.results[0] as { id: number } | undefined;
+  const row = results[before.length + upsert.length]?.results[0] as { id: number } | undefined;
   if (!row) throw new Error('failed to create item');
   return row.id;
 }
@@ -1771,19 +1784,24 @@ export async function readingLog(
 
 /**
  * The item page's reading log and its want list and purchase links (§16 #53) in the same one D1 call — readingLog's
- * batch with wantsAndLinks' two statements after it — so want lists add nothing to the page's calls.
+ * batch with wantsAndLinks' two statements after it — so want lists add nothing to the page's calls. `extra`: the
+ * caller's own read-only statements, run last in the same batch, their results handed back in order — "Recommend
+ * to…"'s households and signing name (§16 #58), which then cost the page no call either.
  */
 export async function itemPageLog(
   d1: D1Database,
   itemId: number,
+  extra: D1PreparedStatement[] = [],
 ): Promise<{
   reads: ReadEntry[];
   entries: ProgressEntry[];
   reviews: ReviewEntry[];
   want: { wanters: Array<{ id: number; username: string; at: string }>; links: Array<{ id: number; label: string; url: string }> };
+  extra: D1Result[];
 }> {
-  const results = await d1.batch([...readingLogStatements(d1, itemId), ...wantsAndLinksStatements(d1, itemId)]);
-  return { ...readingLogOf(results), want: wantsAndLinksOf(results.slice(3)) };
+  const own = [...readingLogStatements(d1, itemId), ...wantsAndLinksStatements(d1, itemId)];
+  const results = await d1.batch([...own, ...extra]);
+  return { ...readingLogOf(results), want: wantsAndLinksOf(results.slice(3)), extra: results.slice(own.length) };
 }
 
 function readingLogStatements(d1: D1Database, itemId: number): D1PreparedStatement[] {
@@ -2306,15 +2324,17 @@ function finishedWantStatement(d1: D1Database, itemId: number, person: number | 
  * what they already want keeps the date it was first wanted; an item that isn't there is wanted by nobody.
  */
 export async function setWant(d1: D1Database, itemId: number, userId: number, want: boolean): Promise<void> {
-  await (want
-    ? d1
-        .prepare(
-          `INSERT INTO wants (item_id, user_id) SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1)
-           ON CONFLICT DO NOTHING`,
-        )
-        .bind(itemId, userId)
-    : d1.prepare('DELETE FROM wants WHERE item_id = ?1 AND user_id = ?2').bind(itemId, userId)
-  ).run();
+  await (want ? wantStatement(d1, itemId, userId) : d1.prepare('DELETE FROM wants WHERE item_id = ?1 AND user_id = ?2').bind(itemId, userId)).run();
+}
+
+/** setWant's want, as a statement for a caller's batch — a recommendation taken onto the want list (§16 #58). */
+export function wantStatement(d1: D1Database, itemId: number, userId: number): D1PreparedStatement {
+  return d1
+    .prepare(
+      `INSERT INTO wants (item_id, user_id) SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1)
+       ON CONFLICT DO NOTHING`,
+    )
+    .bind(itemId, userId);
 }
 
 /**
