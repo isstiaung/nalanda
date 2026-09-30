@@ -247,6 +247,8 @@ describe('BGG’s failures', () => {
     ['a 502', { status: 502 }, 'unavailable'],
     ['an answer with no such game', { body: THING_NONE }, 'not_found'],
     ['a game under another id', { body: THING_278_UNWEIGHED }, 'not_found'],
+    ['a 200 that is BGG’s error message, not an answer', { body: '<?xml version="1.0" encoding="utf-8"?><error><message>Rate limit exceeded.</message></error>' }, 'unavailable'],
+    ['a 200 that is an HTML page', { body: '<!doctype html><html><body>Please wait</body></html>' }, 'unavailable'],
   ];
 
   for (const [what, reply, code] of cases) {

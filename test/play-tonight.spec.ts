@@ -73,7 +73,7 @@ describe('the filters', () => {
   });
 
   it('players: a game fits when the count is inside its range, and a single count reads as exactly that', async () => {
-    const { g } = await household();
+    const { asha, g } = await household();
     const four = await gamesForTonight(env.DB, f({ players: 4 }), 60);
     expect(titles(four.fit)).toEqual(titles([g.ticket, g.catan, g.brass, g.libib, g.twoCopies]));
     expect(titles(four.unknown)).toEqual([g.blank.title]); // Duel's "2" rules it out; the blank one can't be judged
@@ -83,6 +83,10 @@ describe('the filters', () => {
 
     const six = await gamesForTonight(env.DB, f({ players: 6 }), 60);
     expect(titles(six.fit)).toEqual(titles([g.libib, g.twoCopies]));
+
+    // a range typed backwards reads the right way round
+    const backwards = await game(asha, 'Five down to two', { players_min: 5, players_max: 2 });
+    expect(titles((await gamesForTonight(env.DB, f({ players: 3 }), 60)).fit)).toContain(backwards.title);
   });
 
   it('time, conservatively: the longer end of its playing time must fit, an exact fit included', async () => {

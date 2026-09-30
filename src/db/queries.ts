@@ -654,7 +654,8 @@ const atLeastOne = (expr: string) => `CASE WHEN (${expr}) >= 1 THEN (${expr}) EN
  * details"), and NULL when something known rules it out. ?1 players, ?2 minutes, ?3–?4 the weight band; NULL is any.
  *
  * - Only games that are here: in the collection (copies > 0) with a copy not out on loan.
- * - Players: a missing bound takes the other's value — a single number reads as exactly that many.
+ * - Players: a missing bound takes the other's value — a single number reads as exactly that many — and a range typed
+ *   backwards reads the right way round.
  * - Time, conservatively: the longer end of the playing time its details give (playtime_max, else playtime_min, the
  *   larger when both are there), else the Length column (BGG's playing time), and it fits only within the minutes.
  * - Weight: BGG's 1–5 average, in the band's [from, below).
@@ -678,8 +679,8 @@ raw AS (
 ),
 g AS (
   SELECT id, title, creators, cover_key, media_type,
-         coalesce(p1, p2) AS pmin,
-         coalesce(p2, p1) AS pmax,
+         min(coalesce(p1, p2), coalesce(p2, p1)) AS pmin,
+         max(coalesce(p1, p2), coalesce(p2, p1)) AS pmax,
          coalesce(max(coalesce(t2, t1), coalesce(t1, t2)), CASE WHEN length >= 1 THEN length END) AS minutes,
          CASE WHEN w >= 1 AND w <= 5 THEN w END AS weight
   FROM raw

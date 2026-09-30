@@ -2376,7 +2376,8 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       be all a game typed in by hand has), and it fits when that is at most the minutes you have — an
       exact fit fits. A 60–120 minute game is not offered for an hour, however short its best case.
     - **Players:** fits when the count is inside `[players_min, players_max]`; a missing bound takes
-      the other's value, so a single number reads as exactly that many — the narrowest reading.
+      the other's value, so a single number reads as exactly that many — the narrowest reading — and
+      a range typed backwards reads the right way round.
     - **Games missing a detail get their own group, "Not enough details",** under what fits, each
       unknown fact shown as unknown. It is per filter: a game is there only when something you asked
       about is missing *and* nothing known already rules it out, so a two-player game with no weight
@@ -2439,7 +2440,7 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     requests, so an isolate lets one refresh through every five seconds and answers another click inside
     that as "busy" without asking BGG (`bggRefresh()` in `src/metadata/index.ts`); BGG's own 429, 500,
     503 and 202 give the same notice. A 401 is "refused"; a 403 from its edge, any other status, a
-    timeout or an answer that fails to parse "unavailable"; an answer without that id "not found" — each a fixed
+    timeout, or a 200 that isn't an `<items>` answer (an error message, an HTML page) "unavailable"; an answer without that id "not found" — each a fixed
     sentence chosen by a code in the redirect (`?bgg=<code>`), never text from the URL or from BGG. A
     game's page never calls BGG, and tests replay BGG's XML from `test/fixtures/bgg.ts`, written in the
     shape BGG's API2 returns.

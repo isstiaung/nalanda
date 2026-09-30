@@ -171,8 +171,10 @@ export async function bggGame(token: string, id: number): Promise<BggGameResult>
   } catch {
     return { ok: false, failure: 'unavailable' };
   }
-  // an unknown id answers 200 with no <item>; the one asked for is the only one that counts
-  const item = (doc?.items?.item ?? []).find((i) => num(i['@_id']) === id);
+  // not an <items> answer at all — an error page, or BGG's <error><message>…</message></error> — is BGG not answering
+  if (!doc || typeof doc !== 'object' || !('items' in doc)) return { ok: false, failure: 'unavailable' };
+  // an unknown id answers 200 with an empty <items>; the one asked for is the only one that counts
+  const item = (doc.items?.item ?? []).find((i) => num(i['@_id']) === id);
   const game = item ? toCandidate(item) : null;
   return game ? { ok: true, game } : { ok: false, failure: 'not_found' };
 }
