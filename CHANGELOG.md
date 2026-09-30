@@ -14,7 +14,7 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **Export and import now include loans.** A new `loans` column holds every loan of an item, still out or returned, with its borrower, the dates it went out, was due and came back, the contact and the note. Importing a Nalanda export brings them back onto the items it adds, whoever imports it; an export from before this version imports as it always did, without loans. A loan to a connected household comes back as an ordinary loan under the name it was lent to, since the link to that household can't be rebuilt from a file. Importing the same file twice still adds every item twice, each copy with its own loans, never a loan twice on one item. Very large exports now come in more, smaller pieces when items carry many loans; the Export button joins them into one file as before. Nothing to do when upgrading.
 
 ### Fixed
-- **A loan's due date is kept only when it's a real date.** The item page's Lend form stored whatever it was sent, which the export couldn't carry; anything else now means no due date, as it already did when lending to a connected household.
+- **A loan's due date is kept only when it's a real date.** The item page's Lend form stored whatever it was sent, which the export couldn't carry; anything else now means no due date, as it already did when lending to a connected household. Due dates already stored as free text ("next week") still export and import unchanged.
 
 ### Upgrading
 - No migrations and no new secrets. Deploy as usual.

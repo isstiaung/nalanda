@@ -62,11 +62,15 @@ export function formatLoansCell(loans: LoanDraft[]): string {
 
 const SPAN = /^(.*?)\.\.(.*)$/;
 
+// A due date is kept as written on import (see parseLoansCell); a legacy free-text one is bounded, never dropped.
+const MAX_DUE_TEXT = 200;
+
 /**
  * A `loans` cell back into loans, oldest first as written. A part that doesn't parse is dropped and the rest kept:
  * one with no borrower, or whose lending date isn't a calendar date, or whose return date is there but isn't one —
- * read as a loan still out, it would say someone has a book that came back. A due date that isn't a calendar date
- * becomes none, as the reads cell's unknown dates do; a part it doesn't know (`|key:…` from a later version) is
+ * read as a loan still out, it would say someone has a book that came back. A due date comes back as written, even
+ * one that isn't a calendar date: loans lent before the lend form checked it can hold free text ("next week"), and
+ * the export carries that faithfully, so it must round-trip too (only its length is bounded); a part it doesn't know (`|key:…` from a later version) is
  * ignored. Every loan is kept however many are out: an import restores the history as it was (§16 #57), and the
  * app can hold more open loans than copies (a book marked Not owned while it was out). Only the last
  * MAX_LOANS_PER_CELL parts are read: the latest loans, where the ones still out are.
@@ -90,7 +94,7 @@ export function parseLoansCell(cell: string | null | undefined): LoanDraft[] {
       if (colon < 0) continue;
       const key = field.slice(0, colon).trim();
       const value = field.slice(colon + 1).trim();
-      if (key === 'due' && loan.dueOn === null) loan.dueOn = isIsoDate(dec(value)) ? dec(value) : null;
+      if (key === 'due' && loan.dueOn === null) loan.dueOn = dec(value).slice(0, MAX_DUE_TEXT) || null;
       else if (key === 'contact' && loan.contact === null) loan.contact = dec(value) || null;
       else if (key === 'note' && loan.note === null) loan.note = dec(value) || null;
     }

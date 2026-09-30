@@ -132,7 +132,7 @@ describe('the loans cell', () => {
     expect(formatLoansCell([])).toBe('');
   });
 
-  it('reads leniently: bad parts dropped, a bad due date forgotten, unknown parts ignored, at most the cap', () => {
+  it('reads leniently: bad parts dropped, a due date kept as written, unknown parts ignored, at most the cap', () => {
     expect(
       parseLoansCell(
         [
@@ -147,7 +147,7 @@ describe('the loans cell', () => {
         ].join(';'),
       ),
     ).toEqual([
-      { borrower: 'Asha', loanedOn: '2026-01-01', dueOn: null, returnedOn: '2026-01-05', contact: null, note: '%E0%A4%A' },
+      { borrower: 'Asha', loanedOn: '2026-01-01', dueOn: 'someday', returnedOn: '2026-01-05', contact: null, note: '%E0%A4%A' },
       { borrower: 'Bob ', loanedOn: '2026-03-01', dueOn: '2026-03-10', returnedOn: null, contact: null, note: null },
       { borrower: '100% sure', loanedOn: '2026-04-01', dueOn: null, returnedOn: null, contact: '50%off', note: null },
     ]);
@@ -156,9 +156,14 @@ describe('the loans cell', () => {
     expect(parseLoansCell(undefined)).toEqual([]);
   });
 
-  it('never keeps a stored due date that could start a loan of its own', () => {
-    const cell = formatLoansCell([{ borrower: 'Ann', loanedOn: '2026-01-01', dueOn: 'x;2020-01-01..@Mallory', returnedOn: null, contact: null, note: null }]);
-    expect(parseLoansCell(cell)).toEqual([{ borrower: 'Ann', loanedOn: '2026-01-01', dueOn: null, returnedOn: null, contact: null, note: null }]);
+  it('round-trips a legacy free-text due date, and never lets one start a loan of its own', () => {
+    // lent before the form checked due dates: whatever was stored comes back as it was, and its `;` stays inside the loan
+    for (const dueOn of ['x;2020-01-01..@Mallory', 'next week', '2025-02-30']) {
+      const cell = formatLoansCell([{ borrower: 'Ann', loanedOn: '2026-01-01', dueOn, returnedOn: null, contact: null, note: null }]);
+      expect(parseLoansCell(cell)).toEqual([{ borrower: 'Ann', loanedOn: '2026-01-01', dueOn, returnedOn: null, contact: null, note: null }]);
+    }
+    const long = formatLoansCell([{ borrower: 'Ann', loanedOn: '2026-01-01', dueOn: 'x'.repeat(5000), returnedOn: null, contact: null, note: null }]);
+    expect(parseLoansCell(long)[0]!.dueOn).toHaveLength(200);
   });
 
   it('never lets loans fall into details, where share pages and connections would show them', () => {

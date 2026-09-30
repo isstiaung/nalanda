@@ -1632,8 +1632,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     sent (it now keeps only a calendar date, as a connection's lend already did). Reading is
     lenient, as with reads: a part that doesn't parse is dropped and the rest kept — one with no
     borrower, a lending date that isn't a date, or a return date that is there but isn't one
-    (read as still out, it would say someone has a book that came back). A due date that isn't
-    one becomes none; an unknown `|key:` part, from a later version, is ignored; a `%` that isn't
+    (read as still out, it would say someone has a book that came back). A due date comes back as
+    written, even one that isn't a date — loans lent before the form checked can hold free text,
+    and the export carries it, so it round-trips (bounded to 200 characters; found by
+    nalanda-review); an unknown `|key:` part, from a later version, is ignored; a `%` that isn't
     our encoding is taken as typed. Written in id order and inserted back in the same order, the
     loans keep their relative ids, so every in-app ordering (the Loans page by id, the item page
     by date then id) comes back as it was. `src/lib/loans.ts` holds the grammar;
