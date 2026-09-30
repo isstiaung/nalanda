@@ -841,7 +841,14 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     and share footer (system Devanagari fonts, graceful fallback). Logo, PWA icons,
     manifest, and theme-color metas follow the new palette. The faintest ink, `--ink-3`,
     was deepened to `#746b58` (light) and `#8f846d` (dark) so the 10–11px mono labels it
-    carries clear 4.5:1 on paper.
+    carries clear 4.5:1 on paper. *Amended after 1.6.0:* every control — input, select,
+    button, a filter menu's summary, the Table/Covers toggle — shares one size, `--control-h`
+    (32px tall) and `--control-text` (13px), with its one line of text in `line-height: normal`,
+    centred, so a row of controls sets its words on one level line (Chromium rounds each
+    control's baseline on its own, and differing heights, sizes or line-heights put them a
+    pixel apart). Every dropdown shares one chevron, `--chevron`. Pills, tags and the filter
+    count trim their line box to cap height (`text-box`) and centre their capitals. The owner
+    chose 32px and 13px over 30px and 12.5px.
 17. **Mark: Ratnodadhi in brick.** The logo is Nalanda's nine-storey library tower
     ("Ocean of Jewels") as it stood — red-brick storeys on palm-leaf buff, turmeric
     jewel at the summit, lampblack plinth. Chosen over an indigo-ground version (the

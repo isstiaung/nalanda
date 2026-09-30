@@ -56,11 +56,12 @@
 
   --radius: 7px;
   --radius-sm: 5px;
-  /* Every control in a row — input, select, button, a filter menu's summary, the view toggle — is this tall, and
-     sets its one line of text in line-height: normal, centred. Same box, same line box, same font size: the same
-     baseline, so a row of controls reads as one level line. (With line-height 1 on buttons and 1.55 on summaries,
-     Chromium rounded their baselines a pixel apart from a select's beside them.) */
-  --control-h: 30px;
+  /* Every control in a row — input, select, button, a filter menu's summary, the view toggle — is this tall, sets
+     its text at this size, and sets that one line in line-height: normal, centred. Same box, same line box, same
+     font size: the same baseline, so a row of controls reads as one level line. (With line-height 1 on buttons and
+     1.55 on summaries, or 13px fields beside 12.5px buttons, Chromium rounded their baselines a pixel apart.) */
+  --control-h: 32px;
+  --control-text: 13px;
   --sidebar-w: 236px;
 }
 
@@ -274,7 +275,7 @@ section { margin-bottom: 2rem; }
 
 .btn, button, [role='button'] {
   font-family: var(--sans);
-  font-size: 12.5px;
+  font-size: var(--control-text);
   font-weight: 600;
   line-height: normal;
   display: inline-flex;
@@ -327,7 +328,7 @@ label small { font-weight: 400; color: var(--ink-3); }
 
 input, select, textarea {
   font-family: var(--sans);
-  font-size: 12.5px; /* the buttons' size: a 13px field beside a 12.5px button rounds to a baseline a pixel off */
+  font-size: var(--control-text);
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line-strong);
@@ -339,7 +340,7 @@ input, select, textarea {
   margin-top: 0.3rem;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
-textarea { height: auto; padding: 0.5rem 0.6rem; font-size: 13px; line-height: 1.5; resize: vertical; } /* running text, never beside a button */
+textarea { height: auto; padding: 0.5rem 0.6rem; line-height: 1.5; resize: vertical; }
 /* One arrow for every dropdown (the browser's own sits hard against the right edge, far from the text): the
    --chevron, 0.6rem in from the edge, with the same 0.4rem to the text that a filter menu's summary keeps. */
 select:not([multiple]) {
@@ -554,7 +555,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 /* ── toolbar / filters / view toggle ──────────────────────────────────────── */
 
 .toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
-.toolbar select { width: auto; margin: 0; font-size: 12.5px; }
+.toolbar select { width: auto; margin: 0; }
 
 /* filter dropdowns: a <details> disguised as a select, holding any-of checkboxes.
    Opts out of the global details panel/manuscript-frame treatment — it's a
@@ -572,7 +573,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   line-height: normal; /* not the body's 1.55: the same line box as the select beside it */
   padding: 0 0.6rem;
   margin: 0; /* the global details[open] summary rule adds bottom margin */
-  font-size: 12.5px;
+  font-size: var(--control-text);
   font-weight: 400; /* the global summary rule bolds panel titles */
   color: var(--ink);
   background: var(--surface);
@@ -620,11 +621,11 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 }
 .filter-menu label { display: flex; align-items: center; gap: 0.45rem; margin: 0; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
 .filter-menu input[type='checkbox'] { width: auto; height: auto; margin: 0; accent-color: var(--accent); }
-.toolbar input[type='search'] { width: 190px; margin: 0; font-size: 12.5px; }
+.toolbar input[type='search'] { flex: 1 1 150px; width: auto; max-width: 190px; margin: 0; } /* gives way before the row wraps: a 13px Table/Covers toggle made a 1280 shelf's bar 16px too long for one line */
 .toolbar .spacer { flex: 1; }
 
 .view-toggle { display: inline-flex; height: var(--control-h); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow: hidden; }
-.view-toggle a { display: inline-flex; align-items: center; line-height: normal; padding: 0 0.7rem; font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); background: var(--surface); text-decoration: none; }
+.view-toggle a { display: inline-flex; align-items: center; line-height: normal; padding: 0 0.7rem; font-family: var(--mono); font-size: var(--control-text); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); background: var(--surface); text-decoration: none; }
 /* the toggles clip to their rounded frame, so their focus ring is drawn inside */
 .view-toggle a:focus-visible, .tab-bar .tab:focus-visible { outline-offset: -3px; }
 .view-toggle a + a { border-left: 1px solid var(--line-strong); }
@@ -762,13 +763,13 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 #tab-search .inline-form input[type='search'] { flex: 1 1 16rem; }
 /* the typed-barcode field: its label beside it, wrapping under it on a phone */
 #tab-scan .inline-form label { gap: 0.5rem; flex-wrap: wrap; }
-.candidate-save select { width: auto; margin: 0; font-size: 12.5px; }
+.candidate-save select { width: auto; margin: 0; }
 
 /* scans held on the device while offline, waiting on the Add page (ARCH.md §16 #48) — candidate cards under a notice */
 .scan-review { margin-bottom: 1.75rem; }
 .scan-review-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.25rem; margin: 0; }
 .scan-review-head p { margin: 0.2rem 0 0; }
-.scan-review-head select { width: auto; max-width: 100%; margin: 0; font-size: 12.5px; }
+.scan-review-head select { width: auto; max-width: 100%; margin: 0; }
 /* a long shelf name wraps inside the button rather than pushing it off a phone */
 .scan-review-head button { white-space: normal; height: auto; min-height: 30px; padding-top: 0.3rem; padding-bottom: 0.3rem; line-height: 1.2; text-align: center; }
 .review-scan { display: block; text-transform: uppercase; color: var(--ink-3); margin-bottom: 0.3rem; overflow-wrap: anywhere; }
@@ -1153,7 +1154,7 @@ form.search-by-reader select { width: auto; margin: 0; max-width: 100%; }
 .bulk-status small { font-family: var(--mono); font-size: 10.5px; }
 button.bulk-clear { height: 24px; padding: 0 0.45rem; font-weight: 400; }
 .bulk-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; }
-.bulk-controls select, .bulk-controls input { width: auto; max-width: 100%; margin: 0; font-size: 12.5px; }
+.bulk-controls select, .bulk-controls input { width: auto; max-width: 100%; margin: 0; }
 .bulk-controls .bulk-tag { width: 11rem; }
 @supports selector(:has(a)) {
   body:not(:has(.bulk-pick:checked)) .bulk-bar { display: none; }
@@ -1253,7 +1254,6 @@ details.tracklist summary .mono { font-weight: 400; font-size: 11px; }
    not circulation, so no vermilion — and a purchase link is a quiet outbound row with
    its host in mono, the one part of an address a person checks before clicking. */
 .want-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; margin: 0.2rem 0 0.4rem; }
-.want-toggle { font-size: 12.5px; }
 /* the + or ✓ takes the button's own ink: in indigo it vanished into the filled button */
 .want-toggle > span { font-family: var(--mono); color: inherit; }
 button.want-toggle.on { background: var(--accent-tint); border-color: var(--accent); color: var(--accent-strong); }
