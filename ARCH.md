@@ -2270,9 +2270,11 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       sentence goes out of band into `#discogs-status`, an `<output>` that stays on the page
       beside the button, so a screen reader hears it; the page the no-script redirect lands on
       shows its sentence there too. The button is disabled while the request is out
-      (`hx-disabled-elt`) and keeps its id; public/app.js says "Asking Discogs…" in the region
-      meanwhile, and a fixed "Something went wrong — try again." on a failed request
-      (`htmx:responseError`, `htmx:sendError`), for these forms only (`data-refresh-status`).
+      (`hx-disabled-elt`) and is never swapped; public/app.js says "Asking Discogs…" in the
+      region meanwhile, gives focus back to the button once the answer is in (Chromium drops
+      focus from a disabled button to `<body>`), and says a fixed "Something went wrong — try
+      again." on a failed request (`htmx:responseError`, `htmx:sendError`) — for these forms
+      only (`data-refresh-status`).
       Without htmx: the same redirect as before.
     - **CPU.** Parsing is one pass over Discogs' JSON with caps on every string; tests keep
       a record's page, with a 400-line tracklist, at the same D1 calls as a book's.
