@@ -80,6 +80,11 @@ describe('books and pages', () => {
     await deleteUser(env.DB, ravi.id);
     const r = await yearInReview(env.DB, asha.id, 2025);
     expect([r.mine.books, r.household.books]).toEqual([0, 1]);
+    // alone now, but the columns differ, so both show; and a former member's undated finish isn't called hers
+    await finish(b.id, null, null);
+    const html = await page(asha, '/year-in-review?year=2025');
+    expect(html).toContain('<h3>Household</h3>');
+    expect(html).toContain('Finished, date unknown: 0 books of yours, 1 in the household');
   });
 });
 
@@ -288,7 +293,7 @@ describe('the page', () => {
     // no ?year, or a year that isn't one: this year
     expect(await page(asha, '/year-in-review')).toContain(`<option value="${thisYear()}" selected="">`);
     expect(await page(asha, '/year-in-review?year=21')).toContain(`<option value="${thisYear()}" selected="">`);
-    expect([parseYear('2025'), parseYear('0999'), parseYear('20251'), parseYear('abcd'), parseYear(undefined)]).toEqual([2025, null, null, null, null]);
+    expect([parseYear('2025'), parseYear('0999'), parseYear('20251'), parseYear('abcd'), parseYear(undefined), parseYear('9999')]).toEqual([2025, null, null, null, null, null]);
     expect(pickerYears([2021, 2019], 2026, 1990)).toEqual([2026, 2021, 2019, 1990]);
   });
 

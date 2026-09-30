@@ -2393,7 +2393,8 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     household — with no end date, they count in no year" whenever there are any, including on an empty year.
 
     **Years and edge cases.** The picker offers every year with a dated finish of a book or a play, the current
-    year (UTC), and the one being shown; `?year=` takes four digits from 1000, anything else shows this year. An
+    year (UTC), and the one being shown; `?year=` takes 1000–9998, anything else shows this year (9999's range would end at "10000-01-01", which
+    sorts before its own dates). An
     empty year says so in one panel ("Nothing yet for 2026…" this year, "Nothing for 2010…" before, "hasn't
     started yet" after) and draws no chart; a year of plays without reading says "No book finished with a date
     in 2025" and shows the plays; a year without plays says "No records spun" / "No games played"; a member with

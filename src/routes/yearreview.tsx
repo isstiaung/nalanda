@@ -353,7 +353,7 @@ const YearPage: FC<{ review: YearReview; today: string }> = ({ review, today }) 
       {undated.household ? (
         <p class="muted yr-undated">
           Finished, date unknown:{' '}
-          {solo
+          {solo && undated.mine === undated.household
             ? plural(undated.household, 'book', 'books')
             : `${plural(undated.mine, 'book', 'books')} of yours, ${undated.household.toLocaleString('en-US')} in the household`}{' '}
           — with no end date, they count in no year.

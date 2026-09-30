@@ -57,11 +57,14 @@ export const MONTH_NAMES = [
 export const YEAR_TOP = 5;
 export const PLAYS_TOP = 3;
 
-/** A year from `?year=`: four digits, 1000–9999 — anything else is none, and the page shows this year. */
+/**
+ * A year from `?year=`: four digits, 1000–9998 — anything else is none, and the page shows this year. Not 9999: its
+ * range would end at "10000-01-01", which sorts before every date in it.
+ */
 export function parseYear(raw: string | undefined): number | null {
   if (!raw || !/^\d{4}$/.test(raw)) return null;
   const y = Number(raw);
-  return y >= 1000 ? y : null;
+  return y >= 1000 && y <= 9998 ? y : null;
 }
 
 /** The first day of `year` and of the next, as the half-open range a read's `ended_on` is compared with (UTC dates). */
