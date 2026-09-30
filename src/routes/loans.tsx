@@ -13,8 +13,14 @@ import { loanRequestsSection } from './borrowing';
 
 const loans = new Hono<AppEnv>();
 
+/** How many returned loans the History table lists, newest first. */
+const HISTORY_SHOWN = 100;
+
 loans.get('/loans', async (c) => {
-  const [active, history] = await Promise.all([activeLoans(c.env.DB), loanHistory(c.env.DB, 100)]);
+  // one past the page, so the count can say when there are more returns than the table lists
+  const [active, past] = await Promise.all([activeLoans(c.env.DB), loanHistory(c.env.DB, HISTORY_SHOWN + 1)]);
+  const history = past.slice(0, HISTORY_SHOWN);
+  const returned = past.length > HISTORY_SHOWN ? `${HISTORY_SHOWN}+` : String(history.length);
   const today = new Date().toISOString().slice(0, 10);
   const requests = await loanRequestsSection(c); // null unless connections are enabled and someone asked
 
@@ -26,7 +32,7 @@ loans.get('/loans', async (c) => {
         <div>
           <h1>Loans</h1>
           <span class="sub">
-            {active.length} OUT · {history.length} RETURNED
+            {active.length} OUT · {returned} RETURNED
           </span>
         </div>
       </div>
@@ -36,7 +42,7 @@ loans.get('/loans', async (c) => {
       <section>
         <p class="eyebrow">Out now</p>
         {active.length ? (
-          <div class="data-table">
+          <div class="data-table cards">
             <table>
               <thead>
                 <tr>
@@ -57,13 +63,22 @@ loans.get('/loans', async (c) => {
                           <strong>{l.itemTitle}</strong>
                         </a>
                       </td>
-                      <td>
+                      <td data-label="Borrower">
                         {l.borrower}
                         {l.contact ? <small class="muted"> · {l.contact}</small> : null}
                       </td>
-                      <td class="date hide-sm">{l.loanedOn}</td>
-                      <td class="date">
-                        {overdue ? <span class="pill overdue">Overdue</span> : (l.dueOn ?? '—')}
+                      <td class="date hide-sm" data-label="Since">
+                        {l.loanedOn}
+                      </td>
+                      <td class="date due-cell" data-label="Due">
+                        {/* the date stays when it's passed: how overdue matters as much as that it is */}
+                        <span>{l.dueOn ?? '—'}</span>
+                        {overdue ? (
+                          <>
+                            {' '}
+                            <span class="pill overdue">Overdue</span>
+                          </>
+                        ) : null}
                       </td>
                       <td class="actions-cell">
                         <form method="post" action={`/loans/${l.id}/return`}>
@@ -84,7 +99,7 @@ loans.get('/loans', async (c) => {
       </section>
 
       <section>
-        <p class="eyebrow">History</p>
+        <p class="eyebrow">History{past.length > HISTORY_SHOWN ? ` · latest ${HISTORY_SHOWN}` : ''}</p>
         {history.length ? (
           <div class="data-table">
             <table>

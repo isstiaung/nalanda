@@ -241,3 +241,51 @@ document.addEventListener('htmx:afterSettle', (e) => {
   }
   region.focus({ preventScroll: true });
 });
+
+// "Refresh from Discogs" and "Refresh from BGG" (ARCH.md §16 #55, #60) swap their section in place and say the result
+// in a live region that stays on the page, named by the form's data-refresh-status. While the request is out, that
+// region says so ("Asking Discogs…", the form's own fixed words). A request that ends without an answer to swap — a
+// 500, no connection, aborted, timed out — swaps nothing, so without this the button would come back with nothing
+// said and "Asking…" left standing: the region gets a fixed sentence, never the answer's body.
+// The button is disabled while it waits. A browser then drops focus from it — to <body>, or, when a second click lands
+// on the disabled button, to the nearest focusable ancestor (<main>, a landing place with tabindex=-1). Once the answer
+// is in, the button pressed gets focus back, unless the person has since put focus somewhere else themselves (a
+// control, a link: anything that isn't a tabindex=-1 landing place). Scoped to these forms; other htmx buttons are
+// unchanged.
+(() => {
+  const statusOf = (e) => {
+    const form = e.detail && e.detail.elt && e.detail.elt.closest ? e.detail.elt.closest('form[data-refresh-status]') : null;
+    const status = form ? document.getElementById(form.dataset.refreshStatus) : null;
+    return status ? { form, status } : null;
+  };
+  let pressed = null; // the button that had focus when its request went out
+  let movedAway = false; // focus since put somewhere of the person's choosing, outside the form
+  const landing = (el) => !el || el === document.body || el.getAttribute('tabindex') === '-1';
+  document.addEventListener('focusin', (e) => {
+    if (pressed && !pressed.form?.contains(e.target) && !landing(e.target)) movedAway = true;
+  });
+  document.addEventListener('htmx:beforeRequest', (e) => {
+    const found = statusOf(e);
+    if (!found) return;
+    const button = found.form.querySelector('button');
+    pressed = button && document.activeElement === button ? button : null;
+    movedAway = false;
+    if (found.form.dataset.refreshBusy) found.status.textContent = found.form.dataset.refreshBusy;
+  });
+  // after htmx has swapped (or not) and re-enabled the button, before the page-wide afterSettle handler above
+  document.addEventListener('htmx:afterRequest', (e) => {
+    const found = statusOf(e);
+    if (!found) return;
+    if (pressed && pressed.isConnected && !movedAway && !found.form.contains(document.activeElement)) {
+      pressed.focus({ preventScroll: true });
+    }
+    pressed = null;
+  });
+  const failed = (e) => {
+    const found = statusOf(e);
+    if (found) found.status.textContent = 'Something went wrong — try again.';
+  };
+  for (const type of ['htmx:responseError', 'htmx:sendError', 'htmx:sendAbort', 'htmx:timeout']) {
+    document.addEventListener(type, failed);
+  }
+})();

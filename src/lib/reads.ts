@@ -38,6 +38,18 @@ export const currentOrderSql = (a: string) => `${a}.status = 'in_progress' DESC,
 /** SQL ORDER BY for showing reads: oldest first, undated ones first of all, the open read last. */
 export const displayOrderSql = (a: string) => `${a}.status = 'in_progress', ${when(a)} IS NOT NULL, ${when(a)}, ${a}.id`;
 
+// ---------- the Status filter (§16 #64) ----------
+
+/**
+ * Does an item fall under a Status filter's value? In progress means being read now: a book in progress, or one
+ * finished before and being read again (`rereading`) — which also stays under Completed, since someone finished it.
+ * The shelf, share links and connection views all filter this way: statusWhere() in src/db/queries.ts is the SQL
+ * twin, and src/db/federation.ts spells it out where a view's own column is the filter.
+ */
+export function matchesStatus(item: { status: ItemStatus; rereading: boolean }, status: ItemStatus): boolean {
+  return item.status === status || (status === 'in_progress' && item.rereading);
+}
+
 const RANK: Record<ReadStatus, number> = { completed: 0, in_progress: 1, abandoned: 2 };
 
 /** The TypeScript twin of statusOrderSql. `seq` stands in for the id: a later read in the list is a newer one. */

@@ -226,7 +226,7 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] | nul
       <div class="feed-body">
         <p class="eyebrow">
           {showHousehold ? `${card.householdName} · ` : ''}
-          {card.published.slice(0, 10)}
+          <span class="feed-date">{card.published.slice(0, 10)}</span>
         </p>
         <p class="feed-line">
           {/* a name from another household: escaped text, like everything else here */}
@@ -256,7 +256,10 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] | nul
                 <li>
                   <span class="mono">{p.percent !== null ? `${p.percent}%` : '—'}</span>
                   <span class="mono">p. {p.page}</span>
-                  <span class="mono muted">{p.published.slice(0, 10)}</span>
+                  {/* one entry, on the day the card already names above: its date once is enough */}
+                  {timeline.length === 1 && p.published.slice(0, 10) === card.published.slice(0, 10) ? null : (
+                    <span class="mono muted">{p.published.slice(0, 10)}</span>
+                  )}
                 </li>
               ))}
               {timeline.length > PROGRESS_SHOWN ? (
@@ -316,7 +319,7 @@ const GoalFeedCard: FC<{ card: GoalCard; showHousehold: boolean }> = ({ card, sh
       <div class="feed-body">
         <p class="eyebrow">
           {showHousehold ? `${card.householdName} · ` : ''}
-          {card.published.slice(0, 10)}
+          <span class="feed-date">{card.published.slice(0, 10)}</span>
         </p>
         <p class="feed-line">
           <span class="feed-by">{goal.by} </span>

@@ -4,11 +4,14 @@
 // Confirmation text now travels in data-confirm, read by one static listener in the page head.
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
+import { createConnection } from '../src/db/federation';
 import { createLibrary, createShare, createUser } from '../src/db/queries';
+import type { Bindings } from '../src/env';
 import { SESSION_COOKIE } from '../src/lib/auth';
 import { sessionTokenFor } from './session-helpers';
 import { newShareToken } from '../src/lib/share';
 import app from '../src/index';
+import { makeKeys, setUpA } from './federation-helpers';
 
 // Vite's import.meta.glob, typed here: vite/client's declarations aren't resolvable from this project's root.
 declare global {
@@ -37,10 +40,10 @@ describe('inline event handlers', () => {
 
 const HOSTILE = "x'); window.__pwned=1; ('";
 
-async function get(path: string, userId: number) {
+async function get(path: string, userId: number, bindings: Bindings = env) {
   const token = await sessionTokenFor(userId);
   const ctx = createExecutionContext();
-  const res = await app.fetch(new Request(`http://nalanda.test${path}`, { headers: { cookie: `${SESSION_COOKIE}=${token}` } }), env, ctx);
+  const res = await app.fetch(new Request(`http://nalanda.test${path}`, { headers: { cookie: `${SESSION_COOKIE}=${token}` } }), bindings, ctx);
   await waitOnExecutionContext(ctx);
   return res.text();
 }
@@ -63,5 +66,21 @@ describe('names that reach a confirmation prompt', () => {
       expect(html, path).toContain('data-confirm=');
       expect(html, path).toContain('__pwned'); // the name is still shown in the prompt, as text
     }
+  });
+
+  it('on /connections, where a name comes from another instance: Disconnect confirms through data-confirm', async () => {
+    const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
+    await setUpA();
+    await createConnection(env.DB, {
+      baseUrl: 'https://peer-hostile.example',
+      householdName: `Library ${HOSTILE}`,
+      publicKey: JSON.stringify((await makeKeys()).publicJwk),
+      status: 'active',
+    });
+    const fed = { ...env, FEDERATION_PRIVATE_KEY: (await makeKeys()).secret } as Bindings;
+    const html = await get('/connections', admin.id, fed);
+    expect(handlers(html)).toEqual([]); // no inline handler on the page at all
+    expect(html).toContain('data-confirm="Disconnect from this library?');
+    expect(html).toContain('__pwned'); // the household's name is still on the page, as text
   });
 });
