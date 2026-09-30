@@ -7,6 +7,7 @@ import {
   importItems,
   listLibraries,
   listPeople,
+  loansForIdRange,
   mergeImportItems,
   nextBackfillable,
   pageItems,
@@ -63,7 +64,8 @@ importexport.get('/import', async (c) => {
         already on your shelves (by ISBN, then title + author) merge their rating, review, shelves,
         and read date onto it — Goodreads wins. The rest are added as “Not owned” reading-log
         entries. Reads, ratings and reviews a file brings are yours, the signed-in member's; a
-        Nalanda export keeps each one with the member of the same name here.
+        Nalanda export keeps each one with the member of the same name here, and brings back every
+        loan, open and returned.
       </p>
       <form id="import-form" onsubmit="return false" class="panel form-card">
         <label>
@@ -209,6 +211,9 @@ importexport.post('/api/import', async (c) => {
       fresh: match?.inserted ?? 0,
       // a libib row carries no reads of its own: the tally counted what importItems will derive from its status and dates
       reads: match?.reads ?? [...tally.values()].reduce((n, t) => n + t.reads, 0),
+      // a Nalanda export's loans, and how many of them are still out (§16 #57)
+      loans: mapped.reduce((n, m) => n + (m.loans?.length ?? 0), 0),
+      loansOut: mapped.reduce((n, m) => n + (m.loans?.filter((l) => l.returnedOn === null).length ?? 0), 0),
       // A household of one importing its own file has nobody to tell apart: the preview says nothing new then.
       ...(people.length > 1 || [...tally.keys()].some((name) => name !== undefined && name !== user.username)
         ? { importer: user.username, keepsNames: keepNames }
@@ -317,7 +322,7 @@ importexport.post('/api/backfill-covers', async (c) => {
  */
 export const EXPORT_PAGE = 250;
 
-/** Items after `afterId` as CSV lines, with their tags, reads, reviews and reading logs: five queries. */
+/** Items after `afterId` as CSV lines, with their tags, reads, reviews, loans and reading logs: six queries. */
 async function exportRows(
   d1: D1Database,
   scope: number | undefined,
@@ -328,11 +333,12 @@ async function exportRows(
   const items = await pageItems(d1, { libraryId: scope, afterId, limit });
   if (!items.length) return { csv: '', count: 0, lastId: afterId };
   const [from, to] = [items[0]!.id, items.at(-1)!.id];
-  const [tagMap, progressMap, readMap, reviewMap] = await Promise.all([
+  const [tagMap, progressMap, readMap, reviewMap, loanMap] = await Promise.all([
     tagsForIdRange(d1, from, to, scope),
     progressForIdRange(d1, from, to, scope),
     readsForIdRange(d1, from, to, scope),
     reviewsForIdRange(d1, from, to, scope),
+    loansForIdRange(d1, from, to, scope),
   ]);
   let csv = '';
   for (const item of items) {
@@ -343,6 +349,7 @@ async function exportRows(
       progressMap.get(item.id) ?? [],
       readMap.get(item.id) ?? [],
       reviewMap.get(item.id) ?? [],
+      loanMap.get(item.id) ?? [],
     );
   }
   return { csv, count: items.length, lastId: to };
@@ -379,8 +386,8 @@ importexport.get('/export.csv', async (c) => {
 
   // Without a cursor, the whole export in one streamed response: what the link does without JavaScript, and
   // what a script fetching /export.csv gets. Its CPU grows with the catalog, so a large one can be cut off by
-  // the free plan's 10 ms limit, and the download fails rather than completing. Five queries a page
-  // (items, tags, reads, reviews, reading progress) against the 50 budgeted per invocation. One page per pull, so a slow
+  // the free plan's 10 ms limit, and the download fails rather than completing. Six queries a page
+  // (items, tags, reads, reviews, loans, reading progress) against the 50 budgeted per invocation. One page per pull, so a slow
   // download holds one page in memory rather than all of them. The response is already a 200 by the time a
   // page is read, so a failure must error the stream — ending it normally hands over a file that just stops,
   // with nothing to say it is incomplete.

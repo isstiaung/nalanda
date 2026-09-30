@@ -17,6 +17,7 @@ import {
   type ReadDraft,
   type ReadRow,
 } from '../lib/reads';
+import { MAX_LOANS_PER_CELL, type LoanDraft } from '../lib/loans';
 import { reviewOrderSql, stampReviews, summarizeReviews, type PersonReview, type ReviewDraft } from '../lib/reviews';
 import * as s from './schema';
 import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Share, User } from './schema';
@@ -987,6 +988,56 @@ export async function lendIfFree(
   return !!row;
 }
 
+/**
+ * Every loan, open and returned, of every item whose id lies in [fromId, toId], each item's in the order they were
+ * made — the export's `loans` cell (§16 #57). One query a page, as tagsForIdRange. A loan made to a connected
+ * household is an ordinary loan with the borrower it was lent under; the link to that household stays behind.
+ */
+export async function loansForIdRange(
+  d1: D1Database,
+  fromId: number,
+  toId: number,
+  libraryId?: number,
+): Promise<Map<number, LoanDraft[]>> {
+  const scoped = libraryId ? 'AND l.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : '';
+  const stmt = d1.prepare(
+    `SELECT l.item_id AS itemId, l.borrower, l.loaned_on AS loanedOn, l.due_on AS dueOn, l.returned_on AS returnedOn,
+            l.contact, l.note
+     FROM loans l
+     WHERE l.item_id BETWEEN ?1 AND ?2 ${scoped}
+     ORDER BY l.item_id, l.id`,
+  );
+  const rows = (await (libraryId ? stmt.bind(fromId, toId, libraryId) : stmt.bind(fromId, toId)).all<LoanDraft & { itemId: number }>()).results;
+  const result = new Map<number, LoanDraft[]>();
+  for (const { itemId, ...loan } of rows) {
+    const list = result.get(itemId);
+    if (list) list.push(loan);
+    else result.set(itemId, [loan]);
+  }
+  return result;
+}
+
+/**
+ * A row's loans, for the item inserted just before in the same batch ('newest', as readInsertStatements): one
+ * statement, the loans as one JSON parameter, inserted in the order given so their ids keep it. Always local loans
+ * — connection_loans can't be rebuilt from a file (§16 #57).
+ */
+function loanInsertStatements(d1: D1Database, loans: LoanDraft[]): D1PreparedStatement[] {
+  if (!loans.length) return [];
+  const json = JSON.stringify(loans.slice(0, MAX_LOANS_PER_CELL));
+  return [
+    d1
+      .prepare(
+        `INSERT INTO loans (item_id, borrower, loaned_on, due_on, returned_on, contact, note)
+         SELECT (SELECT max(id) FROM items), json_extract(value, '$.borrower'), json_extract(value, '$.loanedOn'),
+                json_extract(value, '$.dueOn'), json_extract(value, '$.returnedOn'), json_extract(value, '$.contact'),
+                json_extract(value, '$.note')
+         FROM json_each(?1) ORDER BY key`,
+      )
+      .bind(json),
+  ];
+}
+
 export async function activeLoanItemIds(d1: D1Database, itemIds: number[]): Promise<Set<number>> {
   if (!itemIds.length) return new Set();
   const rows = (
@@ -1891,20 +1942,23 @@ function asImport(d1: D1Database, writes: D1PreparedStatement[]): D1PreparedStat
  * A row as the importers hand it over. `reads` are its reads when the file says (a Nalanda export's `reads`
  * column, a Goodreads row); otherwise they come from its status and dates, as a libib row's do. `reviews` likewise
  * (a Nalanda export's `reviews` column); otherwise its rating and review are one review. Whatever doesn't name its
- * person is the importer's — the row's added_by (§16 #43).
+ * person is the importer's — the row's added_by (§16 #43). `loans` are a Nalanda export's, every one restored onto
+ * the item the row makes (§16 #57).
  */
 export type ImportRow = {
   item: NewItem;
   tags: string[];
   reads?: PersonRead[];
   reviews?: PersonReview[];
+  loans?: LoanDraft[];
   goodreads?: GoodreadsReading;
 };
 
 /**
  * Batched insert used by /api/import. One network round trip per batch of rows: each item goes in with the
  * reading state its reads decide and the rating and review its reviews decide, so the insert trigger dates it
- * right, then its reads and reviews, then the refreshes that fill in what only they know.
+ * right, then its reads and reviews, then the refreshes that fill in what only they know, then its loans. Loans go
+ * only onto the item their row makes, never onto one already here.
  */
 export async function importItems(d1: D1Database, rows: ImportRow[]): Promise<number> {
   if (!rows.length) return 0;
@@ -1922,6 +1976,7 @@ export async function importItems(d1: D1Database, rows: ImportRow[]): Promise<nu
       refreshReadState(d1, 'newest'),
       ...reviewInsertStatements(d1, 'newest', reviews, person),
       refreshReviewState(d1, 'newest'),
+      ...loanInsertStatements(d1, r.loans ?? []),
     );
   }
   const results = await d1.batch(asImport(d1, writes));

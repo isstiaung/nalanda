@@ -133,6 +133,7 @@
     if (data.format === 'nalanda') {
       append(`Nalanda export detected: every column maps back as it was exported, into the shelf chosen above. Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
       append('Rows are added, never merged — importing the same export into this library twice adds everything twice.');
+      if (data.loans) append(`Loans in the first ${sampled} rows: ${data.loans} (${data.loansOut} still out), restored onto the items they belong to. A loan to a connected household comes back as an ordinary loan under the name it was lent to.`);
       // whose each read and review becomes: a member of the same name here, or you
       const people = data.importer ? (data.people ?? []) : [];
       if (people.length) {
