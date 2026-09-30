@@ -112,6 +112,52 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // Bulk edit (ARCH.md §16 #47). The checkboxes and the bar are a plain form without this; it adds the count,
+  // "select all on this page", Clear, and a tag field that's required when a tag action is chosen. The server
+  // checks everything again — the cap, the action, and that only an admin deletes.
+  const bulk = document.getElementById('bulk');
+  if (bulk) {
+    const picks = () => [...document.querySelectorAll('input.bulk-pick')];
+    const alls = [...document.querySelectorAll('input[data-bulk-all]')];
+    const count = bulk.querySelector('[data-bulk-count]');
+    const clear = bulk.querySelector('[data-bulk-clear]');
+    const apply = bulk.querySelector('button[type="submit"]');
+    const action = bulk.querySelector('select[name="action"]');
+    const tag = bulk.querySelector('input[name="tag"]');
+    const max = Number(bulk.dataset.max) || Infinity;
+    const sync = () => {
+      const boxes = picks();
+      const n = boxes.filter((b) => b.checked).length;
+      count.textContent = n > max ? `${n} selected — too many` : `${n} selected`;
+      alls.forEach((a) => {
+        a.checked = n > 0 && n === boxes.length;
+        a.indeterminate = n > 0 && n < boxes.length;
+      });
+      bulk.hidden = n === 0;
+      if (apply) apply.disabled = n > max;
+    };
+    alls.forEach((a) => {
+      a.hidden = false;
+      a.closest('label')?.removeAttribute('hidden');
+    });
+    if (clear) clear.hidden = false;
+    document.addEventListener('change', (e) => {
+      if (e.target.matches('input[data-bulk-all]')) picks().forEach((b) => (b.checked = e.target.checked));
+      if (e.target.matches('input.bulk-pick, input[data-bulk-all]')) sync();
+    });
+    clear?.addEventListener('click', () => {
+      picks().forEach((b) => (b.checked = false));
+      sync();
+    });
+    action?.addEventListener('change', () => {
+      if (tag) tag.required = action.value.startsWith('tag-');
+    });
+    sync();
+    // Back to this page, the browser may restore checked boxes after load, without a change event: count again then.
+    window.addEventListener('pageshow', sync);
+    window.addEventListener('load', sync);
+  }
+
   // The phone drawer. aria-expanded follows it, so a screen reader hears whether the menu is open; while closed,
   // CSS keeps it out of the tab order and the accessibility tree (visibility: hidden, after the slide).
   const navToggle = document.getElementById('nav-toggle');

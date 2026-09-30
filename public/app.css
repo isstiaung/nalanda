@@ -877,3 +877,73 @@ form.search-by-reader select { width: auto; margin: 0; max-width: 100%; }
   .read-next { grid-template-columns: 64px minmax(0, 1fr); gap: 0.8rem; }
   .read-next-cover { width: 64px; }
 }
+
+/* ── bulk edit (ARCH.md §16 #47) ─────────────────────────────────────────────
+   A checkbox per item, and a bar that stays within reach at the foot of the screen
+   while anything is selected. Existing tokens only: the bar is a framed surface with
+   the indigo working accent down its edge and on its count — vermilion stays for the
+   Delete it leads to. With :has, CSS alone shows the bar once a box is checked, and
+   the tag field or shelf menu only for the actions that use them, JavaScript or not;
+   a browser without :has shows all of it, all the time, and it still works. */
+/* The checkbox column costs the table as little width as it can: no right padding, the Title cell beside it gives
+   up some of its left, and on a wide screen the other cells a little of theirs — together about the column's own
+   width, so a table that just fitted before still fits rather than scrolling inside its frame. A phone keeps its
+   own tighter padding (the responsive rules below). */
+@media (min-width: 881px) {
+  .data-table:has(.col-pick) :is(th, td) { padding-left: 0.62rem; padding-right: 0.62rem; }
+}
+.data-table :is(th, td).col-pick { width: 1%; padding-left: 0.6rem; padding-right: 0; }
+.data-table .col-pick + :is(th, td) { padding-left: 0.45rem; }
+.col-pick input { margin: 0; width: 15px; height: 15px; vertical-align: middle; }
+.data-table tbody tr:has(.bulk-pick:checked) { background: var(--accent-tint); }
+
+.pick-cell { position: relative; min-width: 0; }
+/* a 30px target over the cover's corner, so a thumb can hit it on a phone */
+.pick { position: absolute; top: 6px; left: 6px; margin: 0; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); background: var(--surface); box-shadow: 0 0 0 1px var(--line-strong); cursor: pointer; }
+.pick input { margin: 0; width: 16px; height: 16px; }
+.pick-cell:has(.bulk-pick:checked) .item-cover { box-shadow: 0 0 0 2px var(--accent); }
+.bulk-all { display: inline-flex; align-items: center; margin: 0 0 0.75rem; font-size: 12.5px; font-weight: 400; color: var(--ink-2); cursor: pointer; }
+
+.bulk-bar {
+  position: sticky;
+  bottom: 0.75rem;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin: 1rem 0;
+  padding: 0.6rem 0.8rem;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+.bulk-status { display: flex; flex-wrap: wrap; align-items: center; gap: 0.2rem 0.6rem; min-width: 0; }
+.bulk-count { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-strong); }
+.bulk-status small { font-family: var(--mono); font-size: 10.5px; }
+button.bulk-clear { height: 24px; padding: 0 0.45rem; font-weight: 400; }
+.bulk-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; }
+.bulk-controls select, .bulk-controls input { width: auto; max-width: 100%; margin: 0; height: 30px; font-size: 12.5px; }
+.bulk-controls .bulk-tag { width: 11rem; }
+@supports selector(:has(a)) {
+  body:not(:has(.bulk-pick:checked)) .bulk-bar { display: none; }
+  .bulk-bar:not(:has(option[value^='tag-']:checked)) .bulk-tag { display: none; }
+  .bulk-bar:not(:has(option[value='move']:checked)) .bulk-shelf { display: none; }
+}
+
+/* a delete's confirmation: how many, and which */
+.bulk-confirm { max-width: 640px; }
+.bulk-titles { margin: 0 0 0.75rem; padding-left: 0; list-style: none; display: grid; gap: 0.2rem; border-top: 1px solid var(--line); }
+.bulk-titles li { display: flex; align-items: baseline; gap: 0.7rem; padding: 0.3rem 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.bulk-titles .t { min-width: 0; overflow-wrap: anywhere; }
+
+@media (max-width: 880px) {
+  .bulk-bar { bottom: 0.5rem; padding: 0.55rem 0.65rem; }
+  /* the action and Apply share the first row; the tag or shelf it needs takes the whole row under them */
+  .bulk-controls { width: 100%; }
+  .bulk-controls select[name='action'] { flex: 1 1 9rem; min-width: 0; }
+  .bulk-controls .bulk-tag, .bulk-controls .bulk-shelf { order: 1; flex: 1 1 100%; width: auto; min-width: 0; }
+}

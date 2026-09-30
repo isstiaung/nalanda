@@ -763,13 +763,32 @@ export const ReadNextCard: FC<{ pick: Pick<Item, 'id' | 'title' | 'creators' | '
     <p class="muted read-next-empty">Nothing to suggest: you’ve finished or are reading every book in the catalog.</p>
   );
 
-export const ItemGrid: FC<{ items: Item[]; onLoanIds?: Set<number> }> = ({ items, onLoanIds }) => (
-  <div class="item-grid">
-    {items.map((item) => (
-      <ItemCard item={item} onLoan={onLoanIds?.has(item.id)} />
-    ))}
-  </div>
-);
+/**
+ * The covers view. `selectable` gives each card a checkbox for bulk edit (§16 #47), beside the card's link rather than
+ * inside it — an input inside an <a> is invalid HTML — and a "select all on this page" line above the grid.
+ */
+export const ItemGrid: FC<{ items: Item[]; onLoanIds?: Set<number>; selectable?: boolean }> = ({ items, onLoanIds, selectable }) =>
+  selectable ? (
+    <>
+      <PickAll label />
+      <div class="item-grid">
+        {items.map((item) => (
+          <div class="pick-cell">
+            <ItemCard item={item} onLoan={onLoanIds?.has(item.id)} />
+            <label class="pick">
+              <PickBox id={item.id} title={item.title} />
+            </label>
+          </div>
+        ))}
+      </div>
+    </>
+  ) : (
+    <div class="item-grid">
+      {items.map((item) => (
+        <ItemCard item={item} onLoan={onLoanIds?.has(item.id)} />
+      ))}
+    </div>
+  );
 
 /**
  * Columns the reader can turn off. Title is deliberately absent — a row has to
@@ -810,17 +829,45 @@ export const ColumnsMenu: FC<{ available: readonly ColumnKey[] }> = ({ available
   </details>
 );
 
+// ---- bulk edit's selection (ARCH.md §16 #47; the bar itself is in views/bulk.tsx) ----
+
+/** The id of the bar's form, which every checkbox names. */
+export const BULK_FORM = 'bulk';
+
+/** One item's checkbox. */
+export const PickBox: FC<{ id: number; title: string }> = ({ id, title }) => (
+  <input type="checkbox" class="bulk-pick" name="id" value={String(id)} form={BULK_FORM} aria-label={`Select ${title}`} />
+);
+
+/** Select all on this page. It needs JavaScript, so it stays hidden until app.js shows it. */
+export const PickAll: FC<{ label?: boolean }> = ({ label }) =>
+  label ? (
+    <label class="bulk-all" hidden>
+      <input type="checkbox" data-bulk-all />
+      Select all on this page
+    </label>
+  ) : (
+    <input type="checkbox" data-bulk-all aria-label="Select all on this page" hidden />
+  );
+
 /** The default library view: a proper registry table. */
 export const ItemTable: FC<{
   items: Item[];
   onLoanIds?: Set<number>;
   tagsMap?: Map<number, string[]>;
   libraryNames?: Map<number, string>;
-}> = ({ items, onLoanIds, tagsMap, libraryNames }) => (
+  /** A checkbox per row, and select-all in the header, for bulk edit (§16 #47). */
+  selectable?: boolean;
+}> = ({ items, onLoanIds, tagsMap, libraryNames, selectable }) => (
   <div class="data-table">
     <table>
       <thead>
         <tr>
+          {selectable ? (
+            <th class="col-pick">
+              <PickAll />
+            </th>
+          ) : null}
           <th>Title</th>
           <th class="col-type">Type</th>
           {libraryNames ? <th class="hide-sm col-shelf">Shelf</th> : null}
@@ -836,6 +883,11 @@ export const ItemTable: FC<{
       <tbody>
         {items.map((item) => (
           <tr>
+            {selectable ? (
+              <td class="col-pick">
+                <PickBox id={item.id} title={item.title} />
+              </td>
+            ) : null}
             <td>
               <span class="cell-title">
                 {item.coverKey ? (

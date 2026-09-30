@@ -8,6 +8,7 @@ import {
   deleteLibrary,
   getLibrary,
   listItems,
+  listLibraries,
   listPeople,
   listShares,
   renameLibrary,
@@ -26,6 +27,7 @@ import {
   shareScopeLabel,
   STATUS_LABEL,
 } from '../views/components';
+import { BulkBar, BulkNotice } from '../views/bulk';
 import { page } from '../views/layout';
 
 /** A toolbar dropdown of any-of checkboxes — one per filter dimension. */
@@ -145,9 +147,11 @@ libraries.get('/libraries/:id', async (c) => {
     reader,
   );
   const ids = items.map((i) => i.id);
-  const [onLoanIds, tagsMap] = await Promise.all([
+  const [onLoanIds, tagsMap, shelves] = await Promise.all([
     activeLoanItemIds(c.env.DB, ids),
     view === 'table' ? tagsForItems(c.env.DB, ids) : Promise.resolve(undefined),
+    // bulk edit's "Move to shelf", and the shelf a move's notice links to (§16 #47)
+    listLibraries(c.env.DB),
   ]);
 
   const makeHref = (p: number, v = view) => {
@@ -185,6 +189,8 @@ libraries.get('/libraries/:id', async (c) => {
           </a>
         </div>
       </div>
+
+      <BulkNotice query={c.req.query()} libraries={shelves} />
 
       {total === 0 && !filtered ? null : (
         <form method="get" action={`/libraries/${id}`} class="toolbar">
@@ -252,9 +258,9 @@ libraries.get('/libraries/:id', async (c) => {
 
       {items.length ? (
         view === 'table' ? (
-          <ItemTable items={items} onLoanIds={onLoanIds} tagsMap={tagsMap} />
+          <ItemTable items={items} onLoanIds={onLoanIds} tagsMap={tagsMap} selectable />
         ) : (
-          <ItemGrid items={items} onLoanIds={onLoanIds} />
+          <ItemGrid items={items} onLoanIds={onLoanIds} selectable />
         )
       ) : total === 0 && !filtered ? (
         <p class="muted">
@@ -263,6 +269,9 @@ libraries.get('/libraries/:id', async (c) => {
       ) : (
         <p class="muted">No items match these filters.</p>
       )}
+      {items.length ? (
+        <BulkBar back={makeHref(current)} admin={user.role === 'admin'} libraries={shelves} currentLibrary={id} />
+      ) : null}
       <Pagination page={current} pages={pages} makeHref={(p) => makeHref(p)} />
 
       <details>
