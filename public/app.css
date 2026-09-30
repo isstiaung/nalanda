@@ -1152,6 +1152,8 @@ button.bulk-clear { height: 24px; padding: 0 0.45rem; font-weight: 400; }
 .play-form { margin: 0.35rem 0 0; }
 .play-form label { gap: 0.4rem; }
 .play-form input[type="date"] { font-size: 12px; }
+/* the lend form's due date says what it is, as Played's "on" does */
+.lend-form label { gap: 0.4rem; }
 .play-log { list-style: none; margin: 0.7rem 0 0; padding: 0.4rem 0 0; display: grid; gap: 0.25rem; font-size: 13px; border-top: 1px solid var(--line); }
 .play-log li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.8rem; min-width: 0; }
 .play-log li > time { min-width: 6.5rem; font-size: 12px; }

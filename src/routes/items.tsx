@@ -831,10 +831,13 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
             </form>
           ))}
           {copyFree ? (
-            <form method="post" action={`/items/${item.id}/loan`} class="inline-form">
+            <form method="post" action={`/items/${item.id}/loan`} class="inline-form lend-form">
               <input name="borrower" placeholder="Borrower" aria-label="Borrower" required />
               <input name="contact" placeholder="Contact (optional)" aria-label="Contact (optional)" />
-              <input type="date" name="dueOn" aria-label="Due date" />
+              <label>
+                <span class="muted">Due</span>
+                <input type="date" name="dueOn" aria-label="Due date" />
+              </label>
               <button type="submit">Lend</button>
             </form>
           ) : null}
