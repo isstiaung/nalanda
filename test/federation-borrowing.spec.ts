@@ -99,7 +99,8 @@ describe('lending: what a connection sees and asks for', () => {
     const res = await a.signedGet(`/federation/shelf?view=1&page=1`, peer);
     expect(res.status).toBe(200);
     const text = await res.text();
-    for (const secret of ['SECRET-BORROWER', '2099', 'Hidden', '"copies"']) expect(text).not.toContain(secret);
+    // the due date in full: a 16-hex stamp can hold "2099" by chance, never a hyphenated date
+    for (const secret of ['SECRET-BORROWER', '2099-01-01', 'Hidden', '"copies"']) expect(text).not.toContain(secret);
     const body = JSON.parse(text) as { items: Array<{ title: string; available: boolean; inCollection: boolean; stamp: string }> };
     expect(Object.fromEntries(body.items.map((i) => [i.title, [i.available, i.inCollection]]))).toEqual({
       Lendable: [true, true],
