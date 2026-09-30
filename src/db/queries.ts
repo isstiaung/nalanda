@@ -992,29 +992,33 @@ export async function lendIfFree(
  * Every loan, open and returned, of every item whose id lies in [fromId, toId], each item's in the order they were
  * made — the export's `loans` cell (§16 #57). One query a page, as tagsForIdRange. A loan made to a connected
  * household is an ordinary loan with the borrower it was lent under; the link to that household stays behind.
+ * With `limit`, at most that many rows: `cutAt` is then the item the last row belongs to, whose loans may be
+ * incomplete, while every item before it has all of its own; null when nothing was cut.
  */
 export async function loansForIdRange(
   d1: D1Database,
   fromId: number,
   toId: number,
   libraryId?: number,
-): Promise<Map<number, LoanDraft[]>> {
+  limit?: number,
+): Promise<{ loans: Map<number, LoanDraft[]>; cutAt: number | null }> {
   const scoped = libraryId ? 'AND l.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : '';
   const stmt = d1.prepare(
     `SELECT l.item_id AS itemId, l.borrower, l.loaned_on AS loanedOn, l.due_on AS dueOn, l.returned_on AS returnedOn,
             l.contact, l.note
      FROM loans l
      WHERE l.item_id BETWEEN ?1 AND ?2 ${scoped}
-     ORDER BY l.item_id, l.id`,
+     ORDER BY l.item_id, l.id
+     LIMIT ?4`,
   );
-  const rows = (await (libraryId ? stmt.bind(fromId, toId, libraryId) : stmt.bind(fromId, toId)).all<LoanDraft & { itemId: number }>()).results;
-  const result = new Map<number, LoanDraft[]>();
+  const rows = (await stmt.bind(fromId, toId, libraryId ?? null, limit ?? -1).all<LoanDraft & { itemId: number }>()).results;
+  const loans = new Map<number, LoanDraft[]>();
   for (const { itemId, ...loan } of rows) {
-    const list = result.get(itemId);
+    const list = loans.get(itemId);
     if (list) list.push(loan);
-    else result.set(itemId, [loan]);
+    else loans.set(itemId, [loan]);
   }
-  return result;
+  return { loans, cutAt: limit !== undefined && rows.length >= limit ? rows.at(-1)!.itemId : null };
 }
 
 /**

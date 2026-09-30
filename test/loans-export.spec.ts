@@ -9,11 +9,11 @@ import { budgeted } from '../src/federation/budget';
 import { borrowRequest } from '../src/federation/messages';
 import { itemStamp } from '../src/federation/items';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
-import { mapLibibRow, mapNalandaRow } from '../src/lib/csv';
+import { EXPORT_COLUMNS, mapLibibRow, mapNalandaRow } from '../src/lib/csv';
 import { formatLoansCell, MAX_LOANS_PER_CELL, parseLoansCell, type LoanDraft } from '../src/lib/loans';
 import { newShareToken } from '../src/lib/share';
 import app from '../src/index';
-import { EXPORT_PAGE } from '../src/routes/importexport';
+import { EXPORT_LOANS, EXPORT_PAGE } from '../src/routes/importexport';
 import { answerOutbound, connectPeer, instanceA, json, makeKeys, makePeer, sessionCookie, setUpA } from './federation-helpers';
 
 /** RFC 4180, as public/import.js parses it in the browser. */
@@ -64,7 +64,7 @@ async function call(path: string, cookie?: string, body?: unknown, bindings: Bin
   return { status: res.status, text, headers: res.headers };
 }
 
-async function signIn(role: 'admin' | 'member' = 'admin', username = role) {
+async function signIn(role: 'admin' | 'member' = 'admin', username: string = role) {
   const u = await createUser(env.DB, { username, passwordHash: 'pbkdf2$1$x$y', role, mustChangePassword: false });
   return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, u.id, Math.floor(Date.now() / 1000))}`;
 }
@@ -183,7 +183,7 @@ describe('loans through the export and back', () => {
     const rows = await exportRows(cookie);
     expect(Object.keys(rows[0]!)).toContain('loans');
     const gameRow = rows.find((r) => r.title === 'Wingspan')!;
-    expect(gameRow.loans.split(';')).toHaveLength(4);
+    expect(gameRow.loans!.split(';')).toHaveLength(4);
     expect(rows.find((r) => r.title === 'Never lent')!.loans).toBe('');
 
     await env.DB.prepare('DELETE FROM items').run(); // the wipe: loans go with their items
@@ -319,37 +319,84 @@ describe('loans through the export and back', () => {
     expect(await loansOf(await idOf('Catan', target))).toEqual(await loansOf(item.id));
   });
 
-  it('holds a page of 250 items with many loans to the same six queries', async () => {
-    const cookie = await signIn();
+  /** Every page the Export button would fetch, each with the D1 calls it made and the loans it carried. */
+  async function pages(cookie: string) {
+    const out: { rows: Record<string, string>[]; queries: number; loans: number; next: string | null }[] = [];
+    let after = '0';
+    let text = '';
+    for (;;) {
+      const budget = { left: 50 };
+      const page = await call(`/export.csv?after=${after}`, cookie, undefined, { ...env, DB: budgeted(env.DB, budget) } as Bindings);
+      expect(page.status).toBe(200);
+      text += page.text;
+      const rows = parseCsv((after === '0' ? '' : `${EXPORT_COLUMNS.join(',')}\r\n`) + page.text);
+      const next = page.headers.get('x-export-next');
+      expect(Number(page.headers.get('x-export-rows'))).toBe(rows.length);
+      // counted as written: an import reads at most MAX_LOANS_PER_CELL of an item's
+      const loans = rows.reduce((n, r) => n + (r.loans ? r.loans.split(';').length : 0), 0);
+      out.push({ rows, queries: 50 - budget.left, loans, next });
+      if (!next) break;
+      after = next;
+    }
+    return { pages: out, text };
+  }
+
+  async function manyItems(count: number) {
     const shelf = (await createLibrary(env.DB, 'Everything')).id;
     await env.DB.prepare(
-      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${EXPORT_PAGE + 10})
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${count})
        INSERT INTO items (library_id, media_type, title, status, copies, details)
        SELECT ?1, 'boardgame', 'Game ' || i, 'not_started', 1, '{}' FROM n`,
     ).bind(shelf).run();
-    // twenty loans on every item, each with a contact and a note to encode: 5,200 in all
-    await env.DB.prepare(
-      `WITH RECURSIVE k(j) AS (SELECT 1 UNION ALL SELECT j + 1 FROM k WHERE j < 20)
+  }
+
+  /** `perItem` loans on every item (or those given), each with a contact and a note to encode; the last still out. */
+  const lend = (perItem: number, where = '1') =>
+    env.DB.prepare(
+      `WITH RECURSIVE k(j) AS (SELECT 1 UNION ALL SELECT j + 1 FROM k WHERE j < ${perItem})
        INSERT INTO loans (item_id, borrower, loaned_on, due_on, returned_on, contact, note)
-       SELECT items.id, 'Borrower, "number" ' || j, '2025-01-01', '2025-02-01', CASE WHEN j < 20 THEN '2025-01-20' END,
+       SELECT items.id, 'Borrower, "number" ' || j, '2025-01-01', '2025-02-01', CASE WHEN j < ${perItem} THEN '2025-01-20' END,
               'friend' || j || '@example.com', 'note; with | odd @ text ' || j
-       FROM items, k`,
+       FROM items, k WHERE ${where} ORDER BY items.id, j`,
     ).run();
 
-    const count = async () => {
-      const budget = { left: 50 };
-      const page = await call(`/export.csv?after=0`, cookie, undefined, { ...env, DB: budgeted(env.DB, budget) } as Bindings);
-      expect(page.status).toBe(200);
-      return { queries: 50 - budget.left, rows: parseCsv(page.text) };
-    };
-    const withLoans = await count();
-    expect(withLoans.rows).toHaveLength(EXPORT_PAGE);
-    expect(withLoans.rows.every((r) => parseLoansCell(r.loans).length === 20)).toBe(true);
-    await env.DB.prepare('DELETE FROM loans').run();
-    const without = await count();
-    // however many loans there are, one query for them: the page costs what it did with none
-    expect(withLoans.queries).toBe(without.queries);
-    expect(withLoans.queries).toBeLessThan(10);
+  it('keeps each page within the budget, ending a page early once it holds a thousand loans', async () => {
+    const cookie = await signIn();
+    await manyItems(EXPORT_PAGE + 10);
+    const without = await pages(cookie);
+    expect(without.pages.map((p) => p.rows.length)).toEqual([EXPORT_PAGE, 10]);
+
+    await lend(20); // 5,200 loans: twenty on every item
+    const { pages: withLoans, text } = await pages(cookie);
+    // 1,000 loans a page is fifty items; the last page is what's left
+    expect(withLoans.map((p) => p.rows.length)).toEqual([50, 50, 50, 50, 50, 10]);
+    expect(withLoans.every((p) => p.loans <= EXPORT_LOANS)).toBe(true);
+    expect(withLoans.flatMap((p) => p.rows).every((r) => parseLoansCell(r.loans).length === 20)).toBe(true);
+    // however many loans, one query for them: a page costs what it did with none
+    expect(new Set(withLoans.map((p) => p.queries))).toEqual(new Set([without.pages[0]!.queries]));
+    expect(withLoans[0]!.queries).toBeLessThan(10);
+    // and the pages join into what the one-request export streams
+    expect(text).toBe((await call('/export.csv', cookie)).text);
+  });
+
+  it('sends an item with more than a page of loans alone, with every one of them, for one query more', async () => {
+    const cookie = await signIn();
+    await manyItems(3);
+    const second = (await env.DB.prepare("SELECT id FROM items WHERE title = 'Game 2'").first<{ id: number }>())!.id;
+    await lend(2, `items.id <> ${second}`);
+    await lend(EXPORT_LOANS + 5, `items.id = ${second}`);
+
+    const { pages: got, text } = await pages(cookie);
+    expect(got.map((p) => p.rows.map((r) => r.title))).toEqual([['Game 1'], ['Game 2'], ['Game 3']]);
+    expect(got.map((p) => p.loans)).toEqual([2, EXPORT_LOANS + 5, 2]);
+    expect(got[1]!.queries).toBe(got[0]!.queries + 1);
+    expect(got[2]!.next).toBeNull();
+    expect(text).toBe((await call('/export.csv', cookie)).text);
+    // an import keeps the latest thousand of them, the one still out among them
+    const restored = parseLoansCell(got[1]!.rows[0]!.loans);
+    expect(restored).toHaveLength(MAX_LOANS_PER_CELL);
+    expect(restored[0]!.borrower).toBe('Borrower, "number" 6');
+    expect(restored.at(-1)).toMatchObject({ borrower: `Borrower, "number" ${EXPORT_LOANS + 5}`, returnedOn: null });
   });
 });
 

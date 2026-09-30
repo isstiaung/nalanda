@@ -13,7 +13,10 @@ export type LoanDraft = {
   note: string | null;
 };
 
-/** A bound on what a crafted CSV can make one row insert — decades of lending, for the busiest board game. */
+/**
+ * A bound on what a crafted CSV can make one row insert — decades of lending, for the busiest board game. The export
+ * writes every loan; an item lent more often than this comes back with its latest MAX_LOANS_PER_CELL.
+ */
 export const MAX_LOANS_PER_CELL = 1000;
 
 // ---------- the export's `loans` cell ----------
@@ -65,11 +68,13 @@ const SPAN = /^(.*?)\.\.(.*)$/;
  * read as a loan still out, it would say someone has a book that came back. A due date that isn't a calendar date
  * becomes none, as the reads cell's unknown dates do; a part it doesn't know (`|key:…` from a later version) is
  * ignored. Every loan is kept however many are out: an import restores the history as it was (§16 #57), and the
- * app can hold more open loans than copies (a book marked Not owned while it was out). At most MAX_LOANS_PER_CELL.
+ * app can hold more open loans than copies (a book marked Not owned while it was out). Only the last
+ * MAX_LOANS_PER_CELL parts are read: the latest loans, where the ones still out are.
  */
 export function parseLoansCell(cell: string | null | undefined): LoanDraft[] {
   const out: LoanDraft[] = [];
-  for (const part of (cell ?? '').split(';')) {
+  const parts = (cell ?? '').split(';');
+  for (const part of parts.length > MAX_LOANS_PER_CELL ? parts.slice(-MAX_LOANS_PER_CELL) : parts) {
     const [head = '', ...fields] = part.trim().split('|');
     const at = head.indexOf('@');
     if (at < 0) continue;
@@ -90,7 +95,6 @@ export function parseLoansCell(cell: string | null | undefined): LoanDraft[] {
       else if (key === 'note' && loan.note === null) loan.note = dec(value) || null;
     }
     out.push(loan);
-    if (out.length === MAX_LOANS_PER_CELL) break;
   }
   return out;
 }

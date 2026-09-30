@@ -322,24 +322,50 @@ importexport.post('/api/backfill-covers', async (c) => {
  */
 export const EXPORT_PAGE = 250;
 
-/** Items after `afterId` as CSV lines, with their tags, reads, reviews, loans and reading logs: six queries. */
+/**
+ * Loans a page carries at most, beside its items (§16 #57). Writing a loan costs about as much as the rest of an
+ * item's row; 250 items with twenty loans each, their text all to be encoded, measured 5–6 ms warm and 8 ms cold
+ * where the page alone took under 1. A page that would pass this ends at the last item whose loans all fit, and the
+ * next page starts after it.
+ */
+export const EXPORT_LOANS = 1000;
+
+/**
+ * Items after `afterId` as CSV lines, with their tags, reads, reviews, loans and reading logs: six queries, and a
+ * seventh for an item with more than EXPORT_LOANS loans of its own, which then makes a page alone. `more` says
+ * another page may follow.
+ */
 async function exportRows(
   d1: D1Database,
   scope: number | undefined,
   afterId: number,
   limit: number,
   libNames: Map<number, string>,
-): Promise<{ csv: string; count: number; lastId: number }> {
-  const items = await pageItems(d1, { libraryId: scope, afterId, limit });
-  if (!items.length) return { csv: '', count: 0, lastId: afterId };
+): Promise<{ csv: string; count: number; lastId: number; more: boolean }> {
+  let items = await pageItems(d1, { libraryId: scope, afterId, limit });
+  if (!items.length) return { csv: '', count: 0, lastId: afterId, more: false };
+  let more = items.length === limit;
   const [from, to] = [items[0]!.id, items.at(-1)!.id];
-  const [tagMap, progressMap, readMap, reviewMap, loanMap] = await Promise.all([
+  const [tagMap, progressMap, readMap, reviewMap, loansRead] = await Promise.all([
     tagsForIdRange(d1, from, to, scope),
     progressForIdRange(d1, from, to, scope),
     readsForIdRange(d1, from, to, scope),
     reviewsForIdRange(d1, from, to, scope),
-    loansForIdRange(d1, from, to, scope),
+    loansForIdRange(d1, from, to, scope, EXPORT_LOANS + 1),
   ]);
+  let loanMap = loansRead.loans;
+  if (loansRead.cutAt !== null) {
+    // more loans than a page carries: the item they stopped at may be missing some, so the page ends before it
+    const cutAt = loansRead.cutAt;
+    const first = items[0]!;
+    items = items.filter((item) => item.id < cutAt);
+    if (!items.length) {
+      // that item alone has more than a page's worth: it goes out alone, with every loan
+      items = [first];
+      loanMap = (await loansForIdRange(d1, first.id, first.id, scope)).loans;
+    }
+    more = true;
+  }
   let csv = '';
   for (const item of items) {
     csv += itemToCsvLine(
@@ -352,7 +378,7 @@ async function exportRows(
       loanMap.get(item.id) ?? [],
     );
   }
-  return { csv, count: items.length, lastId: to };
+  return { csv, count: items.length, lastId: items.at(-1)!.id, more };
 }
 
 importexport.get('/export.csv', async (c) => {
@@ -372,14 +398,14 @@ importexport.get('/export.csv', async (c) => {
   if (after !== undefined) {
     // One page per request, as the Export button asks for it (public/import.js), which joins the pages into
     // one file. The header row leads the first page only; `x-export-next` names where the next page starts,
-    // and is missing once a page comes back short.
+    // and is missing once a page comes back short — short of items, not ended early for its loans.
     const afterId = Number(after);
     const page = await exportRows(c.env.DB, scope, afterId, EXPORT_PAGE, libNames);
     return new Response((afterId === 0 ? csvLine([...EXPORT_COLUMNS]) : '') + page.csv, {
       headers: {
         ...headers,
         'x-export-rows': String(page.count),
-        ...(page.count === EXPORT_PAGE ? { 'x-export-next': String(page.lastId) } : {}),
+        ...(page.more ? { 'x-export-next': String(page.lastId) } : {}),
       },
     });
   }
@@ -408,7 +434,7 @@ importexport.get('/export.csv', async (c) => {
         if (!page.count) return controller.close();
         controller.enqueue(encoder.encode(page.csv));
         afterId = page.lastId;
-        if (page.count < PAGE) controller.close();
+        if (!page.more) controller.close();
       } catch (err) {
         controller.error(err);
       }
