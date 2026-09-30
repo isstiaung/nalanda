@@ -4,6 +4,7 @@ import { checkPurchaseLink } from './links';
 import { withoutMoney } from './money';
 import { isPlayable } from './plays';
 import { progressPercent } from './progress';
+import { matchesStatus } from './reads';
 import type { ItemFilters } from '../db/queries';
 import type { Item, MediaType, Share } from '../db/schema';
 
@@ -13,12 +14,13 @@ import type { Item, MediaType, Share } from '../db/schema';
  * "reviews only" view can't be walked into the rest of the shelf by id. `tags` are
  * the item's own tags, checked when the view captured one; `wanters` the ids of the
  * members who want it, checked for a want-list share (§16 #53) — its member's want
- * list as it stands, so an item they no longer want is outside it.
+ * list as it stands, so an item they no longer want is outside it. A status view
+ * filters as the shelf does: In progress holds a re-read too (§16 #64).
  */
 export function itemMatchesShare(share: Share, item: Item, tags: string[], wanters: number[]): boolean {
   if (share.libraryId !== null && item.libraryId !== share.libraryId) return false;
   if (share.mediaType !== null && item.mediaType !== share.mediaType) return false;
-  if (share.status !== null && item.status !== share.status) return false;
+  if (share.status !== null && !matchesStatus(item, share.status)) return false;
   if (share.owned !== null && item.copies > 0 !== share.owned) return false;
   if (share.tag !== null && !tags.includes(share.tag)) return false;
   if (share.wantUserId !== null && !wanters.includes(share.wantUserId)) return false;
@@ -148,7 +150,7 @@ export function toPublicItem(
     wanted?: boolean;
   } = {},
 ): PublicItem {
-  const readingNow = item.status === 'in_progress' || item.rereading;
+  const readingNow = matchesStatus(item, 'in_progress');
   const showProgress = opts.progress === true && item.mediaType === 'book' && readingNow && !!item.progressPage;
   return {
     id: item.id,

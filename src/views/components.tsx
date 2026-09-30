@@ -107,23 +107,15 @@ export const NotOwnedPill: FC = () => <span class="pill ghost">Not owned</span>;
 export const WantedPill: FC = () => <span class="pill wanted">Wanted</span>;
 
 /**
- * A book finished before and being read again (§16 #41). It keeps its Completed status — nothing moves between
- * views — and this marks the open read wherever status shows.
+ * A book finished before and being read again (§16 #41). Its status column stays Completed, but it is being read now,
+ * so it is listed under In progress too (§16 #64), and this pill stands in for "Completed" wherever status shows — a
+ * re-read in an In progress list shouldn't look finished. Shelf cards, which show no status, carry it on its own.
  */
 export const RereadingPill: FC = () => <span class="pill rereading">Re-reading</span>;
 
-/** The status pill, and the re-reading marker beside it when there is one. */
-export const StatusPills: FC<{ item: Pick<Item, 'status' | 'rereading'> }> = ({ item }) => (
-  <>
-    <StatusPill status={item.status} />
-    {item.rereading ? (
-      <>
-        {' '}
-        <RereadingPill />
-      </>
-    ) : null}
-  </>
-);
+/** An item's status as the app shows it: its status pill, or "Re-reading" for a book being read again (§16 #64). */
+export const StatusPills: FC<{ item: Pick<Item, 'status' | 'rereading'> }> = ({ item }) =>
+  item.rereading ? <RereadingPill /> : <StatusPill status={item.status} />;
 
 /**
  * The item page's status, in a span htmx can replace out of band: starting, finishing or stopping a read changes
