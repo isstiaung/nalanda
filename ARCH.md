@@ -1362,7 +1362,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     "Another" keeps its id, so htmx gives it focus back. Without htmx the same URL is the whole
     Overview with a new pick. The response says `Vary: HX-Request`, since one URL answers both
     ways. The full Overview goes from 9 D1 calls to 10, whatever the catalog's size (budget 50,
-    #37); tests hold both counts.
+    #37); tests hold both counts. This holds only while nothing else sends htmx to `/`: htmx 2
+    restores history with `HX-Request` set when its cache misses (`historyRestoreAsHxRequest`),
+    so if `hx-boost` or `hx-push-url` ever arrives, the card must move to its own partial URL
+    (e.g. `/read-next`) rather than vary `/` on the header (noted by nalanda-review).
 
     **Chosen without asking, overrulable:** an empty pool shows a one-line "Nothing to suggest"
     in the card's place rather than dropping the card — a card that vanishes once you've read
