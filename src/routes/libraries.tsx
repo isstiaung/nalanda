@@ -199,8 +199,8 @@ libraries.get('/libraries/:id', async (c) => {
             type="search"
             name="q"
             value={name ?? ''}
-            placeholder="Title or author…"
-            aria-label="Filter by name"
+            placeholder="Title, author or location…"
+            aria-label="Filter by title, author or location"
           />
           <FilterMenu label="Type" name="type" options={MEDIA_TYPES.map((t) => [t, MEDIA_LABEL[t]] as const)} selected={mediaTypes} />
           <FilterMenu

@@ -362,7 +362,7 @@ export type ItemFilters = {
   mediaTypes?: MediaType[]; // any-of; empty/omitted = all types
   statuses?: ItemStatus[]; // any-of; empty/omitted = any status
   owned?: boolean; // true = copies > 0, false = copies = 0 (reading-log entries)
-  q?: string; // title/creators substring, case-insensitive
+  q?: string; // title/creators/location substring, case-insensitive — the signed-in shelf's only, never a view's
   tag?: string; // only items carrying this tag (tags are stored lowercase)
   sort?: 'added' | 'title' | 'rating' | 'completed';
   page?: number; // 1-based
@@ -399,7 +399,11 @@ function itemFilterWhere(libraryId: number | null, f: ItemFilters, reader?: Read
   }
   if (f.q) {
     const needle = `%${f.q.replace(/[%_\\]/g, '\\$&')}%`;
-    conds.push(sql`(${s.items.title} LIKE ${needle} ESCAPE '\\' OR ${s.items.creators} LIKE ${needle} ESCAPE '\\')`);
+    // location is private (§16 #51) and matches here only because no share or connection view captures `q`
+    // (shareFilters, shelfPage): a published view filtered by it would reveal where things are kept
+    conds.push(
+      sql`(${s.items.title} LIKE ${needle} ESCAPE '\\' OR ${s.items.creators} LIKE ${needle} ESCAPE '\\' OR ${s.items.location} LIKE ${needle} ESCAPE '\\')`,
+    );
   }
   if (reader) conds.push(readerFilterWhere(reader));
   return and(...conds);

@@ -41,7 +41,7 @@ search.get('/search', async (c) => {
               {items.length} {items.length === 1 ? 'RESULT' : 'RESULTS'} FOR “{q.toUpperCase()}”
             </span>
           ) : (
-            <span class="sub">TITLES · CREATORS · DESCRIPTIONS · NOTES</span>
+            <span class="sub">TITLES · CREATORS · DESCRIPTIONS · NOTES · LOCATIONS</span>
           )}
         </div>
       </div>
@@ -63,7 +63,7 @@ search.get('/search', async (c) => {
             <BulkBar back={back} admin={user.role === 'admin'} libraries={libs} />
           </>
         ) : (
-          <p class="muted">Nothing found for “{q}”. Search covers titles, creators, descriptions, and notes.</p>
+          <p class="muted">Nothing found for “{q}”. Search covers titles, creators, descriptions, notes, and locations.</p>
         )
       ) : null}
     </>,
