@@ -8,6 +8,22 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [Unreleased]
+
+### Added
+- **What you paid.** Every item — book, board game, record, anything — can have a **purchase price**, on the item form when you add it by hand or edit it. It's entered in the household's currency, shown on the item's page ("Paid ₹499"), and private: share pages and connected households never see it.
+- **A household currency**, set once by an admin under **Members → Household currency** (INR, USD, JPY — any ISO 4217 currency). Prices are entered in it, with its decimals: two for rupees and dollars, none for yen. Until it's set, the item form says so instead of offering a price. Changing it later converts nothing: prices already entered keep the currency they were entered in.
+- **What each shelf cost.** A shelf's page says what the household paid for it ("Paid ₹30,200 for 9 — of 12 records on this shelf"), and the Overview's shelf table gains a **Paid** column. Each currency is totalled on its own, never added to another.
+- **Purchase prices leave and come back through the CSV**, in two new columns, `purchase_price` (like `302.50`) and `purchase_currency` (like `INR`). A libib file's `price` column becomes the purchase price, in the household's currency, when one is set before you import.
+
+### Fixed
+- **Prices never reach share pages or connected households.** A libib import kept a file's `price` column in each item's details, which share pages and connected households were shown. Money in details is now left out of anything published; inside the app it stays where it was.
+
+### Upgrading
+- **Back up first** (`npm run backup`). Migration `0038_purchase-price` runs when you deploy. It adds two empty columns to items (`purchase_price`, `purchase_currency`) and an empty `currency` to the household settings, and changes no existing data — rehearsed on a production backup, every existing table and value came through identical. Rolling back is safe: older code ignores the columns.
+- **Set the household currency** under **Members** before entering prices, and before importing a libib file whose prices you want as purchase prices. Until then no one can enter a price, and libib prices stay in the item's details (never on share pages now).
+- An export from this version imports into an older one without its purchase prices, which older versions ignore. **No new secrets.** **Connections** are unaffected: prices never go to connected households, on any version.
+
 ## [1.5.0] - 2026-09-30
 
 A lot for games, records and reading: a play and listening log, reading goals (shared with connected households if you like), want lists with shop links and gift-list shares, series with what's missing and what's next, a record's condition and pressing from Discogs, where each thing lives, and loans in the export.

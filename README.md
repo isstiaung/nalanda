@@ -21,8 +21,8 @@ manuscripts.
   import too.
 - **Public share links, per view**: publish any filtered slice of a shelf ("my reviews",
   "owned sci-fi"), or everything carrying a tag, at its own unguessable URL — rotate or remove each link independently.
-  Private notes, where things are kept, loans, copy counts and a record's condition never
-  appear. Reviews can link out to blog posts.
+  Private notes, where things are kept, loans, copy counts, what you paid and a record's
+  condition never appear. Reviews can link out to blog posts.
   One admin page lists everything you've published, with the item count each link
   exposes.
 - **An app on your phone, and scanning with no signal**: install it to your home screen
@@ -52,6 +52,12 @@ manuscripts.
   Discogs: labels, catalogue number, country, year, format (colour vinyl, 180 g, 2×LP) and the
   tracklist, folded on its page; **Refresh from Discogs** fills the blanks for records already on
   your shelves, one request per click, and never changes what you've typed.
+- **What you paid**: an optional purchase price on anything — book, game or record — in the
+  household's currency, which an admin sets once (₹, $, ¥ — any ISO currency, with its own
+  decimals). Each shelf shows what it cost, one total per currency and never converted, and the
+  Overview lists every shelf's. Prices stay in the app: never on share pages or to connections,
+  and they round-trip through the CSV. (Market values from Discogs were considered and
+  dropped: its API terms forbid showing marketplace prices more than six hours old — ARCH.md §16 #61.)
 - **Reading goals**: each member sets how many books they mean to finish in a year, and the
   Overview shows their count and pace. Connected households can hear when a goal is set, passes
   halfway and is reached, signed with the member's display name, if the household chooses.

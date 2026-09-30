@@ -56,3 +56,15 @@ BoardGameGeek, and Discogs. Each has its own terms of use, and none of them are 
 with this project — if you run an instance, you are the API consumer and those terms are
 between you and them. BoardGameGeek's, for example, require an approved application (its
 token is your `BGG_TOKEN`) and the logo above.
+
+Discogs' [API Terms of Use](https://support.discogs.com/hc/en-us/articles/360009334593-API-Terms-of-Use)
+(last updated 27 May 2025) split its data into CC0 Data — release titles, formats, track listings,
+barcodes, labels — and **Restricted Data**, which includes *"'Marketplace Data' such as … pricing"*.
+They ask any application to show *"This application uses Discogs’ API but is not affiliated with,
+sponsored or endorsed by Discogs. ‘Discogs’ is a trademark of Zink Media, LLC."* (it *"may be included
+in Your terms and conditions or usage documentation"*), and *"Data provided by Discogs."* beside any
+data used from the API, linked to the discogs.com page holding it, without `nofollow`. So, for this
+project: This application uses Discogs’ API but is not affiliated with, sponsored or endorsed by
+Discogs. ‘Discogs’ is a trademark of Zink Media, LLC. The terms also forbid showing their data more
+than six hours older than Discogs' own, which is why Nalanda fetches and stores no marketplace
+prices (ARCH.md §16 #61).

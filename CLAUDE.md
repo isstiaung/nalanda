@@ -172,6 +172,12 @@ shape from this file.
   grade into `details`, and an import drops an off-scale grade rather than keeping it there. Its
   **pressing** (label, catno, country, year, format, tracklist) is public catalogue data in
   `details`; connections get its plain values, not the tracklist.
+- **Money is never published** (ARCH.md §16 #61). What was paid (`purchase_price`, integer minor
+  units, with `purchase_currency`) is in no whitelist: never on share pages, never to connections,
+  never a key of `toPublicItem()` or `toConnectionItem()`. `toPublicItem()` also strips money keys
+  (`MONEY_DETAIL_KEYS` in `src/lib/money.ts` — libib's `price`) from the `details` it publishes; never
+  move a price into `details`. Money is never a float: parse with `parseMoney()`, sum in SQL as
+  `CAST(sum(…) AS TEXT)`, format with `formatMoney()`, and never add two currencies together.
 - `/covers/:key` is intentionally public — keys are random UUIDs; never make them
   enumerable or derived from item data.
 - **The service worker never stores a page or an API answer** (ARCH.md §16 #48): only the
@@ -245,7 +251,9 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    condition.ts (a record's grades and their fixed scale), pressing.ts (what an add
                    and "Refresh from Discogs" may write into a record's details, and reading it back),
                    goals.ts (a reading goal's pace and limits; what counts is goalCountSql in queries.ts)
-                   links.ts (purchase links: the http(s) check, the export's want and link cells — §16 #53)
+                   links.ts (purchase links: the http(s) check, the export's want and link cells — §16 #53),
+                   money.ts (purchase prices: minor units, parsing, exact formatting, currency codes —
+                   ARCH.md §16 #61)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments and borrowing (comments.ts,
