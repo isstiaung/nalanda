@@ -21,6 +21,12 @@ import {
   updateItem,
   addProgress,
   addPastRead,
+  createItemWithTags,
+  createLoan,
+  loansForIdRange,
+  logPlay,
+  playsForIdRange,
+  seriesForIds,
   startRead,
 } from '../src/db/queries';
 import { createConnectionView } from '../src/db/federation';
@@ -329,7 +335,14 @@ describe('the export', () => {
       await addProgress(env.DB, b.id, 10 + i, ravi.id);
       await setWant(env.DB, b.id, ravi.id, true);
       await env.DB.prepare('INSERT INTO purchase_links (item_id, label, url) VALUES (?1, ?2, ?3)').bind(b.id, `L${i}`, `https://l${i}.example/`).run();
+      for (let n = 0; n <= i; n++) await createLoan(env.DB, { itemId: b.id, borrower: `Borrower ${i}.${n}` });
     }
+    // a record's plays, and two books in a series, so every cell the batch reads has rows
+    const lp = await book(asha, { libraryId: one.id, mediaType: 'vinyl', title: 'Played' });
+    ids.push(lp.id);
+    for (const day of ['2026-01-02', '2026-01-01']) await logPlay(env.DB, lp.id, day, ravi.id);
+    const vol = await createItemWithTags(env.DB, { libraryId: one.id, mediaType: 'book', title: 'Vol 1', details: '{}' }, [], { name: 'Saga', number: 1, total: 3 });
+    ids.push(vol);
     for (const scope of [undefined, one.id]) {
       const [from, to] = [ids[0]!, ids.at(-1)!];
       const cells = await exportCellsForIdRange(env.DB, from, to, scope);
@@ -338,6 +351,17 @@ describe('the export', () => {
       expect(cells.progress).toEqual(await progressForIdRange(env.DB, from, to, scope));
       expect(cells.reads).toEqual(await readsForIdRange(env.DB, from, to, scope));
       expect(cells.reviews).toEqual(await reviewsForIdRange(env.DB, from, to, scope));
+      expect(cells.plays).toEqual(await playsForIdRange(env.DB, from, to, scope));
+      expect(cells.plays.get(lp.id)).toHaveLength(2);
+      const pageItems = (await rows<{ seriesId: number | null }>('SELECT series_id AS seriesId FROM items WHERE id BETWEEN ?1 AND ?2' + (scope ? ' AND library_id = ?3' : ''), ...(scope ? [from, to, scope] : [from, to]))).map((r) => r.seriesId);
+      expect(cells.series).toEqual(await seriesForIds(env.DB, pageItems));
+      expect([...cells.series.values()].map((x) => x.name)).toEqual(['Saga']);
+      // loans, whole and cut at a limit, as loansForIdRange cuts them (§16 #57)
+      for (const limit of [undefined, 4, 8]) {
+        const single = await loansForIdRange(env.DB, from, to, scope, limit);
+        const batched = await exportCellsForIdRange(env.DB, from, to, scope, limit);
+        expect({ loans: batched.loans, cutAt: batched.loanCutAt }).toEqual(single);
+      }
       expect(cells.wants.size).toBe(scope ? 3 : 6);
       expect(cells.links.size).toBe(scope ? 3 : 6);
     }
