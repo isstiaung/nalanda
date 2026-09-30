@@ -186,7 +186,7 @@ libraries.get('/libraries/:id', async (c) => {
         <div class="page-actions">
           {/* the board games here, or a view filtered to them: "What should we play tonight?" is a click away (§16 #60) */}
           {mediaTypes.includes('boardgame') || items.some((i) => i.mediaType === 'boardgame') ? (
-            <a href="/play" role="button" class="btn">
+            <a href="/play" class="btn">
               Play tonight
             </a>
           ) : null}

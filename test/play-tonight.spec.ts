@@ -315,7 +315,10 @@ describe('the page', () => {
     const overview = await html(asha, '/');
     expect(overview).toContain('<a href="/play">What should we play tonight?</a>');
     expect(overview).toContain('Pick from 8 board games');
-    expect(await html(asha, `/libraries/${shelf}`)).toContain('href="/play"');
+    const shelfPage = await html(asha, `/libraries/${shelf}`);
+    // a link styled as a button, not a link claiming to be one (jsx-a11y's prefer-tag-over-role)
+    expect(shelfPage).toContain('<a href="/play" class="btn">Play tonight</a>');
+    expect(shelfPage).not.toMatch(/<a href="\/play"[^>]*role=/);
 
     const books = await createLibrary(env.DB, 'Books');
     await createItem(env.DB, { libraryId: books.id, mediaType: 'book', title: 'Just a book', details: '{}' });
