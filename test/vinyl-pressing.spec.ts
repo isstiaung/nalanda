@@ -27,7 +27,7 @@ const DOUBLE_LP_TRACKS = [
   { position: 'A1', title: 'First Rain', duration: '7:02' },
   { position: 'A2', title: 'Kanha', duration: '9:14', artist: 'The Hillside Quartet Feat. R. Iyer' },
   { heading: 'Side B' },
-  { position: 'B1', title: 'The Long Monsoon' },
+  { position: 'B1', title: 'The Long Monsoon', index: true }, // its parts, below, are the tracks
   { position: 'B1a', title: 'Clouds', duration: '4:10' },
   { position: 'B1b', title: 'Downpour', duration: '6:45' },
   { position: 'C1', title: 'Petrichor', duration: '11:30' },
@@ -203,7 +203,7 @@ describe('adding a record from Discogs', () => {
       genres: ['Jazz'],
       tracklist: DOUBLE_LP_TRACKS,
     });
-    expect([item.publisher, item.published, item.length, item.isbn13]).toEqual(['Harvest', '2019', 7, '0724384260910']);
+    expect([item.publisher, item.published, item.length, item.isbn13]).toEqual(['Harvest', '2019', 6, '0724384260910']);
   });
 
   it('adds the record as the search described it when the release doesn’t come', async () => {
@@ -308,7 +308,7 @@ describe('Refresh from Discogs', () => {
     const details = await detailsOf(lp.id);
     expect(details['tracklist']).toEqual(DOUBLE_LP_TRACKS);
     expect(details['format']).toBe('Vinyl, LP, Album, Reissue, 180 Gram'); // already filled by the search: kept
-    expect((await getItem(env.DB, lp.id))!.length).toBe(7);
+    expect((await getItem(env.DB, lp.id))!.length).toBe(6);
 
     // a third click has nothing to add, and writes nothing
     const before = (await getItem(env.DB, lp.id))!;
@@ -431,7 +431,7 @@ describe('the record’s page', () => {
     const html = await page(asha, `/items/${lp.id}`);
     expect(html).toContain('<p class="eyebrow">Pressing</p>');
     expect(html).toMatch(/<dt>Label<\/dt><dd>Harvest, EMI<\/dd>[\s\S]*<dt>Catalog #<\/dt><dd>SHVL 804<\/dd>[\s\S]*<dt>Country<\/dt><dd>Europe<\/dd>/);
-    expect(html).toContain('<details class="tracklist"><summary>Tracklist <span class="mono muted">· 7 tracks</span></summary>');
+    expect(html).toContain('<details class="tracklist"><summary>Tracklist <span class="mono muted">· 6 tracks</span></summary>');
     expect(html).toContain('<li class="track-heading">Side A</li>');
     expect(html).toContain('<span class="track-pos mono">A2</span><span class="track-title">Kanha<span class="track-artist muted"> — The Hillside Quartet Feat. R. Iyer</span></span><span class="track-time mono">9:14</span>');
     expect(html).not.toContain('[object Object]');
@@ -466,7 +466,7 @@ describe('outside the app', () => {
     const res = await call(null, `/share/${share.token}/items/${lp.id}`);
     expect(res.status).toBe(200);
     const html = await res.text();
-    for (const shown of ['<dt>Label</dt><dd>Harvest, EMI</dd>', '<dt>Catalog #</dt><dd>SHVL 804</dd>', '<dt>Country</dt><dd>Europe</dd>', '<dt>Year</dt><dd>2019</dd>', '2×Vinyl, LP, Album, Reissue, 180 Gram, Red Translucent', 'Petrichor', '· 7 tracks']) {
+    for (const shown of ['<dt>Label</dt><dd>Harvest, EMI</dd>', '<dt>Catalog #</dt><dd>SHVL 804</dd>', '<dt>Country</dt><dd>Europe</dd>', '<dt>Year</dt><dd>2019</dd>', '2×Vinyl, LP, Album, Reissue, 180 Gram, Red Translucent', 'Petrichor', '· 6 tracks']) {
       expect(html).toContain(shown);
     }
     expect(html).not.toContain('Refresh from Discogs'); // an app action, never on a public page

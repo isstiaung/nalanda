@@ -5,8 +5,11 @@
 import type { Item } from '../db/schema';
 import { parseDetails } from './share';
 
-/** One line of a tracklist: a track (or an index track's part), or a heading such as "Side A". */
-export type Track = { position?: string; title: string; duration?: string; artist?: string } | { heading: string };
+/**
+ * One line of a tracklist: a track, or a heading such as "Side A". An index track — a medley, a suite — is `index`,
+ * followed by its parts as tracks of their own; the parts are what count.
+ */
+export type Track = { position?: string; title: string; duration?: string; artist?: string; index?: true } | { heading: string };
 
 /** What Discogs says about a release, already reduced to plain values. Every field is optional: Discogs' are. */
 export type Pressing = {
@@ -45,7 +48,7 @@ export const isBlank = (v: unknown): boolean =>
 const hasValue = (v: unknown) => !isBlank(v) && !(typeof v === 'number' && !Number.isFinite(v));
 
 /** How many tracks a tracklist holds — a record's `length` (ARCH.md §5). Headings aren't tracks. */
-export const trackCount = (tracks: Track[] | undefined): number => (tracks ?? []).filter((t) => !('heading' in t)).length;
+export const trackCount = (tracks: Track[] | undefined): number => (tracks ?? []).filter((t) => !('heading' in t) && !t.index).length;
 
 type Columns = Pick<Item, 'publisher' | 'published' | 'length'>;
 
@@ -124,6 +127,7 @@ export function readTracklist(value: unknown): Track[] {
       title: title ?? '',
       ...(str(t.duration, 12) ? { duration: str(t.duration, 12) } : {}),
       ...(str(t.artist, 300) ? { artist: str(t.artist, 300) } : {}),
+      ...(t.index === true ? { index: true as const } : {}),
     });
   }
   return out;

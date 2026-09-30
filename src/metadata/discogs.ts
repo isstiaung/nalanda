@@ -99,9 +99,11 @@ function tracklistOf(tracks: DiscogsTrack[] | undefined): Track[] | undefined {
       continue;
     }
     const line = track(t);
-    if (line) out.push(line);
-    if (t.type_ === 'index' && Array.isArray(t.sub_tracks)) {
-      for (const sub of t.sub_tracks) {
+    const parts = t.type_ === 'index' && Array.isArray(t.sub_tracks) && t.sub_tracks.length > 0 ? t.sub_tracks : null;
+    // an index track with parts is their title, not a track of its own: it isn't counted in the record's length
+    if (line) out.push(parts ? { ...line, index: true } : line);
+    if (parts) {
+      for (const sub of parts) {
         if (out.length >= MAX_TRACKS) break;
         const part = sub && typeof sub === 'object' ? track(sub) : null;
         if (part) out.push(part);

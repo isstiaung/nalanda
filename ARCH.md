@@ -240,7 +240,7 @@ columns also land here so imports are lossless):
 - `vinyl` (and `music`): `{ discogs_id, label, catno, country, year, format, genres,
   tracklist }` — the pressing, from Discogs (§16 #55). `label` and `catno` hold every label
   and catalogue number, joined; `format` is one line (`2×Vinyl, LP, Album, 180 Gram, Red
-  Translucent`); `tracklist` is `[{ position, title, duration, artist } | { heading }]`.
+  Translucent`); `tracklist` is `[{ position, title, duration, artist, index } | { heading }]`.
   Format/pressing and catalog number are what collectors actually care about. A record's
   **condition** is not here: `details` is public on share pages, and a grade describes this
   household's copy, so it has its own two columns.
@@ -1811,7 +1811,8 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       and was already in `details` (label, catno, format, year), which round-trips through
       the CSV's `details` column. Added: `country` and `tracklist`, and `label` and `catno`
       now hold every label and catalogue number, not the first. The tracklist is a list of
-      tracks and headings (index tracks are followed by their parts), capped at 400 lines.
+      tracks and headings, capped at 400 lines; an index track (a suite, a medley) is
+      marked `index` and followed by its parts, which are what the track count counts.
     - **What goes out.** Share pages show the pressing and the tracklist, folded, on a
       record's page. Connections get what `plainDetails()` has always sent — the plain
       values: label, catalogue number, country, year, format, Discogs id — and not the
