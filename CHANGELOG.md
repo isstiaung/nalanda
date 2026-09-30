@@ -8,12 +8,18 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
-## [Unreleased]
+## [1.6.2] - 2026-09-30
+
+The Add page's search: it finds the game you typed, shows more results on request, and starts each result on the right shelf.
 
 ### Fixed
 - **Board game search finds the game you typed.** BoardGameGeek answers a search with every match at once and in no useful order, and only the first eight were shown — so searching "Cryptid" could list "48 Rooms: Cryptid Maze" and never Cryptid itself. Results are now ranked by how well their name matches: exactly as typed first, then names starting with it, then holding it.
 - **More results.** Book, board game and record searches on the Add page show eight results at a time, with a **More results** button below them that brings the next eight in place.
 - **A result starts on the right shelf.** Each search or scan result's shelf picker now starts on the shelf that already holds most items of its type — a board game on your games shelf, a record on your records shelf — instead of whichever shelf is listed first.
+
+### Upgrading
+- **No migration and no new secret.** Deploy as usual.
+- **Connections** are unaffected: nothing here is sent to or received from another household.
 
 ## [1.6.1] - 2026-09-30
 
