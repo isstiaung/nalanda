@@ -2377,9 +2377,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       non-blank `discogs_id` and at least one of `label`, `catno`, `country`, `year`, `format`,
       `genres`, `tracklist`. The id is the provenance the schema lacks: every path that writes
       Discogs' data writes the release id with it (a Discogs result since v1, a barcode lookup,
-      the add's release fetch, Refresh), and nothing else writes that key. A record typed in by
-      hand, even with a label and catalogue number, has no id and no credit — the credit would be
-      untrue there. An id alone (typed in, not yet refreshed) credits nothing either: there is no
+      the add's release fetch, Refresh), and nothing else writes that key but an import bringing a
+      file's `details` back, or someone typing an id into the details box, which says the same. A
+      record typed in by hand, even with a label and catalogue number, has no id and no credit —
+      the credit would be untrue there. An id alone (typed in, not yet refreshed) credits nothing either: there is no
       Discogs data beside it yet. BGG's rule is the media type (#44) because every board game is
       filled from BGG; records aren't, so the rule reads the data.
     - **The link is built from digits only.** `releaseIdOf()` (#55) accepts a positive safe integer,
