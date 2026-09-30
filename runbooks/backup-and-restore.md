@@ -81,7 +81,7 @@ npm run db:migrate:remote
 for t in users libraries shares site_settings series items reads reading_progress reviews plays reading_goals wants purchase_links tags item_tags loans \
          federation_settings connection_invites connections connection_views activity_log member_activity \
          feed_subscriptions remote_activities comments outbox borrow_requests connection_loans \
-         borrowed_items notifications; do
+         borrowed_items recommendations notifications; do
   npm run wrangler:remote -- d1 execute nalanda --remote --file=backups/remote-<date>/$t.sql
 done
 ```
