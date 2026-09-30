@@ -17,6 +17,7 @@ import {
   type ReadRow,
 } from './reads';
 import { formatLoansCell, parseLoansCell, type LoanDraft } from './loans';
+import { formatPlaysCell, parsePlaysCell, type CellPlay, type PersonPlay } from './plays';
 import { formatReviewsCell, parseReviewsCell, summarizeReviews, type CellReview, type PersonReview } from './reviews';
 
 export const EXPORT_COLUMNS = [
@@ -43,6 +44,7 @@ export const EXPORT_COLUMNS = [
   'completed_on',
   'read_count',
   'reads',
+  'plays',
   'added_at',
   'progress_history',
   'details',
@@ -77,7 +79,8 @@ export function progressHistoryCell(
 /**
  * One item as a line of the export. `rating` and `review` are the household's summary (§16 #43); `reviews` holds
  * everyone's, and `reads` names each read's reader, so a re-import gives every member back their own. `loans` is
- * every loan, open and returned (§16 #57).
+ * every loan, open and returned (§16 #57), and `plays` is the household's play log, oldest first, each date with
+ * who logged it (§16 #54).
  */
 export function itemToCsvLine(
   item: Item,
@@ -87,6 +90,7 @@ export function itemToCsvLine(
   reads: Array<ReadRow & { reader?: string | null }> = [],
   reviews: CellReview[] = [],
   loans: LoanDraft[] = [],
+  plays: CellPlay[] = [],
 ): string {
   const ordered = inDisplayOrder(reads);
   const position = new Map(ordered.map((r, i) => [r.id, i + 1]));
@@ -114,6 +118,7 @@ export function itemToCsvLine(
     item.completedOn,
     item.readCount,
     formatReadsCell(ordered),
+    formatPlaysCell(plays),
     item.addedAt,
     progressHistoryCell(progress, position),
     item.details === '{}' ? '' : item.details,
@@ -135,6 +140,8 @@ export type MappedRow = {
   reads?: CellRead[];
   // a Nalanda export's `reviews`, each member's by name; otherwise the row's rating and review are the importer's
   reviews?: CellReview[];
+  // a Nalanda export's `plays` (§16 #54), each with who logged it by name; any other file brings none
+  plays?: CellPlay[];
   // a Goodreads row's reading, which a merge reconciles with the reads already here
   goodreads?: GoodreadsReading;
   // a Nalanda export's `loans`, restored onto the item the row makes (§16 #57); libib and Goodreads have none
@@ -154,6 +161,8 @@ const KNOWN_COLUMNS = new Set([
   'reviews',
   // and so is every loan, with its borrower (§9)
   'loans',
+  // and the dates a game or record was played (§16 #54): share pages may say how many, never when
+  'plays',
   'item_type',
   'type',
   'ean_isbn13',
@@ -332,6 +341,8 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
   // review, the importer's.
   const reviews = parseReviewsCell(r['reviews']);
   const summary = reviews ? summarizeReviews(reviews) : { rating: rating && rating >= 1 && rating <= 10 ? rating : null, review: r['review'] || null };
+  // The play log (§16 #54). An export from before plays has no such column, and its games and records arrive unplayed.
+  const plays = parsePlaysCell(r['plays']);
   return {
     item: {
       mediaType: (MEDIA_TYPES as readonly string[]).includes(r['media_type'] ?? '') ? (r['media_type'] as MediaType) : 'book',
@@ -357,6 +368,7 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
     ...(reviews ? { reviews } : {}),
     // every loan, open and returned, as the file has it (§16 #57); an export from before loans has none
     loans: parseLoansCell(r['loans']),
+    ...(plays.length ? { plays } : {}),
     tags: (r['tags'] ?? '')
       .split(',')
       .map((t) => t.trim())
@@ -386,7 +398,7 @@ export function attributePeople(
   importer: number,
   tally?: PeopleTally,
   keepNames = true,
-): { reads?: PersonRead[]; reviews?: PersonReview[] } {
+): { reads?: PersonRead[]; reviews?: PersonReview[]; plays?: PersonPlay[] } {
   const resolve = (name: string | null | undefined): number | null =>
     !keepNames || name === undefined ? importer : name === null ? null : (members.get(name) ?? importer);
   const count = (name: string | null | undefined, what: 'reads' | 'reviews', n = 1) => {
@@ -420,7 +432,10 @@ export function attributePeople(
   } else if (m.item.rating != null || m.item.review) {
     count(undefined, 'reviews');
   }
-  return { ...(reads ? { reads } : {}), ...(reviews ? { reviews } : {}) };
+  // Who logged each play (§16 #54) resolves as a read's reader does. Plays aren't in the preview's tally: who pressed
+  // Played is kept for auditing and removal, not as anyone's history.
+  const plays = m.plays?.map(({ by, ...play }) => ({ ...play, loggedBy: resolve(by) }));
+  return { ...(reads ? { reads } : {}), ...(reviews ? { reviews } : {}), ...(plays ? { plays } : {}) };
 }
 
 // ---------- Goodreads import mapping ----------
