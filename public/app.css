@@ -1074,3 +1074,40 @@ details.tracklist summary .mono { font-weight: 400; font-size: 11px; }
 .feed-goal .progress-track { margin-bottom: 0.2rem; }
 /* the goals switch waits on the names one: shown, but greyed and inert until names go to connections */
 .switch-off { opacity: 0.5; }
+/* ── want lists and purchase links (ARCH.md §16 #53) ─────────────────────────
+   Each member's want list, and the household's pasted "where to buy" links. Existing
+   tokens only: the want toggle is the indigo working accent — a wish is work in hand,
+   not circulation, so no vermilion — and a purchase link is a quiet outbound row with
+   its host in mono, the one part of an address a person checks before clicking. */
+.want-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; margin: 0.2rem 0 0.4rem; }
+.want-toggle { font-size: 12.5px; }
+.want-toggle > span { font-family: var(--mono); color: var(--accent); }
+button.want-toggle.on { background: var(--accent-tint); border-color: var(--accent); color: var(--accent-strong); }
+button.want-toggle.on:hover { background: var(--accent-tint); border-color: var(--accent-strong); color: var(--accent-strong); }
+.want-note { font-size: 12px; overflow-wrap: anywhere; }
+a.want-note { text-decoration: underline; text-underline-offset: 2px; }
+
+.buy-links { list-style: none; padding: 0; margin: 0.35rem 0 0; display: grid; gap: 0.3rem; }
+.buy-links > li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.8rem; min-width: 0; }
+.buy-link { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0.15rem 0.5rem; min-width: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.buy-link small { font-size: 11px; font-weight: 400; color: var(--ink-3); }
+.buy-link:hover small { color: var(--accent); }
+.buy-links.editable > li { padding: 0.3rem 0; border-bottom: 1px solid var(--line); }
+.buy-links.editable > li:first-child { border-top: 1px solid var(--line); }
+.buy-form input[name='label'] { flex: 0 1 11rem; min-width: 0; }
+.buy-form input[name='url'] { flex: 1 1 16rem; min-width: 0; }
+
+/* a want list — the member's page inside the app, and a published gift list: a card a row, cover beside it */
+.want-list { list-style: none; padding: 0; margin: 0 0 1rem; display: grid; gap: 0.6rem; max-width: 46rem; }
+.want-card { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 0.9rem; padding: 0.75rem 0.9rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.want-cover { display: block; width: 56px; aspect-ratio: 2 / 3; border-radius: var(--radius-sm); overflow: hidden; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); }
+.want-cover .cover-fallback { font-size: 1.5rem; }
+.want-body { min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.want-title { color: var(--ink); font-weight: 600; font-size: 14px; line-height: 1.3; overflow-wrap: anywhere; }
+.want-title:hover { color: var(--accent); }
+.want-creators { color: var(--ink-2); font-size: 12px; overflow-wrap: anywhere; }
+.want-body .mline { display: flex; flex-wrap: wrap; gap: 0.15rem 0.5rem; align-items: center; margin-top: 0.15rem; }
+.want-body .buy-links { margin-top: 0.4rem; }
+.want-body form.inline { margin-top: 0.35rem; }
+.gift-lists { margin-top: 2rem; max-width: 46rem; }
+.gift-lists .data-table { margin-bottom: 0.75rem; }

@@ -5,6 +5,11 @@ import {
   activeLoansForItem,
   addPastRead,
   applyPressingFill,
+  addPurchaseLink,
+  deletePurchaseLink,
+  itemByIsbn13,
+  setWant,
+  wantsAndLinks,
   addProgress,
   closeRead,
   createItemWithTags,
@@ -46,6 +51,7 @@ import { isRecord, parseGrade } from '../lib/condition';
 import { deleteCover, storeCover } from '../lib/covers';
 import { isPlayable, MAX_PLAYS_PER_ITEM, playDateProblem } from '../lib/plays';
 import { fillPressing, recordBarcode, releaseIdOf } from '../lib/pressing';
+import { checkPurchaseLink, MAX_LINKS_PER_ITEM } from '../lib/links';
 import { MAX_PROGRESS_PAGE } from '../lib/progress';
 import { isReadStatus, readDateProblem, summarizeReads, todayUtc, type ReadDraft } from '../lib/reads';
 import { reviewText } from '../lib/reviews';
@@ -54,6 +60,7 @@ import { parseDetails } from '../lib/share';
 import { discogsPressing } from '../metadata';
 import {
   accNo,
+  BuySection,
   CopiesPill,
   Cover,
   DetailsList,
@@ -76,6 +83,7 @@ import {
   stars,
   type Person,
   type Viewer,
+  WantBar,
 } from '../views/components';
 import { page } from '../views/layout';
 import { BggAttribution, fromBgg } from '../views/attribution';
@@ -305,6 +313,18 @@ items.post('/items', async (c) => {
   // landing on the edit form so rating/review/status go in immediately.
   const logOnly = body['logOnly'] === '1';
   if (logOnly) parsed.values.copies = 0;
+  // "Want to read" / "Want" on a scan or search result (§16 #53): onto the adder's want list. Already in the catalog
+  // by ISBN — the want goes on that item, with no second copy; otherwise it joins as Not owned, as a Goodreads
+  // import's books do, and the want rides in its insert's batch.
+  const want = body['want'] === '1';
+  if (want) {
+    const existing = parsed.values.isbn13 ? await itemByIsbn13(c.env.DB, parsed.values.isbn13) : null;
+    if (existing) {
+      await setWant(c.env.DB, existing, c.get('user').id, true);
+      return c.redirect(`/items/${existing}`);
+    }
+    parsed.values.copies = 0;
+  }
 
   const problem = formProblem(formReadProblem(null, readFields(parsed.values)), parsed);
   if (problem && htmx) return c.text(problem, 400);
@@ -354,7 +374,13 @@ items.post('/items', async (c) => {
   let id: number;
   try {
     // its status, dates, rating and review become the adder's read and review (added_by)
-    id = await createItemWithTags(c.env.DB, { ...parsed.values, coverKey, addedBy: c.get('user').id }, parsed.tags, parsed.series);
+    id = await createItemWithTags(
+      c.env.DB,
+      { ...parsed.values, coverKey, addedBy: c.get('user').id },
+      parsed.tags,
+      parsed.series,
+      want ? { wantedBy: c.get('user').id } : {},
+    );
   } catch (err) {
     c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // nothing points at it
     throw err;
@@ -428,12 +454,15 @@ function DiscogsRefresh({ item, token, notice }: { item: Item; token: boolean; n
   );
 }
 
-/** The item page. `reviewError` says why a change to a review from this page was refused. */
-async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
+/**
+ * The item page. `reviewError` says why a change to a review from this page was refused; `link` why a purchase link
+ * was, with what was sent, so the form shows it again.
+ */
+async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, link?: { error: string; label: string; url: string }) {
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
   const viewer = viewerOf(c);
-  const [lib, tags, loans, people, log, lent, plays, inSeries] = await Promise.all([
+  const [lib, tags, loans, people, log, lent, plays, inSeries, want] = await Promise.all([
     getLibrary(c.env.DB, item.libraryId),
     tagsForItem(c.env.DB, id),
     activeLoansForItem(c.env.DB, id),
@@ -443,6 +472,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
     playLog(c.env.DB, id),
     // its series, with the viewer's own reading of every volume (§16 #52): one call, only for an item in one
     item.seriesId !== null ? seriesWithVolumes(c.env.DB, item.seriesId, viewer.id) : null,
+    wantsAndLinks(c.env.DB, id),
   ]);
   const addedBy = item.addedBy ? (people.find((p) => p.id === item.addedBy) ?? null) : null;
   const grouped = showsPeople(people, viewer, log);
@@ -477,6 +507,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
             ))}
           </p>
         ) : null}
+        <WantBar item={item} wanters={want.wanters} viewer={viewer} />
 
         <dl class="props">
           <dt>Accession</dt>
@@ -607,6 +638,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
         {isPlayable(item.mediaType) || plays.count ? (
           <PlaysSection item={item} count={plays.count} plays={plays.plays} today={todayUtc()} viewer={viewer} people={people} />
         ) : null}
+
+        <BuySection itemId={item.id} links={want.links} error={link?.error} label={link?.label} url={link?.url} />
 
         {grouped ? (
           <>
@@ -1109,6 +1142,74 @@ items.post('/items/:id/discogs', async (c) => {
   if (!fill.filled.length) return back(`discogs=nothing${via}`);
   if (!(await applyPressingFill(c.env.DB, id, item, fill))) return back('discogs=changed');
   return back(`discogs=filled&f=${fill.filled.join(',')}${via}`);
+});
+
+// ---------- want lists and purchase links (ARCH.md §16 #53) ----------
+
+/**
+ * Puts the item on the signed-in member's own want list, or takes it off — `want` says which, so a double submit
+ * can't flip it back. Nobody changes anyone else's list: there is no member in the request to name. htmx swaps the
+ * bar; otherwise back to the item page.
+ */
+items.post('/items/:id/want', async (c) => {
+  const id = Number(c.req.param('id'));
+  const item = await getItem(c.env.DB, id);
+  if (!item) return c.notFound();
+  const user = c.get('user');
+  const body = await c.req.parseBody();
+  await setWant(c.env.DB, id, user.id, body['want'] === '1');
+  // "Take off my list" on the want-list page goes back there
+  if (!c.req.header('HX-Request')) return c.redirect(body['back'] === 'wants' ? '/wants' : `/items/${id}`);
+  // saved already: a failed read-back reloads the page rather than failing the request (§16 #39)
+  try {
+    const { wanters } = await wantsAndLinks(c.env.DB, id);
+    return c.html(<WantBar item={item} wanters={wanters} viewer={{ id: user.id }} />);
+  } catch {
+    c.header('HX-Redirect', `/items/${id}`);
+    return c.body(null, 200);
+  }
+});
+
+/** The Where to buy section after a change, for htmx; the item page otherwise — with the reason when a link was refused. */
+async function linksResponse(c: Context<AppEnv>, id: number, refused?: { error: string; label: string; url: string }) {
+  if (!c.req.header('HX-Request')) {
+    if (!refused) return c.redirect(`/items/${id}#buy`);
+    c.status(400);
+    return itemPage(c, id, undefined, refused);
+  }
+  try {
+    const { links } = await wantsAndLinks(c.env.DB, id);
+    if (refused) c.status(422);
+    return c.html(<BuySection itemId={id} links={links} error={refused?.error} label={refused?.label} url={refused?.url} />);
+  } catch {
+    c.header('HX-Redirect', `/items/${id}`);
+    return c.body(null, 200);
+  }
+}
+
+/** Adds a pasted purchase link — the item's, so any member may. Only an absolute http(s) address is taken. */
+items.post('/items/:id/links', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!(await getItem(c.env.DB, id))) return c.notFound();
+  const body = await c.req.parseBody();
+  const label = typeof body['label'] === 'string' ? body['label'] : '';
+  const url = typeof body['url'] === 'string' ? body['url'] : '';
+  const link = checkPurchaseLink(label, url);
+  if (typeof link === 'string') return linksResponse(c, id, { error: link, label, url });
+  const added = await addPurchaseLink(c.env.DB, id, link);
+  if (added === 'missing') return c.notFound();
+  if (added === 'duplicate') return linksResponse(c, id, { error: 'That link is here already.', label, url });
+  if (added === 'full') return linksResponse(c, id, { error: `An item holds at most ${MAX_LINKS_PER_ITEM} links: remove one first.`, label, url });
+  return linksResponse(c, id);
+});
+
+/** Removes a purchase link — any member may. */
+items.post('/items/:id/links/:linkId/delete', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!(await getItem(c.env.DB, id))) return c.notFound();
+  const linkId = Number(c.req.param('linkId'));
+  if (Number.isSafeInteger(linkId)) await deletePurchaseLink(c.env.DB, id, linkId);
+  return linksResponse(c, id);
 });
 
 items.post('/items/:id/mark-owned', async (c) => {

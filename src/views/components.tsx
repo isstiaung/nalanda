@@ -6,6 +6,7 @@ import { GRADE_NAME, isRecord } from '../lib/condition';
 import { splitPressing, trackCount, type Track } from '../lib/pressing';
 import { goalPace, goalPercent, paceLabel, pacePercent } from '../lib/goals';
 import { progressPercent } from '../lib/progress';
+import { linkHost } from '../lib/links';
 import { isPlayable, playDate } from '../lib/plays';
 import { latestReadDate, ordinal, summarizeReads, todayUtc, type ReadDraft, type ReadRow } from '../lib/reads';
 import { formatSeriesNumber } from '../lib/series';
@@ -50,8 +51,12 @@ export const STATUS_LABEL: Record<ItemStatus, string> = {
   abandoned: 'Abandoned',
 };
 
-/** "Board games · In progress · Owned" — how a share view's captured filters read. */
-export function shareScopeLabel(v: Share): string {
+/**
+ * "Board games · In progress · Owned" — how a share view's captured filters read. A gift list reads as its member's
+ * want list: `wantOf` is their username, for the admin's own pages inside the app — never a public one.
+ */
+export function shareScopeLabel(v: Share, wantOf?: string | null): string {
+  if (v.wantUserId !== null) return `Want list · ${wantOf ?? 'a member'}`;
   const parts: string[] = [];
   if (v.tag) parts.push(`#${v.tag}`);
   if (v.mediaType) parts.push(MEDIA_LABEL[v.mediaType]);
@@ -1414,6 +1419,16 @@ export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[] }> =
         <button type="submit" name="logOnly" value="1" class="btn" title="Catalog as read/reviewed without owning a copy — opens the edit form for your rating and review">
           Log — not owned
         </button>
+        {/* §16 #53: onto your want list, as "Not owned" — or, when the catalog already has this ISBN, that item */}
+        <button
+          type="submit"
+          name="want"
+          value="1"
+          class="btn"
+          title="Put it on your want list — added as Not owned, or the copy already in the catalog if there is one"
+        >
+          {wantLabel(candidate.mediaType)}
+        </button>
       </form>
     </div>
   </article>
@@ -1697,3 +1712,111 @@ export const RecordDetails: FC<{ details: Record<string, unknown>; after?: unkno
     </>
   );
 };
+// ---------- want lists and purchase links (ARCH.md §16 #53) ----------
+
+/** What the toggle says: a book is read; a record or a game is only wanted. */
+export const wantLabel = (mediaType: MediaType) => (mediaType === 'book' ? 'Want to read' : 'Want');
+
+/**
+ * Purchase links as a list of outbound links. Every URL here was checked as http(s) on the way in and again on the
+ * way out of a share page; each opens a new tab with `noopener noreferrer`, so the page it opens can't reach back into
+ * this one and is never told where it came from — a share page's token stays out of every shop's logs.
+ */
+export const BuyLinks: FC<{ links: Array<{ label: string; url: string }> }> = ({ links }) =>
+  links.length ? (
+    <ul class="buy-links">
+      {links.map((l) => (
+        <li>
+          <a href={l.url} target="_blank" rel="noopener noreferrer" class="buy-link">
+            <span>{l.label}</span>
+            <small class="mono">{linkHost(l.url)} ↗</small>
+          </a>
+        </li>
+      ))}
+    </ul>
+  ) : null;
+
+/**
+ * The item page's want-list bar: the signed-in member's own toggle, and who else in the household wants it. htmx swaps
+ * the bar in place; without it the form posts and lands back on the item page.
+ */
+export const WantBar: FC<{
+  item: Pick<Item, 'id' | 'mediaType'>;
+  wanters: Array<{ id: number; username: string }>;
+  viewer: { id: number };
+}> = ({ item, wanters, viewer }) => {
+  const mine = wanters.some((w) => w.id === viewer.id);
+  const others = wanters.filter((w) => w.id !== viewer.id);
+  return (
+    <div class="want-bar" id="want-bar">
+      <form method="post" action={`/items/${item.id}/want`} hx-post={`/items/${item.id}/want`} hx-target="#want-bar" hx-swap="outerHTML" class="inline">
+        <input type="hidden" name="want" value={mine ? '0' : '1'} />
+        <button type="submit" class={mine ? 'want-toggle on' : 'want-toggle'} aria-pressed={mine ? 'true' : 'false'}>
+          <span aria-hidden="true">{mine ? '✓' : '+'}</span> {wantLabel(item.mediaType)}
+        </button>
+      </form>
+      {mine ? (
+        <a href="/wants" class="muted want-note">
+          on your want list
+        </a>
+      ) : null}
+      {others.length ? (
+        <small class="muted want-note">
+          {mine ? 'also wanted by ' : 'wanted by '}
+          {others.map((w) => w.username).join(', ')}
+        </small>
+      ) : null}
+    </div>
+  );
+};
+
+/**
+ * The item page's purchase links, with a form to add one and a Remove on each — the household's, so any member may.
+ * htmx swaps the section in place; `error` says why a link was refused.
+ */
+export const BuySection: FC<{
+  itemId: number;
+  links: Array<{ id: number; label: string; url: string }>;
+  error?: string;
+  label?: string;
+  url?: string;
+}> = ({ itemId, links, error, label, url }) => (
+  <div class="detail-section buy-section" id="buy">
+    <p class="eyebrow">Where to buy</p>
+    {error ? <p class="error">{error}</p> : null}
+    {links.length ? (
+      <ul class="buy-links editable">
+        {links.map((l) => (
+          <li>
+            <a href={l.url} target="_blank" rel="noopener noreferrer" class="buy-link">
+              <span>{l.label}</span>
+              <small class="mono">{linkHost(l.url)} ↗</small>
+            </a>
+            <form
+              method="post"
+              action={`/items/${itemId}/links/${l.id}/delete`}
+              hx-post={`/items/${itemId}/links/${l.id}/delete`}
+              hx-target="#buy"
+              hx-swap="outerHTML"
+              class="inline"
+            >
+              <button type="submit" class="progress-delete" aria-label={`Remove the link ${l.label}`}>
+                Remove
+              </button>
+            </form>
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <p class="muted form-note">No links yet. Paste one from a shop — it shows on a gift list of anyone who wants this.</p>
+    )}
+    <details class="read-add" open={!!error}>
+      <summary>Add a link</summary>
+      <form method="post" action={`/items/${itemId}/links`} hx-post={`/items/${itemId}/links`} hx-target="#buy" hx-swap="outerHTML" class="inline-form buy-form">
+        <input name="label" placeholder="Label, e.g. Bookshop" maxlength={60} value={label ?? ''} aria-label="Label" />
+        <input name="url" type="url" placeholder="https://…" required inputmode="url" value={url ?? ''} aria-label="Address" />
+        <button type="submit">Add link</button>
+      </form>
+    </details>
+  </div>
+);
