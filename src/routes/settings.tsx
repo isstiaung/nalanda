@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import type { User } from '../db/schema';
-import { createUser, deleteUser, getUserById, listUsers, setDisplayName, setPassword } from '../db/queries';
+import { createUser, deleteUser, getSiteSettings, getUserById, listUsers, setDisplayName, setPassword, updateSiteSettings } from '../db/queries';
 import type { AppEnv } from '../env';
 import { hashPassword, tempPassword } from '../lib/auth';
+import { currencyCodes, currencyName, isCurrencyCode } from '../lib/money';
 import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
 import { page } from '../views/layout';
 
@@ -13,16 +14,71 @@ settings.use('/settings/*', async (c, next) => {
   await next();
 });
 
+/**
+ * The household's currency (§16 #61): one select of every code the runtime knows, named. Once set it can be changed,
+ * never cleared; prices already entered keep the currency they were entered in.
+ */
+const CurrencySection = ({ currency, error }: { currency: string | null; error?: string }) => (
+  <section class="settings-section" id="currency" aria-labelledby="currency-head">
+    <p class="eyebrow" id="currency-head">
+      Household currency
+    </p>
+    <form method="post" action="/settings/currency" class="inline-form">
+      <label for="household-currency">Purchase prices are entered in</label>
+      <select
+        id="household-currency"
+        name="currency"
+        required
+        aria-invalid={error ? 'true' : undefined}
+        aria-describedby={error ? 'currency-error currency-help' : 'currency-help'}
+      >
+        {currency ? null : (
+          <option value="" selected>
+            Choose a currency…
+          </option>
+        )}
+        {currencyCodes().map((code) => (
+          <option value={code} selected={code === currency}>
+            {code} — {currencyName(code)}
+          </option>
+        ))}
+      </select>
+      <button type="submit">Save</button>
+    </form>
+    {error ? (
+      <p class="field-error" id="currency-error">
+        {error}
+      </p>
+    ) : null}
+    <p class="muted" id="currency-help">
+      {currency ? (
+        <>
+          Now <strong class="mono">{currency}</strong>.{' '}
+        </>
+      ) : (
+        'Not set yet: members can’t record what they paid until it is. '
+      )}
+      One currency for the household, for what everyone paid for books, games and records. Changing it later leaves
+      prices already entered in the currency they were entered in, and shelf totals add up each currency separately —
+      nothing is converted. Prices stay in the app: never on share pages or to connected households.
+    </p>
+  </section>
+);
+
 const UsersPage = ({
   users,
   self,
   minted,
   error,
+  currency,
+  currencyError,
 }: {
   users: User[];
   self: number;
   minted?: { username: string; password: string };
   error?: string;
+  currency: string | null;
+  currencyError?: string;
 }) => (
   <>
     <div class="page-head">
@@ -123,22 +179,42 @@ const UsersPage = ({
         Usernames never leave the app.
       </p>
     </section>
+
+    <CurrencySection currency={currency} error={currencyError} />
   </>
 );
 
 settings.get('/settings/users', async (c) => {
-  const users = await listUsers(c.env.DB);
-  return page(c, 'Members', <UsersPage users={users} self={c.get('user').id} />);
+  const [users, site] = await Promise.all([listUsers(c.env.DB), getSiteSettings(c.env.DB)]);
+  return page(c, 'Members', <UsersPage users={users} self={c.get('user').id} currency={site.currency} />);
+});
+
+/** Sets the household's currency (§16 #61). Admins only, like everything under /settings. */
+settings.post('/settings/currency', async (c) => {
+  const body = await c.req.parseBody();
+  const code = typeof body['currency'] === 'string' ? body['currency'].trim() : '';
+  if (!isCurrencyCode(code)) {
+    const [users, site] = await Promise.all([listUsers(c.env.DB), getSiteSettings(c.env.DB)]);
+    c.status(400);
+    // a fixed message: never the value sent, which a crafted form could fill with anything
+    return page(c, 'Members', (
+      <UsersPage users={users} self={c.get('user').id} currency={site.currency} currencyError="Choose a currency from the list." />
+    ));
+  }
+  await updateSiteSettings(c.env.DB, { currency: code });
+  return c.redirect('/settings/users#currency');
 });
 
 settings.post('/settings/users', async (c) => {
   const body = await c.req.parseBody();
   const username = String(body['username'] ?? '').trim();
   const role = body['role'] === 'admin' ? 'admin' : 'member';
-  const render = async (opts: { minted?: { username: string; password: string }; error?: string }) =>
-    page(c, 'Members', (
-      <UsersPage users={await listUsers(c.env.DB)} self={c.get('user').id} minted={opts.minted} error={opts.error} />
+  const render = async (opts: { minted?: { username: string; password: string }; error?: string }) => {
+    const [users, site] = await Promise.all([listUsers(c.env.DB), getSiteSettings(c.env.DB)]);
+    return page(c, 'Members', (
+      <UsersPage users={users} self={c.get('user').id} minted={opts.minted} error={opts.error} currency={site.currency} />
     ));
+  };
 
   if (!username) return render({ error: 'Username is required.' });
   const temp = tempPassword();
@@ -161,12 +237,9 @@ settings.post('/settings/users/:id/reset', async (c) => {
   if (!user) return c.notFound();
   const temp = tempPassword();
   await setPassword(c.env.DB, id, await hashPassword(temp), true);
+  const [users, site] = await Promise.all([listUsers(c.env.DB), getSiteSettings(c.env.DB)]);
   return page(c, 'Members', (
-    <UsersPage
-      users={await listUsers(c.env.DB)}
-      self={c.get('user').id}
-      minted={{ username: user.username, password: temp }}
-    />
+    <UsersPage users={users} self={c.get('user').id} minted={{ username: user.username, password: temp }} currency={site.currency} />
   ));
 });
 

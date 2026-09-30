@@ -33,6 +33,7 @@ import { coverUrl, isId, parseItemDetail, parseShelfItem, type ShelfItem } from 
 import { loadIdentity, type Identity } from '../federation/keys';
 import { borrowAccept, borrowDecline, borrowRequest, borrowWithdraw, type DirectedMessage } from '../federation/messages';
 import { pushNow, pushQueued } from '../federation/outbox';
+import { DiscogsAttribution, discogsLink } from '../views/attribution';
 import { DetailsList, MEDIA_ICON, MEDIA_LABEL, Pagination, stars } from '../views/components';
 import { page } from '../views/layout';
 
@@ -106,7 +107,7 @@ function parseShelf(value: unknown): Shelf | null {
   return { name: view.name, total, page: current, pages, items };
 }
 
-const TheirCover: FC<{ baseUrl: string; coverKey: string | null; title: string; mediaType: ShelfItem['mediaType'] }> = (p) => {
+export const TheirCover: FC<{ baseUrl: string; coverKey: string | null; title: string; mediaType: ShelfItem['mediaType'] }> = (p) => {
   const url = coverUrl(p.baseUrl, p.coverKey);
   return url ? (
     <img
@@ -257,6 +258,8 @@ borrowing.get('/households/:id/views/:viewId/items/:itemId', async (c) => {
     );
   }
   const asked = await hasPendingOutgoing(c.env.DB, connection.id, item.id, item.stamp);
+  // §16 #63: their record's pressing came from Discogs; the credit links by the release id alone, digits only
+  const discogs = discogsLink(item);
   return page(
     c,
     `${item.title} · ${connection.householdName}`,
@@ -315,6 +318,7 @@ borrowing.get('/households/:id/views/:viewId/items/:itemId', async (c) => {
             <DetailsList details={item.details} fromConnection />
           </div>
         ) : null}
+        {discogs ? <DiscogsAttribution href={discogs} /> : null}
         {item.reviews?.length ? (
           // §16 #45: their household shares names — everyone's rating and review, names as escaped text
           <div class="detail-section">

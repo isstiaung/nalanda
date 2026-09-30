@@ -143,7 +143,9 @@ CREATE TABLE items (
   added_at     TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
   series_id    INTEGER REFERENCES series(id),  -- its series (§16 #52); no ON DELETE: pruned once empty
-  series_number REAL             -- 3, or 2.5 between two; NULL = in the series, number not known
+  series_number REAL,            -- 3, or 2.5 between two; NULL = in the series, number not known
+  purchase_price    INTEGER,     -- what was paid, in minor units of purchase_currency (paise, cents; §16 #61) —
+  purchase_currency TEXT         -- its ISO 4217 code; both or neither. Private: never published
 );
 CREATE INDEX idx_items_library ON items(library_id);
 CREATE INDEX idx_items_isbn13  ON items(isbn13);
@@ -264,7 +266,9 @@ columns also land here so imports are lossless):
   dedicated "Reviewed in" form field, rendered as outbound links on item and share
   pages (a deliberate lightweight alternative to a posts table — the blog side holds
   the post→books direction).
-- `boardgame`: `{ bgg_id, players_min, players_max, playtime_min, playtime_max, year }`
+- `boardgame`: `{ bgg_id, players_min, players_max, playtime_min, playtime_max, weight, year }` —
+  `weight` is BGG's complexity rating (`averageweight`, 1–5, two decimals), which "What should we play
+  tonight?" filters on with the players and playtimes (§16 #60)
 - `vinyl` (and `music`): `{ discogs_id, label, catno, country, year, format, genres,
   tracklist }` — the pressing, from Discogs (§16 #55). `label` and `catno` hold every label
   and catalogue number, joined; `format` is one line (`2×Vinyl, LP, Album, 180 Gram, Red
@@ -392,14 +396,14 @@ interface MetadataProvider {
 | Open Library | books | none | ✓ (ISBN) | default; covers via covers.openlibrary.org |
 | Google Books | books | free API key (optional) | ✓ (ISBN) | fallback — coverage differs from OL |
 | BoardGameGeek XML API2 | board games | **`BGG_TOKEN`** (free, approved non-commercial app) | ✗ | XML (hence `fast-xml-parser`); name search + `thing` detail; `Authorization: Bearer` since BGG went registration-only in 2025 — 401 without it; throttles with 500/503 (429 at its edge, 202 = queued), which search reports as "busy"; its terms require the "Powered by BGG" logo (§16 #44) |
-| Discogs | vinyl (all music) | free personal token | **✓ (UPC/EAN)** | 60 req/min with token; search returns format, label, catno, country, year; the release (`/releases/{id}`) adds the tracklist (§16 #55) |
+| Discogs | vinyl (all music) | free personal token | **✓ (UPC/EAN)** | 60 req/min with token; search returns format, label, catno, country, year; the release (`/releases/{id}`) adds the tracklist (§16 #55); its terms require "Data provided by Discogs." beside its data, linked to the release, and a not-affiliated notice (§16 #63) |
 
 - **Series** (§16 #52): Open Library's search index carries `series_name` and `series_position` for many
   works, which fill a candidate's series; Google Books never names one (its rare `seriesInfo` holds a number
   and an id, and `series/get` refuses API keys), so it contributes nothing there.
 - Providers are called only at add/import time, or when someone asks — "Refresh from
-  Discogs", one request per click (§16 #55) — zero runtime dependency on them for
-  browsing, and no background sync to burn anyone's quota.
+  Discogs" (§16 #55) and "Refresh from BGG" (§16 #60), one request per click — zero runtime
+  dependency on them for browsing, and no background sync to burn anyone's quota.
 - Secrets: `DISCOGS_TOKEN` and `BGG_TOKEN` (recommended — vinyl and board games need them),
   `GOOGLE_BOOKS_KEY` (optional) via `wrangler secret put`.
 - Movies/CDs/video games: schema supports them (manual entry); TMDB/IGDB providers are v1.x
@@ -469,7 +473,7 @@ portable, and makes share routes trivially public. CF Access remains available l
   anyone's "next up", and not on listings or to connections).
   The rating is the household's average and the review the one written last, with no author
   (§16 #43). **Never**: private notes, where an item lives (`location`, §16 #51), loans/borrowers,
-  the copies count, added_by, usernames, the dates of anyone's reads or plays, or any nav into the
+  the copies count, what was paid (`purchase_price`, §16 #61), added_by, usernames, the dates of anyone's reads or plays, or any nav into the
   authenticated app — and nothing per member
   unless an admin switches names on (below). The whitelist lives in one view module so it
   can't drift.
@@ -489,6 +493,13 @@ portable, and makes share routes trivially public. CF Access remains available l
   Not item data, and so outside the whitelist: a page that shows a board game carries
   BoardGameGeek's "Powered by BGG" logo in its footer, linked to boardgamegeek.com with
   `rel="noreferrer"` (§16 #44).
+  Likewise a shared record whose pressing came from Discogs says "Data provided by Discogs." right
+  below it, linked to the release's page on discogs.com, with Discogs' not-affiliated notice
+  (§16 #63). The link's only item data is the release id the page already lists as "Discogs ID";
+  a want list's pages carry no details, and so neither credit nor id.
+- **Money is never published** (§16 #61). The purchase price and its currency are columns no whitelist carries, and
+  `toPublicItem()` drops money keys — libib's `price`, which a libib import used to put in `details` — from the
+  details it publishes, so share pages and connections never carry a price, however it got into the catalog.
 - **Who read what is never published.** The shelf's "Read by" filter isn't one of the
   filters a view captures, so no link can be made of it (§16 #43).
 - **Reading goals never reach a share page** (§16 #49): no field of `toPublicItem()` carries one, and
@@ -533,6 +544,7 @@ GET  /login                    POST /auth/login · POST /auth/logout
 GET  /account                  change own password (also the forced first-login flow) · POST /account/display-name
 GET  /goals                    reading goals: your own, or ?member=:id for an admin (§16 #49)
 POST /goals                    set a goal (this year or next) · POST /goals/:id/delete — own, or anyone's for an admin
+GET  /year-in-review           a year's reading, mine beside the household's, and its plays (?year=YYYY; §16 #59)
 
 GET  /                         dashboard: libraries, recent adds, loans out, "Read next"
                                (?not=<id> with HX-Request → the "Read next" card alone; §16 #46)
@@ -554,6 +566,10 @@ POST /items/:id/reviews/:rev   edit · …/delete · …/move (admins)   — own
 POST /items/:id/plays          "Played": a play today or on the date given (games, records; §16 #54)
 GET  /items/:id/plays          every play, 100 a page · POST /items/:id/plays/:play/delete (its
                                logger, or an admin; ?back=plays returns to that page)
+POST /items/:id/bgg            "Refresh from BGG": one `thing` request by details.bgg_id, fills blanks
+                               only (board games; redirects back with ?bgg=<code>; §16 #60)
+GET  /play                     "What should we play tonight?": ?players=&time=&weight=, and ?pick=1
+                               (&not=<id>) for one; with HX-Request → the results alone (§16 #60)
 GET  /add                      add flow: scan | search | manual
 GET  /add/review               ?barcode=…&scanned=… — one scan held offline, looked up (partial; §16 #48)
 GET  /api/lookup               ?barcode=… | ?q=…&type=boardgame → JSON candidates
@@ -572,7 +588,8 @@ GET  /export.csv               everything; ?library=:id to scope; ?after=:id for
                                Export button's way
 GET  /covers/:key              cover art from R2 (public, unguessable, immutable cache)
 
-GET  /settings/users           admin: create/remove members, reissue temp passwords
+GET  /settings/users           admin: create/remove members, reissue temp passwords; the household currency
+POST /settings/currency        admin: set the household currency — an ISO 4217 code (§16 #61)
 POST /shares                   admin: publish a view (captures shelf + filters + name), or wantUserId=:id — a gift list
 POST /shares/:id               admin: action=rotate | delete
 POST /shares/settings          admin: setting=progress | names (the share-page switches, §16 #34, #45)
@@ -582,10 +599,11 @@ GET  /share/:token             public read-only library (whitelisted fields, noi
 GET  /share/:token/items/:id   public read-only item detail
 
 connections between instances — every route 404s without a federation key (§16 #29)
-GET  /.well-known/nalanda       public: household name, public key, protocol version
+GET  /.well-known/nalanda       public: household name, public key, protocol version, accepts (§16 #58)
 GET  /connect                   public: explains an invitation link opened in a browser
 POST /federation/connect        public, signed: redeem an invitation
-POST /federation/inbox          public, signed by a connection: accept · decline · disconnect · comments
+POST /federation/inbox          public, signed by a connection: accept · decline · disconnect · comments ·
+                                borrowing · recommendations (§16 #58)
 GET  /federation/views          signed by a connection: shared views, their size and recent volume
 GET  /federation/feed           signed by a connection: activity in a view since a cursor
 POST /federation/feed/check     signed by a connection: which stored entries are no longer shared
@@ -605,6 +623,9 @@ GET  /borrowed                  members: books borrowed from connections, reques
 GET  /households/:id/…          members: a connection's shared shelves and items, read live
 POST /households/:id/requests   members: ask a connection to borrow a book
 POST /borrow-requests/:id/…     members: lend · decline (theirs) · withdraw (ours)
+POST /items/:id/recommend       members: recommend a shared item to a connected household (§16 #58)
+GET  /recommendations           members: recommended to us, and what we recommended
+POST /recommendations/:id/…     members: want (onto their own want list) · dismiss
 GET  /federation/export.json    admins: connections data as JSON
 ```
 
@@ -2239,6 +2260,8 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       and timeouts come back as a notice by code, never as text from the URL.
     - **CPU.** Parsing is one pass over Discogs' JSON with caps on every string; tests keep
       a record's page, with a 400-line tracklist, at the same D1 calls as a book's.
+    - **Credit (amended by #63).** Wherever this pressing shows, Discogs' terms want "Data
+      provided by Discogs." beside it, linked to the release; #63 says where it goes.
 
     **Chosen without asking, overrulable:** grades are for `vinyl` and `music` both; a field
     the owner cleared is a blank, which a refresh fills again; a record added before this
@@ -2403,6 +2426,626 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     than guessing; the 1,000-loan bounds on pages, batches and cells; tightening the lend form's
     due date to a calendar date.
 
+**2026-09-30 — recommendations:**
+58. **A member can recommend one of the household's items to a connected household; theirs arrive in a
+    Recommended list, to want or dismiss.** The owner decided four points:
+    - **"Recommend to…" on an item's page**: pick a connected household, add a note if you like, send.
+    - **The receiving household** gets a notification (`recommendation`, household-wide — not an admin
+      kind) and a **Recommended** page listing the item as they sent it — title, creators, their cover
+      from their own `/covers/<uuid>` as every peer item's is — with the note and who sent it.
+    - **From that list**, anyone there can **Add to my want list** (their own, #53) or **Dismiss** it.
+    - **Signed with `outwardName()`**: the display name while names go to connections, else "A member",
+      never a username (#45).
+
+    **The message.** A new directed type, `Recommend`, in the ActivityStreams envelope comments and
+    borrowing use (connections.md §9–§10): `{ item, recommender, note, published }`. `item` is
+    `toRecommendedItem()` in `src/federation/items.ts` — built on `toConnectionItem()` and cut as a shelf
+    card is: `id`, `stamp` (which book the id means, as threads and requests carry), `view` (a connection
+    view holding it, for the receiver's link to the item's page on the sender's shelf), `mediaType`,
+    `title`, `creators`, `published`, `coverKey`, and `ids` — the item's public identifiers from its
+    `details`, `bgg_id` and `discogs_id` only, whole numbers, so the receiver's want finds a copy it
+    already has. No rating, review, read count or availability (a recommendation has no need of them),
+    and never the ISBN or barcode columns, which `toConnectionItem()` doesn't carry. The note is plain
+    text up to `MAX_RECOMMEND_NOTE_CHARS` (500). It is stored with its outgoing record and queued in one
+    batch (`recommendToConnection()`, #39) — only while no recommendation of that item to that household
+    is still on record as sent, decided inside the batch, so a double submit sends one — then pushed at
+    once (`pushNow`), so the member hears what happened: sent, waiting (their library didn't answer; the
+    outbox keeps it for their pull and the usual retries), or refused. A refusal takes it out of the
+    outbox and marks it refused in one batch (`dropRefused`), as a refused borrow request is declined.
+    Receiving is idempotent by activity id: the row and its notification are one batch, on the same
+    condition — not seen, and within the limits below — so a push repeated, pulled again from their
+    outbox, or two copies arriving at once make one row and one notification (tests do all three).
+
+    **Only items inside a connection view can be recommended — the owner's constraint, and the privacy
+    argument for it.** A recommendation tells the other household that the item exists here. The
+    connection views are the one boundary an admin draws around what connections may learn of the
+    catalog, and any member may recommend: without the rule, a member could reveal an item from a shelf
+    the admin chose not to share — a diary on "Private", a gift being hidden. With it, a recommendation
+    says nothing the household couldn't already read from `/federation/shelf` and `/federation/item`
+    except that someone here thinks they'd like it, and the note. It is checked at send time against the
+    live views (`recommendableItem()`, the SQL twin of `itemMatchesView()` that `sharedItem()` also
+    spells) and the page shows the form only for an item a view holds; an item outside every view gets a
+    sentence saying why, and a forged POST is refused before their descriptor is even asked for.
+
+    **Backwards compatibility — what older households do, found in their code.** Households on 1.5.0 and
+    older don't know `Recommend`. Their POST `/federation/inbox` runs `parseInboxMessage(parseJson(raw))`
+    before anything else is written or dispatched, and 1.4.0's `parseInboxMessage` returns null for any
+    type outside its switch — so the answer is **400 "malformed message"**, final. It never reaches
+    their `receiveDirected`, which is just as well: 1.4.0's dispatch is a two-way ternary whose borrowing
+    side has no case for it and answers `undefined`, so the route's `outcome.body` would throw a 500 — a
+    status a sender retries. Their outbox pull (`parseOutboxPage`) maps an unknown message to `null`,
+    skips it and moves its cursor past it. So the choice was between sending blind and treating the 400
+    as final, or asking first. **This version asks first**: its descriptor gains `accepts: ['Recommend']`
+    (additive — `isDescriptor()` has been byte-identical since 1.0.0 and checks only the fields it knows,
+    so an older household reads the new descriptor as before; the protocol stays version 1), and before
+    queuing a recommendation the sender fetches the household's descriptor and sends only when it lists
+    `Recommend` (`peerAccepts()`: only a list of short strings counts, anything else is "no"). Otherwise
+    nothing is queued and the member is told the household "runs an older version of Nalanda that can't
+    take recommendations yet". A household that listed it and later went back to an older version answers
+    the push with that 400, which the outbox already treats as a final refusal (4xx but 429): refused,
+    dropped, never retried — so no loop, and a push that never landed is retried once and stops there.
+    Tests hold all of this against **1.4.0's own code**, extracted with `git show v1.4.0:…` into
+    `test/fixtures/messages-v1.4.0.ts`, `directed-v1.4.0.ts` and `outbox-v1.4.0.ts` (its `parseOutboxPage`
+    and the inbox route's two parse lines, word for word); 1.5.0's `messages.ts`, `directed.ts`,
+    `outbox.ts` and inbox route are the same files. The descriptor's `accepts` is also how the next new
+    type will find out who takes it.
+
+    **Limits on the receiving side.** Every directed message already counts toward
+    `MAX_PUSHES_PER_DAY` (200) per connection, and `MAX_INBOX_BODY_BYTES` bounds a push. On top:
+    `MAX_RECOMMENDATIONS_PER_DAY` (20) taken from one household per UTC day, and
+    `MAX_OPEN_RECOMMENDATIONS_PER_CONNECTION` (50) waiting in the list at once; past either the answer is
+    409, which the sender takes as final — so a household flooding recommendations costs a read and a
+    tick of its daily count each and stores nothing, and a dismissal makes room. Everything is checked as any connection's field is:
+    title up to 1,000 characters and not blank, creators and published bounded, the cover only a UUID key
+    (rendered only as `<their origin>/covers/<uuid>` by `coverUrl()`), the ids only the two known keys as
+    whole numbers, the name through `parsePeerName()` (control and bidi characters out, required — a
+    recommendation is always signed), the note up to 500. All of it renders only as escaped text — the
+    list wraps peer text in `<bdi>` so a right-to-left name can't reorder the line around it, and nothing
+    from a peer goes into an attribute but the link and the cover URL, both built here from checked ids.
+    Dismissed and taken ones are kept 60 days (`RECOMMENDATIONS_KEPT_DAYS`, past any outbox's 30-day
+    retention, so a late copy still finds its row), then pruned in the receiving batch. **Dismiss is the
+    only answer**: no per-household block — disconnecting is that, and takes their recommendations with
+    it (`ON DELETE CASCADE`). The sender is sent nothing about what happened to one — but an item wanted
+    onto a shelf that a connection view holds shows on that shelf as any item does, Not owned and Wanted
+    (#53), so a household that recommended it can see that someone here wants it. The page says so.
+
+    **Found by the adversarial pass, and fixed:**
+    - *A cover could carry script.* Wanting a recommendation copies its cover from the other household's
+      `/covers/<uuid>` into our R2, and `storeCover()` kept any `image/*` — an `image/svg+xml` with a
+      `<script>`, served back publicly from this origin, runs with this origin's cookies. The first time
+      another instance chose the bytes. `storeCover()` now keeps only raster types (JPEG, PNG, GIF, WebP,
+      AVIF) from any source, follows no redirect for a peer's URL (`followRedirects: false`) and refuses
+      one of those that names no type at all — a guess would let the peer's silence pick it; a provider's
+      missing type is still read as JPEG, as it always was, since the guess can only be a raster type and
+      the CSP below holds whatever the bytes are — and
+      `serveCover()` sends `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline';
+      sandbox` on every cover, including any stored before.
+    - *A race for the last place answered 200.* Two different recommendations arriving together for the
+      last open place both passed the first check; the second's batch then stored nothing and was answered
+      "already received" — so its sender counted it delivered and could never send it again. Now nothing
+      inserted and not seen is a 409, which the sender marks refused.
+    - *The sender's own limit could be sidestepped.* A refused recommendation leaves the outbox, which is
+      what `MAX_SENT_PER_DAY` counts, so a member could try again and again against a household refusing
+      them. Recommendations to one household are also capped at `MAX_RECOMMENDATIONS_PER_DAY` a day on
+      the sending side, counted in `recommendations` whatever became of them.
+    - *Known, left as is:* a recommendation taken by an outbox pull rather than a push, and refused there
+      for a cap, stays "Sent" on the sender's side — a pull has no way to answer, as with any directed
+      message; and the name a recommendation is signed with is fixed when it is sent, as a comment's or a
+      borrow request's is.
+
+    **Who.** Any member may recommend (as any member may comment or ask to borrow); the send checks this
+    household's own `MAX_SENT_PER_DAY` to that household first. The whole household sees the list — the
+    notification is household-wide — and any member may dismiss one or add it to their own want list; it
+    then leaves the list for everyone. The Recommended page also lists what this household sent, with
+    who here sent it by username — inside the app only.
+
+    **"Add to my want list"** goes through want lists' own code, never a copy of it (#53): a copy already
+    here takes the want — `existingForWant()` by the recommendation's BGG or Discogs id, or else the item
+    a recommendation of the same item of theirs (same household, id and stamp) was wanted as before
+    (`wantedBefore()`, which is what keeps a book, which carries no public identifier, from becoming two
+    items). Otherwise it joins the chosen shelf as a Not owned item made from what they sent, its cover
+    copied from their `/covers/` by `storeCover()`, through `createItemWithTags(…, { wantedBy })` — the
+    Add page's Want path. The recommendation is claimed **in that same batch**: `createItemWithTags`
+    gained `before`/`after` statements, and `claimRecommendation()` moves it from open to wanted and then
+    runs a guard — an insert of a NULL into a NOT NULL column, `WHERE changes() = 0` — so a claim that
+    moved nothing (a second click, another member's answer first) fails the whole batch and nothing after
+    it is written: no second item, no second want. `wantStatement()` is `setWant()`'s statement, exported
+    for the same batch on the existing-copy path.
+
+    **Export.** Received recommendations are another household's data about its own items, and a sent
+    one is a message, so neither is in `/export.csv` — which is this household's items — and neither
+    fits a column of it. That is not an exception to the portability rule the way goals are (#49): a
+    recommendation is no field of any item here. They leave with the rest of connections' data in the
+    admin's **Export connections data** (`/federation/export.json`), both ways, beside comments and
+    borrow requests; backups carry the table (`recommendations` after `borrowed_items` in `TABLES`). An
+    item made from a recommendation is an ordinary Not owned item and exports as one, its want in
+    `wanted_by`.
+
+    **The migration.** `0038_recommendations` (drizzle-generated) adds the `recommendations` table and
+    three indexes and touches nothing else; the notification kind is a TypeScript enum, not a column
+    constraint, so `notifications` doesn't change. It was 0037 until want lists took that number, and
+    was regenerated, never edited after applying anywhere. **Rehearsed** on a local copy of production's
+    backup of 2026-09-30 (taken on 1.4.0): 0000–0029, the per-table restore in `TABLES` order read from
+    `scripts/backup.mjs` (`series`, `plays`, `reading_goals`, `wants`, `purchase_links` and
+    `recommendations` had no file and were skipped; 5,025 rows in 29 tables), 0030–0037, then 0038 alone:
+    39 tables before, **none changed** by 0038 in schema or rows, the one new table empty, every
+    pre-existing table identical in every pre-existing column to the restore, `foreign_key_check` clean,
+    `integrity_check` ok. Deleted afterwards.
+
+    **Within the free plan.** The item page spends no call on the section: its two queries — the active
+    households with our latest recommendation of the item to each and whether a view holds it
+    (`recommendTargetsStatement()`), and the name it would be signed with (`outwardNameStatement()`) — ride
+    last in the reading log's batch (`itemPageLog(…, extra)`, the batch want lists already share, #53),
+    and `recommendOnItemPage()` renders from their results. Measured and pinned by a test: **14 calls with
+    connections on** — form showing, or no household to send to — and **11 with them off**, both what main
+    had before recommendations (review found the first cut at 16: a call each for the two queries).
+    Sending: 11 calls and two outbound fetches (their descriptor, the push). Receiving: 7.
+    The Recommended page: 11 before its background pull, which runs within the budgeted handle;
+    `appliedAlready()` asks about recommendations only when a page holds some. Tests count each.
+
+    **Chosen without asking, overrulable:** `accepts` names message types rather than features; the
+    descriptor is fetched on every send rather than cached (a send is rare, and an upgrade shows at once);
+    one recommendation of an item per household while it stands (a refused one may be sent again);
+    limits of 20 a day and 50 waiting from one household, and 500 characters of note; a recommendation is
+    signed at send time, so a later rename doesn't reach one already sent; the list shows 100; the want's
+    shelf is chosen on each card (first shelf by default); what the receiver does is never sent back.
+
+**2026-09-30 — year in review:**
+59. **A year in review is one page, in the app only, counted in SQL in one D1 batch: the member's year beside
+    the household's, and the household's plays once.** The owner decided the shape: `/year-in-review`, a
+    labelled year picker, and four groups of figures for the chosen year — books finished (re-reads count)
+    and pages read, with a month-by-month bar chart; most-read authors and most-used tags; the average
+    rating given, the highest-rated books, the longest and shortest book and the fastest read; records spun
+    and games played (from `plays`, #54) with the most played of each. "You" is the member's own reads
+    (`reads.reader_id`) and own ratings; "Household" is everyone's, former members' included (#43). Plays are
+    the household's log, so they show once and the page says so. Never on share pages or to connections.
+
+    **What counts.** A finished read of a book (`status = 'completed'`, `media_type = 'book'`, as a goal's
+    count, #49) counts in the year its `ended_on` falls in, compared as a half-open range of UTC calendar
+    dates (`>= 'Y-01-01' AND < 'Y+1-01-01'`), so the first and last day are in and the next year's first day
+    isn't. A re-read is another finish: it counts again in books, pages and the month chart. Pages are the
+    sum of `items.length` over finishes of books with a length (> 0); the page says how many finishes had
+    none. Lists count **books**, not finishes: a book is its folded title and creators (`work`), so two
+    editions are one book and a re-read doesn't make one book two — authors rank by books, then finishes
+    ("1 book · 3 finishes"); tags by books carrying them. **Authors** come from `creators` split into people
+    (`YEAR_CREATORS`). The separator really used is ", ": Open Library, Google Books and BoardGameGeek join
+    several names with it, and so does the Goodreads import (author, then additional authors), so splitting only
+    on ';' and ' & ' would stop splitting nearly every multi-author book. But a hand-typed or libib-imported
+    catalogue can hold one person written "Last, First", which a plain comma split made two people ("Le Guin"
+    and "Ursula K."; found by nalanda-review). So a string is one person when it has exactly one comma, no ';'
+    or '&', no full stop before the comma, and given names after it — a single word ("Herbert, Frank") or
+    names ending in an initial ("Le Guin, Ursula K.", "Tolkien, J. R. R.") — and not a suffix; it is turned
+    round ("Ursula K. Le Guin") so it meets the same author spelled the usual way. Two full names ("Terry
+    Pratchett, Neil Gaiman") and anything with two commas ("A, B, C") still split; ';' and ' & ' split too
+    ("Pratchett & Gaiman" is two). A lone "Jr."/"Sr." is dropped rather than counted as an author, and
+    "Martin Luther King, Jr." isn't turned round. What the rule gets wrong, knowingly: two surnames alone
+    ("Pratchett, Gaiman") read as one person, and "Mandel, Emily St. John" as two. `work` still folds the
+    creators string as written, so a book held as "Le Guin, Ursula K." and "Ursula K. Le Guin" is two books.
+    **A rating** counts once per reader and book finished that year — the `work`, not the item, so neither a
+    re-read nor a second edition counts it twice, and a reader who rated two editions of one book gave it their
+    average of the two (the per-item grouping counted both; found by nalanda-review) — and only from the reader
+    who finished it, only for the editions they finished — so a rating of a book finished in another year, or
+    by someone who didn't finish it that year, isn't that year's. Former members, one "nobody" to the app's
+    checks (#43), are one reader here too. The household's highest-rated averages a book's per-reader ratings
+    across its readers. Longest and
+    shortest are among the year's books with a length; the fastest read is began → ended counting both days
+    (a book begun and finished the same day took one), among finishes with a start date no later than the end.
+    Plays count per type (`boardgame`, `vinyl` — an item since retyped away from those drops out), a total,
+    how many distinct items, and the three most played. Ties break by the latest finish or play, then title.
+
+    **Cost (#37, #12).** One `d1.batch()` of ten statements — one D1 call — whatever the catalogue holds:
+    months, authors, tags, average rating, highest-rated, longest/shortest, fastest, plays, the undated count
+    and member count, and the picker's years. The seven reading statements share one CTE of the year's finishes,
+    `MATERIALIZED` and joined to a two-row scope table, so each reads `reads` once rather than once per scope;
+    tags join `item_tags` by its primary key (`CROSS JOIN` fixes the order, where SQLite had chosen to scan
+    `item_tags` whole); plays are a range on `idx_plays_played_item`, as #54 foresaw. No index or migration was
+    needed: the year's finishes are a scan of `reads`, which at 1,500 rows is cheap. The page is 4 D1 calls on
+    an empty instance and the same 4 with 2,000 items, 1,500 reads, 600 reviews, ~7,000 tag links and 600 plays
+    (the session's user, the layout's shelves and the batch among them); a test counts both through the
+    budgeted handle, and holds the review itself to one call. Measured there, the batch read about 52,000 rows
+    in total (before materializing, 74,000) and returned 74, so the Worker's CPU is rendering a few dozen rows.
+    D1's free plan allows 5 million rows read a day: at that size, about a hundred views of the page.
+
+    **Undated finishes are left out, and counted beside.** A finish with no end date — Goodreads' read counts
+    become exactly these (#41) — is in no year, so listing it under every year would be wrong and under none
+    would hide why a year looks thin. The page ends with "Finished, date unknown: 1 book of yours, 3 in the
+    household — with no end date, they count in no year" whenever there are any, including on an empty year.
+
+    **Years and edge cases.** The picker offers every year with a dated finish of a book or a play, the current
+    year (UTC), and the one being shown; `?year=` takes 1000–9998, anything else shows this year (9999's range would end at "10000-01-01", which
+    sorts before its own dates). An
+    empty year says so in one panel ("Nothing yet for 2026…" this year, "Nothing for 2010…" before, "hasn't
+    started yet" after) and draws no chart; a year of plays without reading says "No book finished with a date
+    in 2025" and shows the plays; a year without plays says "No records spun" / "No games played"; a member with
+    no finishes sees that in their column beside a household that read.
+
+    **Accessible.** One `h1`, an `h2` per group, an `h3` per column, the picker's `<label for>`; the chart is a
+    `<figure>` labelled by its caption, its CSS bars `aria-hidden`, and beside them a visually hidden table —
+    Month, Books finished, Pages read, a row per month, captioned with whose and which year. The table is hidden
+    by a wrapper `div`: a table sizes to its content whatever width it is given, and on its own it widened a
+    390px page by 36px (found by the screenshot pass). Star ratings are hidden and read as "4.3 out of 5".
+    Bars use the indigo accent, ratings turmeric (`--brass`), every number monospace; the columns stack below
+    720px.
+
+    **Privacy.** The route sits after the session middleware (src/index.ts), so a signed-out visitor, or a
+    connected household's signed request (peers hold no session), gets the login redirect; share pages carry no
+    link to it and `/share/:token/year-in-review` doesn't exist; nothing here passes through `toPublicItem()` or
+    `toConnectionItem()`, and no feed kind or trigger was added. Usernames never appear on it: the columns are
+    "You" and "Household".
+
+    **Chosen without asking, overrulable:** reading figures are books only, as goals are; undated finishes are
+    counted in a note rather than listed; lists rank books (editions and re-reads folded) before finishes; the
+    average rating is over ratings by those who finished the book that year, once per reader and book (two
+    editions rated: their average); a "Last, First" author is recognised by the given-names rule above and
+    turned round, and ';' and ' & ' separate authors as commas do; fastest
+    counts both days; ties go to the latest; top five authors, tags and rated books, top three per play type; a
+    household of one — whose figures are all its own — sees one column, "You", not the same figures twice (a
+    former member's reads make the columns differ, and both show); `/year-in-review` sits in the sidebar's
+    Catalog group; the page doesn't compare with the year before or show the member's goal.
+
+**2026-09-30 — what should we play tonight:**
+60. **"What should we play tonight?" filters the household's board games by players, time and BGG's
+    weight, in SQL over their `details`; the weight joins `details`, and "Refresh from BGG" fills blanks
+    for games already here.** The owner decided the shape: say how many **players**, how much **time**
+    and what **weight** (light, medium or heavy, from BGG's complexity rating); see the games that fit,
+    in random order, with **Pick one for us** for a single random pick; keep BGG's weight for games
+    added from now on; and a **Refresh from BGG** button on a game's page that fills the weight and any
+    missing players or playtime for games already in the catalog, blanks only, on #55's pattern.
+
+    The questions the owner left open, answered:
+    - **Weight bands: light below 2.0, medium from 2.0 to below 3.0, heavy from 3.0** on BGG's 1–5
+      scale (`WEIGHT_BANDS` in `src/lib/games.ts`). The edges are BGG's own poll anchors — 1 "Light",
+      2 "Medium Light", 3 "Medium", 4 "Medium Heavy", 5 "Heavy" — so a band is where a game's average
+      sits between them. Averages cluster between about 1.2 and 4, which three equal-width bands over
+      1–5 would crowd into the bottom two: about 1.3 for Codenames and 1.8 for Ticket to Ride (light:
+      taught in five minutes), about 2.3 for CATAN and Pandemic and 2.4 for Wingspan (medium: the
+      family-weight classics), about 3.3 for Terraforming Mars and 3.9 for Brass (heavy: an evening's
+      commitment). The form labels each band with its numbers.
+    - **Time is conservative: the longer end must fit.** A game's time is the larger of
+      `playtime_max` and `playtime_min` (a range typed backwards still counts its long end, and only a
+      minimum known counts as the whole game), else the Length column (BGG's `playingtime`, which may
+      be all a game typed in by hand has), and it fits when that is at most the minutes you have — an
+      exact fit fits. A 60–120 minute game is not offered for an hour, however short its best case.
+    - **Players:** fits when the count is inside `[players_min, players_max]`, a range typed backwards
+      read the right way round. Only a maximum reads as 1 up to it (`FEWEST_PLAYERS`): "up to 5" says
+      nothing against a table of four. Only a minimum reads as exactly that many — the narrowest
+      reading, since "2" with no maximum may be a two-player game. (Found by nalanda-review: a max-only
+      game first read as exactly its maximum, so "up to 5" never came out for four.)
+    - **Games missing a detail get their own group, "Not enough details",** under what fits, each
+      unknown fact shown as unknown. It is per filter: a game is there only when something you asked
+      about is missing *and* nothing known already rules it out, so a two-player game with no weight
+      never shows up for four. With no filters set, every game fits. The group points at Refresh from
+      BGG as the way to fill it.
+    - **Last played doesn't steer the order.** The owner asked for random order, and a weighting would
+      be a rule nobody could see; each game shows its last play instead ("last played 14 Sep", "not
+      played yet"), read from `idx_plays_item_played` for the rows returned, as #54 planned, so the
+      household can steer itself. "Pick another" never repeats the pick just shown while another fits
+      (`ORDER BY id = <shown>, random()`, as #46 does).
+    - **Where it lives: `/play`, its own page,** linked from the Overview ("Game night", once the
+      collection holds a board game) and from a shelf's header whenever the shelf page shows a board
+      game or is filtered to them — both from data those pages already load, so neither adds a D1
+      call. It covers every shelf: on game night a household's games are one pool. **In the app
+      only:** it sits behind `requireAuth`, no share page or connection links to it, and nothing on it
+      is published. It shows BGG's facts, so it carries the "Powered by BGG" credit (#44).
+    - **What "here" means:** board games in the collection (`copies > 0`) with a copy not out on loan
+      (open loans fewer than copies). A game lent to the neighbours can't be played tonight; one of two
+      copies lent still can.
+    - **The weight is a `details` key, `weight`, so no migration.** It is public catalogue data like the
+      other BGG keys: it round-trips through the CSV's `details` column (a test exports, re-imports and
+      filters the copy), shows on share pages exactly where the other BGG details do — the details
+      list, labelled "Weight (1–5)" — and reaches connections as a plain number through
+      `plainDetails()`, as `players_min` does. The provider reads `statistics > ratings >
+      averageweight` from the `thing` answer the search already asks for with `stats=1`, kept to two
+      decimals as BGG's own pages show it; 0 is BGG's "nobody voted" and, like anything off the 1–5
+      scale, is no weight.
+
+    **In SQL, one call.** `gamesForTonight()` classes every board game in one pass: a CTE reads each
+    number with `json_extract` — a JSON number, or text that is only a number (a libib import keeps
+    every value as text); `json_valid()` guards details that aren't JSON, and zero or junk is no value —
+    then marks each game fits (1), missing a detail (0) or ruled out (NULL) from four bound parameters,
+    NULL meaning "any". The two steps that work out the numbers are `MATERIALIZED`: left to flatten
+    them into the query, SQLite copies each `json_extract` into every place a later step names the
+    value, and one more reference (the max-only player rule) was enough to fail every query with
+    `SQLITE_NOMEM` in the tests, even on ten games. `row_number()` and `count(*)` over `PARTITION BY fit ORDER BY random()` return
+    at most 60 of each group, at random, with the totals, so a big collection costs rows scanned, not
+    rows sent; the page says "Showing 60 of 205". `pickGameForTonight()` is the same CTE with `LIMIT 1`.
+    The page is 4 D1 calls (the session, the sidebar's two, the results) and its htmx answer 2, with or
+    without filters, picking or not, and with 300 more games and 600 plays (tests hold both). Filters
+    come from the URL through `parseGameFilters()`: whole numbers in range and the three band names;
+    anything else is "any".
+
+    **One handler, two renders**, as #46: the filter form is a GET to `/play` that works without
+    JavaScript, and htmx asks the same URL with `HX-Request` for the results alone (`Vary: HX-Request`),
+    swapped into `#play-results`; "Pick one for us" is a second submit button adding `pick=1`. No
+    `hx-push-url`, so #46's caveat about history restores doesn't arise. **Accessible:** every control
+    sits in its `<label>`; the results are announced by a status line (`role="status"
+    aria-live="polite"`) outside the swapped region, filled out of band (`hx-swap-oob="innerHTML"`) so
+    it stays the same live node — a whole list read aloud would drown the count. "Pick another" keeps
+    its id across the swap, so focus returns to it. Checked in headless Brave: the same status node
+    changed to "Picked 7 Wonders, from 11 games that fit." and focus stayed on "Pick another".
+
+    **Refresh from BGG: one request per click, blanks only.** `POST /items/:id/bgg` fetches
+    `thing?id=<bgg_id>&stats=1`, the id from `details.bgg_id` (a number, or digits as text). Without one
+    it asks nothing and says to add it: a title search would be two requests and a guess. It writes only
+    the `details` keys `players_min`, `players_max`, `playtime_min`, `playtime_max` and `weight`, and the
+    `length` column (BGG's playing time), each only while blank (absent, null, empty text; zero is a
+    value) — `fillGame()`. Title, creators, publisher, description, cover, year and `bgg_id` are never
+    touched, and details that don't parse as an object are left alone. The write is guarded on the
+    `details` and `length` it read (`applyGameFill()`), so an edit saved meanwhile wins and the page
+    says to refresh again: 3 D1 calls a click. **Pacing:** BGG asks for about five seconds between
+    requests, so an isolate lets one refresh through every five seconds and answers another click inside
+    that as "busy" without asking BGG (`bggRefresh()` in `src/metadata/index.ts`); BGG's own 429, 500,
+    503 and 202 give the same notice. A 401 is "refused"; a 403 from its edge, any other status, a
+    timeout, or a 200 that isn't an `<items>` answer (an error message, an HTML page) "unavailable"; an answer without that id "not found" — each a fixed
+    sentence chosen by a code in the redirect (`?bgg=<code>`), never text from the URL or from BGG. A
+    game's page never calls BGG, and tests replay BGG's XML from `test/fixtures/bgg.ts`, written in the
+    shape BGG's API2 returns.
+
+    **Chosen without asking, overrulable:** the band edges at 2 and 3; time as the longer end, with
+    Length as the last resort; only games with a copy not on loan, and not-owned games (`copies = 0`)
+    left out; one household-wide page rather than one per shelf; 60 games a group; a number box for
+    players and fixed choices for time (20 minutes to 4 hours; any whole number of minutes up to a day
+    from the URL); the weight kept to two decimals; `length` among what the refresh fills; no refresh
+    without a `bgg_id`; per-isolate pacing of five seconds for refreshes only (search keeps its two
+    back-to-back requests, as before); the links on the Overview and the shelf header rather than the
+    sidebar, which would cost a query on every page. Numbers 58 and 59 are left for decisions in flight
+    on other branches.
+
+**2026-09-30 — purchase price, and Discogs market value dropped:**
+61. **What was paid is an integer number of minor units with its currency, on every item, in the
+    household's currency. A record's Discogs market value was considered and dropped, because of
+    Discogs' API terms.** The owner first asked for two things: a record's market value from Discogs'
+    marketplace (the lowest listed price and how many copies are for sale, refreshed per record and
+    for the whole catalog, stored with the date it was fetched and totalled per shelf "as of" then),
+    and an optional purchase price on every item, both in one household currency an admin sets, both
+    in the app only. Research came first; on what it found, **the owner dropped market value
+    entirely**. Purchase price, the household currency and the paid totals are what shipped.
+    - **Why market value was dropped — Discogs' terms.** Discogs' API Terms of Use
+      (<https://support.discogs.com/hc/en-us/articles/360009334593-API-Terms-of-Use>, "Last Updated:
+      May 27th, 2025"; read on 2026-09-30 through the Wayback Machine's capture of 2026-05-30, the
+      newest, since discogs.com answers fetches with a 403 challenge page) put marketplace prices in
+      **Restricted Data**: *"'Marketplace Data' such as related inventory, orders, lists, fees, pricing
+      suggestions, including but not limited to: pricing, release images posted in connection with
+      offers for sale, and sales history."* Of all the API's content they say: *"The Content within Our
+      API is dynamic and is quickly outdated. You may not display in any format or to any audience the
+      Content if it is more than six (6) hours older than the information on Our online properties or
+      applications and applications. You may not cache or store the Content longer than is necessary
+      to provide a service to Your application's users."* A value kept with its fetch date and shown
+      "as of" it, and a shelf total summed from values fetched days apart, is what that forbids.
+      Restricted Data also may not be *"Transfer[red] … to any third party"* or used *"for any
+      commercial purposes"*, and any data from the API wants *"Data provided by Discogs."* beside it,
+      linked to its discogs.com page. Nothing of the marketplace is fetched, stored or shown.
+    - **What the research found, kept for the record.** Discogs' API documentation
+      (<https://www.discogs.com/developers>, Wayback capture of 2026-09-19): `GET
+      /marketplace/stats/{release_id}{?curr_abbr}` returns *"the number of items currently for sale,
+      lowest listed price of any item for sale, and whether the item is blocked for sale"* as
+      `{"lowest_price": {"currency", "value"}, "num_for_sale", "blocked_from_sale"}`; *"Releases that
+      have no items for sale in the marketplace will return a body with null data in the lowest_price
+      and num_for_sale keys. Releases that are blocked for sale will also have null data for these
+      keys."* Without `curr_abbr` an authenticated caller gets its own buyer currency, an
+      unauthenticated one US dollars; `curr_abbr` *"Must be one of the following: USD GBP EUR CAD AUD
+      JPY CHF MXN BRL NZD SEK ZAR"* — **not INR**. `/marketplace/price_suggestions` needs *"the user …
+      to have filled out their seller settings"*, and the owner had ruled it out. Authenticated
+      requests are *"limited to 60 per minute"*, tracked as *"a moving average over a 60 second
+      window"* and reported in `X-Discogs-Ratelimit`, `-Used` and `-Remaining`.
+    - **Purchase price: two columns, `purchase_price` and `purchase_currency` (migration 0039).**
+      The amount is an integer count of the currency's minor units — paise, cents, and for a
+      currency without one (JPY) the unit itself; how many decimals a currency has comes from
+      `Intl.NumberFormat`'s `maximumFractionDigits`, so KWD takes three. Never a float: the form's
+      text is parsed digit by digit (`parseMoney()`), a sum leaves SQLite as the text of an integer
+      (`CAST(sum(…) AS TEXT)`), and `formatMoney()` hands Intl a decimal string, which it formats
+      exactly — tested past 2^53. The code sits beside every amount rather than only in
+      `site_settings`, so a household that changes currency keeps what it paid in what it paid it
+      in; nothing is ever converted. A price is on every media type, optional, zero allowed (a gift),
+      at most 999,999,999 whole units; a negative, a non-number, or more decimals than the currency
+      has are refused on the form with the reason tied to the field (`aria-describedby`,
+      `aria-invalid`), and dropped by an import. A price that isn't whole, non-negative minor units
+      with a known code — only a hand-edited row — is left out of the item page, the totals and the
+      export rather than failing any of them.
+    - **The household currency: `site_settings.currency`**, an ISO 4217 code an admin picks on the
+      Members page from every code the runtime's Intl knows; `POST /settings/currency`, admin-only
+      like everything under `/settings`, refuses anything else with a fixed message. NULL until set:
+      the item form then has no price field, only a line saying an admin sets the currency — the app
+      never guesses one. It can be changed, not cleared. A price already in another currency is shown
+      in its own, and its edit form offers that currency and the household's, nothing else; a request
+      naming any other is refused.
+    - **Forms.** The price is on the manual add form and the edit form (`ItemForm`), with the code
+      shown before the input and named in its label. A scan's or a search result's one-click add has
+      no price field — the edit form is a click away — and so costs no extra D1 call; a form with the
+      field reads the setting once.
+    - **Totals: per shelf, per currency, never across currencies.** `shelfTotals()` is one D1 call
+      — a batch of two grouped reads and the setting — for one shelf or all: items by type, and per
+      currency the count priced and the sum. A shelf's page shows "Paid ₹30,200 for 9 · $45 for 2, in
+      USD — of 12 records on this shelf"; the Overview's shelf table gains a Paid column once anything
+      is priced. The shelf page went from 12 D1 calls to 13 and the Overview from 11 to 12; the edit
+      page, the add page and the Members page read the setting, one call each; the item page costs
+      nothing more.
+    - **Portable.** `/export.csv` gains `purchase_price` (a plain decimal in major units, "302.50") and
+      `purchase_currency`, after `loans`. A Nalanda import reads the amount in the currency the row
+      names, or the household's when it names none; a code that isn't one, an amount that doesn't
+      parse, or a price with no currency to be in is dropped — an import never guesses at money. A
+      libib file's `price` column, which has no currency, becomes the purchase price in the
+      household's currency when one is set and it reads as a number; otherwise it stays in the item's
+      details as before, in the app only (next point). The preview counts both.
+    - **Never outside the app.** No whitelist has the columns, and `toPublicItem()` now strips money
+      keys (`price`, `purchase_price`, `purchase_currency`, any case) from the details it publishes,
+      which also covers what connections get (`toConnectionItem()` and `plainDetails()` build on it).
+      Before this, a libib price in details was published on share pages and to connections; the
+      rehearsal found no such item in production's backup. Changing a price records no feed activity:
+      the item triggers watch `review`, `rating`, `status` and `completed_on`. Tests compare share pages
+      and a connection's shelf, item and feed byte for byte with and without a price.
+
+    **Chosen without asking, overrulable:** the Members page
+    as the currency's home; a currency that can be changed but not cleared; zero as a valid price;
+    the 999,999,999 cap; the 'en' locale for every currency (a lakh reads ₹100,000, not the Indian
+    grouping ₹1,00,000); whole amounts shown without ".00"; no price on the
+    one-click adds; libib's `price` read only when the household currency is set before the import;
+    stripping money keys from published details rather than migrating old libib prices out of them.
+
+62. **The sidebar folds into sections by what you're doing; a device remembers the ones its member
+    opened in a small cookie the server reads, so the first paint is already right.** (58–61 are
+    taken by parallel work.) The sidebar had grown to four headed lists — Catalog, Circulation,
+    Shelves, Data — with Account in the foot, too long for a phone's drawer and grouped by where
+    things lived rather than what someone came to do. **The owner decided** the groups and how
+    they behave:
+
+    - **Pinned**, in no section and always in view: Overview, Add items, Search.
+    - **Library**: Tags, Series. **Shelves**: one link per shelf with its count, as before.
+      **Reading**: Want list, Reading goals, Year in review (#59). **Lending**: Loans, Borrowed
+      (connections only). **Sharing & connections**: Shared links (admins), Feed, Notifications,
+      Recommended (#58; these three connections only), Connections (admins, connections only). **Settings**: Import / export, Members (admins),
+      Account. Who's signed in and Log out stay in the foot.
+    - Every section starts **closed**, except the one holding the current page, which is **always
+      open**. Sections a member opens or closes are remembered **on that device**.
+    - Pages that merged while this was in review found their places when main was merged in: Year
+      in review in Reading, Recommended in Sharing & connections, beside Feed and Notifications.
+      "What should we play tonight" has no sidebar link: #60 links it from the Overview and a
+      shelf's header instead.
+
+    **Markup.** Each section is a native `<details class="nav-section" data-nav="…">` whose first
+    child is its `<summary>`: it opens and closes with no script, from the keyboard (Enter and
+    Space on the focused summary), and assistive tech hears a button that is expanded or
+    collapsed. A closed section's links are out of the tab order and the accessibility tree
+    without anything to keep in step. One `<nav aria-label="Main">` holds the pinned links and
+    every section, instead of a landmark per heading — six would crowd a screen reader's landmark
+    list. The summary is the old eyebrow label with a CSS chevron (two borders of a small square,
+    turned from pointing right to pointing down) and a 28px target (34px in the phone drawer), in
+    existing tokens only; it opts out of the global `details` frame as the toolbar filters do. A
+    section with nothing in it for this member — no shelves yet, or Sharing for a member on an
+    instance without connections — isn't drawn at all. The active link keeps `.active` and gains
+    `aria-current="page"`.
+
+    **Remembering, without a flash.** Two ways were weighed:
+    - *app.js restores open sections from `localStorage` after load*, as the column choices do —
+      but app.js is deferred, so the sidebar would paint with everything closed and then grow.
+      The column choices avoid that with an inline script in `<head>` because they only set an
+      attribute on `<html>`; sections are elements further down the page, which an early script
+      can't reach before they're parsed.
+    - *A cookie the server reads*, **chosen**: `nav=library.reading` — the ids of the sections the
+      member opened, joined by `.` (a comma isn't a legal cookie character). app.js writes it on a
+      click on a section's header — Enter and Space on a summary click it too — computing the new
+      state before the `<details>` toggles; `page()` reads it with `getCookie()` and renders those
+      sections `open`, so the first paint is the remembered one and nothing moves after load. It
+      costs no D1 call and no work beyond a split.
+
+    The cookie holds only what the member chose. A section open because it holds the page is never
+    written down — only a header click writes — so reading a Tags page doesn't leave Library open
+    everywhere afterwards; closing it there is written, and it's still open on its own pages. It is
+    `Path=/`, a year's `Max-Age`, `SameSite=Lax`, `Secure` on https (as the session cookie), and
+    not `HttpOnly`, since script writes it; an empty set deletes it. It's per device, not per
+    member: two people sharing a browser share the sidebar's shape, which is a display preference
+    and says nothing about either. **Validation**: the browser writes it, so the server treats it as
+    a filter over `NAV_SECTIONS` — the six known ids. Anything else in it is dropped, a value past
+    100 characters (all six joined are 49) is ignored whole, and nothing from it is ever written
+    into the page: the only thing it can do is add `open` to a section the member can already see.
+    A cookie can't open a section the member doesn't have, and can't close the current page's.
+    app.js keeps only lowercase ids when it rewrites the cookie, and at most eight.
+
+    **Unread.** Feed and Notifications keep their per-link counts. A section's header sums its
+    links' unread counts into the same indigo pill (`role="img"`, `aria-label="N unread"`, capped
+    at 99+), so the summary is announced as "Sharing & connections, 3 unread". CSS hides the header
+    pill only while the section is open (`.nav-section[open] .nav-summary-unread`), where each link
+    shows its own — so it follows a toggle with or without script. The phone's top-bar link to
+    Notifications or Feed stays as it was.
+
+    **Phone.** The drawer is unchanged: `#nav-toggle` opens it, Escape closes it and returns focus,
+    and closed it's `visibility: hidden`, so nothing in it is tabbable. app.js closes the drawer on
+    a click on a link or button in it; a summary is neither, so opening a section keeps the drawer
+    open. Summaries lose the phone's tap highlight, which isn't one of our colours; hover and focus
+    show state. Checked at 390px wide: no horizontal scroll, and "Sharing & connections" keeps one
+    line beside its count (the section eyebrow tracks 0.1em rather than 0.14em for that).
+
+    **Within the free plan.** The sections are drawn from the shelves and unread counts the layout
+    already loads; a test counts a page's D1 calls — five for the Tags page, the same as before —
+    with no cookie, every section named, and junk. No migration, no new dependency.
+
+    **Chosen without asking, overrulable:** the cookie's name (`nav`) and `.` separator; recording
+    only header clicks, so auto-opened sections aren't remembered; a summed count rather than a
+    dot on a closed header; one `nav` landmark labelled "Main"; leaving empty sections out; the
+    34px phone target; tighter tracking on the section labels.
+**2026-09-30 — Discogs attribution:**
+63. **Discogs' data carries "Data provided by Discogs.", linked to its release, and the terms'
+    notice.** v1.5.0 put a record's pressing from Discogs (#55) on its page, on share pages and in
+    what connections get, with no credit, which Discogs' API Terms of Use require. The live page
+    (support.discogs.com/hc/en-us/articles/360009334593-API-Terms-of-Use) refuses scripted fetches,
+    so it was read from the Wayback Machine's copy of 2026-05-30 ("Last Updated: May 27th, 2025").
+    Its "Discogs Intellectual Property" section asks for two things:
+    - *"We require You to display the following notice prominently on Your application and any
+      other public-facing use of Our API and the Content that You create: "This application uses
+      Discogs’ API but is not affiliated with, sponsored or endorsed by Discogs. ‘Discogs’ is a
+      trademark of Zink Media, LLC." This notice may be included in Your terms and conditions or
+      usage documentation."*
+    - *"In addition, You must display the following notice directly next to any data You use from
+      the Discogs API: “Data provided by Discogs.” The notice must include a hyperlink to the
+      discogs.com page that includes the data. The link back must not use any mechanism that
+      prevents passing along search engine ranking credit to that page, such as 'nofollow'."*
+
+    No logo is asked for, and Discogs' Application Name and Description Policy forbids making its
+    mark "the most distinctive or prominent feature", so the credit is text: small, muted, below
+    the data, like BGG's (#44). What was decided:
+    - **Which records: a release id and something Discogs filled.** `discogsLink()`
+      (src/views/attribution.tsx) credits a record (`vinyl`, `music`) whose `details` hold a
+      non-blank `discogs_id` and at least one of `label`, `catno`, `country`, `year`, `format`,
+      `genres`, `tracklist`. The id is the provenance the schema lacks: every path that writes
+      Discogs' data writes the release id with it (a Discogs result since v1, a barcode lookup,
+      the add's release fetch, Refresh), and nothing else writes that key but an import bringing a
+      file's `details` back, or someone typing an id into the details box, which says the same. A
+      record typed in by hand, even with a label and catalogue number, has no id and no credit —
+      the credit would be untrue there. An id alone (typed in, not yet refreshed) credits nothing either: there is no
+      Discogs data beside it yet. BGG's rule is the media type (#44) because every board game is
+      filled from BGG; records aren't, so the rule reads the data.
+    - **The link is built from digits only.** `releaseIdOf()` (#55) accepts a positive safe integer,
+      or a string of up to 15 digits, and the URL is `https://www.discogs.com/release/<id>`. Any
+      other `discogs_id` — hand-typed text, a hostile one from a CSV or a connection — links to
+      `https://www.discogs.com/`. Nothing from the item but that number reaches the href.
+    - **Where.** Right below the pressing (after the tracklist, before Refresh) on a record's page
+      in the app and on a shared record's page, both through `RecordDetails`; below the plain
+      details list when that is where the record's Discogs data is (genres only). On a connected
+      household's record, below the details they sent. On the Add page, each Discogs result (search
+      or barcode, and the offline review list) carries its own credit linked to its release, and
+      the notice follows the results once.
+    - **Connections: credited on the receiving side.** BGG's credit isn't shown on a peer's
+      games (#44): BGG's terms bind "public-facing uses", and the peer fetched the data under its
+      own. Discogs' wording is wider — "directly next to any data You use from the Discogs API" —
+      and a peer's record page shows exactly that data (label, catalogue number, country, year,
+      format) with the release id beside it, so the credit costs nothing and reads true. The
+      peer's id is a stranger's string: the link is built from its digits or not at all.
+    - **The notice: in the app, beside the credit, and in the docs.** The terms let it live in
+      "usage documentation", which the README and THIRD-PARTY.md now carry. But each instance's
+      share pages are its own public-facing use, and a visitor there never sees the README, so the
+      notice goes wherever the credit does, in smaller type below it. Once per Add page's results.
+    - **Link attributes.** No `nofollow` (or `ugc`, `sponsored`). `rel="noreferrer"`, as BGG's
+      link has, so a share page's token never reaches Discogs; it has nothing to do with ranking
+      credit. Share pages keep `noindex`, which doesn't stop links being followed. No new tab.
+      The link's visible words are the terms' own; hidden words after them tell a screen reader
+      where it goes ("This release on discogs.com", or "Discogs home page").
+    - **Not credited.** Share listings and shelf cards, which show a record's title and artist but
+      no pressing — its own page credits it, as #44 left shelf tables to a game's page. Want-list
+      pages (#53), whose whitelist carries no details: the credit's link would publish the release
+      id they deliberately leave out. The Feed, which shows no pressing. `/api/lookup`, JSON for
+      scripts. A record's grades are untouched and stay private (#55). And a record whose
+      publisher or date the laptop backfill (#33) filled from a Discogs match: it writes those
+      columns, not the release id, so nothing records that they came from Discogs — "Refresh from
+      Discogs" stores the id, and the credit, on the next click.
+    - **Cost.** Rendering only: no migration, no new column, no D1 call, no request to Discogs.
+      Tests count a credited record's page, in the app and shared, at a book's D1 calls.
+
+    **Open, for the owner:** the same terms say Discogs' Content *"is dynamic and is quickly
+    outdated. You may not display in any format or to any audience the Content if it is more than
+    six (6) hours older than the information on Our online properties … You may not cache or store
+    the Content longer than is necessary to provide a service to Your application’s users."*
+    Nalanda stores a pressing and shows it indefinitely (#55). The terms also list release titles,
+    formats, track listings, identifiers and label names as "CC0 Data", *"made available under the
+    CC0 No Rights Reserved license"*, which suggests the clause is aimed at the restricted data
+    (marketplace, users, images); the text doesn't say so. Related, and also open: a record's cover
+    can come from Discogs (a result's `cover_image`, the cover backfill), and the terms class
+    "Release Images" as Restricted Data, licensed *"limited, personal, non-sublicensable"*, which
+    may not be transferred *"to any third party"*; Nalanda keeps the image in R2 and serves it on
+    share pages and to connections. Neither is changed here.
+
+    **Chosen without asking, overrulable:** the notice in the app on every credited page rather
+    than only in the docs; crediting connections' records; the Add page's per-result credits;
+    leaving want lists and listings uncredited; a record with only an id uncredited.
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
 The honest comparison, since it was asked:

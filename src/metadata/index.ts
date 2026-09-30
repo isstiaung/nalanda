@@ -1,7 +1,7 @@
 // Provider chain + barcode routing. Nothing outside src/metadata/ calls external APIs.
 import type { Bindings } from '../env';
 import type { MediaType } from '../db/schema';
-import { bgg, BggAuthError, BggBusyError } from './bgg';
+import { bgg, BggAuthError, BggBusyError, bggGame, type BggGameResult } from './bgg';
 import { discogs } from './discogs';
 import { googleBooks } from './googlebooks';
 import { itunesCoverByIsbn } from './itunes';
@@ -265,6 +265,36 @@ export async function discogsPressing(
     return 'releaseId' in source ? await client.release(source.releaseId) : await client.pressingByBarcode(source.barcode);
   } catch {
     return { ok: false, failure: 'unavailable' }; // a timeout, a dropped connection, a body that wasn't JSON
+  }
+}
+
+/**
+ * BGG asks for about five seconds between requests; an over-eager client is throttled. Search keeps its two requests
+ * back to back, but "Refresh from BGG" is a button anyone can press twice, so this isolate lets one refresh through to
+ * BGG every BGG_REFRESH_GAP_MS and answers any other as "busy" without asking. Per isolate, so a best effort — BGG's
+ * own busy answers (429, 500, 503, 202) come back as the same notice.
+ */
+export const BGG_REFRESH_GAP_MS = 5000;
+let bggRefreshAllowedAt = 0;
+
+/** Tests only: forget the last refresh, so one test's click doesn't pace the next's. */
+export function resetBggPacing(): void {
+  bggRefreshAllowedAt = 0;
+}
+
+/**
+ * A board game's BGG record by its id, for "Refresh from BGG" (ARCH.md §16 #60): exactly one `thing` request, or
+ * none when the token is missing or the last refresh was too recent. A failure is a code, never BGG's text.
+ */
+export async function bggRefresh(env: Bindings, bggId: number): Promise<BggGameResult> {
+  if (!env.BGG_TOKEN) return { ok: false, failure: 'refused' };
+  const now = Date.now();
+  if (now < bggRefreshAllowedAt) return { ok: false, failure: 'busy' };
+  bggRefreshAllowedAt = now + BGG_REFRESH_GAP_MS;
+  try {
+    return await bggGame(env.BGG_TOKEN, bggId);
+  } catch {
+    return { ok: false, failure: 'unavailable' };
   }
 }
 

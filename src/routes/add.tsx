@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
-import { listLibraries, listPeople, seriesNames } from '../db/queries';
+import { getSiteSettings, listLibraries, listPeople, seriesNames } from '../db/queries';
 import type { AppEnv } from '../env';
 import { lookupByBarcode, searchByName, type SearchType } from '../metadata';
-import { BggAttribution } from '../views/attribution';
+import { BggAttribution, DiscogsNotice } from '../views/attribution';
 import { scanQueueOwner } from '../lib/auth';
 import { CandidateCard, ItemForm, ReviewEntry, SCANNED_AT } from '../views/components';
 import { page } from '../views/layout';
@@ -10,7 +10,12 @@ import { page } from '../views/layout';
 const add = new Hono<AppEnv>();
 
 add.get('/add', async (c) => {
-  const [libs, people, names] = await Promise.all([listLibraries(c.env.DB), listPeople(c.env.DB), seriesNames(c.env.DB)]);
+  const [libs, people, names, settings] = await Promise.all([
+    listLibraries(c.env.DB),
+    listPeople(c.env.DB),
+    seriesNames(c.env.DB),
+    getSiteSettings(c.env.DB), // the household's currency, for the manual form's purchase price (§16 #61)
+  ]);
   return page(
     c,
     'Add items',
@@ -112,7 +117,14 @@ add.get('/add', async (c) => {
       </section>
 
       <section id="tab-manual" class="tab-panel" hidden>
-        <ItemForm libraries={libs} action="/items" submitLabel="Add item" perMember={people.length > 1} seriesNames={names} />
+        <ItemForm
+          libraries={libs}
+          action="/items"
+          submitLabel="Add item"
+          perMember={people.length > 1}
+          seriesNames={names}
+          money={{ household: settings.currency, admin: c.get('user').role === 'admin' }}
+        />
       </section>
       <script src="/scan-queue.js" defer></script>
       <script src="/scanner.js" defer></script>
@@ -144,6 +156,8 @@ add.get('/add/results', async (c) => {
         <CandidateCard candidate={candidate} libraries={libs} />
       ))}
       {result.candidates.some((candidate) => candidate.provider === 'bgg') ? <BggAttribution /> : null}
+      {/* §16 #63: each Discogs result carries its own credit; the terms' notice goes once, below them */}
+      {result.candidates.some((candidate) => candidate.provider === 'discogs') ? <DiscogsNotice /> : null}
     </>,
   );
 });

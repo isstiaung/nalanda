@@ -110,7 +110,7 @@ shape from this file.
   A per-person start or finish is recorded only as it happens, dated then — never by a read's dates,
   never backfilled. A rename or removal re-keys that member's entries in its batch
   (`rekeyMemberActivity()`), and a move of a read or review re-keys that one's (`rekeyMoved()`),
-  so peers' held copies are withdrawn. Comments and borrow requests are
+  so peers' held copies are withdrawn. Comments, borrow requests and recommendations are
   signed with `outwardName()` — the display name while names go to connections, else "A member",
   never the username. Names other instances send are strings from another instance (below).
 - **Reading goals** (ARCH.md §16 #49) never reach a share page. To connections they are per-person
@@ -171,7 +171,18 @@ shape from this file.
   connections. It lives in its own columns precisely because `details` is public; never move a
   grade into `details`, and an import drops an off-scale grade rather than keeping it there. Its
   **pressing** (label, catno, country, year, format, tracklist) is public catalogue data in
+  `details`; connections get its plain values, not the tracklist. Discogs' API terms want
+  "Data provided by Discogs." beside it, linked to the release, plus their not-affiliated notice
+  (ARCH.md §16 #63): `discogsLink()` in `src/views/attribution.tsx` decides — a record with a
+  `discogs_id` and something Discogs filled, never one typed in by hand — and builds the href from
+  a numeric release id only (else discogs.com). Never `nofollow` on it.
   `details`; connections get its plain values, not the tracklist.
+- **Money is never published** (ARCH.md §16 #61). What was paid (`purchase_price`, integer minor
+  units, with `purchase_currency`) is in no whitelist: never on share pages, never to connections,
+  never a key of `toPublicItem()` or `toConnectionItem()`. `toPublicItem()` also strips money keys
+  (`MONEY_DETAIL_KEYS` in `src/lib/money.ts` — libib's `price`) from the `details` it publishes; never
+  move a price into `details`. Money is never a float: parse with `parseMoney()`, sum in SQL as
+  `CAST(sum(…) AS TEXT)`, format with `formatMoney()`, and never add two currencies together.
 - `/covers/:key` is intentionally public — keys are random UUIDs; never make them
   enumerable or derived from item data.
 - **The service worker never stores a page or an API answer** (ARCH.md §16 #48): only the
@@ -189,7 +200,19 @@ shape from this file.
   activity only while a connection view exists (migration 0007), dated by when it happened —
   an import's batch brackets itself with `import_in_progress` so old reads aren't news
   (migration 0021, ARCH.md §16 #40).
-- Strings from another instance — household names, view names, feed entries, members' names (`by`, `reviews`), comments —
+- **Recommendations** (ARCH.md §16 #58) send `toRecommendedItem()` — built on `toConnectionItem()`: id, stamp,
+  a view id, media type, title, creators, published, cover key, and `ids` (only `bgg_id`/`discogs_id` from
+  details, whole numbers) — plus the note and an `outwardName()`; never a username, the ISBN or barcode
+  columns, or anything toConnectionItem() lacks. Only for an item inside a connection view
+  (`recommendableItem()`, checked at send time), and only to a household whose descriptor lists `Recommend`
+  in `accepts`: 1.5.0 and older refuse a type they don't know (test/fixtures/*-v1.4.0.ts). A new directed
+  type follows the same rule — advertise it in `ACCEPTS`, check `peerAccepts()` before queuing. What the
+  receiver does with one (want, dismiss) is never sent back — though a wanted item on a shared shelf shows
+  there as any item does. Wanting one copies its cover from their `/covers/`: `storeCover()` keeps raster
+  types only and follows no redirect for a peer's URL, and `serveCover()` sends a sandboxing CSP, so no
+  cover can run script on this origin.
+- Strings from another instance — household names, view names, feed entries, members' names (`by`, `reviews`), comments,
+  recommendations (title, creators, the name it's signed with, the note) —
   render only as escaped text. A comment thread is only ever shown to the two households in it. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:
   the browser decodes HTML escapes back into quotes before it runs the script.
 
@@ -250,14 +273,22 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    its queries are in db/queries.ts, its pages in routes/series.tsx, ARCH.md §16 #52),
                    condition.ts (a record's grades and their fixed scale), pressing.ts (what an add
                    and "Refresh from Discogs" may write into a record's details, and reading it back),
-                   goals.ts (a reading goal's pace and limits; what counts is goalCountSql in queries.ts)
-                   links.ts (purchase links: the http(s) check, the export's want and link cells — §16 #53)
+                   goals.ts (a reading goal's pace and limits; what counts is goalCountSql in queries.ts),
+                   links.ts (purchase links: the http(s) check, the export's want and link cells — §16 #53),
+                   yearreview.ts (the Year in review page's shapes and arithmetic; its one batch is
+                   yearInReview() in queries.ts, its page routes/yearreview.tsx — ARCH.md §16 #59)
+                   games.ts (a board game's weight bands, the play-tonight filters, and what "Refresh
+                   from BGG" may fill; the filtering SQL is gamesForTonight in queries.ts, the page
+                   routes/play.tsx, ARCH.md §16 #60),
+                   money.ts (purchase prices: minor units, parsing, exact formatting, currency codes —
+                   ARCH.md §16 #61)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
-                   feed pulls (feed.ts), receiving comments and borrowing (comments.ts,
-                   borrowing.ts, dispatched by directed.ts), the outbox (outbox.ts), public
-                   routes. Its D1 queries live in src/db/federation.ts; admin pages in
-                   routes/connections, Feed in routes/feed, comments in routes/comments,
+                   feed pulls (feed.ts), receiving comments, borrowing and recommendations
+                   (comments.ts, borrowing.ts, recommendations.ts, dispatched by directed.ts),
+                   the outbox (outbox.ts), public routes. Its D1 queries live in
+                   src/db/federation.ts; admin pages in routes/connections, Feed in routes/feed,
+                   comments in routes/comments, recommendations in routes/recommendations,
                    shelves/requests/Borrowed and the Loans-page section in routes/borrowing,
                    in-app notifications in routes/notifications (recorded in src/db/federation.ts)
 public/            app.css, scanner.js, import.js, app.js, covers.js (swaps a cover that fails to
@@ -267,7 +298,8 @@ public/            app.css, scanner.js, import.js, app.js, covers.js (swaps a co
                    (static scan-only page), scan-queue.js (the device's IndexedDB queue of offline
                    scans: barcode + time only) and scan-review.js (the Add page's review list)
                    + bgg/ (BGG's "Powered by BGG" logos, committed unmodified — its API terms
-                   require them beside its data; src/views/attribution.tsx, ARCH.md §16 #44)
+                   require them beside its data; src/views/attribution.tsx, ARCH.md §16 #44 —
+                   Discogs' credit, text only, lives there too, §16 #63)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;
                    apply-migrations.ts resets + re-migrates D1 before EVERY test and fails

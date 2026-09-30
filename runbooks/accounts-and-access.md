@@ -78,7 +78,7 @@ have leaked.
 
 ## Share links (admin-only)
 
-- **See everything that's public**: *Shared links* in the sidebar, under Circulation.
+- **See everything that's public**: *Shared links* in the sidebar, under Sharing & connections.
   One row per published link — its shelf, the filters it captured, how many items it
   exposes right now, and the URL — with rotate and remove on each. Start here when
   the question is "what have we published?"; the per-shelf panel below is for
@@ -92,7 +92,7 @@ have leaked.
   item carrying that tag, on any shelf, owned or not — a hand-picked list such as
   "reviewed-books" that no combination of shelf filters could express. That tag's page
   lists its links with rotate and remove, and they appear under *Shared links* too.
-- **Publish a want list as a gift list**: *Want list* in the sidebar → pick the member →
+- **Publish a want list as a gift list**: *Want list* in the sidebar, under Reading → pick the member →
   *Publish as a gift list*. The link shows everything on that member's want list as it
   stands — titles, covers, and the links under *Where to buy* on each item — so family can
   choose a present. It follows the list: an item taken off it (or finished — a finished book

@@ -12,6 +12,7 @@ import {
   listPeople,
   listShares,
   renameLibrary,
+  shelfTotals,
   tagsForItems,
   type ReaderFilter,
 } from '../db/queries';
@@ -23,6 +24,7 @@ import {
   ItemGrid,
   ItemTable,
   MEDIA_LABEL,
+  PaidTotals,
   Pagination,
   shareScopeLabel,
   STATUS_LABEL,
@@ -147,12 +149,15 @@ libraries.get('/libraries/:id', async (c) => {
     reader,
   );
   const ids = items.map((i) => i.id);
-  const [{ onLoan: onLoanIds, wanted: wantedIds }, tagsMap, shelves] = await Promise.all([
+  const [{ onLoan: onLoanIds, wanted: wantedIds }, tagsMap, shelves, totals] = await Promise.all([
     shelfFlags(c.env.DB, ids), // loans and the "Wanted" badge (§16 #53), one call
     view === 'table' ? tagsForItems(c.env.DB, ids) : Promise.resolve(undefined),
     // bulk edit's "Move to shelf", and the shelf a move's notice links to (§16 #47)
     listLibraries(c.env.DB),
+    // what the household paid for the whole shelf (§16 #61), summed in SQL, and its currency — one call
+    shelfTotals(c.env.DB, id),
   ]);
+  const shelfTotal = totals.shelves.get(id);
 
   const makeHref = (p: number, v = view) => {
     const params = new URLSearchParams();
@@ -184,11 +189,19 @@ libraries.get('/libraries/:id', async (c) => {
           </span>
         </div>
         <div class="page-actions">
+          {/* the board games here, or a view filtered to them: "What should we play tonight?" is a click away (§16 #60) */}
+          {mediaTypes.includes('boardgame') || items.some((i) => i.mediaType === 'boardgame') ? (
+            <a href="/play" class="btn">
+              Play tonight
+            </a>
+          ) : null}
           <a href="/add" class="btn">
             Add items
           </a>
         </div>
       </div>
+
+      {shelfTotal ? <PaidTotals totals={shelfTotal} household={totals.currency} /> : null}
 
       <BulkNotice query={c.req.query()} libraries={shelves} />
 

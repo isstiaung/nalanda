@@ -1,4 +1,5 @@
 import type { Context } from 'hono';
+import { getCookie } from 'hono/cookie';
 import type { Child, FC, PropsWithChildren } from 'hono/jsx';
 import type { Library } from '../db/schema';
 import { listLibraries } from '../db/queries';
@@ -69,6 +70,9 @@ export const Brand: FC = () => (
   </a>
 );
 
+const isActive = (href: string, path: string, exact?: boolean) =>
+  exact ? path === href : path === href || path.startsWith(`${href}/`);
+
 const NavLink: FC<{ href: string; label: string; path: string; count?: number; unread?: number; exact?: boolean }> = ({
   href,
   label,
@@ -77,7 +81,7 @@ const NavLink: FC<{ href: string; label: string; path: string; count?: number; u
   unread,
   exact,
 }) => {
-  const active = exact ? path === href : path === href || path.startsWith(`${href}/`);
+  const active = isActive(href, path, exact);
   return (
     <a href={href} class={active ? 'nav-link active' : 'nav-link'} aria-current={active ? 'page' : undefined}>
       <span>{label}</span>
@@ -94,49 +98,134 @@ const NavLink: FC<{ href: string; label: string; path: string; count?: number; u
 export type Unread = { notifications: number; feed: number };
 const NONE_UNREAD: Unread = { notifications: 0, feed: 0 };
 
-const Sidebar: FC<{ user: SessionUser; path: string; libraries: NavLibrary[]; federation: boolean; unread: Unread }> = ({
-  user,
-  path,
-  libraries,
-  federation,
-  unread,
-}) => (
+/**
+ * The sidebar's collapsible sections, in order (ARCH.md §16 #62). Their ids are the whole vocabulary of the `nav`
+ * cookie — the sections this device's member has opened — which the server renders open, so the first paint is right.
+ */
+export const NAV_SECTIONS = ['library', 'shelves', 'reading', 'lending', 'sharing', 'settings'] as const;
+export type NavSectionId = (typeof NAV_SECTIONS)[number];
+export const NAV_COOKIE = 'nav';
+
+/**
+ * The sections a `nav` cookie asks to keep open. The browser writes it, so it is only ever a filter over the known
+ * ids: anything else in it — an unknown name, markup, a repeat — is dropped, and none of it reaches the page.
+ */
+export function navCookieSections(value: string | undefined): NavSectionId[] {
+  if (!value || value.length > 100) return []; // all six ids joined are 49 characters; a longer value isn't ours
+  const names = value.split('.');
+  return NAV_SECTIONS.filter((id) => names.includes(id));
+}
+
+type NavEntry = { href: string; label: string; count?: number; unread?: number; exact?: boolean };
+type NavGroup = { id: NavSectionId; label: string; links: NavEntry[] };
+
+/** What each section holds for this member. A link they can't use is absent, and so is a section left empty. */
+function navGroups(user: SessionUser, libraries: NavLibrary[], federation: boolean, unread: Unread): NavGroup[] {
+  const admin = user.role === 'admin';
+  const only = (...links: (NavEntry | false)[]) => links.filter((l): l is NavEntry => l !== false);
+  const groups: NavGroup[] = [
+    {
+      id: 'library',
+      label: 'Library',
+      links: only({ href: '/tags', label: 'Tags' }, { href: '/series', label: 'Series' }),
+    },
+    {
+      id: 'shelves',
+      label: 'Shelves',
+      links: libraries.map((l) => ({ href: `/libraries/${l.id}`, label: l.name, count: l.itemCount })),
+    },
+    {
+      id: 'reading',
+      label: 'Reading',
+      links: only(
+        { href: '/wants', label: 'Want list' },
+        { href: '/goals', label: 'Reading goals' },
+        { href: '/year-in-review', label: 'Year in review' },
+      ),
+    },
+    {
+      id: 'lending',
+      label: 'Lending',
+      links: only({ href: '/loans', label: 'Loans' }, federation && { href: '/borrowed', label: 'Borrowed' }),
+    },
+    {
+      id: 'sharing',
+      label: 'Sharing & connections',
+      links: only(
+        admin && { href: '/shares', label: 'Shared links' },
+        federation && { href: '/feed', label: 'Feed', unread: unread.feed },
+        federation && { href: '/notifications', label: 'Notifications', unread: unread.notifications },
+        federation && { href: '/recommendations', label: 'Recommended' },
+        federation && admin && { href: '/connections', label: 'Connections' },
+      ),
+    },
+    {
+      id: 'settings',
+      label: 'Settings',
+      links: only(
+        { href: '/import', label: 'Import / export' },
+        admin && { href: '/settings/users', label: 'Members' },
+        { href: '/account', label: 'Account' },
+      ),
+    },
+  ];
+  return groups.filter((g) => g.links.length > 0);
+}
+
+/**
+ * One section: a native <details>, so it opens and closes with no script and from the keyboard — its <summary> is a
+ * button to assistive tech, announced expanded or collapsed — and a closed one keeps its links out of the tab order.
+ * Closed, its header carries the section's unread total (CSS hides it once open, where each link shows its own).
+ */
+const NavSection: FC<{ group: NavGroup; path: string; open: boolean }> = ({ group, path, open }) => {
+  const unread = group.links.reduce((n, l) => n + (l.unread ?? 0), 0);
+  return (
+    <details class="nav-section" data-nav={group.id} open={open}>
+      <summary class="nav-summary">
+        <span class="nav-eyebrow">{group.label}</span>
+        {unread ? (
+          // the count and the word "unread" read out in place, no role: "Sharing & connections, 3 unread, collapsed"
+          <span class="nav-unread nav-summary-unread">
+            {unread > 99 ? '99+' : unread}
+            <span class="sr-only"> unread</span>
+          </span>
+        ) : null}
+      </summary>
+      <div class="nav-links">
+        {group.links.map((l) => (
+          <NavLink href={l.href} label={l.label} path={path} count={l.count} unread={l.unread} exact={l.exact} />
+        ))}
+      </div>
+    </details>
+  );
+};
+
+const Sidebar: FC<{
+  user: SessionUser;
+  path: string;
+  libraries: NavLibrary[];
+  federation: boolean;
+  unread: Unread;
+  navOpen: readonly NavSectionId[];
+}> = ({ user, path, libraries, federation, unread, navOpen }) => (
   <aside class="sidebar" id="sidebar">
     <Brand />
-    <nav class="nav-section" aria-label="Catalog">
-      <div class="nav-eyebrow">Catalog</div>
-      <NavLink href="/" label="Overview" path={path} exact />
-      <NavLink href="/add" label="Add items" path={path} />
-      <NavLink href="/search" label="Search" path={path} />
-      <NavLink href="/tags" label="Tags" path={path} />
-      <NavLink href="/series" label="Series" path={path} />
-      <NavLink href="/wants" label="Want list" path={path} />
-    </nav>
-    <nav class="nav-section" aria-label="Circulation">
-      <div class="nav-eyebrow">Circulation</div>
-      <NavLink href="/loans" label="Loans" path={path} />
-      {federation ? <NavLink href="/feed" label="Feed" path={path} unread={unread.feed} /> : null}
-      {federation ? <NavLink href="/notifications" label="Notifications" path={path} unread={unread.notifications} /> : null}
-      {federation ? <NavLink href="/borrowed" label="Borrowed" path={path} /> : null}
-      {user.role === 'admin' ? <NavLink href="/shares" label="Shared links" path={path} /> : null}
-      {federation && user.role === 'admin' ? <NavLink href="/connections" label="Connections" path={path} /> : null}
-    </nav>
-    <nav class="nav-section" aria-label="Shelves">
-      <div class="nav-eyebrow">Shelves</div>
-      {libraries.map((l) => (
-        <NavLink href={`/libraries/${l.id}`} label={l.name} path={path} count={l.itemCount} />
+    <nav class="nav" aria-label="Main">
+      {/* pinned: always in view, in no section */}
+      <div class="nav-pinned">
+        <NavLink href="/" label="Overview" path={path} exact />
+        <NavLink href="/add" label="Add items" path={path} />
+        <NavLink href="/search" label="Search" path={path} />
+      </div>
+      {navGroups(user, libraries, federation, unread).map((g) => (
+        // open if this device keeps it open, and always when it holds the page being shown
+        <NavSection group={g} path={path} open={navOpen.includes(g.id) || g.links.some((l) => isActive(l.href, path, l.exact))} />
       ))}
-    </nav>
-    <nav class="nav-section" aria-label="Data">
-      <div class="nav-eyebrow">Data</div>
-      <NavLink href="/import" label="Import / export" path={path} />
-      {user.role === 'admin' ? <NavLink href="/settings/users" label="Members" path={path} /> : null}
     </nav>
     <div class="sidebar-foot">
       <div class="whoami">
         {user.username} · {user.role}
       </div>
-      <NavLink href="/account" label="Account" path={path} />
       <form method="post" action="/auth/logout">
         <button class="linklike" type="submit">
           Log out
@@ -156,8 +245,10 @@ export const Layout: FC<
     unread?: Unread;
     /** whose offline scans this device may hold — see scanQueueOwner(); app.js reads it */
     scanOwner?: string;
+    /** the sidebar sections this device keeps open — navCookieSections() of the `nav` cookie */
+    navOpen?: readonly NavSectionId[];
   }>
-> = ({ title, user, path = '/', libraries = [], federation = false, unread = NONE_UNREAD, scanOwner, children }) => (
+> = ({ title, user, path = '/', libraries = [], federation = false, unread = NONE_UNREAD, scanOwner, navOpen = [], children }) => (
   <html lang="en">
     <Head title={title} />
     {user ? (
@@ -167,7 +258,7 @@ export const Layout: FC<
           Skip to content
         </a>
         <div class="app">
-          <Sidebar user={user} path={path} libraries={libraries} federation={federation} unread={unread} />
+          <Sidebar user={user} path={path} libraries={libraries} federation={federation} unread={unread} navOpen={navOpen} />
           <div>
             <header class="mobile-bar">
               <button type="button" id="nav-toggle" class="btn-quiet" aria-label="Menu" aria-controls="sidebar" aria-expanded="false">
@@ -215,7 +306,9 @@ export async function page(c: Context<AppEnv>, title: string, body: Child) {
   const unread = federation && user ? await unreadCounts(c.env.DB, user.id) : NONE_UNREAD;
   // signed in means the session secret is set: the cookie was verified with it
   const scanOwner = user && c.env.SESSION_SECRET ? await scanQueueOwner(c.env.SESSION_SECRET, user) : undefined;
+  // the sidebar sections this device keeps open: a cookie app.js writes, read here so the first paint is right
+  const navOpen = navCookieSections(getCookie(c, NAV_COOKIE));
   return c.html(
-    `<!doctype html>${Layout({ title, user, path, libraries, federation, unread, scanOwner, children: body })}`,
+    `<!doctype html>${Layout({ title, user, path, libraries, federation, unread, scanOwner, navOpen, children: body })}`,
   );
 }
