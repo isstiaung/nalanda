@@ -29,6 +29,7 @@ import shareAdminRoutes from './routes/shares';
 import seriesRoutes from './routes/series';
 import tagRoutes from './routes/tags';
 import wantRoutes from './routes/wants';
+import yearReviewRoutes from './routes/yearreview';
 
 const app = new Hono<AppEnv>();
 
@@ -118,6 +119,7 @@ app.use(async (c, next) => {
 
 app.route('/', dashboardRoutes);
 app.route('/', goalRoutes);
+app.route('/', yearReviewRoutes); // in the app only: never on share pages or to connections (§16 #59)
 app.route('/', libraryRoutes);
 app.route('/', shareAdminRoutes);
 app.route('/', itemRoutes);
