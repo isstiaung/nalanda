@@ -84,7 +84,8 @@ function record(where, variant, results) {
 
 let symbolsOnly = 0; // incomplete contrast checks on text that is only symbols: stars, media icons
 
-async function axe(page, where, variant) {
+/** `off`: rules this one run can't judge fairly, each with its reason where it's passed. */
+async function axe(page, where, variant, off = []) {
   // from the top: after a keyboard walk the page is scrolled, and the phone's sticky bar would sit over text
   // (and a table the walk scrolled sideways would hide its first column under its own edge)
   await page.evaluate(() => {
@@ -92,13 +93,13 @@ async function axe(page, where, variant) {
     for (const el of document.querySelectorAll('.data-table')) el.scrollLeft = 0;
   });
   const results = await page.evaluate(
-    ({ tags, extra }) =>
+    ({ tags, extra, off }) =>
       window.axe.run(document, {
         runOnly: { type: 'tag', values: tags },
-        rules: Object.fromEntries(extra.map((id) => [id, { enabled: true }])),
+        rules: Object.fromEntries([...extra.map((id) => [id, { enabled: true }]), ...off.map((id) => [id, { enabled: false }])]),
         resultTypes: ['violations', 'incomplete'],
       }),
-    { tags: TAGS, extra: EXPERIMENTAL },
+    { tags: TAGS, extra: EXPERIMENTAL, off },
   );
   record(where, variant, results);
   // Reflow (WCAG 1.4.10), which axe doesn't test: on a phone the page itself never scrolls sideways. A table may
@@ -297,6 +298,7 @@ async function html(context, path) {
 }
 
 const daysAgo = (n) => new Date(Date.now() - n * 86400_000).toISOString().slice(0, 10);
+const today = () => daysAgo(0);
 
 /** Everything the page list below needs that the seed doesn't make. Returns the ids it found or made. */
 async function furnish(admin, member) {
@@ -323,9 +325,15 @@ async function furnish(admin, member) {
     if (!id) throw new Error(`Adding "${fields.title}" did not land on its page`);
     return id;
   };
-  const book = await addWithCover({ libraryId: String(shelves.books), mediaType: 'book', title: 'The Audit Book', creators: 'A. Writer', status: 'completed', completedOn: daysAgo(30), length: '320', isbn13: '9780000000002' }, 1);
+  // a book in a series with a gap (1 and 3 held), with a location; a record graded, with its pressing and tracklist
+  const book = await addWithCover({ libraryId: String(shelves.books), mediaType: 'book', title: 'The Audit Book', creators: 'A. Writer', status: 'completed', completedOn: daysAgo(30), length: '320', isbn13: '9780000000002', location: 'Study, 2nd shelf', seriesName: 'The Audit Cycle', seriesNumber: '1' }, 1);
+  await addWithCover({ libraryId: String(shelves.books), mediaType: 'book', title: 'The Audit Book, Part Three', creators: 'A. Writer', status: 'not_started', seriesName: 'The Audit Cycle', seriesNumber: '3' }, 4);
   const game = await addWithCover({ libraryId: String(shelves.games), mediaType: 'boardgame', title: 'The Audit Game', status: 'completed', details: '{"bgg_id":266192,"players_min":1,"players_max":5}' }, 2);
-  const record = await addWithCover({ libraryId: String(shelves.vinyl), mediaType: 'vinyl', title: 'The Audit Record', status: 'completed' }, 3);
+  const pressing = {
+    discogs_id: 1, label: 'Audit Records, EMI', catno: 'AUD 001', country: 'UK', year: 1971, format: 'Vinyl, LP, Album',
+    tracklist: [{ heading: 'Side A' }, { position: 'A1', title: 'Opening', duration: '3:41' }, { position: 'A2', title: 'Second', duration: '4:02' }, { heading: 'Side B' }, { position: 'B1', title: 'Closing', duration: '6:15' }],
+  };
+  const record = await addWithCover({ libraryId: String(shelves.vinyl), mediaType: 'vinyl', title: 'The Audit Record', status: 'completed', details: JSON.stringify(pressing), mediaCondition: 'VG+', sleeveCondition: 'VG', location: 'Living room, crate 2' }, 3);
 
   const reading = await find('The Dispossessed'); // seeded "in progress", 387 pages
   const reread = await find('The Left Hand of Darkness'); // seeded completed
@@ -335,6 +343,15 @@ async function furnish(admin, member) {
   await post(admin, `/items/${reading}/progress`, { page: '120' }, { htmx: true });
   await post(admin, `/items/${reread}/reads`, { status: 'completed', beganOn: '2019-01-02', endedOn: '2019-02-03' }, { htmx: true });
   await post(admin, `/items/${overdue}/loan`, { borrower: 'Meera', contact: '', dueOn: daysAgo(3) });
+  // "Lent before": a loan of the book, returned
+  await post(admin, `/items/${book}/loan`, { borrower: 'Priya', contact: '', dueOn: '' });
+  const loanId = (await html(admin, `/items/${book}`)).match(/action="\/loans\/(\d+)\/return"/)?.[1];
+  if (!loanId) throw new Error('furnishing: the book\'s loan has no return form');
+  await post(admin, `/loans/${loanId}/return`, {});
+  // a play log for the game and a listening log for the record
+  for (const [id, date] of [[game, today()], [game, daysAgo(12)], [game, daysAgo(40)], [record, daysAgo(2)]]) {
+    await post(admin, `/items/${id}/plays`, { date }, { htmx: true });
+  }
 
   // a second member — the reading and review sections then name people
   const minted = await (await post(admin, '/settings/users', { username: 'ravi', role: 'member' })).text();
@@ -349,6 +366,8 @@ async function furnish(admin, member) {
   await post(admin, `/settings/users/${adminId}/display-name`, { displayName: 'Lakshmi' });
   if (!raviId || !adminId) throw new Error('Could not find the members on /settings/users');
   await post(admin, `/settings/users/${raviId}/display-name`, { displayName: 'Ravi' });
+  // this year's reading goal for the admin: the Overview's goal card and /goals show it
+  await post(admin, '/goals', { userId: String(adminId), year: today().slice(0, 4), target: '12' });
 
   // names and progress on share pages, so their fullest form is audited; a tag share and a board-game share too
   await post(admin, '/shares/settings', { setting: 'progress', progressOnShares: 'on' });
@@ -381,8 +400,14 @@ async function furnish(admin, member) {
   await expect(`/items/${book}`, 'its cover', /<img class="cover-img"/);
   await expect('/connections', 'the shared view', /Finished books/);
   await expect(`/libraries/${shelves.books}?page=2`, 'a second page', /class="pagination"/);
+  await expect(`/items/${book}`, 'its location and a returned loan', /Study, 2nd shelf[\s\S]*Lent before|Lent before[\s\S]*Study, 2nd shelf/);
+  await expect(`/items/${record}`, 'its pressing and tracklist', /AUD 001[\s\S]*Side A|Side A[\s\S]*AUD 001/);
+  await expect(`/items/${game}`, 'its plays', /Played[\s\S]*times/);
+  await expect('/', 'the goal and a book to read next', /Reading goal[\s\S]*Read next/);
+  const seriesId = Number((await html(admin, '/series')).match(/href="\/series\/(\d+)"/)?.[1]);
+  if (!seriesId) throw new Error('furnishing: /series lists no series');
   if (shares.length < 5 || !wishlist) throw new Error(`furnishing: ${shares.length} share links and wishlist ${wishlist}`);
-  return { shelves, wishlist, book, game, record, reading, reread, overdue, temp, shares, member };
+  return { shelves, wishlist, seriesId, book, game, record, reading, reread, overdue, temp, shares, member };
 }
 
 // ── pages ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -407,6 +432,11 @@ function pageList(ids) {
     ['Item: lent, overdue', `/items/${ids.overdue}`],
     ['Edit: book', `/items/${ids.reading}/edit`],
     ['Edit: board game', `/items/${ids.game}/edit`],
+    ['Edit: record (grades)', `/items/${ids.record}/edit`],
+    ['Plays: every play of a game', `/items/${ids.game}/plays`],
+    ['Series', '/series'],
+    ['Series: one series', `/series/${ids.seriesId}`],
+    ['Reading goals', '/goals'],
     ['Add items', '/add'],
     ['Search: empty', '/search'],
     ['Search: results', '/search?q=le+guin'],
@@ -754,6 +784,79 @@ async function interactions(context, ids, variant) {
       await axe(page, where('Shelf → Holding toggled back to Owned'), variant.name);
     });
 
+    // Read next's "Another" (hx-get into #read-next): a new suggestion in place, focus kept on the button
+    await step('Overview → Read next → Another', async () => {
+      await open(page, '/');
+      const before = await page.locator('#read-next').innerHTML();
+      await page.locator('#read-next-another').press('Enter');
+      await page.waitForFunction((b) => document.querySelector('#read-next')?.innerHTML !== b, before, { timeout: 10_000 });
+      await page.waitForTimeout(50);
+      await axe(page, where('Overview → Read next → Another'), variant.name);
+      await focusKept(page, where('Overview → Read next → Another'));
+    });
+
+    // a board game's play log: Played, then the play removed, each swapping #plays
+    await step('Play log', async () => {
+      await open(page, `/items/${ids.game}`);
+      const plays = page.locator('#plays');
+      const swapPlays = async (label, fn) => {
+        const before = await plays.innerHTML();
+        await fn();
+        await page.waitForFunction((b) => document.querySelector('#plays')?.innerHTML !== b, before, { timeout: 10_000 });
+        await page.waitForTimeout(50);
+        await axe(page, where(`Play log → ${label}`), variant.name);
+        await focusKept(page, where(`Play log → ${label}`));
+      };
+      await swapPlays('Played', () => plays.getByRole('button', { name: 'Played' }).press('Enter'));
+      await swapPlays('Remove a play', () => plays.locator('.play-log button', { hasText: 'Remove' }).first().press('Enter'));
+    });
+
+    // bulk edit: pick two items, the bar says so; a tag added in bulk leaves its notice; a bulk delete asks first
+    await step('Bulk edit', async () => {
+      await open(page, `/libraries/${ids.shelves.books}`);
+      const picks = page.locator('input.bulk-pick');
+      await picks.nth(0).check();
+      await picks.nth(1).check();
+      await axe(page, where('Shelf → two items picked, the bulk bar'), variant.name);
+      await page.selectOption('form.bulk-bar select[name="action"]', 'tag-add');
+      await page.locator('form.bulk-bar input[name="tag"]').fill('audit-bulk');
+      await page.locator('form.bulk-bar').getByRole('button', { name: 'Apply' }).click();
+      await page.waitForLoadState('load');
+      await page.locator('output.notice, .notice').first().waitFor({ timeout: 10_000 });
+      await page.addScriptTag({ content: AXE });
+      await axe(page, 'Shelf → bulk tag added, its notice', variant.name);
+      const picks2 = page.locator('input.bulk-pick');
+      await picks2.nth(0).check();
+      await picks2.nth(1).check();
+      await page.selectOption('form.bulk-bar select[name="action"]', 'delete');
+      await page.locator('form.bulk-bar').getByRole('button', { name: 'Apply' }).click();
+      await page.waitForLoadState('load');
+      await page.getByRole('link', { name: 'Cancel' }).waitFor({ timeout: 10_000 });
+      await page.addScriptTag({ content: AXE });
+      await axe(page, 'Bulk delete → its confirmation', variant.name);
+      if (variant.scheme === 'light') await keyboard(page, 'Bulk delete → its confirmation', variant.name);
+    });
+
+    // the Add page's review list: barcodes held on the device while offline, looked up now (ARCH.md §16 #48)
+    await step('Add → scans held offline', async () => {
+      await open(page, '/add');
+      const held = await page.evaluate(async () => {
+        const q = window.nalandaScanQueue;
+        await q.clear();
+        await q.hold('9780441478125');
+        await q.hold('12345678');
+        return q.count();
+      });
+      if (held < 1) throw new Error('the scan queue held nothing (no owner stamp on this device?)');
+      await open(page, '/add');
+      await page.locator('#scan-review:not([hidden])').waitFor({ timeout: 10_000 });
+      await page.locator('#scan-review-list > *').first().waitFor({ timeout: 20_000 });
+      await page.waitForTimeout(500);
+      await axe(page, 'Add → scans held offline, the review list', variant.name);
+      if (variant.scheme === 'light') await keyboard(page, 'Add → scans held offline, the review list', variant.name);
+      await page.evaluate(() => window.nalandaScanQueue.clear());
+    });
+
     // the phone drawer: open, it's the page's navigation; Escape closes it and hands focus back
     if (variant.width < 881) {
       await step('Phone menu', async () => {
@@ -904,6 +1007,7 @@ async function main() {
     ['Member: shelf', `/libraries/${ids.shelves.books}`],
     ['Member: search', '/search?q=le+guin'],
     ['Member: account', '/account'],
+    ['Member: reading goals', '/goals'],
   ];
 
   for (const variant of VARIANTS) {
@@ -919,6 +1023,16 @@ async function main() {
         await page.waitForLoadState('load');
         await page.addScriptTag({ content: AXE });
         await axe(page, 'Log in → wrong password', variant.name);
+      }
+      // the page the installed app shows when it can't reach the server
+      if (chosen('Offline')) {
+        try {
+          await open(page, '/offline.html');
+          await axe(page, 'Offline page (offline.html)', variant.name);
+          if (variant.scheme === 'light') await keyboard(page, 'Offline page (offline.html)', variant.name);
+        } catch (err) {
+          failures.push(`unreachable · Offline page [${variant.name}]: ${err.message}`);
+        }
       }
       // an invitation link opened in a browser: it only explains itself (connections are on and named here)
       if (chosen('Invitation')) {
@@ -986,7 +1100,16 @@ async function main() {
               }
             }
           }, i);
-          await axe(page, `${name} (menu "${label}" open)`, variant.name);
+          // Everything but target size, over the whole page; target size for the menu's own checkboxes only — the
+          // page under a dropdown was measured above, and a card half under the menu measures as a smaller
+          // neighbour than anyone can tap. (A header cell whose only control is set invisible reads as empty for
+          // this run, too: it was audited above, uncovered.)
+          await axe(page, `${name} (menu "${label}" open)`, variant.name, ['empty-table-header', 'target-size']);
+          const menuTargets = await page.evaluate(
+            (n) => window.axe.run({ include: [[`details[data-a11y-shut="${n}"] .filter-menu`]] }, { runOnly: { type: 'rule', values: ['target-size'] } }),
+            i,
+          );
+          record(`${name} (menu "${label}" open, its checkboxes)`, variant.name, menuTargets);
           await page.evaluate(() => {
             for (const el of document.querySelectorAll('[data-a11y-covered]')) {
               el.style.visibility = '';
