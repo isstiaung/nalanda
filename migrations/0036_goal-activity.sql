@@ -79,10 +79,14 @@ CREATE INDEX `idx_member_activity_item` ON `member_activity` (`item_id`);
 --> statement-breakpoint
 CREATE INDEX `idx_member_activity_progress` ON `member_activity` (`progress_id`);
 --> statement-breakpoint
--- A goal's milestones. `before` is the count without this finish: one less for a new finished read; for a read
--- changed to finished, or re-dated, one less unless it already counted toward the same year. Halfway is half the
--- target in whole books, rounded up; a finish that reaches the target is "reached", never also "halfway". INSERT OR
--- IGNORE: a milestone is recorded once per goal — changing a goal's target withdraws its milestones (setGoal). Made
+-- A goal's milestones, recorded by a finish as it happens (today or yesterday, outside an import): the line the
+-- count now stands at or past — "reached" once it's at the target, else "halfway" once it's at half the target in
+-- whole books, rounded up; never both from one finish. A line crossed without news (an import, a back-dated finish)
+-- is announced by the next live finish, with the count as it then is ("5 of 4") — the owner's choice (§16 #49). A
+-- line the goal's own goal_set entry already reported the count at or past (`said`: a target changed mid-year) is
+-- news already, and isn't announced again.
+-- INSERT OR IGNORE on the (goal, kind) index: a milestone is recorded once per goal — changing a goal's target
+-- withdraws its milestones (setGoal). Made
 -- before 0027's triggers are made again: SQLite fires the newest trigger first, so a finish's own entry is recorded
 -- before the milestone it makes, and gets the lower id.
 CREATE TRIGGER `member_goal_reads_ai` AFTER INSERT ON `reads`
@@ -92,15 +96,15 @@ WHEN new.status = 'completed' AND new.reader_id IS NOT NULL AND new.ended_on IS 
   AND (SELECT `media_type` FROM `items` WHERE `id` = new.item_id) = 'book'
 BEGIN
   INSERT OR IGNORE INTO `member_activity` (`item_id`, `kind`, `at`, `read_id`, `goal_id`, `goal_target`, `goal_count`)
-    SELECT new.item_id, CASE WHEN c.n >= g.target THEN 'goal_reached' ELSE 'goal_halfway' END, datetime('now'), new.id,
-      g.id, g.target, c.n
+    SELECT new.item_id, CASE WHEN c.n >= g.target AND g.target > c.said THEN 'goal_reached' ELSE 'goal_halfway' END,
+      datetime('now'), new.id, g.id, g.target, c.n
     FROM `reading_goals` g JOIN (SELECT g2.id AS goal, (SELECT count(*) FROM reads r JOIN items i ON i.id = r.item_id
   WHERE r.reader_id = g2.user_id AND r.status = 'completed' AND i.media_type = 'book'
-    AND CAST(substr(r.ended_on, 1, 4) AS INTEGER) = g2.year) AS n
+    AND CAST(substr(r.ended_on, 1, 4) AS INTEGER) = g2.year) AS n,
+      coalesce((SELECT `goal_count` FROM `member_activity` s WHERE s.`goal_id` = g2.id AND s.`kind` = 'goal_set'), -1) AS said
       FROM `reading_goals` g2 WHERE g2.user_id = new.reader_id) c ON c.goal = g.id
     WHERE g.user_id = new.reader_id AND g.year = CAST(substr(new.ended_on, 1, 4) AS INTEGER)
-      AND ((c.n >= g.target AND c.n - 1 < g.target)
-        OR (c.n < g.target AND c.n >= (g.target + 1) / 2 AND c.n - 1 < (g.target + 1) / 2));
+      AND ((c.n >= g.target AND g.target > c.said) OR (c.n >= (g.target + 1) / 2 AND (g.target + 1) / 2 > c.said));
 END;
 --> statement-breakpoint
 CREATE TRIGGER `member_goal_reads_au` AFTER UPDATE OF `status`, `ended_on` ON `reads`
@@ -111,17 +115,15 @@ WHEN new.status = 'completed' AND new.reader_id IS NOT NULL AND new.ended_on IS 
   AND (SELECT `media_type` FROM `items` WHERE `id` = new.item_id) = 'book'
 BEGIN
   INSERT OR IGNORE INTO `member_activity` (`item_id`, `kind`, `at`, `read_id`, `goal_id`, `goal_target`, `goal_count`)
-    SELECT new.item_id, CASE WHEN c.n >= g.target THEN 'goal_reached' ELSE 'goal_halfway' END, datetime('now'), new.id,
-      g.id, g.target, c.n
+    SELECT new.item_id, CASE WHEN c.n >= g.target AND g.target > c.said THEN 'goal_reached' ELSE 'goal_halfway' END,
+      datetime('now'), new.id, g.id, g.target, c.n
     FROM `reading_goals` g JOIN (SELECT g2.id AS goal, (SELECT count(*) FROM reads r JOIN items i ON i.id = r.item_id
   WHERE r.reader_id = g2.user_id AND r.status = 'completed' AND i.media_type = 'book'
     AND CAST(substr(r.ended_on, 1, 4) AS INTEGER) = g2.year) AS n,
-      CASE WHEN old.status = 'completed' AND old.reader_id IS new.reader_id
-        AND CAST(substr(old.ended_on, 1, 4) AS INTEGER) = g2.year THEN 1 ELSE 0 END AS counted
+      coalesce((SELECT `goal_count` FROM `member_activity` s WHERE s.`goal_id` = g2.id AND s.`kind` = 'goal_set'), -1) AS said
       FROM `reading_goals` g2 WHERE g2.user_id = new.reader_id) c ON c.goal = g.id
     WHERE g.user_id = new.reader_id AND g.year = CAST(substr(new.ended_on, 1, 4) AS INTEGER)
-      AND ((c.n >= g.target AND c.n - 1 + c.counted < g.target)
-        OR (c.n < g.target AND c.n >= (g.target + 1) / 2 AND c.n - 1 + c.counted < (g.target + 1) / 2));
+      AND ((c.n >= g.target AND g.target > c.said) OR (c.n >= (g.target + 1) / 2 AND (g.target + 1) / 2 > c.said));
 END;
 --> statement-breakpoint
 -- A milestone stands on the finish that crossed the line. When that read stops being a finish of that year — stopped,

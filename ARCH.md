@@ -1764,10 +1764,15 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     is about a person, not an item — like a display name, which isn't in it either. Backups carry
     `reading_goals` with every other table, and a restore brings them back.
 
+    **A line crossed without news is announced by the next live finish** (the owner's choice, after
+    nalanda-review found an imported or back-dated crossing was never announced): a finish that is news
+    records the milestone the count now stands at or past — "reached 5 of 4" — once per goal, through the
+    (goal, kind) unique index. A line the goal's own `goal_set` entry already reported the count at or past
+    (a target changed mid-year: "2 of 4" says halfway) isn't news again.
+
     **Chosen without asking, overrulable:** a goal can be set for this year or next only; pace counts
     the server's UTC day and is "on track" until a whole book behind; "halfway" is half the target
-    rounded up, and a finish that reaches the target is only "reached"; a milestone passed without news
-    (a past read, an import, a target lowered below the count) is not announced later; a milestone stays
+    rounded up, and a finish that reaches the target is only "reached"; a milestone stays
     while its finish does, even if the count later dips; a goal goes to every view that can hold books
     and a milestone only to views holding its book; goal entries are recorded for unnamed members too
     and served once they have a name (a rename re-keys them), as #45 serves a named member's history;

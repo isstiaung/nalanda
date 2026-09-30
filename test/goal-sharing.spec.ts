@@ -344,6 +344,47 @@ describe('a milestone’s finish undone', () => {
 
 // ---------- compatibility, both ways ----------
 
+describe('a line crossed without news', () => {
+  beforeEach(async () => {
+    await connected();
+    await updateSiteSettings(env.DB, { namesToConnections: true, goalsToConnections: true });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
+
+  // the owner's choice (§16 #49): a back-dated or imported finish that crosses a line is no news itself, but the next
+  // finish that is news announces the line, with the count as it then stands
+  it('is announced by the next live finish — "reached" at 5 of 4 — and only once', async () => {
+    const asha = await named('u-asha', 'Asha', 'admin');
+    const y = thisYear();
+    if (daysAgo(6).slice(0, 4) !== String(y)) return; // the first days of January: back-dated finishes would count toward last year
+    await setGoal(env.DB, asha.id, y, 4, actor(asha));
+    await finished(asha, { title: 'One' });
+    await finished(asha, { title: 'Two' }, daysAgo(1)); // halfway, as it happens
+    await finished(asha, { title: 'Three' }, daysAgo(5)); // back-dated: no news
+    await finished(asha, { title: 'Four' }, daysAgo(6)); // back-dated, and it crosses the target: still no news
+    expect(goalLines((await pull()).entries)).toEqual([`Asha goal_set 0/4 ${y}`, `Asha goal_halfway 2/4 ${y}`]);
+
+    await finished(asha, { title: 'Five' }); // live: the line crossed silently is news now
+    const after = goalLines((await pull()).entries);
+    expect(after).toEqual([`Asha goal_set 0/4 ${y}`, `Asha goal_halfway 2/4 ${y}`, `Asha goal_reached 5/4 ${y}`]);
+    await finished(asha, { title: 'Six' }); // and never again
+    expect(goalLines((await pull()).entries)).toEqual(after);
+  });
+
+  it('announces a halfway crossed silently at the next live finish below the target', async () => {
+    const asha = await named('u-asha', 'Asha', 'admin');
+    const y = thisYear();
+    if (daysAgo(6).slice(0, 4) !== String(y)) return;
+    await setGoal(env.DB, asha.id, y, 6, actor(asha));
+    for (const [i, d] of [5, 6, 7].entries()) await finished(asha, { title: `Old ${i}` }, daysAgo(d)); // 3 of 6, silently
+    expect(goalLines((await pull()).entries)).toEqual([`Asha goal_set 0/6 ${y}`]);
+    await finished(asha, { title: 'Four' });
+    expect(goalLines((await pull()).entries)).toEqual([`Asha goal_set 0/6 ${y}`, `Asha goal_halfway 4/6 ${y}`]);
+  });
+});
+
 describe('compatibility: the protocol stays version 1', () => {
   beforeEach(async () => {
     await connected();
