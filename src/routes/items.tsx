@@ -7,7 +7,7 @@ import {
   applyPressingFill,
   addPurchaseLink,
   deletePurchaseLink,
-  itemByIsbn13,
+  existingForWant,
   setWant,
   wantsAndLinks,
   addProgress,
@@ -314,12 +314,17 @@ items.post('/items', async (c) => {
   // landing on the edit form so rating/review/status go in immediately.
   const logOnly = body['logOnly'] === '1';
   if (logOnly) parsed.values.copies = 0;
-  // "Want to read" / "Want" on a scan or search result (§16 #53): onto the adder's want list. Already in the catalog
-  // by ISBN — the want goes on that item, with no second copy; otherwise it joins as Not owned, as a Goodreads
-  // import's books do, and the want rides in its insert's batch.
+  // "Want to read" / "Want" on a scan or search result (§16 #53): onto the adder's want list. Already in the catalog —
+  // a book by ISBN-13, a record by barcode or Discogs id, a game by BGG id — the want goes on that item, with no second
+  // copy; otherwise it joins as Not owned, as a Goodreads import's books do, and the want rides in its insert's batch.
   const want = body['want'] === '1';
   if (want) {
-    const existing = parsed.values.isbn13 ? await itemByIsbn13(c.env.DB, parsed.values.isbn13) : null;
+    const existing = await existingForWant(c.env.DB, {
+      mediaType: parsed.values.mediaType ?? 'other',
+      isbn13: parsed.values.isbn13,
+      isbn10Upc: parsed.values.isbn10Upc,
+      details: parseDetails(parsed.values.details),
+    });
     if (existing) {
       await setWant(c.env.DB, existing, c.get('user').id, true);
       return c.redirect(`/items/${existing}`);

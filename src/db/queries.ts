@@ -2240,9 +2240,35 @@ export async function deletePurchaseLink(d1: D1Database, itemId: number, linkId:
   await d1.prepare('DELETE FROM purchase_links WHERE id = ?1 AND item_id = ?2').bind(linkId, itemId).run();
 }
 
-/** An item already in the catalog with this ISBN-13 — "Want it" on a result adds a want to it rather than a second copy. */
-export async function itemByIsbn13(d1: D1Database, isbn13: string): Promise<number | null> {
-  const [row] = await db(d1).select({ id: s.items.id }).from(s.items).where(eq(s.items.isbn13, isbn13)).orderBy(asc(s.items.id)).limit(1);
+/**
+ * The item already in the catalog that a scan or search result names, if any — "Want" on it then adds a want there
+ * rather than a second copy (§16 #53). A book by its ISBN-13; a record by its barcode (in isbn13 or isbn10_upc, digits
+ * only) or its Discogs release id; a board game by its BGG id. Ids in details compare as text, whatever JSON type they
+ * were stored as. The oldest match, or null. One query.
+ */
+export async function existingForWant(
+  d1: D1Database,
+  c: { mediaType: MediaType; isbn13?: string | null; isbn10Upc?: string | null; details: Record<string, unknown> },
+): Promise<number | null> {
+  const digits = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '') || null;
+  const idOf = (v: unknown) => (typeof v === 'number' && Number.isSafeInteger(v) && v > 0) || (typeof v === 'string' && /^\d{1,15}$/.test(v)) ? String(v) : null;
+  const music = c.mediaType === 'vinyl' || c.mediaType === 'music';
+  const isbn = c.mediaType === 'book' ? digits(c.isbn13) : null;
+  const barcode = music ? (digits(c.isbn10Upc) ?? digits(c.isbn13)) : null;
+  const discogs = music ? idOf(c.details['discogs_id']) : null;
+  const bgg = c.mediaType === 'boardgame' ? idOf(c.details['bgg_id']) : null;
+  if (!isbn && !barcode && !discogs && !bgg) return null;
+  const row = await d1
+    .prepare(
+      `SELECT id FROM items WHERE
+         (?1 IS NOT NULL AND isbn13 = ?1)
+         OR (?2 IS NOT NULL AND media_type IN ('vinyl', 'music') AND (isbn10_upc = ?2 OR isbn13 = ?2))
+         OR (?3 IS NOT NULL AND media_type IN ('vinyl', 'music') AND CAST(json_extract(details, '$.discogs_id') AS TEXT) = ?3)
+         OR (?4 IS NOT NULL AND media_type = 'boardgame' AND CAST(json_extract(details, '$.bgg_id') AS TEXT) = ?4)
+       ORDER BY id LIMIT 1`,
+    )
+    .bind(isbn, barcode, discogs, bgg)
+    .first<{ id: number }>();
   return row?.id ?? null;
 }
 
