@@ -63,9 +63,9 @@ describe('sections', () => {
     expect(bar.sections.map((s) => [s.id, s.links])).toEqual([
       ['library', ['/tags', '/series']],
       ['shelves', [`/libraries/${shelf.id}`]],
-      ['reading', ['/wants', '/goals']],
+      ['reading', ['/wants', '/goals', '/year-in-review']],
       ['lending', ['/loans', '/borrowed']],
-      ['sharing', ['/shares', '/feed', '/notifications', '/connections']],
+      ['sharing', ['/shares', '/feed', '/notifications', '/recommendations', '/connections']],
       ['settings', ['/import', '/settings/users', '/account']],
     ]);
     for (const s of bar.sections) for (const href of ['/', '/add', '/search']) expect(s.links, s.id).not.toContain(href);
@@ -247,14 +247,14 @@ describe('links only some members see', () => {
     const all = (bar: Awaited<ReturnType<typeof sidebar>>) => bar.sections.flatMap((s) => s.links);
 
     const plainMember = all(await sidebar(plain(), '/', member.cookie));
-    for (const href of ['/shares', '/settings/users', '/feed', '/notifications', '/borrowed', '/connections']) expect(plainMember, href).not.toContain(href);
+    for (const href of ['/shares', '/settings/users', '/feed', '/notifications', '/borrowed', '/recommendations', '/connections']) expect(plainMember, href).not.toContain(href);
 
     const plainAdmin = all(await sidebar(plain(), '/', admin.cookie));
     expect(plainAdmin).toEqual(expect.arrayContaining(['/shares', '/settings/users']));
-    for (const href of ['/feed', '/notifications', '/borrowed', '/connections']) expect(plainAdmin, href).not.toContain(href);
+    for (const href of ['/feed', '/notifications', '/borrowed', '/recommendations', '/connections']) expect(plainAdmin, href).not.toContain(href);
 
     const fedMember = all(await sidebar(fed, '/', member.cookie));
-    expect(fedMember).toEqual(expect.arrayContaining(['/feed', '/notifications', '/borrowed']));
+    expect(fedMember).toEqual(expect.arrayContaining(['/feed', '/notifications', '/borrowed', '/recommendations']));
     for (const href of ['/shares', '/settings/users', '/connections']) expect(fedMember, href).not.toContain(href);
 
     const fedAdmin = all(await sidebar(fed, '/', admin.cookie));
