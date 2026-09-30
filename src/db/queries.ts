@@ -704,6 +704,70 @@ export async function activeLoansForItem(d1: D1Database, itemId: number): Promis
     .orderBy(asc(s.loans.loanedOn), asc(s.loans.id));
 }
 
+/** How many past loans an item's page lists; older ones are counted, not shown. */
+export const LENDING_HISTORY_LIMIT = 20;
+
+/**
+ * One returned loan, as the item page's "Lent before" lists it. A loan made to a connected household is an
+ * ordinary loan linked through connection_loans (lendToConnection), so its return is kept here too; `household`
+ * and `member` name them while that link, the connection and the request it answered still exist. Removing a
+ * connection drops the link, and the loan keeps the borrower it was lent under — "member (household)".
+ */
+export type PastLoan = {
+  id: number;
+  borrower: string;
+  loanedOn: string;
+  returnedOn: string;
+  household: string | null;
+  member: string | null;
+};
+
+/**
+ * An item's returned loans, newest first, at most `limit` of them, and how many there are in all. Loans still
+ * out aren't here: the Circulation box shows those. One query however long the history, the total counted by a
+ * window over the whole match before the limit applies. In-app only — loans and borrowers never reach share
+ * pages or connections.
+ */
+export async function pastLoansForItem(
+  d1: D1Database,
+  itemId: number,
+  limit = LENDING_HISTORY_LIMIT,
+): Promise<{ loans: PastLoan[]; total: number }> {
+  const { results } = await d1
+    .prepare(
+      `SELECT l.id, l.borrower, l.loaned_on, l.returned_on, c.household_name, br.requester_name,
+              count(*) OVER () AS total
+       FROM loans l
+       LEFT JOIN connection_loans cl ON cl.loan_id = l.id
+       LEFT JOIN connections c ON c.id = cl.connection_id
+       LEFT JOIN borrow_requests br ON br.id = cl.request_id
+       WHERE l.item_id = ?1 AND l.returned_on IS NOT NULL
+       ORDER BY l.loaned_on DESC, l.id DESC
+       LIMIT ?2`,
+    )
+    .bind(itemId, limit)
+    .all<{
+      id: number;
+      borrower: string;
+      loaned_on: string;
+      returned_on: string;
+      household_name: string | null;
+      requester_name: string | null;
+      total: number;
+    }>();
+  return {
+    loans: results.map((r) => ({
+      id: r.id,
+      borrower: r.borrower,
+      loanedOn: r.loaned_on,
+      returnedOn: r.returned_on,
+      household: r.household_name,
+      member: r.requester_name,
+    })),
+    total: results[0]?.total ?? 0,
+  };
+}
+
 /**
  * Lends a copy only while one is free — copies held above copies out, the rule connections' borrowing
  * already uses (availability() in src/db/federation.ts). One conditional insert, so two quick submits

@@ -20,6 +20,7 @@ import {
   listPeople,
   moveRead,
   moveReview,
+  pastLoansForItem,
   readingLog,
   startRead,
   tagsForItem,
@@ -47,6 +48,7 @@ import {
   MarkNotOwnedButton,
   MarkOwnedButton,
   ItemStatusPills,
+  LendingHistory,
   MEDIA_LABEL,
   ReadingSection,
   ReadsByPerson,
@@ -266,12 +268,13 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
   const viewer = viewerOf(c);
-  const [lib, tags, loans, people, log] = await Promise.all([
+  const [lib, tags, loans, people, log, lent] = await Promise.all([
     getLibrary(c.env.DB, item.libraryId),
     tagsForItem(c.env.DB, id),
     activeLoansForItem(c.env.DB, id),
     listPeople(c.env.DB),
     readingLog(c.env.DB, id),
+    pastLoansForItem(c.env.DB, id),
   ]);
   const addedBy = item.addedBy ? (people.find((p) => p.id === item.addedBy) ?? null) : null;
   const grouped = showsPeople(people, viewer, log);
@@ -466,6 +469,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
             </form>
           ) : null}
         </div>
+
+        <LendingHistory loans={lent.loans} total={lent.total} />
 
         <div class="actions">
           <a href={`/items/${item.id}/edit`} role="button">

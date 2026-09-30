@@ -1,4 +1,5 @@
 import type { FC } from 'hono/jsx';
+import type { PastLoan } from '../db/queries';
 import type { Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import { progressPercent } from '../lib/progress';
@@ -640,6 +641,49 @@ export const HoldingPill: FC<{ item: Item }> = ({ item }) =>
   ) : (
     <MarkOwnedButton id={item.id} />
   );
+
+const ISO_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** Whole days from lending to return — 0 for a book back the same day — or null when a date isn't a plain day. */
+export function loanDays(loanedOn: string, returnedOn: string): number | null {
+  const [a, b] = [ISO_DAY.exec(loanedOn), ISO_DAY.exec(returnedOn)];
+  if (!a || !b) return null;
+  const day = (m: RegExpExecArray) => Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const days = Math.round((day(b) - day(a)) / 86_400_000);
+  return days >= 0 ? days : null;
+}
+
+const loanLength = (days: number | null) => (days === null ? '—' : days === 0 ? 'same day' : days === 1 ? '1 day' : `${days} days`);
+
+/** A past loan's borrower: "household (their member)" for a loan to a connection, else as it was lent. */
+const pastBorrower = (l: PastLoan) => (l.household && l.member ? `${l.household} (${l.member})` : l.borrower);
+
+/**
+ * "Lent before" on an item's page: its returned loans, newest first, the longest history cut to its latest few
+ * with the rest counted. Loans still out stay in the Circulation box above. Nothing at all without a past loan.
+ * In-app only: loans and borrowers are never on share pages or sent to connections (ARCH.md §9).
+ */
+export const LendingHistory: FC<{ loans: PastLoan[]; total: number }> = ({ loans, total }) => {
+  if (!loans.length) return null;
+  const earlier = total - loans.length;
+  return (
+    <div class="detail-section lending-history">
+      <p class="eyebrow">Lent before</p>
+      <ol class="loan-history">
+        {loans.map((l) => (
+          <li>
+            <strong>{pastBorrower(l)}</strong>
+            <span class="mono">
+              {l.loanedOn} → {l.returnedOn}
+            </span>
+            <span class="mono muted">{loanLength(loanDays(l.loanedOn, l.returnedOn))}</span>
+          </li>
+        ))}
+      </ol>
+      {earlier > 0 ? <p class="muted loan-history-more">and {earlier} earlier</p> : null}
+    </div>
+  );
+};
 
 export const Cover: FC<{ coverKey: string | null; title: string; mediaType: MediaType }> = ({
   coverKey,
