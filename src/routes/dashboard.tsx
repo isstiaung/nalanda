@@ -1,12 +1,13 @@
 import { Hono } from 'hono';
 import { activeLoans, goalOf, holdingsByType, listLibraries, listShares, pickNextRead, recentItems, shelfTotals } from '../db/queries';
-import { formatMoney } from '../lib/money';
+import { formatCount, formatMoney } from '../lib/money';
 import type { Share } from '../db/schema';
 import type { AppEnv } from '../env';
 import { todayUtc } from '../lib/reads';
 import { shareVisibility, shareVisibilityLabel } from '../lib/share';
 import { GoalMeter, ItemGrid, MEDIA_LABEL, MEDIA_PLURAL, ReadNextCard, Stat } from '../views/components';
 import { page } from '../views/layout';
+import { ledgerDate } from '../lib/dates';
 
 const dashboard = new Hono<AppEnv>();
 
@@ -40,6 +41,9 @@ dashboard.get('/', async (c) => {
     // what the household paid, per shelf and currency (§16 #61) — one call, summed in SQL
     shelfTotals(c.env.DB),
   ]);
+  // the recent cards' "Lent" and "Wanted" badges, as on a shelf (§16 #53) — they came with the items
+  const onLoanIds = new Set(recent.filter((i) => i.onLoan).map((i) => i.id));
+  const wantedIds = new Set(recent.filter((i) => i.wanted).map((i) => i.id));
   const anyPaid = [...totals.shelves.values()].some((t) => t.paid.length > 0);
   /** A shelf's paid totals, one per currency — the household's first; never added across currencies. */
   const paidCell = (id: number) =>
@@ -127,7 +131,9 @@ dashboard.get('/', async (c) => {
           <p class="game-night">
             <a href="/play">What should we play tonight?</a>{' '}
             <span class="muted">
-              Pick from {gamesOwned === 1 ? 'the board game' : `${gamesOwned} board games`} by players, time and weight.
+              {gamesOwned === 1
+                ? 'Check your one board game against players, time and weight.'
+                : `Pick from ${gamesOwned} board games by players, time and weight.`}
             </span>
           </p>
         </section>
@@ -157,14 +163,14 @@ dashboard.get('/', async (c) => {
                           <strong>{l.name}</strong>
                         </a>
                       </td>
-                      <td class="num">{l.itemCount}</td>
+                      <td class="num">{formatCount(l.itemCount)}</td>
                       <td>
                         <span class={visibility.kind === 'private' ? 'pill' : 'pill shared'}>
                           {shareVisibilityLabel(visibility)}
                         </span>
                       </td>
                       {anyPaid ? <td class="num money-cell">{paidCell(l.id) || '—'}</td> : null}
-                      <td class="date hide-sm">{l.createdAt.slice(0, 10)}</td>
+                      <td class="date hide-sm">{ledgerDate(l.createdAt)}</td>
                     </tr>
                   );
                 })}
@@ -201,7 +207,7 @@ dashboard.get('/', async (c) => {
       <section>
         <p class="eyebrow">Recently accessioned</p>
         {recent.length ? (
-          <ItemGrid items={recent} />
+          <ItemGrid items={recent} onLoanIds={onLoanIds} wantedIds={wantedIds} />
         ) : (
           <p class="muted">Nothing on the shelves yet — add your first item by scanning its barcode.</p>
         )}

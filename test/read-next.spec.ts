@@ -77,6 +77,9 @@ describe('the pool', () => {
     const card = await another(asha);
     expect(card).toContain('Borrowed from the library');
     expect(card).toContain('<span class="pill ghost">Not owned</span>');
+    // said plainly on a line of its own, and "Start reading" still offered
+    expect(card).toContain('<p class="read-next-line read-next-unowned"><span class="pill ghost">Not owned</span><span>No copy here — borrow or buy one to read it.</span></p>');
+    expect(card).toContain(`action="/items/${item.id}/reads/start"`);
   });
 
   it('badges only a book you don’t own', async () => {

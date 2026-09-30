@@ -21,7 +21,8 @@ import type { Bindings } from '../src/env';
 import { budgeted } from '../src/federation/budget';
 import { clearSharedViewsCache } from '../src/federation/routes';
 import { toConnectionItem } from '../src/federation/items';
-import { formatPlaysCell, MAX_PLAYS_PER_ITEM, parsePlaysCell, playDate } from '../src/lib/plays';
+import { formatPlaysCell, MAX_PLAYS_PER_ITEM, parsePlaysCell } from '../src/lib/plays';
+import { ledgerDate, ledgerDateTime } from '../src/lib/dates';
 import { latestReadDate, todayUtc } from '../src/lib/reads';
 import { mapLibibRow } from '../src/lib/csv';
 import { newShareToken, toPublicItem } from '../src/lib/share';
@@ -85,7 +86,7 @@ describe('Played', () => {
     expect(await playsOf(record.id)).toEqual([{ id: expect.any(Number), playedOn: '2025-09-14', loggedBy: ravi.id }]);
     const page = await html(ravi, `/items/${record.id}`);
     expect(page).toContain('Listening log');
-    expect(page).toContain('last on <time class="mono" datetime="2025-09-14">14 Sep 2025</time>');
+    expect(page).toContain('last on <time class="mono" datetime="2025-09-14">2025-09-14</time>');
   });
 
   it('refuses a date that isn’t one, or is in the future, and says why — logging nothing', async () => {
@@ -155,7 +156,7 @@ describe('the play log on the item page', () => {
     await logPlay(env.DB, other.id, '2026-01-01', asha.id); // someone else's plays don't count here
 
     const page = await html(asha, `/items/${game.id}`);
-    expect(page).toContain('Played <span class="mono">7</span> times · last on <time class="mono" datetime="2025-09-14">14 Sep 2025</time>');
+    expect(page).toContain('Played <span class="mono">7</span> times · last on <time class="mono" datetime="2025-09-14">2025-09-14</time>');
     const listed = [...page.matchAll(/<li><time class="mono" datetime="([\d-]+)">/g)].map((m) => m[1]);
     // newest first, the same day twice where it was played twice
     expect(listed).toEqual(['2025-09-14', '2025-09-14', '2025-06-20', '2025-03-01', '2025-02-11']);
@@ -165,10 +166,10 @@ describe('the play log on the item page', () => {
     expect([...all.matchAll(/datetime="([\d-]+)"/g)].map((m) => m[1])).toEqual([
       '2025-09-14', '2025-09-14', '2025-06-20', '2025-03-01', '2025-02-11', '2025-01-05', '2024-12-31',
     ]);
-    // under a heading per year, each date without its year
+    // under a heading per year, each date written whole, as everywhere
     expect(all).toContain('<p class="eyebrow mono">2025</p>');
     expect(all).toContain('<p class="eyebrow mono">2024</p>');
-    expect(all).toContain('>31 Dec</time>');
+    expect(all).toContain('>2024-12-31</time>');
   });
 
   it('says a game never played is not played yet, with no list and no link', async () => {
@@ -199,10 +200,11 @@ describe('the play log on the item page', () => {
     expect(await huge.text()).toContain('No plays on this page.');
   });
 
-  it('formats a play by the day: the year only when it isn’t this one', () => {
-    expect(playDate('2026-09-14', '2026-09-30')).toBe('14 Sep');
-    expect(playDate('2025-09-14', '2026-09-30')).toBe('14 Sep 2025');
-    expect(playDate('2026-01-01', '2026-12-31')).toBe('1 Jan');
+  it('writes dates as the ledger does, everywhere: 2026-09-14, and a moment as 2026-09-14 18:28', () => {
+    expect(ledgerDate('2026-09-14')).toBe('2026-09-14');
+    expect(ledgerDate('2026-09-14 18:28:11')).toBe('2026-09-14');
+    expect(ledgerDateTime('2026-09-14 18:28:11')).toBe('2026-09-14 18:28');
+    expect(ledgerDateTime('2026-09-14T18:28:11.000Z')).toBe('2026-09-14 18:28');
   });
 });
 
@@ -514,7 +516,7 @@ describe('share pages', () => {
     // negative control: the signed-in page does carry those dates, so the check above can see them
     const inside = await html(s.asha, `/items/${s.game.id}`);
     expect(inside).toContain('2025-09-14');
-    expect(inside).toContain('14 Sep 2025');
+    expect(inside).toContain('last on <time class="mono" datetime="2025-09-14">2025-09-14</time>');
   });
 
   it('say nothing of plays for a game never played, or a book', async () => {

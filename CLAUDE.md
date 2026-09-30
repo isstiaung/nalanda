@@ -281,6 +281,8 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    and "Refresh from Discogs" may write into a record's details, and reading it back),
                    goals.ts (a reading goal's pace and limits; what counts is goalCountSql in queries.ts),
                    links.ts (purchase links: the http(s) check, the export's want and link cells — §16 #53),
+                   dates.ts (how every page writes a date: 2026-09-28, and 2026-09-28 18:28 with a time —
+                   display only; public/scan-review.js writes a scan's time the same way),
                    yearreview.ts (the Year in review page's shapes and arithmetic; its one batch is
                    yearInReview() in queries.ts, its page routes/yearreview.tsx — ARCH.md §16 #59)
                    games.ts (a board game's weight bands, the play-tonight filters, and what "Refresh

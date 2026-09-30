@@ -8,6 +8,9 @@ import { parseReadBy, ReadByMenu } from './libraries';
 
 const search = new Hono<AppEnv>();
 
+/** The most results one search shows, best matches first. */
+const SEARCH_LIMIT = 50;
+
 search.get('/search', async (c) => {
   const q = (c.req.query('q') ?? '').trim();
   const user = c.get('user');
@@ -15,7 +18,9 @@ search.get('/search', async (c) => {
   const people = await listPeople(c.env.DB);
   const reader = parseReadBy(c.req.query('readBy'), user.id, people);
   const readBy = reader ? (c.req.query('readBy') ?? '') : '';
-  const items = q ? await searchItems(c.env.DB, q, 50, reader) : [];
+  const items = q ? await searchItems(c.env.DB, q, SEARCH_LIMIT, reader) : [];
+  // a full page is the cap, not the count: there may be more, so the heading says "best" and a line says how to narrow it
+  const capped = items.length >= SEARCH_LIMIT;
   const [{ onLoan: onLoanIds, wanted: wantedIds }, libs] = await Promise.all([
     shelfFlags(c.env.DB, items.map((i) => i.id)), // loans and the "Wanted" badge (§16 #53), one call
     // the Shelf column, and bulk edit's "Move to shelf" and its notice (§16 #47)
@@ -38,7 +43,7 @@ search.get('/search', async (c) => {
           <h1>Search</h1>
           {q ? (
             <span class="sub">
-              {items.length} {items.length === 1 ? 'RESULT' : 'RESULTS'} FOR “{q.toUpperCase()}”
+              {capped ? `THE ${items.length} BEST` : items.length} {items.length === 1 ? 'RESULT' : 'RESULTS'} FOR “{q.toUpperCase()}”
             </span>
           ) : (
             <span class="sub">TITLES · CREATORS · DESCRIPTIONS · NOTES · LOCATIONS</span>
@@ -61,6 +66,11 @@ search.get('/search', async (c) => {
         items.length ? (
           <>
             <ItemTable items={items} onLoanIds={onLoanIds} wantedIds={wantedIds} libraryNames={libraryNames} selectable />
+            {capped ? (
+              <p class="muted form-note">
+                Showing the {SEARCH_LIMIT} best matches — there may be more. Add a word to narrow the search, or filter a shelf.
+              </p>
+            ) : null}
             <BulkBar back={back} admin={user.role === 'admin'} libraries={libs} />
           </>
         ) : (

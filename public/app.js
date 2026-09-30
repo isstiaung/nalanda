@@ -106,12 +106,16 @@ document.addEventListener('DOMContentLoaded', () => {
   if (columnsMenu) {
     const KEY = 'nalanda:hidden-columns';
     const boxes = [...columnsMenu.querySelectorAll('input[data-col]')];
+    // never chosen on this device: a window under 1400px starts without Tags, as the <head> script does
+    const fallback = () => (window.matchMedia?.('(max-width: 1399px)').matches ? 'tags' : '');
     const read = () => {
+      let stored = null;
       try {
-        return new Set((localStorage.getItem(KEY) ?? '').split(/\s+/).filter(Boolean));
+        stored = localStorage.getItem(KEY);
       } catch {
-        return new Set(); // private mode, or storage disabled — degrade to "show all"
+        // private mode, or storage disabled — the default for this width
       }
+      return new Set((stored ?? fallback()).split(/\s+/).filter(Boolean));
     };
 
     const hidden = read();

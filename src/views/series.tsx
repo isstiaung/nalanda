@@ -13,9 +13,10 @@ import {
   type NumberRange,
   type SeriesVolume,
 } from '../lib/series';
-import { NotOwnedPill } from './components';
+import { NotOwnedPill, WantedPill } from './components';
 
-export type VolumeView = SeriesVolume & { creators: string | null };
+/** `wanted`: on someone's want list and not owned — the "Wanted" badge, wherever "Not owned" shows (§16 #53). */
+export type VolumeView = SeriesVolume & { creators: string | null; wanted?: boolean };
 
 /** "#3 of 9", "#3", "of 9", or nothing. */
 export const positionLabel = (number: number | null, total: number | null): string =>
@@ -192,6 +193,7 @@ export const VolumeLedger: FC<{ volumes: VolumeView[]; missing: NumberRange[] }>
               {r.volume.finishedByMe ? <span class="pill done">Finished</span> : null}
               {r.volume.readingByMe ? <span class="pill progress">Reading</span> : null}
               {r.volume.copies === 0 ? <NotOwnedPill /> : null}
+              {r.volume.copies === 0 && r.volume.wanted ? <WantedPill /> : null}
             </span>
           </li>
         ) : (

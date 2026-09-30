@@ -73,7 +73,7 @@ importexport.get('/import', async (c) => {
         </label>
         <div class="grid">
           <label>
-            Into library
+            Into shelf
             <select id="import-library">
               {libs.map((l) => (
                 <option value={String(l.id)}>{l.name}</option>

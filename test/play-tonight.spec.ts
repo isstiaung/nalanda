@@ -192,7 +192,7 @@ describe('the order', () => {
     const catan = (await gamesForTonight(env.DB, ANY, 60)).fit.find((x) => x.id === g.catan.id)!;
     expect(catan.lastPlayed).toBe('2026-09-14');
     const page = await html(asha, '/play');
-    expect(page).toContain('last played 14 Sep');
+    expect(page).toContain('last played 2026-09-14');
     expect(page).toContain('not played yet');
   });
 

@@ -2,7 +2,7 @@
 // missing and the signed-in member's next one. Signed-in only — share pages show an item's series name and number,
 // nothing here.
 import { Hono, type Context } from 'hono';
-import { getSeries, listSeries, seriesWithVolumes, updateSeries } from '../db/queries';
+import { getSeries, listSeries, seriesWithVolumes, shelfFlags, updateSeries } from '../db/queries';
 import type { AppEnv } from '../env';
 import { cleanSeriesName, countRanges, formatRanges, missingNumbers, nextUp, parseSeriesTotal } from '../lib/series';
 import { page } from '../views/layout';
@@ -56,7 +56,10 @@ series.get('/series', async (c) => {
 async function seriesPage(c: Context<AppEnv>, id: number, error?: string, sent?: { name: string; total: string }) {
   const found = await seriesWithVolumes(c.env.DB, id, c.get('user').id);
   if (!found) return c.notFound();
-  const { series: s, volumes } = found;
+  const { series: s } = found;
+  // the "Wanted" badge beside "Not owned", as on a shelf (§16 #53) — one call
+  const { wanted } = await shelfFlags(c.env.DB, found.volumes.map((v) => v.id));
+  const volumes = found.volumes.map((v) => ({ ...v, wanted: wanted.has(v.id) }));
   const missing = missingNumbers(volumes.map((v) => v.seriesNumber), s.total);
   const numbered = volumes.filter((v) => v.seriesNumber !== null).length;
   const finished = volumes.filter((v) => v.finishedByMe).length;

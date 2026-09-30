@@ -1031,7 +1031,8 @@ async function interactions(context, ids, variant) {
       await axe(page, name, variant.name);
     };
     await step('Edit → refused', async () => {
-      await open(page, `/items/${ids.game}/edit`);
+      // a book: a game or record has no reading dates on its form (they take plays)
+      await open(page, `/items/${ids.book}/edit`);
       await submitted('Edit → refused, dates out of order', async () => {
         await page.locator('input[name="beganOn"]').fill('2024-05-02');
         await page.locator('input[name="completedOn"]').fill('2024-05-01');

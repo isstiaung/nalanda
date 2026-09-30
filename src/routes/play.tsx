@@ -18,7 +18,7 @@ import {
   WEIGHTS,
   type GameFilters,
 } from '../lib/games';
-import { playDate } from '../lib/plays';
+import { ledgerDate } from '../lib/dates';
 import { todayUtc } from '../lib/reads';
 import { BggAttribution } from '../views/attribution';
 import { accNo, Cover } from '../views/components';
@@ -70,7 +70,7 @@ const GameFacts: FC<{ game: TonightGame; today: string }> = ({ game, today }) =>
       ) : (
         <span class="missing">weight not known</span>
       )}
-      <span class="game-last">{game.lastPlayed ? `last played ${playDate(game.lastPlayed, today)}` : 'not played yet'}</span>
+      <span class="game-last">{game.lastPlayed ? `last played ${ledgerDate(game.lastPlayed)}` : 'not played yet'}</span>
     </p>
   );
 };
