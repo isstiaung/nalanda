@@ -10,6 +10,7 @@ import { parsePeerName } from '../lib/names';
 import { MAX_PROGRESS_PAGE, progressPercent } from '../lib/progress';
 import { toPublicItem, type PublicItem } from '../lib/share';
 import { MAX_DETAIL_TEXT_CHARS, MAX_FEED_REVIEW_CHARS, MAX_FEED_TEXT_CHARS } from './config';
+import { RECOMMEND_ID_KEYS, recommendId, type RecommendedItem, type RecommendIds } from './messages';
 
 /**
  * Share-page fields, plus what connections need on top: when it was last finished and changed, and how many
@@ -147,6 +148,7 @@ const MAX_SHORT_TEXT = 200;
 // ---------- validating what a connection sends ----------
 
 const COVER_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const isCoverKey = (v: unknown): v is string => typeof v === 'string' && COVER_KEY.test(v);
 const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 
 export const isId = (v: unknown): v is number => Number.isSafeInteger(v) && (v as number) > 0;
@@ -308,6 +310,36 @@ export function toShelfItem(item: Item, available: boolean, stamp: string, wante
     stamp,
     ...(c.wanted ? { wanted: true as const } : {}),
   };
+}
+
+/**
+ * What a recommendation carries of one of our items (§16 #58): toConnectionItem() fields only — no rating, review,
+ * read count or availability, which a recommendation has no need of — cut as a shelf card cuts them, with its stamp
+ * and a connection view that holds it. The caller has checked it is inside that view.
+ */
+export function toRecommendedItem(item: Item, stamp: string, view: number): RecommendedItem {
+  const c = toConnectionItem(item);
+  return {
+    id: c.id,
+    stamp,
+    view,
+    mediaType: c.mediaType,
+    title: c.title.slice(0, MAX_FEED_TEXT_CHARS),
+    creators: c.creators?.slice(0, MAX_FEED_TEXT_CHARS) ?? null,
+    published: c.published?.slice(0, MAX_SHORT_TEXT) ?? null,
+    coverKey: c.coverKey,
+    ids: recommendIds(c.details),
+  };
+}
+
+/** The public identifiers in an item's details (RECOMMEND_ID_KEYS), each a whole id — others are left out. */
+export function recommendIds(details: Record<string, unknown>): RecommendIds {
+  const ids: RecommendIds = {};
+  for (const key of RECOMMEND_ID_KEYS) {
+    const id = recommendId(details[key]);
+    if (id !== null) ids[key] = id;
+  }
+  return ids;
 }
 
 /** One item in full, for its page on a connection's instance: the share-page fields, availability and tags. */
