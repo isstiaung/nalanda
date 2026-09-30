@@ -379,7 +379,13 @@ items.post('/items', async (c) => {
   const problem = formProblem(formReadProblem(null, readFields(parsed.values)), parsed) ?? price.problem;
   if (problem && htmx) return c.text(problem, 400);
   if (problem) {
-    const [libs, people, names] = await Promise.all([listLibraries(c.env.DB), listPeople(c.env.DB), seriesNames(c.env.DB)]);
+    const [libs, people, names, currency] = await Promise.all([
+      listLibraries(c.env.DB),
+      listPeople(c.env.DB),
+      seriesNames(c.env.DB),
+      // read above only when the form had a price field; the form shown back always has one
+      'purchasePrice' in body ? household : getSiteSettings(c.env.DB).then((st) => st.currency),
+    ]);
     c.status(400);
     return page(
       c,
@@ -399,7 +405,7 @@ items.post('/items', async (c) => {
           perMember={people.length > 1}
           series={parsed.seriesSent}
           seriesNames={names}
-          money={priceField(c, household, price)}
+          money={priceField(c, currency, price)}
         />
       </>,
     );

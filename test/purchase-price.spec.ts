@@ -306,6 +306,18 @@ describe('purchase price: adding and editing', () => {
     expect(other.status).toBe(400);
   });
 
+  it('shows the price field in the household currency on a refused add from a form that had none', async () => {
+    const asha = await member('asha', 'admin');
+    await updateSiteSettings(env.DB, { currency: 'INR' });
+    const shelf = await createLibrary(env.DB, 'Books');
+    // refused for its reading dates, sent without the price field (a result card's form, say)
+    const res = await as(asha, '/items', { body: form(shelf.id, { status: 'not_started', beganOn: '2026-01-01' }) });
+    expect(res.status).toBe(400);
+    const body = await res.text();
+    expect(body).toContain('what you paid, in INR');
+    expect(body).not.toContain('set the household currency');
+  });
+
   it('is any member’s to set, like the location', async () => {
     await member('asha', 'admin');
     const ravi = await member('ravi');
