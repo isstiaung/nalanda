@@ -241,7 +241,8 @@ libraries.get('/libraries/:id', async (c) => {
             ]}
             selected={ownedSel}
           />
-          {people.length > 1 || reader ? <ReadByMenu value={readBy} me={user.id} people={people} /> : null}
+          {/* "Read by" is reading too: not for a view of games and records only, unless it is already applied */}
+          {(people.length > 1 && showStatus) || reader ? <ReadByMenu value={readBy} me={user.id} people={people} /> : null}
           <select name="sort" aria-label="Sort">
             <option value="added" selected={sort === 'added'}>
               Newest first

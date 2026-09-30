@@ -209,6 +209,10 @@ describe('games and records have no reading status', () => {
     expect(statusFilter(await html(asha, `/libraries/${mixed.id}?type=boardgame`))).toBe(false); // the view is games only
     expect(statusFilter(await html(asha, `/libraries/${mixed.id}?type=boardgame&status=completed`))).toBe(true); // clearable
     expect(await html(asha, `/libraries/${mixed.id}`)).toContain('>Not started<'); // the book keeps its pill
+    // "Read by" (with two members) goes the same way
+    await member('ravi');
+    expect(await html(asha, `/libraries/${mixed.id}`)).toContain('name="readBy"');
+    expect(await html(asha, `/libraries/${mixed.id}?type=boardgame`)).not.toContain('name="readBy"');
   });
 });
 
