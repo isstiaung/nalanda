@@ -1115,13 +1115,22 @@ export const ItemTable: FC<{
 );
 
 /**
- * A reading goal where it stands (§16 #49): "14 of 24", its pace — on track, N behind, reached — and a bar with a tick
- * where linear pace stands today. Counts are the registrar's voice, so monospace; the pace is a pill.
+ * A reading goal where it stands (§16 #49): "14 of 24", its pace — on pace, N behind pace, N ahead of pace, reached —
+ * and a bar with a tick where a year-long pace stands today. The bar is hidden from assistive tech, so a line under it
+ * says in words what the tick is and that pace runs from 1 January (a goal set in September starts behind it).
+ * Counts are the registrar's voice, so monospace; the pace is a pill.
  */
 export const GoalMeter: FC<{ count: number; target: number; year: number; today: string }> = ({ count, target, year, today }) => {
   const pace = goalPace(count, target, year, today);
   const tick = pace.state === 'reached' ? null : pacePercent(year, today);
-  const pill = pace.state === 'reached' ? 'pill reached' : pace.state === 'on_track' ? 'pill done' : pace.state === 'behind' ? 'pill behind' : 'pill';
+  const pill =
+    pace.state === 'reached'
+      ? 'pill reached'
+      : pace.state === 'on_track' || pace.state === 'ahead'
+        ? 'pill done'
+        : pace.state === 'behind'
+          ? 'pill behind'
+          : 'pill';
   return (
     <div class="goal-meter">
       <p class="goal-line">
@@ -1130,13 +1139,14 @@ export const GoalMeter: FC<{ count: number; target: number; year: number; today:
         </span>{' '}
         <span class="muted mono">{target === 1 ? 'book' : 'books'}</span> <span class={pill}>{paceLabel(pace)}</span>
       </p>
-      {/* the count and the pace are in words just above */}
+      {/* the count and the pace are in words just above, and the tick in words just below */}
       <div class="goal-track" aria-hidden="true">
         <div class="progress-track">
           <div class="progress-fill" style={`width:${goalPercent(count, target)}%`} />
         </div>
-        {tick !== null ? <span class="goal-pace" style={`left:${tick}%`} title="Where an even pace would be today" /> : null}
+        {tick !== null ? <span class="goal-pace" style={`left:${tick}%`} title="Where a year-long pace is today" /> : null}
       </div>
+      {tick !== null ? <p class="goal-note">Pace runs from 1 January: the mark is where a year-long pace is today.</p> : null}
     </div>
   );
 };

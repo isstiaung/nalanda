@@ -1703,10 +1703,14 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       is every finished read of a book — not a record or a game — by that member with its end date in
       that year, re-reads included; an undated finish is in no year. The count is never stored:
       `goalCountSql()` works it out when asked, so a read added, corrected, moved or deleted counts at
-      once. The Overview shows the signed-in member's goal for this year — "14 of 24", a pace pill (on
-      track, "3 behind", reached) and a bar with a tick where an even pace stands today. Pace is linear:
-      by the end of day d of a D-day year, d/D of the target, rounded down, so a goal is on track until
-      it is a whole book behind. A goal can be set for this year or next (`/goals`); earlier ones stay,
+      once. The Overview shows the signed-in member's goal for this year — "14 of 24", a pace pill ("on
+      pace", "3 behind pace", "2 ahead of pace", reached) and a bar with a tick where a year-long pace
+      stands today, explained in words under the bar ("Pace runs from 1 January: the mark is where a
+      year-long pace is today") since the bar is hidden from assistive tech. Pace is linear from
+      1 January, whenever the goal was set: by the end of day d of a D-day year, d/D of the target,
+      rounded down, so a goal is on pace until it is a whole book behind or past. (1.6.0 said "on track"
+      and "3 behind"; a goal set on 30 September read "7 behind" with nothing saying behind what — the
+      owner kept the 1 January pace and had it named instead.) A goal can be set for this year or next (`/goals`); earlier ones stay,
       to look back on or delete. Members set their own, admins anyone's — checked in the route (403 with
       a reason) and in the statement (`allowed()`), as #43 does for reads. A member's goals go with them
       when they are removed.
@@ -1831,7 +1835,7 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     (a target changed mid-year: "2 of 4" says halfway) isn't news again.
 
     **Chosen without asking, overrulable:** a goal can be set for this year or next only; pace counts
-    the server's UTC day and is "on track" until a whole book behind; "halfway" is half the target
+    the server's UTC day and is "on pace" until a whole book behind or ahead; "halfway" is half the target
     rounded up, and a finish that reaches the target is only "reached"; a milestone stays
     while its finish does, even if the count later dips; a goal goes to every view that can hold books
     and a milestone only to views holding its book; goal entries are recorded for unnamed members too

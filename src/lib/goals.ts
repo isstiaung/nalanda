@@ -10,7 +10,8 @@ export const halfOf = (target: number) => Math.ceil(target / 2);
 
 export type GoalPace =
   | { state: 'reached' }
-  | { state: 'on_track' }
+  | { state: 'on_track' } // exactly where a year-long pace is today, in whole books
+  | { state: 'ahead'; by: number }
   | { state: 'behind'; by: number }
   | { state: 'upcoming' } // a goal for a year that hasn't started
   | { state: 'missed' }; // a year that has ended short of it
@@ -18,8 +19,9 @@ export type GoalPace =
 const isLeap = (y: number) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
 
 /**
- * Where a goal stands on `today` (YYYY-MM-DD, the server's UTC day). Pace is linear through the year: by the end of
- * day d of a year of D days, d/D of the target — rounded down, so a goal is on track until it is a whole book behind.
+ * Where a goal stands on `today` (YYYY-MM-DD, the server's UTC day). Pace is linear through the year, from 1 January
+ * whenever the goal was set: by the end of day d of a year of D days, d/D of the target — rounded down, so a goal is on
+ * pace until it is a whole book behind, and ahead once it is a whole book past.
  */
 export function goalPace(count: number, target: number, year: number, today: string): GoalPace {
   if (count >= target) return { state: 'reached' };
@@ -29,18 +31,25 @@ export function goalPace(count: number, target: number, year: number, today: str
   const start = Date.UTC(year, 0, 1);
   const day = Math.floor((Date.parse(`${today}T00:00:00Z`) - start) / 86_400_000) + 1; // 1 on 1 January
   const expected = Math.floor((target * day) / (isLeap(year) ? 366 : 365));
-  return count >= expected ? { state: 'on_track' } : { state: 'behind', by: expected - count };
+  if (count > expected) return { state: 'ahead', by: count - expected };
+  return count === expected ? { state: 'on_track' } : { state: 'behind', by: expected - count };
 }
 
-/** "on track", "3 behind", "reached" — the words beside a goal's count. */
+/**
+ * "on pace", "3 behind pace", "2 ahead of pace", "reached" — the words beside a goal's count. "Pace" says what it is
+ * behind: a year-long pace from 1 January, so a goal set in September starts behind it (the meter says so under the
+ * bar). Short enough for a pill at phone width.
+ */
 export function paceLabel(pace: GoalPace): string {
   switch (pace.state) {
     case 'reached':
       return 'reached';
     case 'on_track':
-      return 'on track';
+      return 'on pace';
+    case 'ahead':
+      return `${pace.by} ahead of pace`;
     case 'behind':
-      return `${pace.by} behind`;
+      return `${pace.by} behind pace`;
     case 'upcoming':
       return 'not started yet';
     case 'missed':

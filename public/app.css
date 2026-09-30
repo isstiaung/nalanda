@@ -1198,8 +1198,9 @@ details.tracklist summary .mono { font-weight: 400; font-size: 11px; }
 
 /* ── reading goals (ARCH.md §16 #49) ──────────────────────────────────────────
    A goal is a count against a year: the figures in the registrar's mono, the bar the
-   same ruled trough as reading progress, and a thin ink tick where an even pace would
-   stand today. Indigo when on track or reached; "behind" is a dashed ruled pill —
+   same ruled trough as reading progress, and a thin ink tick where a year-long pace
+   (from 1 January) stands today, said in words in the small note under the bar.
+   Indigo when on pace, ahead or reached; "behind" is a dashed ruled pill —
    falling behind on a book count is no emergency, so no vermilion. */
 .goal { max-width: 40rem; }
 .goal-meter { min-width: 0; }
@@ -1210,6 +1211,7 @@ details.tracklist summary .mono { font-weight: 400; font-size: 11px; }
 .goal-pace { position: absolute; top: calc(0.4rem - 3px); width: 2px; height: 14px; margin-left: -1px; background: var(--ink-2); border-radius: 1px; pointer-events: none; }
 .pill.reached { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
 .pill.behind { border-style: dashed; }
+.goal-note { margin: -0.3rem 0 0.5rem; font-size: 11.5px; color: var(--ink-3); }
 .goal-edit { font-size: 12.5px; }
 .goal-member { margin-bottom: 1rem; }
 .goal-member select { width: auto; margin: 0 0 0 0.35rem; max-width: 100%; }
