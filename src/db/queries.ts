@@ -1330,8 +1330,15 @@ export type SiteSettings = {
   progressToConnections: boolean;
   namesOnShares: boolean; // §16 #45 — members' display names, ratings and reviews on share pages
   namesToConnections: boolean; // §16 #45 — per-person feed entries and reviews, with display names, to connections
+  goalsToConnections: boolean; // §16 #49 — members' reading goals as per-person entries; only while namesToConnections
 };
-const SITE_DEFAULTS: SiteSettings = { progressOnShares: false, progressToConnections: true, namesOnShares: false, namesToConnections: false };
+const SITE_DEFAULTS: SiteSettings = {
+  progressOnShares: false,
+  progressToConnections: true,
+  namesOnShares: false,
+  namesToConnections: false,
+  goalsToConnections: false,
+};
 
 /** One row, id 1. Absent means defaults, so a fresh instance needs no setup step. */
 export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
@@ -1342,6 +1349,7 @@ export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
         progressToConnections: row.progressToConnections,
         namesOnShares: row.namesOnShares,
         namesToConnections: row.namesToConnections,
+        goalsToConnections: row.goalsToConnections,
       }
     : { ...SITE_DEFAULTS };
 }
@@ -2174,6 +2182,75 @@ function playInsertStatements(d1: D1Database, plays: PersonPlay[], person: numbe
       )
       .bind(json),
   ];
+}
+
+// ---------- reading goals (ARCH.md §16 #49) ----------
+
+/**
+ * How many books the member of goal row `g` has finished in its year: each finished read of a book (not a record or a
+ * game) by them with its end date in that year — re-reads included, an undated finish not. Worked out when asked, so a
+ * read added, corrected, moved or deleted counts at once. Migration 0029's milestone triggers carry the same
+ * expression, and a test holds the two together.
+ */
+export const goalCountSql = (g: string) => `(SELECT count(*) FROM reads r JOIN items i ON i.id = r.item_id
+  WHERE r.reader_id = ${g}.user_id AND r.status = 'completed' AND i.media_type = 'book'
+    AND CAST(substr(r.ended_on, 1, 4) AS INTEGER) = ${g}.year)`;
+
+export type GoalProgress = { id: number; userId: number; year: number; target: number; count: number };
+
+const GOAL_COLUMNS = `g.id, g.user_id AS userId, g.year, g.target, ${goalCountSql('g')} AS count`;
+
+/** A member's goals, newest year first, each with where it stands. */
+export async function goalsOf(d1: D1Database, userId: number): Promise<GoalProgress[]> {
+  const { results } = await d1
+    .prepare(`SELECT ${GOAL_COLUMNS} FROM reading_goals g WHERE g.user_id = ?1 ORDER BY g.year DESC`)
+    .bind(userId)
+    .all<GoalProgress>();
+  return results;
+}
+
+/** A member's goal for one year, with where it stands — the Overview's one call — or null. */
+export async function goalOf(d1: D1Database, userId: number, year: number): Promise<GoalProgress | null> {
+  return d1
+    .prepare(`SELECT ${GOAL_COLUMNS} FROM reading_goals g WHERE g.user_id = ?1 AND g.year = ?2`)
+    .bind(userId, year)
+    .first<GoalProgress>();
+}
+
+/** One goal, or null — what a route checks the actor against before it says why a change was refused. */
+export async function getGoal(d1: D1Database, id: number): Promise<GoalProgress | null> {
+  return d1.prepare(`SELECT ${GOAL_COLUMNS} FROM reading_goals g WHERE g.id = ?1`).bind(id).first<GoalProgress>();
+}
+
+/**
+ * Sets `userId`'s goal for `year` to `target` books — a new goal, or a new target for the one there. Members set their
+ * own, admins anyone's: checked here as well as in the route (§16 #43's Actor rule), so a hand-made request changes
+ * nothing. A target saved unchanged changes nothing either. True when the goal now stands at that target.
+ */
+export async function setGoal(d1: D1Database, userId: number, year: number, target: number, by: Actor): Promise<boolean> {
+  const results = await d1.batch([
+    d1
+      .prepare(
+        `INSERT INTO reading_goals (user_id, year, target)
+         SELECT ?1, ?2, ?3 WHERE ${allowed('?1', '?4', '?5')} AND EXISTS (SELECT 1 FROM users WHERE id = ?1)
+         ON CONFLICT (user_id, year) DO UPDATE SET target = excluded.target, updated_at = datetime('now')
+           WHERE reading_goals.target <> excluded.target`,
+      )
+      .bind(userId, year, target, ...actorBinds(by)),
+    d1
+      .prepare(`SELECT 1 AS ok FROM reading_goals WHERE user_id = ?1 AND year = ?2 AND target = ?3 AND ${allowed('?1', '?4', '?5')}`)
+      .bind(userId, year, target, ...actorBinds(by)),
+  ]);
+  return (results.at(-1)?.results.length ?? 0) > 0;
+}
+
+/** Deletes a goal, by its member or an admin. True when it went. */
+export async function deleteGoal(d1: D1Database, id: number, by: Actor): Promise<boolean> {
+  const result = await d1
+    .prepare(`DELETE FROM reading_goals WHERE id = ?1 AND ${allowed('user_id', '?2', '?3')}`)
+    .bind(id, ...actorBinds(by))
+    .run();
+  return result.meta.changes > 0;
 }
 
 // ---------- cover backfill ----------

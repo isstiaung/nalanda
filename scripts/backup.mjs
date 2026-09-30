@@ -31,6 +31,7 @@ export const TABLES = [
   'reading_progress', // after items, users and reads, which it references
   'reviews', // after items and users, which it references
   'plays', // after items and users, which it references (§16 #54)
+  'reading_goals', // after users, which it references; before member_activity, which references it (§16 #49)
   'tags',
   'item_tags',
   'loans',

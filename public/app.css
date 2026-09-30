@@ -1038,3 +1038,32 @@ details.tracklist summary .mono { font-weight: 400; font-size: 11px; }
 .discogs-refresh, .discogs-note { margin: 0.8rem 0 0; }
 .discogs-refresh small, .discogs-note { font-size: 12px; }
 #pressing .notice { margin: 0.8rem 0 0; }
+
+/* ── reading goals (ARCH.md §16 #49) ──────────────────────────────────────────
+   A goal is a count against a year: the figures in the registrar's mono, the bar the
+   same ruled trough as reading progress, and a thin ink tick where an even pace would
+   stand today. Indigo when on track or reached; "behind" is a dashed ruled pill —
+   falling behind on a book count is no emergency, so no vermilion. */
+.goal { max-width: 40rem; }
+.goal-meter { min-width: 0; }
+.goal-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 0.55rem; margin: 0; }
+.goal-count { font-family: var(--mono); font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
+.goal-track { position: relative; }
+.goal-track .progress-track { height: 8px; }
+.goal-pace { position: absolute; top: calc(0.4rem - 3px); width: 2px; height: 14px; margin-left: -1px; background: var(--ink-2); border-radius: 1px; pointer-events: none; }
+.pill.reached { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.pill.behind { border-style: dashed; }
+.goal-edit { font-size: 12.5px; }
+.goal-member { margin-bottom: 1rem; }
+.goal-member select { width: auto; margin: 0 0 0 0.35rem; max-width: 100%; }
+.goal-form { display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem; align-items: flex-end; }
+.goal-form label { margin: 0; }
+.goal-form select, .goal-form input[type='number'] { width: 7rem; margin: 0.25rem 0 0; }
+.goal-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.2rem; max-width: 40rem; }
+.goal-list > li { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr) auto; gap: 0.3rem 0.9rem; align-items: center; padding: 0.55rem 0; border-top: 1px solid var(--line); }
+.goal-list > li:first-child { border-top: none; }
+.goal-year { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+@media (max-width: 480px) {
+  .goal-list > li { grid-template-columns: minmax(0, 1fr) auto; }
+  .goal-list .goal-meter { grid-column: 1 / -1; grid-row: 2; }
+}

@@ -1,9 +1,10 @@
 import { Hono } from 'hono';
-import { activeLoans, holdingsByType, listLibraries, listShares, pickNextRead, recentItems } from '../db/queries';
+import { activeLoans, goalOf, holdingsByType, listLibraries, listShares, pickNextRead, recentItems } from '../db/queries';
 import type { Share } from '../db/schema';
 import type { AppEnv } from '../env';
+import { todayUtc } from '../lib/reads';
 import { shareVisibility, shareVisibilityLabel } from '../lib/share';
-import { ItemGrid, MEDIA_LABEL, MEDIA_PLURAL, ReadNextCard, Stat } from '../views/components';
+import { GoalMeter, ItemGrid, MEDIA_LABEL, MEDIA_PLURAL, ReadNextCard, Stat } from '../views/components';
 import { page } from '../views/layout';
 
 const dashboard = new Hono<AppEnv>();
@@ -24,17 +25,20 @@ dashboard.get('/', async (c) => {
   c.header('Vary', 'HX-Request');
   if (c.req.header('HX-Request')) return c.html(<ReadNextCard pick={await pickNextRead(c.env.DB, reader, notId)} />);
 
-  const [libraries, recent, loans, holdings, shares, pick] = await Promise.all([
+  const today = todayUtc();
+  const year = Number(today.slice(0, 4));
+  const [libraries, recent, loans, holdings, shares, pick, goal] = await Promise.all([
     listLibraries(c.env.DB),
     recentItems(c.env.DB, 12),
     activeLoans(c.env.DB),
     holdingsByType(c.env.DB),
     listShares(c.env.DB),
     pickNextRead(c.env.DB, reader, notId),
+    // the signed-in member's own goal for this year (§16 #49) — one call, its count worked out in it
+    goalOf(c.env.DB, reader, year),
   ]);
   const sharesByLibrary = new Map<number | null, Share[]>();
   for (const v of shares) sharesByLibrary.set(v.libraryId, [...(sharesByLibrary.get(v.libraryId) ?? []), v]);
-  const today = new Date().toISOString().slice(0, 10);
   const overdue = loans.filter((l) => l.dueOn && l.dueOn < today).length;
   const owned = holdings.reduce((n, h) => n + h.owned, 0);
   const notOwned = holdings.reduce((n, h) => n + h.notOwned, 0);
@@ -73,6 +77,24 @@ dashboard.get('/', async (c) => {
           <Stat n={overdue} label="Overdue" warn={overdue > 0} />
         </div>
       </section>
+
+      {goal || hasBooks ? (
+      <section class="goal" id="goal">
+        <p class="eyebrow">Reading goal · {year}</p>
+        {goal ? (
+          <>
+            <GoalMeter count={goal.count} target={goal.target} year={year} today={today} />
+            <a href="/goals" class="goal-edit">
+              Change goal
+            </a>
+          </>
+        ) : (
+          <p class="muted">
+            No reading goal for {year}. <a href="/goals">Set one</a> — how many books you mean to finish this year.
+          </p>
+        )}
+      </section>
+      ) : null}
 
       {hasBooks ? (
         <section aria-labelledby="read-next-head">

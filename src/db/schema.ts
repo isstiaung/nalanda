@@ -212,6 +212,9 @@ export const siteSettings = sqliteTable('site_settings', {
   namesOnShares: integer('names_on_shares', { mode: 'boolean' }).notNull().default(false),
   // Connections get one feed entry per person, with their display name, and everyone's review on an item page (§16 #45).
   namesToConnections: integer('names_to_connections', { mode: 'boolean' }).notNull().default(false),
+  // Members' reading goals — set, halfway, reached — reach connections as per-person entries (§16 #49). Takes effect
+  // only while namesToConnections is on: a goal entry is always signed, never "A member".
+  goalsToConnections: integer('goals_to_connections', { mode: 'boolean' }).notNull().default(false),
   updatedAt: text('updated_at').notNull().default(now),
 });
 
@@ -357,6 +360,27 @@ export const reviews = sqliteTable(
   },
   // one review per person per item; NULLs are distinct, so reviews of removed members never collide
   (t) => [uniqueIndex('reviews_item_user').on(t.itemId, t.userId)],
+);
+
+/**
+ * A member's reading goal (§16 #49): N books in a year, one per member per year. What counts is worked out when asked,
+ * never stored — every finished read of a book by that member with its end date in that year, re-reads included — so a
+ * read added, moved, corrected or deleted changes the count at once. A member's goals go with them when they're removed.
+ */
+export const readingGoals = sqliteTable(
+  'reading_goals',
+  {
+    // AUTOINCREMENT: a goal's id is in its routes and feed entries point at it, so it never names another one
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    year: integer('year').notNull(),
+    target: integer('target').notNull(), // books, 1–MAX_GOAL_TARGET
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+  },
+  (t) => [uniqueIndex('reading_goals_user_year').on(t.userId, t.year)],
 );
 
 /**
@@ -707,6 +731,7 @@ export type ReadingProgress = typeof readingProgress.$inferSelect;
 export type Read = typeof reads.$inferSelect;
 export type Review = typeof reviews.$inferSelect;
 export type Play = typeof plays.$inferSelect;
+export type ReadingGoal = typeof readingGoals.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type RemoteActivity = typeof remoteActivities.$inferSelect;
 export type Comment = typeof comments.$inferSelect;
