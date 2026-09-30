@@ -592,6 +592,32 @@ describe('the Recommended list', () => {
     );
   });
 
+  it('explains Add to my want list only while one is waiting, and a shelf is there to add it to', async () => {
+    const EXPLAINER = 'Adding one puts it on your want list as a Not owned item';
+    const cookie = await sessionCookie('member');
+    const page = async () => (await (await a.get('/recommendations', cookie)).text()).replace(/\s+/g, ' ');
+
+    // none waiting: nothing to explain
+    expect(await page()).not.toContain(EXPLAINER);
+    // one waiting: its Add button, and what the button does
+    const id = await received();
+    let html = await page();
+    expect(html).toContain(`action="/recommendations/${id}/want"`);
+    expect(html).toContain(EXPLAINER);
+    // all dismissed: gone again
+    await a.postForm(`/recommendations/${id}/dismiss`, {}, cookie);
+    html = await page();
+    expect(html).not.toContain(`action="/recommendations/${id}/want"`);
+    expect(html).not.toContain(EXPLAINER);
+    // one waiting but no shelf: no Add button, so nothing to explain either
+    await env.DB.prepare('DELETE FROM libraries').run();
+    const another = await received({ id: 8, title: 'The Word for World Is Forest' });
+    html = await page();
+    expect(html).toContain('The Word for World Is Forest');
+    expect(html).not.toContain(`action="/recommendations/${another}/want"`);
+    expect(html).not.toContain(EXPLAINER);
+  });
+
   it('asks for a shelf when there’s more than one, and won’t add without one', async () => {
     const id = await received();
     const cookie = await sessionCookie('member');

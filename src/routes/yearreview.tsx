@@ -219,7 +219,7 @@ const Highlights: FC<{ col: Column; year: number }> = ({ col, year }) => {
   );
 };
 
-const PlayLog: FC<{ label: string; noun: [string, string]; verb: string; log: PlayStats; year: number }> = ({ label, noun, verb, log, year }) => (
+const PlayLog: FC<{ label: string; noun: [string, string]; verb: [string, string]; log: PlayStats; year: number }> = ({ label, noun, verb, log, year }) => (
   <div class="yr-col">
     <h3>{label}</h3>
     {log.plays ? (
@@ -227,7 +227,7 @@ const PlayLog: FC<{ label: string; noun: [string, string]; verb: string; log: Pl
         <div class="stat-row">
           <div class="stat">
             <div class="stat-n">{log.plays.toLocaleString('en-US')}</div>
-            <div class="stat-label">{verb}</div>
+            <div class="stat-label">{log.plays === 1 ? verb[0] : verb[1]}</div>
             <div class="stat-detail">{plural(log.items, noun[0], noun[1])}</div>
           </div>
         </div>
@@ -304,11 +304,14 @@ const YearPage: FC<{ review: YearReview; today: string }> = ({ review, today }) 
           </button>
         </form>
       </div>
-      <p class="muted yr-intro">
-        {solo
-          ? 'Your reading: every book you finished with an end date in the year, re-reads too.'
-          : 'You: the books you finished and the ratings you gave. Household: everyone’s. A book counts in the year it was finished, a re-read too.'}
-      </p>
+      {/* what the You and Household columns mean: only when there are columns to explain */}
+      {hasReading ? (
+        <p class="muted yr-intro">
+          {solo
+            ? 'Your reading: every book you finished with an end date in the year, re-reads too.'
+            : 'You: the books you finished and the ratings you gave. Household: everyone’s. A book counts in the year it was finished, a re-read too.'}
+        </p>
+      ) : null}
 
       {!hasData ? (
         <article class="panel yr-empty">
@@ -344,8 +347,8 @@ const YearPage: FC<{ review: YearReview; today: string }> = ({ review, today }) 
           </h2>
           <p class="muted form-note">The household’s play log: a play is nobody’s own, so this is everyone’s, shown once.</p>
           <div class="yr-pair">
-            <PlayLog label="Records" noun={['record', 'records']} verb="Spins" log={review.plays.vinyl} year={year} />
-            <PlayLog label="Games" noun={['game', 'games']} verb="Plays" log={review.plays.boardgame} year={year} />
+            <PlayLog label="Records" noun={['record', 'records']} verb={['Spin', 'Spins']} log={review.plays.vinyl} year={year} />
+            <PlayLog label="Games" noun={['game', 'games']} verb={['Play', 'Plays']} log={review.plays.boardgame} year={year} />
           </div>
         </section>
       ) : null}

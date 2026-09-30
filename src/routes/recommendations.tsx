@@ -412,11 +412,14 @@ recommendations.get('/recommendations', async (c) => {
           <p class="muted">Nothing yet. Open an item on a shelf you share with connections and choose “Recommend to…”.</p>
         )}
       </section>
-      <p class="muted">
-        Adding one puts it on your want list as a Not owned item — or, when it’s already in your catalog, puts that on your
-        want list. The household that sent it is sent no reply either way — but an item on a shelf you share with them
-        shows there as any item does, Not owned and Wanted included.
-      </p>
+      {/* what "Add to my want list" does: only while there's one to add, and a shelf to add it to (no shelf, no button) */}
+      {received.length && shelves.length ? (
+        <p class="muted">
+          Adding one puts it on your want list as a Not owned item — or, when it’s already in your catalog, puts that on
+          your want list. The household that sent it is sent no reply either way — but an item on a shelf you share with
+          them shows there as any item does, Not owned and Wanted included.
+        </p>
+      ) : null}
     </>,
   );
 });

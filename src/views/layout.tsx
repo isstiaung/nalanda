@@ -295,10 +295,20 @@ export const Layout: FC<
   </html>
 );
 
+/**
+ * The path the sidebar marks for a page with no link of its own: the one it's reached from. A connected household's
+ * pages — its shelves and their items — belong under Lending → Borrowed, where that household is browsed from. (Its
+ * feed settings, reached from Connections, already sit under Connections by their path.)
+ */
+export function navPath(path: string): string {
+  if (/^\/households\/\d+(\/|$)/.test(path)) return '/borrowed';
+  return path;
+}
+
 /** Renders a full page (doctype + app shell). Partials use c.html(<Fragment/>) directly. */
 export async function page(c: Context<AppEnv>, title: string, body: Child) {
   const user = (c.get('user') as SessionUser | undefined) ?? null;
-  const path = new URL(c.req.url).pathname;
+  const path = navPath(new URL(c.req.url).pathname);
   const libraries = user ? await listLibraries(c.env.DB) : [];
   // Feed and Connections exist only on an instance with a federation key; only admins manage connections.
   const federation = !!user && !!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY));

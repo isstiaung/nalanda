@@ -14,7 +14,7 @@ const account = new Hono<AppEnv>();
  * admin has switched names on. Your username signs you in and never leaves the app.
  */
 const DisplayNameForm = ({ displayName, saved }: { displayName: string | null; saved?: boolean }) => (
-  <article class="panel form-card" id="display-name">
+  <article class="panel form-card account-card" id="display-name">
     <p class="eyebrow">Display name</p>
     {saved ? <p class="notice">Display name saved.</p> : null}
     <form method="post" action="/account/display-name">
@@ -54,7 +54,8 @@ const Form = ({
     <div class="page-head">
       <h1>Account</h1>
     </div>
-    <article class="panel form-card">
+    <article class="panel form-card account-card">
+      <p class="eyebrow">Password</p>
       {mustChange ? (
         <p class="notice">Set your own password to continue — you logged in with a temporary one.</p>
       ) : null}

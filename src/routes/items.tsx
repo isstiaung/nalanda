@@ -78,6 +78,7 @@ import {
   type PriceFieldProps,
   ItemStatusPills,
   LendingHistory,
+  LENGTH_UNIT,
   MEDIA_LABEL,
   AllPlays,
   Pagination,
@@ -329,15 +330,6 @@ const formItem = (existing: Item | null, v: ParsedForm['values']): Item =>
  * before the re-read began) may only send them unchanged. `item` is the editor's view (personalItem).
  */
 const rereadLocked = (item: Item) => item.mediaType === 'book' && item.rereading;
-
-const LENGTH_UNIT: Partial<Record<MediaType, string>> = {
-  book: 'pages',
-  boardgame: 'min play time',
-  vinyl: 'tracks',
-  movie: 'min',
-  music: 'tracks',
-  videogame: 'hours',
-};
 
 items.post('/items', async (c) => {
   const body = await c.req.parseBody();

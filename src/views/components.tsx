@@ -25,6 +25,16 @@ export const MEDIA_LABEL: Record<MediaType, string> = {
   other: 'Other',
 };
 
+/** What an item's length counts, by type — the item page and share pages say "304 pages", not a bare 304. */
+export const LENGTH_UNIT: Partial<Record<MediaType, string>> = {
+  book: 'pages',
+  boardgame: 'min play time',
+  vinyl: 'tracks',
+  movie: 'min',
+  music: 'tracks',
+  videogame: 'hours',
+};
+
 /** Lowercase count nouns for inline breakdowns: "12 books · 3 board games · 5 vinyl". */
 export const MEDIA_PLURAL: Record<MediaType, string> = {
   book: 'books',
