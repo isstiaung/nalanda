@@ -210,7 +210,7 @@ END;
 --> statement-breakpoint
 -- New defaults, same instance (§16 #49). From this version a new instance starts with names on share pages, names to
 -- connections and goals to connections all on — the code's defaults, used only while there's no site_settings row.
--- An instance that already has members keeps exactly what it has: with a row it keeps its row (0028 gave the new
+-- An instance that already has members keeps exactly what it has: with a row it keeps its row (0035 gave the new
 -- goals column 0, off); without one it had been running on the old defaults, so this writes them down — progress on
 -- share pages off, progress to connections on, names off, goals off. A new instance has no members when it migrates,
 -- so it gets no row, and the new defaults.

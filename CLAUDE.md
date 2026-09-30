@@ -69,7 +69,8 @@ shape from this file.
 - Workers runtime is not Node: no `fs`/`net`/native modules — fetch, WebCrypto, and Web
   Streams only. No `nodejs_compat` flag.
 - Data portability: every user-visible field must round-trip through `/export.csv`. A new
-  column isn't done until export (and import mapping) covers it.
+  column isn't done until export (and import mapping) covers it. Reading goals are the exception:
+  they're about people, not items; backups carry them (ARCH.md §16 #49).
 
 ## Privacy invariants (share links)
 - `/share/:token` pages render a **field whitelist** via `toPublicItem()` in
@@ -95,7 +96,7 @@ shape from this file.
 - **Names outside the app** (ARCH.md §16 #45) are a member's optional **display name**, never a
   username, and only while an admin has switched them on — two `site_settings` switches. A new
   instance starts with both on (§16 #49: the code's `SITE_DEFAULTS`, used only while there's no
-  row); migration 0029 pinned every instance that already had members to what it had, so an upgrade
+  row); migration 0036 pinned every instance that already had members to what it had, so an upgrade
   never flips one. Tests about names off say so (`upgradedSwitches()` in test/member-helpers.ts).
   `names_on_shares`: a shared book's page adds `reviews` (each member's rating and review, signed
   with their display name or "A member"), still with no reads, no read dates and no "who read it".
@@ -119,7 +120,7 @@ shape from this file.
   "A member". Their `member_activity` rows point at the goal (`goal_id`), never a person; a milestone
   also keeps the finish that crossed the line (`read_id`, `item_id`), so it goes only to views holding
   that book and goes when that read does, and a set goes to views that can hold books. Recorded only
-  as they happen — the goal's own write in `setGoal()`'s batch, or migration 0029's triggers on a
+  as they happen — the goal's own write in `setGoal()`'s batch, or migration 0036's triggers on a
   finish today or yesterday outside an import — never backfilled, and never dated by a read. A changed
   target re-keys the set and withdraws the old milestones; a deleted goal takes its entries; rename,
   removal and the switch re-key them (`rekeyMemberActivity()`, `setGoalsToConnections()`). What counts

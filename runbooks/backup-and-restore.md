@@ -106,12 +106,12 @@ A backup from before series (the series migration, ARCH.md §16 #52) simply has 
 That migration changes no data, so such a backup restores straight into the latest schema, every
 item in no series.
 
-**A backup from before 1.4 (before migration 0029) restores at 0027 too, then 0028–0029**
-(ARCH.md §16 #49). 0029 writes down the sharing switches an instance with members was running on —
-names off, goals off — and a new instance starts with them on. Migrated straight to the latest on an
-empty database, 0029 finds no members, writes nothing, and a backup whose `site_settings.sql` is
+**A backup from before reading goals (before migration 0036) restores at its own level too, then
+the rest** — a 1.4.0 backup at 0029, then 0030–0036 (ARCH.md §16 #49). 0036 writes down the sharing
+switches an instance with members was running on — names off, goals off — and a new instance starts
+with them on. Migrated straight to the latest on an empty database, 0036 finds no members, writes nothing, and a backup whose `site_settings.sql` is
 empty (it never saved a switch) comes back with names and goals switched on — publishing names that
-were off. Restored at 0027 and then migrated, it keeps what it had.
+were off. Restored at its own level and then migrated, it keeps what it had.
 
 The search index repopulates automatically as the items insert (trigger-driven). Cover
 keys ride along in the data: if the R2 bucket is intact, images work immediately; if the

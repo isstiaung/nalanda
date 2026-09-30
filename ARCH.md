@@ -456,7 +456,7 @@ portable, and makes share routes trivially public. CF Access remains available l
   all in `details`: catalogue data anyone can look up on Discogs. The media and sleeve grades
   describe this household's copy, like the copies count, and live in their own columns, which
   no whitelist carries.
-- **Names are the household's choice** (§16 #45) — on for a new instance since reading goals, and as they were
+- **Names are the household's choice** (§16 #45) — on for a new instance since reading goals arrived, and as they were
   for one upgraded (§16 #49: an instance that had members before keeps its switches, off unless an
   admin turned them on). `site_settings.names_on_shares`
   (admin-only, on **Shared links**) adds one field to a shared book's page: `reviews`, each
@@ -1662,11 +1662,11 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
 
     **Recorded as it happens; rows point at the goal.** A goal set is recorded by its own write
     (`setGoal()`), in the same batch (#39), guarded by `changes()` so a refused or unchanged save records
-    nothing. A milestone is recorded by two triggers on `reads` (migration 0029) on **the finish that
+    nothing. A milestone is recorded by two triggers on `reads` (migration 0036) on **the finish that
     carries the count over the line** — before this finish below the threshold, after it at or above —
     and only for a finish "as it happens" by #45's rule: ended today or yesterday (UTC), outside an
     import, while a connection view exists. A past read added later, an import, or an undated finish can
-    move the count but crosses no line on anyone's feed; nothing is ever backfilled — not by 0029, not
+    move the count but crosses no line on anyone's feed; nothing is ever backfilled — not by 0036, not
     by a first view's opening entries, not when a switch or a name comes on later. Everything is dated
     when it was recorded, never by a read. A `member_activity` goal row points at `goal_id`, never at a
     person: the name is resolved when served, from the goal's member, and `ON DELETE CASCADE` takes the
@@ -1724,7 +1724,7 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     version 1**.
 
     **The migration.** `member_activity.item_id` becomes nullable, which SQLite can't do in place:
-    0029 rebuilds the table — create, copy with every id, drop, rename, re-index — dropping 0027's five
+    0036 rebuilds the table — create, copy with every id, drop, rename, re-index — dropping 0027's five
     triggers first (SQLite checks every trigger that names a table when one is renamed) and making them
     again word for word after. It carries over AUTOINCREMENT's high-water mark too: connections hold
     these ids as cursors, and a plain copy would restart the sequence at the highest id still there,
@@ -1736,23 +1736,33 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     only where there are users. **A new instance** migrates before `/setup`, has no users, gets no row,
     and runs on `SITE_DEFAULTS` — names and goals on. **An existing instance** that never saved a
     switch had been running on the old defaults; the row writes them down. One that saved one keeps its
-    row; 0028's new column gives it goals off. `outwardName()`'s SQL fallback follows `SITE_DEFAULTS`.
-    Restoring a pre-1.4 backup therefore restores at 0027 and migrates after, as the backup runbook says:
-    migrated first on an empty database, 0029 finds no members and the restored instance would start
-    with names on. 0029 is `--custom`, so its snapshot was written by hand to the new `member_activity`
+    row; 0035's new column gives it goals off. `outwardName()`'s SQL fallback follows `SITE_DEFAULTS`.
+    Restoring a backup from before goals therefore restores at its own level and migrates after, as the
+    backup runbook says: migrated first on an empty database, 0036 finds no members and the restored
+    instance would start with names on. 1.4's session keys (#56, 0028–0029) don't touch it: the pin asks
+    only whether any user exists. 0036 is `--custom`, so its snapshot was written by hand to the new `member_activity`
     shape; `drizzle-kit check` doesn't compare snapshots with the schema, but `drizzle-kit generate`
     against a copy reports no changes — the pass found the first snapshot stale, which would have made
     the next `db:generate` emit a failing rebuild.
 
-    **Rehearsed** on production's backup of 2026-09-29 (0000–0027, the per-table restore in `TABLES`
-    order, then 0028–0029): 28 of 29 tables identical in every pre-existing column (5,120 rows — 1,998
-    items, 381 reads, 359 reviews, 303 household entries, the one per-person entry with its id and
-    `seq` 1 kept); `site_settings` gained a row pinning the old defaults (the backup has none); 0027's
-    five triggers remade with identical text; `foreign_key_check` clean. The same backup with a saved
-    row as production has had since 1.3.0 (names to connections on) kept that row byte for byte, with
-    goals off. The 2026-09-28 backup through 0000–0023, restore, then 0024–0029 gave #43's and #45's
-    numbers and the same pinned row. D1: the Overview is one call more than before, 10 in all with the
-    layout's; a feed pull with eight members' goals and milestones 6, its check 4 (budget 50, #37).
+    **Rehearsed** on production's backup of 2026-09-30 (taken on 1.4.0: 0000–0029, the per-table restore in
+    `TABLES` order — `series`, `plays` and `reading_goals` have no file and were skipped — then 0030–0036,
+    so the location, series, plays and vinyl migrations ran with these): 29 of 29 pre-existing tables
+    identical in every pre-existing column (5,025 rows — 1,999 items, 381 reads, 359 reviews, 303 household
+    entries, the one per-person entry and its `seq` of 2 kept, both accounts with their session keys).
+    Its saved `site_settings` row — names to connections **on**, as production has had since 1.3.0 — came
+    through byte for byte, `updated_at` included, with goals off. The same backup with its row taken away
+    before migrating got the pinned row: progress on shares off, progress to connections on, names off,
+    goals off. 0027's five triggers were remade with identical text, and `foreign_key_check` was clean.
+    None of 0028–0034 touches `member_activity`, `site_settings` or their triggers (0032 remakes only
+    the search index's). Before the rebase onto them, the same held on the backups of 2026-09-29 and
+    2026-09-28. D1: the Overview is one call more than before — 11 in all with the layout's and read
+    next's (#46); a feed pull with eight members' goals and milestones 6, its check 4 (budget 50, #37).
+
+    **Goals stay out of `/export.csv` — the owner's decision, a deliberate exception** to "every
+    user-visible field round-trips through the export" (CLAUDE.md). The CSV is one row per item, and a goal
+    is about a person, not an item — like a display name, which isn't in it either. Backups carry
+    `reading_goals` with every other table, and a restore brings them back.
 
     **Chosen without asking, overrulable:** a goal can be set for this year or next only; pace counts
     the server's UTC day and is "on track" until a whole book behind; "halfway" is half the target
@@ -1761,8 +1771,7 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     while its finish does, even if the count later dips; a goal goes to every view that can hold books
     and a milestone only to views holding its book; goal entries are recorded for unnamed members too
     and served once they have a name (a rename re-keys them), as #45 serves a named member's history;
-    a member's goals are deleted with them; goals aren't in `/export.csv` — a goal is a person's, not an
-    item's, like a display name — and backups carry `reading_goals`; the shared item page now looks up
+    a member's goals are deleted with them; the shared item page now looks up
     members' reviews whatever the switch says, so a hit still does no more D1 work than a miss with
     names on, which is now the default. The existing suite runs as a new instance, names on; tests
     about names off say so with `upgradedSwitches()`.
