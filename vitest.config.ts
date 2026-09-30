@@ -13,6 +13,10 @@ export default defineConfig(async () => {
       cloudflareTest({
         wrangler: { configPath: './wrangler.jsonc' },
         miniflare: {
+          // Tests only: the Worker never reads its static files — Cloudflare serves them before it runs, which
+          // SELF skips. Binding them lets a test fetch /sw.js or the manifest as a browser gets them, headers
+          // and all, from the same asset server `wrangler dev` uses (test/pwa.spec.ts).
+          assets: { directory: './public', binding: 'ASSETS' },
           bindings: {
             TEST_MIGRATIONS: migrations,
             SESSION_SECRET: 'test-secret-not-for-production',

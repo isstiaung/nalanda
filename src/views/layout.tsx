@@ -18,6 +18,10 @@ const Head: FC<{ title: string }> = ({ title }) => (
     <link rel="icon" href="/logo.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
+    {/* installed to a home screen it opens full-screen (the manifest says so too; older iOS reads only these) */}
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Nalanda" />
     <link rel="stylesheet" href="/app.css" />
     {/* Before paint, not in app.js (which is deferred): a deferred script would let
         the full table render first and then visibly drop columns. */}
