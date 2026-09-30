@@ -611,8 +611,13 @@ export async function seriesWithVolumes(
   viewer: number,
 ): Promise<{ series: Series; volumes: SeriesVolumeRow[] } | null> {
   const dbi = db(d1);
+  // Written out, not interpolated: in a select list Drizzle leaves columns unqualified, and "item_id" = "id" inside
+  // the subquery would compare the read with itself. Aliased, because a batch returns rows keyed by column name, and
+  // the two subqueries' text is the same but for their parameters — one would overwrite the other.
   const mine = (status: 'completed' | 'in_progress') =>
-    sql<number>`EXISTS (SELECT 1 FROM ${s.reads} WHERE ${s.reads.itemId} = ${s.items.id} AND ${s.reads.readerId} = ${viewer} AND ${s.reads.status} = ${status})`;
+    sql<number>`EXISTS (SELECT 1 FROM reads r WHERE r.item_id = "items"."id" AND r.reader_id = ${viewer} AND r.status = ${status})`.as(
+      status === 'completed' ? 'finished_by_me' : 'reading_by_me',
+    );
   const [found, rows] = await dbi.batch([
     dbi.select().from(s.series).where(eq(s.series.id, id)),
     dbi
