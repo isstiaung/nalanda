@@ -204,6 +204,22 @@ CREATE UNIQUE INDEX reading_goals_user_year ON reading_goals(user_id, year);
 -- member_activity (§16 #45) gains goal_id → reading_goals(id), goal_target and goal_count, and item_id may be NULL:
 -- a goal entry is the only one without an item (§16 #49)
 
+CREATE TABLE wants (             -- each member's want list (§16 #53)
+  item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- deleteUser() also clears it
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),                  -- when it was wanted
+  PRIMARY KEY (user_id, item_id)
+);
+CREATE TABLE purchase_links (    -- where to buy an item: pasted, the household's (§16 #53)
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  label      TEXT NOT NULL,
+  url        TEXT NOT NULL,       -- an absolute http(s) URL, checked on every way in
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (item_id, url)
+);
+-- shares (§9, §16 #18) gains want_user_id → users(id): a gift list, one member's want list (§16 #53)
+
 CREATE TABLE tags (
   id   INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE COLLATE NOCASE
@@ -307,6 +323,12 @@ book stays Completed, marked re-reading, until Finish or "Stop re-reading" close
 read is listed on the book's page, correctable and deletable (§16 #41). Each is its reader's:
 the buttons act on the signed-in person's own reads, another member can start their first read
 of a book someone else finished, and everyone's reading shows under their name (§16 #43).
+
+**Want to read** (§16 #53): "Want to read" on a book's page — "Want" on a record's or a game's — puts
+it on the signed-in member's own want list; the same button on a scan or search result adds an item
+not yet in the catalog as Not owned, on the adder's list. Anyone pastes shop links under "Where to
+buy". Finishing a book takes it off its reader's list. An admin publishes a member's list as a gift
+list — a share link of exactly what they want now, with those links.
 
 **Lending**: from an item page, "lend" captures borrower + optional due date; dashboard and
 `/loans` show what's out and overdue; "returned" stamps `returned_on`. History is kept: `/loans`
@@ -485,6 +507,17 @@ portable, and makes share routes trivially public. CF Access remains available l
 - **Covers**: share pages need cover images without auth, so `GET /covers/:key` is public
   with random-UUID keys (unguessable, no listing). Acceptable exposure: covers are public
   cover art by definition.
+- **Gift lists** (§16 #53): a share can capture one member's **want list** instead of a shelf's
+  filters (`shares.want_user_id`, every other filter unset). It shows exactly what that member
+  wants now, on any shelf — `shareFilters()` carries `wantedBy` and `itemMatchesShare()` checks the
+  item's wanters, so the listing and the item route agree — and never counts towards a shelf's
+  visibility. Its pages render `toGiftItem()`, a narrower whitelist built on `toPublicItem()`: title,
+  creators, cover, type, publisher, date, length, description, `inCollection` ("On the shelves"),
+  and the one field no other public page has, the household's **purchase links** — pasted http(s)
+  URLs, opened with `rel="noopener noreferrer"` so the token never reaches a shop. No rating, review,
+  reviews, read count, progress, tags or details. Its title is "A want list", or the member's
+  display name only while `names_on_shares` is on — never a username. Ordinary shelf and tag shares
+  don't show purchase links.
 - **Front door (optional)**: with the `HOME_SHARE_TOKEN` secret set, anonymous `GET /`
   redirects to that share — the deploy's root doubles as the public library page
   (§16 #21). A stale token falls back to the login redirect.
@@ -527,6 +560,9 @@ GET  /search                   ?q= — FTS5 across title/creators/description/no
 GET  /tags · GET /tags/:id     browse by tag
 GET  /series · GET /series/:id  series: volumes in order, missing numbers, the viewer's next up (§16 #52)
 POST /series/:id                rename (a taken name merges) and set its total
+GET  /wants                    a member's want list (?member=:id — the household's, to look at; §16 #53)
+POST /items/:id/want           want=1|0 — the signed-in member's own list
+POST /items/:id/links          add a purchase link · POST /items/:id/links/:link/delete — any member
 GET  /import                   POST /api/import (JSON batches from client-parsed CSV)
 GET  /export.csv               everything; ?library=:id to scope; ?after=:id for one page of 250
                                items or 1,000 loans (x-export-next names the next page) — the
@@ -534,7 +570,7 @@ GET  /export.csv               everything; ?library=:id to scope; ?after=:id for
 GET  /covers/:key              cover art from R2 (public, unguessable, immutable cache)
 
 GET  /settings/users           admin: create/remove members, reissue temp passwords
-POST /shares                   admin: publish a view (captures shelf + filters + name)
+POST /shares                   admin: publish a view (captures shelf + filters + name), or wantUserId=:id — a gift list
 POST /shares/:id               admin: action=rotate | delete
 POST /shares/settings          admin: setting=progress | names (the share-page switches, §16 #34, #45)
 POST /settings/users/:id/display-name   admin: set a member's display name (§16 #45)
@@ -1884,6 +1920,94 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     `group` is kept as a tag too; a Goodreads suffix is stripped from the title of a book the import adds; a
     form without the series fields (one opened before this release) leaves the series alone; share listings
     and connections don't carry the series; the series field shows for every media type.
+
+**2026-09-30 — want to read:**
+53. **Each member has a want list; the household pastes purchase links; an admin can publish one
+    member's list as a gift list.** The owner asked for "want to read", deciding each point:
+    - **Want lists are per member** — `wants`, one row per member per item, with when it was wanted.
+      A "Want to read" toggle on a book's page ("Want" on a record's or a game's) puts it on the
+      signed-in member's own list or takes it off; the route takes no member, so nobody changes
+      anyone else's list, admins included. The same option sits on every scan and search result
+      beside "Log — not owned", reusing that flow: a result not yet in the catalog joins it as Not
+      owned (`copies = 0`, #13), the want in the insert's batch (#39); a result whose ISBN-13 is
+      already here puts the want on that item rather than adding a second copy. Each member's list
+      is a page (**Want list**, newest first), and the household can look at one another's — inside
+      the app, as reads are.
+    - **Purchase links are pasted, never generated**: `purchase_links`, a label and a URL, belonging
+      to the item and shared by the household — any member adds or removes one, up to 20 an item,
+      an address once. `checkPurchaseLink()` takes only an absolute `http:` or `https:` URL, as the
+      WHATWG parser reads it, with a host and no user name or password (a pasted login would go
+      public with it), at most 2,000 characters; so `javascript:`, `data:`, relative and
+      protocol-relative addresses never reach the table, from the form or from an import. They render
+      as text inside `<a href>` with `target="_blank" rel="noopener noreferrer"`: the shop's page
+      can't script this one, and is never told where it came from — a gift list's token stays out
+      of every shop's logs. A gift list re-checks each link on the way out, so a row that got past
+      the route (a hand-edited restore) still can't publish anything but http(s).
+    - **A gift list is a share, and not a shelf.** `shares.want_user_id` names the member; its other
+      filters are unset and no shelf is captured. `shareFilters()` carries it as `wantedBy` — an
+      `EXISTS` on `wants` in the same WHERE listings and counts use — and `itemMatchesShare()` gained
+      a `wanters` argument, the ids of the members who want the item, which the public item route
+      reads in the same batch as its tags, so every id costs the same work as before (#43's timing
+      rule). Both read the list **as it stands**: an item taken off, or finished, leaves the page and
+      its id stops answering. A test holds the twins together over every kind of share. It is created,
+      rotated and removed as any share, admin-only, from the member's Want list page or `/shares`,
+      which names whose list it is (by username — that page is inside the app). `isWholeShelfShare()`
+      is false for it and `shareVisibility()` leaves it out, so it never makes a shelf read *Shared*.
+    - **What a gift list shows** is `toGiftItem()`, built on `toPublicItem()` like `toConnectionItem()`:
+      title, creators, cover, type, publisher, published, length, description, `inCollection` (as
+      "On the shelves", so a giver can skip what the household has) and the purchase links. Less than
+      a shelf's share page — no rating, review, reviews, read count, progress, tags or details: a
+      gift list is for buying, and nothing about reading belongs on it. Its title is "A want list";
+      with `names_on_shares` on and a display name set it is "Priya's want list" (#45) — never a
+      username, resolved when served, so switching names off hides it from the next render. There is
+      no admin-given name: `shares.name` holds "Want list" and is never shown publicly.
+    - **Purchase links are public only on gift lists** — the owner left ordinary shelf shares open;
+      **chosen: not on them.** A shelf's link says what the household has, and "buy it here" beside
+      books already owned is noise at best and an advertisement at worst; the whitelist grows only
+      where a need was stated. Connections don't get them either: `toConnectionItem()` has no field.
+    - **Finishing a book takes it off its reader's want list — chosen, as the owner leaned.** "Want to
+      read" is a wish not yet met, and a stale one would keep a finished book on a gift list for
+      someone to buy. It is the moment of finishing that clears it: Finish on an open read
+      (`closeRead`, straight after its UPDATE, guarded by `changes()` so a refused finish clears
+      nothing), and the edit form's Completed on a book the editor hadn't finished — only theirs,
+      only a book (a record or a game "Completed" was heard or played, which isn't having it). Not a
+      stop (they still mean to read it), not a past read added from the book's page or a correction
+      (history, not a finish now), not an import (so the export round-trips), and not someone else's
+      finish. A want added to a book you've finished — to read it again — stays until that re-read
+      is finished.
+    - **Removing a member clears their want list — chosen.** Reads and reviews are the household's
+      history and stay unattributed (#43); a want is a wish for later, and a nobody's wish means
+      nothing. So `deleteUser()` deletes their wants and every gift list of them in its batch —
+      `shares.want_user_id` has no ON DELETE (drizzle-kit drops it on ALTER TABLE, as with
+      `reads.reader_id`), and a test fails with "FOREIGN KEY constraint failed" without it. The
+      items and their purchase links stay. Deleting an item cascades both.
+    - **Export and import.** Two columns: `wanted_by` — `since@username` per want, semicolon-
+      separated, the name percent-encoded as the reads cell's `@reader` (#43) — and `purchase_links`,
+      JSON `[{label, url}]`. The import follows #43: in an admin's import a name that is a member
+      here keeps them and any other name is the importer's; a member's import is all theirs; a want
+      has no former member (an empty name is nobody's and is dropped). Two names landing on one
+      person keep the earliest date. Every imported link is checked as a pasted one; a libib or
+      Goodreads file never puts either column into details, which share pages render. The preview
+      counts wants per name, only when a file has any.
+    - **Not built: "bought it".** A marker so two givers don't buy the same thing wasn't asked for; it
+      would need a public write, which share links have never had. A possible follow-up.
+
+    **Migration 0028_want-to-read**, one generated migration: `CREATE TABLE wants`, `CREATE TABLE
+    purchase_links`, two indexes, `ALTER TABLE shares ADD want_user_id`. No data changes. Rehearsed
+    on production's backup of 2026-09-29 (0000–0027, the per-table restore in `TABLES` order, then
+    0028) in throwaway local state: all 34 pre-existing tables — the FTS index's own among them —
+    identical in every pre-existing column (1,998 items, 381 reads, 359 reviews, 3 shares, 2 users),
+    the 14 triggers unchanged, no foreign-key violations, integrity ok; `wants` and `purchase_links`
+    empty and `want_user_id` NULL on every share. D1, by test: a gift list 5 calls (either page, 70
+    wanted items with two links each), a gift item 6, a want-list page 8, a book's page 10 (budget
+    50, #37); the export adds one call a page (both cells in one batch).
+
+    **Chosen without asking, overrulable:** only the ISBN-13 decides that a result is already in the
+    catalog (a record's or game's "Want" adds it again); the gift list is sorted by title and the
+    member's page newest-wanted first; "On the shelves" marks a wanted item the household owns
+    rather than hiding it, since the owner asked for the member's list exactly; the gift item page
+    keeps the description; links cap at 20 an item and labels at 60 characters, and an empty label
+    is the site's host; a gift list's link to one of its items stays inside the share.
 
 **2026-09-30 — the play log:**
 54. **Board games and records get a play log: each play a dated row, the household's, beside —

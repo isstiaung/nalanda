@@ -28,6 +28,11 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **Reading goals.** Each member can set a goal of N books for this year or next on the new **Reading goals** page (linked from the Overview); an admin can set anyone's. Every book you finish with an end date in that year counts, re-reads included; records, board games and undated finishes don't. The Overview shows your goal as "14 of 24" with a bar and your pace: on track, "3 behind", or reached. Pace is an even spread through the year. Goals stay out of `/export.csv`: they're about people, not items, and backups carry them.
 - **Goals for connected households**, under a new switch, **Connections → Share reading goals**. With names shown to connections too, their feed gets an entry when a member sets a goal, passes halfway and reaches it ("Priya reached their 2026 goal"), with the target and the count. Only for members with a display name, recorded only as it happens, and never which books or when they were read. A line crossed by an imported or back-dated book is announced with the next book finished. The switch is greyed out while names are off. Your Feed shows connected households' goals the same way.
 
+- **Want lists.** Each member has their own. **Want to read** on a book's page (**Want** on a record's or a game's) puts it on yours, and the same button on a scan or search result under **Add items** adds something not yet in your catalog as Not owned, straight onto your list. **Want list** in the sidebar shows yours, newest first, and anyone else's in the household. Finishing a book takes it off your list; stopping one, or someone else finishing it, doesn't.
+- **Where to buy.** Any member can paste shop links onto an item — a label and a web address — or remove them. Only `https://` and `http://` addresses are taken.
+- **Gift lists.** An admin can publish a member's want list as a share link, from their Want list page. It shows exactly what's on the list now — titles, covers and the Where to buy links — and nothing about reading, ratings, notes, loans or copies. It's titled "A want list", or with the member's display name when **Names on share pages** is on. Rotate and remove it like any share; **Shared links** lists it. Shelf share links don't show purchase links.
+- **Export and import carry them.** Two new columns: `wanted_by` (whose want list, and since when) and `purchase_links`. An admin's import gives each want back to the member of that name; a member's import makes every want theirs.
+
 ### Changed
 - **New instances start with names and goals on.** On a new install, **Names on share pages**, **Show names to connected households** and **Share reading goals** are all on until an admin turns them off. Existing instances keep what they have (see Upgrading).
 
@@ -52,6 +57,12 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **Backups:** `npm run backup` now also exports `reading_goals`. To restore a backup from before this version, restore it at its own migration level and apply 0035–0036 afterwards, as [runbooks/backup-and-restore.md](runbooks/backup-and-restore.md) says; migrated to the latest first, an instance restored from a backup that never saved a switch would start with names and goals on.
 - **Reading goals aren't in `/export.csv`**, by design: a goal is a person's, not an item's. Backups carry them.
 - **Connections:** households on 1.3.0 or older keep working with yours. The protocol is still version 1. They skip goal entries without error, see the rest of your feed as before, and never ask for those entries again. Goals from households on this version show on your Feed.
+- **Back up first** (`npm run backup`). Migration `0037_want-to-read` runs when you deploy: it adds two empty tables, `wants` and `purchase_links`, and one column to `shares`. It changes no existing data.
+- **If you restore from backups**, the table order now has `wants` and `purchase_links` after `reading_goals` ([runbooks/backup-and-restore.md](runbooks/backup-and-restore.md)).
+- **Removing a member now clears their want list**, and any gift list published of it stops working. Their reads and reviews stay, as before.
+- **No new secrets.**
+- **Connections:** nothing changes for connected households. Want lists and purchase links never go to them.
+- **An export from this version** has two more columns; an older version's import ignores them.
 
 ## [1.4.0] - 2026-09-30
 
