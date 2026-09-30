@@ -20,7 +20,9 @@
     "federation:keygen": "node scripts/federation-keygen.mjs",
     "vendor": "node scripts/vendor.mjs",
     "postinstall": "node scripts/vendor.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "a11y": "node scripts/a11y.mjs"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
@@ -28,11 +30,17 @@
     "hono": "^4.13.5"
   },
   "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@babel/eslint-parser": "^7.29.9",
     "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@cloudflare/workers-types": "^5.20260804.1",
     "@fontsource/eczar": "^5.3.0",
+    "axe-core": "^4.13.0",
     "drizzle-kit": "^0.31.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
     "htmx.org": "^2.0.0",
+    "playwright": "^1.63.0",
     "typescript": "^7.0.2",
     "vitest": "~4.1.11",
     "wrangler": "^4.120.0",
