@@ -1,8 +1,9 @@
 // Want lists (ARCH.md §16 #53): each member's own list of what they want to read — or, for a record or a game, want —
 // visible to the household inside the app, and publishable by an admin as a gift list (a want-list share).
 import { Hono } from 'hono';
-import { listItems, listPeople, listWantShares, wantListExtras } from '../db/queries';
+import { getUserById, listItems, listPeople, listWantShares, wantListExtras } from '../db/queries';
 import type { AppEnv } from '../env';
+import { giftListStamp } from '../lib/auth';
 import { BuyLinks, Cover, MEDIA_LABEL, NotOwnedPill, Pagination, wantLabel } from '../views/components';
 import { page } from '../views/layout';
 
@@ -18,10 +19,13 @@ wants.get('/wants', async (c) => {
   const mine = member.id === user.id;
   const pageNum = Number.parseInt(c.req.query('page') ?? '1', 10) || 1;
 
-  const [list, shares] = await Promise.all([
+  const [list, shares, account] = await Promise.all([
     listItems(c.env.DB, null, { wantedBy: member.id, sort: 'wanted', page: pageNum }),
     admin ? listWantShares(c.env.DB, member.id) : Promise.resolve([]),
+    // the account the publish form names, as a stamp — ids are reused (§16 #56); only admins publish
+    admin ? getUserById(c.env.DB, member.id) : Promise.resolve(null),
   ]);
+  const stamp = account && c.env.SESSION_SECRET ? await giftListStamp(c.env.SESSION_SECRET, account) : '';
   const { since, links } = await wantListExtras(
     c.env.DB,
     member.id,
@@ -140,8 +144,8 @@ wants.get('/wants', async (c) => {
           ) : null}
           <form method="post" action="/shares" class="inline-form">
             <input type="hidden" name="wantUserId" value={String(member.id)} />
-            {/* users.id can be reused once a member is removed: the publish names whose list it meant, too */}
-            <input type="hidden" name="wantUsername" value={member.username} />
+            {/* users.id can be reused once a member is removed: the publish names which account it meant, too */}
+            <input type="hidden" name="wantStamp" value={stamp} />
             <button type="submit">{shares.length ? 'Publish another link' : 'Publish as a gift list'}</button>
           </form>
           <p class="muted">

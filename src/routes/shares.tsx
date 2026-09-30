@@ -17,6 +17,7 @@ import {
 } from '../db/queries';
 import { ITEM_STATUSES, MEDIA_TYPES, type ItemStatus, type MediaType } from '../db/schema';
 import type { AppEnv } from '../env';
+import { giftListStamp } from '../lib/auth';
 import { isWantListShare, newShareToken, shareFilters } from '../lib/share';
 import { shareScopeLabel } from '../views/components';
 import { page } from '../views/layout';
@@ -204,9 +205,10 @@ shares.post('/shares', async (c) => {
   if (str('wantUserId')) {
     const raw = str('wantUserId');
     const member = /^\d{1,15}$/.test(raw) ? await getUserById(c.env.DB, Number(raw)) : null;
-    // A user id is reused once the newest member is removed, so a form left open from before could name someone
-    // else: it carries the username it was made for, and must still match.
-    if (!member || member.username !== str('wantUsername')) return c.text('No such member — reload their want list and publish again.', 400);
+    // A user id is reused once the newest member is removed (§16 #56), so a form left open from before could name
+    // someone else: it carries a stamp of the account it was made for, which must still be this one's.
+    const stamp = member && c.env.SESSION_SECRET ? await giftListStamp(c.env.SESSION_SECRET, member) : null;
+    if (!member || !stamp || stamp !== str('wantStamp')) return c.text('No such member — reload their want list and publish again.', 400);
     await createShare(c.env.DB, { token: newShareToken(), name: 'Want list', libraryId: null, wantUserId: member.id, sort: 'title' });
     return c.redirect(`/wants?member=${member.id}`);
   }

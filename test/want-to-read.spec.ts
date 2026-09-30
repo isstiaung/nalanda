@@ -56,7 +56,7 @@ async function household() {
 }
 
 async function giftList(of: Member, by: Member): Promise<Share> {
-  const res = await as(by, '/shares', { body: { wantUserId: String(of.id), wantUsername: of.name } });
+  const res = await as(by, '/shares', { body: { wantUserId: String(of.id), wantStamp: await giftListStamp(env.SESSION_SECRET, of) } });
   expect(res.status).toBe(302);
   const shares = await listShares(env.DB);
   return shares.at(-1)!;
@@ -346,11 +346,19 @@ describe('purchase links', () => {
 describe('a gift list', () => {
   it('is published, rotated and removed by an admin only, and listed in the inventory', async () => {
     const { asha, ravi } = await household();
-    expect((await as(ravi, '/shares', { body: { wantUserId: String(ravi.id), wantUsername: 'ravi' } })).status).toBe(403);
-    expect((await as(asha, '/shares', { body: { wantUserId: '999999', wantUsername: 'ravi' } })).status).toBe(400);
-    // a form made for someone else — an id reused after a removal — publishes nothing
-    expect((await as(asha, '/shares', { body: { wantUserId: String(ravi.id), wantUsername: 'zoe' } })).status).toBe(400);
+    const ravisStamp = await giftListStamp(env.SESSION_SECRET, ravi);
+    expect((await as(ravi, '/shares', { body: { wantUserId: String(ravi.id), wantStamp: ravisStamp } })).status).toBe(403);
+    expect((await as(asha, '/shares', { body: { wantUserId: '999999', wantStamp: ravisStamp } })).status).toBe(400);
+    expect((await as(asha, '/shares', { body: { wantUserId: String(ravi.id), wantStamp: 'forged' } })).status).toBe(400);
     expect((await as(asha, '/shares', { body: { wantUserId: String(ravi.id) } })).status).toBe(400);
+    expect(await listShares(env.DB)).toEqual([]);
+    // a form made for someone removed since, whose id a newcomer was given (§16 #56), publishes nothing
+    const temp = await member('temp');
+    const tempsStamp = await giftListStamp(env.SESSION_SECRET, temp);
+    await deleteUser(env.DB, temp.id);
+    const zoe = await member('zoe');
+    expect(zoe.id).toBe(temp.id); // the id really was reused
+    expect((await as(asha, '/shares', { body: { wantUserId: String(zoe.id), wantStamp: tempsStamp } })).status).toBe(400);
     expect(await listShares(env.DB)).toEqual([]);
     const share = await giftList(ravi, asha);
     expect(share).toMatchObject({ wantUserId: ravi.id, libraryId: null, mediaType: null, status: null, owned: null, tag: null, sort: 'title' });
