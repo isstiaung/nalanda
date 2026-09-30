@@ -6,12 +6,12 @@ import type { Item, NewItem } from '../src/db/schema';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import app from '../src/index';
 
-export type Member = { id: number; name: string; cookie: string; admin: boolean };
+export type Member = { id: number; name: string; cookie: string; admin: boolean; sessionKey: string };
 
 export async function member(name: string, role: 'admin' | 'member' = 'member'): Promise<Member> {
   const user = await createUser(env.DB, { username: name, passwordHash: 'pbkdf2$1$x$y', role, mustChangePassword: false });
   const token = await createSessionToken(env.SESSION_SECRET, user, Math.floor(Date.now() / 1000));
-  return { id: user.id, name, cookie: `${SESSION_COOKIE}=${token}`, admin: role === 'admin' };
+  return { id: user.id, name, cookie: `${SESSION_COOKIE}=${token}`, admin: role === 'admin', sessionKey: user.sessionKey };
 }
 
 /** Who a DB call acts as. */

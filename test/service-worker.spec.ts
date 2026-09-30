@@ -320,7 +320,7 @@ describe('the scan-queue stamp', () => {
       const res = await app.fetch(new Request(`${ORIGIN}/loans`, { headers: { cookie: who.cookie } }), env, ctx);
       await waitOnExecutionContext(ctx);
       const stamp = /<body data-scan-owner="([^"]+)"/.exec(await res.text())?.[1];
-      expect(stamp).toBe(await scanQueueOwner(env.SESSION_SECRET, who.id));
+      expect(stamp).toBe(await scanQueueOwner(env.SESSION_SECRET, who));
       expect(stamp).toMatch(/^[A-Za-z0-9_-]{22}$/);
       expect(stamp).not.toContain(who.name);
       stamps.push(stamp!);

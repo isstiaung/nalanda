@@ -207,7 +207,7 @@ export async function page(c: Context<AppEnv>, title: string, body: Child) {
   // One query, and only on an instance with connections: everything notified is about a connection.
   const unread = federation && user ? await unreadCounts(c.env.DB, user.id) : NONE_UNREAD;
   // signed in means the session secret is set: the cookie was verified with it
-  const scanOwner = user && c.env.SESSION_SECRET ? await scanQueueOwner(c.env.SESSION_SECRET, user.id) : undefined;
+  const scanOwner = user && c.env.SESSION_SECRET ? await scanQueueOwner(c.env.SESSION_SECRET, user) : undefined;
   return c.html(
     `<!doctype html>${Layout({ title, user, path, libraries, federation, unread, scanOwner, children: body })}`,
   );

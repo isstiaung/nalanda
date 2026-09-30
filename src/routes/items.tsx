@@ -223,7 +223,7 @@ items.post('/items', async (c) => {
   // A scan held offline carries the stamp of whoever its review list was shown to (ARCH.md §16 #48). Someone else
   // signed in since, in this tab or another, can't add it as theirs.
   const heldFor = body['scanOwner'];
-  if (heldFor !== undefined && heldFor !== (await scanQueueOwner(c.env.SESSION_SECRET ?? '', c.get('user').id))) {
+  if (heldFor !== undefined && heldFor !== (await scanQueueOwner(c.env.SESSION_SECRET ?? '', c.get('user')))) {
     return c.text('That scan was held for whoever was signed in before. Nothing was added — reload Add items.', 409);
   }
   const parsed = parseItemForm(body);

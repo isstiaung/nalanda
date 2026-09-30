@@ -156,7 +156,7 @@ add.get('/add/review', async (c) => {
   const [result, libs, scanOwner] = await Promise.all([
     lookupByBarcode(c.env, barcode),
     listLibraries(c.env.DB),
-    scanQueueOwner(c.env.SESSION_SECRET ?? '', c.get('user').id),
+    scanQueueOwner(c.env.SESSION_SECRET ?? '', c.get('user')),
   ]);
   return c.html(
     <ReviewEntry

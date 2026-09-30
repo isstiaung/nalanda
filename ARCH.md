@@ -1508,7 +1508,8 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     alone: it deletes the row, and no server route exists for it.
 
     *Whose queue:* the device's and the signed-in account's. Every signed-in page carries an
-    opaque stamp, `scanQueueOwner()` = HMAC(`SESSION_SECRET`, `scan-queue:<id>`), 16 bytes; app.js
+    opaque stamp, `scanQueueOwner()` = HMAC(`SESSION_SECRET`, `scan-queue:<id>:<session key>`),
+    16 bytes — the account's identity, not its reusable id (#56); app.js
     keeps it in localStorage and, **when a different stamp appears, deletes the queue** before
     anything reads it (it runs first, and IndexedDB serves a delete before a later open). **Logout
     also deletes it** and forgets the stamp (bounded at 1.5 s so a stuck IndexedDB can't keep
