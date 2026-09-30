@@ -8,6 +8,15 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [Unreleased]
+
+### Changed
+- **A reading goal's pace says what it's measured against.** Pace still runs from 1 January, so a goal set in September starts behind it; the pill now reads "7 behind pace" rather than "7 behind", "on pace" rather than "on track", and "2 ahead of pace" once you're a whole book past it (that showed as "on track" before). A line under the bar explains the mark on it: where a year-long pace from 1 January is today. Connected households see goals as before; their entries never carried a pace.
+- **Every dropdown has the same arrow.** Selects (in filter bars, forms and settings) and the filter menus beside them (Type, Status, Holding, Columns) share one chevron, with the same spacing from the text and the edge, in light and dark. A select in a filter bar is as wide as the choice showing rather than its longest option, in browsers that support it.
+
+### Fixed
+- The **+** on an item's **Want to read** (or **Want**) button was drawn in the button's own indigo and all but vanished; it now takes the button's text colour.
+
 ## [1.6.0] - 2026-09-30
 
 Year in review, game night, recommendations between connected households, what you paid for things, a sidebar in sections, an accessibility audit in CI, and Discogs' credit beside a record's pressing.
