@@ -284,6 +284,8 @@ export const Layout: FC<
             <main class="content" id="main" tabindex={-1}>
               <div class="content-inner">{children}</div>
             </main>
+            {/* an htmx request that fails says so here, in fixed words (app.js, §16 #65); empty, it takes no room */}
+            <output id="app-status" class="app-status" aria-live="polite"></output>
           </div>
         </div>
       </body>

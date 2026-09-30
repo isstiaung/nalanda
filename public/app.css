@@ -394,6 +394,26 @@ details[open] summary { margin-bottom: 0.75rem; }
 }
 output.notice { display: block; } /* a status message (<output>, bulk edit's result) set as any notice */
 article.notice { border: 1px solid var(--line); border-left: 3px solid var(--accent); background: var(--surface); padding: 0.9rem 1rem; }
+/* An htmx request that failed (§16 #65): one message, app-wide, in the page's own flow after <main> and sticky at the
+   bottom of the view — so it is seen wherever the control was, and nothing sits under it for good: scrolled to the
+   end, it is in its own slot below the page. Rubricated like a refused form's error, on an opaque ground (it passes
+   over the page), aligned with the content column. Empty, it takes no room and draws nothing. */
+.app-status {
+  position: sticky;
+  bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  z-index: 20;
+  display: block;
+  margin: 0 max(2rem, calc((100% - 1080px) / 2)) 0.75rem;
+  padding: 0.6rem 0.85rem;
+  font-size: 12.5px;
+  color: color-mix(in srgb, var(--stamp) 85%, var(--ink));
+  background: linear-gradient(var(--stamp-tint), var(--stamp-tint)), var(--surface);
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--stamp);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+.app-status:empty { padding: 0; margin-block: 0; border: 0; box-shadow: none; background: none; }
 p.error { font-size: 12.5px; color: color-mix(in srgb, var(--stamp) 85%, var(--ink)); background: var(--stamp-tint); border-left: 3px solid var(--stamp); padding: 0.55rem 0.8rem; border-radius: var(--radius-sm); }
 
 /* ── stat row (ledger totals) ─────────────────────────────────────────────── */
@@ -832,6 +852,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   body.nav-open::after { content: ''; position: fixed; inset: 0; background: rgba(23, 19, 16, 0.35); z-index: 35; }
   .mobile-bar .mobile-unread { margin-left: auto; text-decoration: none; }
   .content { padding: 1.1rem 1rem 3rem; }
+  .app-status { margin-inline: 1rem; } /* the phone's 16px gutter, as the content's */
   /* one phone gutter everywhere: public share pages and the login card sit on the same 16px line as the app */
   .share-shell, .offline-shell { padding: 1.25rem 1rem 3rem; }
   .auth-shell { padding: 1rem; }
