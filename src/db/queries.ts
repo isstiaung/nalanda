@@ -2769,6 +2769,33 @@ const YEAR_RATED = `${YEAR_FINISHES},
     WHERE rv.rating IS NOT NULL
   )`;
 
+/**
+ * The creators of the year's finishes, one row each, ready to split into people on commas. Every provider and importer
+ * joins several authors with ", " (Open Library, Google Books, BoardGameGeek, Goodreads' author and additional authors),
+ * so a comma usually separates people — but a catalogue typed or imported by hand can hold one person written
+ * "Last, First": "Le Guin, Ursula K.", "Tolkien, J. R. R.", "Herbert, Frank". Such a string is one person, turned round
+ * ("Ursula K. Le Guin") so it meets the same author written the usual way. It is one when it has exactly one comma, no
+ * ';' or '&', no full stop before the comma (so "James S. A. Corey, Someone" stays two), and given names after it: a
+ * single word, or names ending in an initial ("Ursula K.", "J. R. R."), and not a suffix ("Martin Luther King, Jr."
+ * keeps its order, and the lone "Jr." is dropped as nobody). Two full names ("Terry Pratchett, Neil Gaiman") stay two
+ * people. ';' and ' & ' separate people too ("Pratchett & Gaiman").
+ */
+const YEAR_CREATORS = `named AS (
+    SELECT scope, work, ended_on, cr, trim(substr(cr, 1, instr(cr, ',') - 1)) AS a, trim(substr(cr, instr(cr, ',') + 1)) AS b
+    FROM (SELECT scope, work, ended_on, trim(coalesce(creators, '')) AS cr FROM scoped)
+  ),
+  people AS (
+    SELECT scope, work, ended_on,
+      CASE WHEN instr(cr, ',') > 0 AND instr(b, ',') = 0 AND instr(cr, ';') = 0 AND instr(cr, '&') = 0
+             AND a <> '' AND b <> '' AND instr(a, '.') = 0
+             AND lower(b) NOT IN ('jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv')
+             AND (instr(b, ' ') = 0 OR b GLOB '*[A-Z].')
+           THEN b || ' ' || a
+           ELSE replace(replace(cr, ';', ','), ' & ', ',')
+      END AS names
+    FROM named
+  )`;
+
 /** The first `n` rows of `inner` in each scope, by `order`. */
 const topPerScope = (inner: string, order: string, n: number) =>
   `SELECT * FROM (SELECT *, row_number() OVER (PARTITION BY scope ORDER BY ${order}) AS rn FROM (${inner})) WHERE rn <= ${n}`;
@@ -2790,11 +2817,13 @@ export async function yearInReview(d1: D1Database, userId: number, year: number)
          coalesce(sum(CASE WHEN length > 0 THEN length END), 0) AS pages, count(CASE WHEN length > 0 THEN 1 END) AS withLength
        FROM scoped GROUP BY scope, month`,
     ),
-    // most-read authors: creators split on commas ("A, B" is two authors), and a lone "Jr." is nobody
+    // most-read authors: creators split into people (YEAR_CREATORS: "A, B" is two, "Le Guin, Ursula K." one), and a
+    // lone "Jr." is nobody
     inYear(
       `${YEAR_FINISHES},
+       ${YEAR_CREATORS},
        split(scope, work, ended_on, name, rest) AS (
-         SELECT scope, work, ended_on, '', coalesce(creators, '') || ',' FROM scoped
+         SELECT scope, work, ended_on, '', names || ',' FROM people
          UNION ALL
          SELECT scope, work, ended_on, trim(substr(rest, 1, instr(rest, ',') - 1)), substr(rest, instr(rest, ',') + 1)
          FROM split WHERE rest <> ''

@@ -118,6 +118,62 @@ describe('authors and tags', () => {
     expect(r.household.authors.map((a) => a.name)).not.toContain('Jr.');
   });
 
+  describe('who wrote what', () => {
+    /** Finishes a new book by each `creators` on its date, and returns the year's authors — name and books — in rank order. */
+    const authorsOf = async (entries: Array<[creators: string, endedOn: string]>) => {
+      const asha = await member('asha', 'admin');
+      for (const [i, [creators, endedOn]] of entries.entries()) {
+        await finish((await book(asha, { title: `Book ${i}`, creators })).id, asha, endedOn);
+      }
+      return (await yearInReview(env.DB, asha.id, 2025)).mine.authors.map((a) => [a.name, a.books]);
+    };
+
+    it('reads one person written "Last, First" as one, turned round to meet the usual spelling', async () => {
+      expect(
+        await authorsOf([
+          ['Le Guin, Ursula K.', '2025-01-04'],
+          ['Ursula K. Le Guin', '2025-01-03'],
+          ['Tolkien, J. R. R.', '2025-01-02'],
+          ['Herbert, Frank', '2025-01-01'],
+        ]),
+      ).toEqual([
+        ['Ursula K. Le Guin', 2],
+        ['J. R. R. Tolkien', 1],
+        ['Frank Herbert', 1],
+      ]);
+    });
+
+    it('still splits several people on commas and on " & "', async () => {
+      expect(
+        await authorsOf([
+          ['A, B, C', '2025-02-01'],
+          ['Pratchett & Gaiman', '2025-01-01'],
+        ]),
+      ).toEqual([
+        ['A', 1],
+        ['B', 1],
+        ['C', 1],
+        ['Gaiman', 1],
+        ['Pratchett', 1],
+      ]);
+    });
+
+    it('splits on ";" and between two full names, and keeps a suffix off the author list', async () => {
+      expect(
+        await authorsOf([
+          ['Stephen King; Owen King', '2025-01-01'],
+          ['Stephen King, Peter Straub', '2025-01-02'],
+          ['Martin Luther King, Jr.', '2025-01-03'],
+        ]),
+      ).toEqual([
+        ['Stephen King', 2],
+        ['Martin Luther King', 1], // not turned round into "Jr. Martin Luther King"
+        ['Peter Straub', 1],
+        ['Owen King', 1],
+      ]);
+    });
+  });
+
   it('puts two books by one author ahead of one book re-read three times by another', async () => {
     const asha = await member('asha', 'admin');
     const again = await book(asha, { title: 'Comfort', creators: 'Re Reader' });
