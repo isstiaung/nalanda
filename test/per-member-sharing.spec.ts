@@ -106,8 +106,9 @@ describe('the Read by filter can never be published', () => {
   it('can’t reach a share view’s filters or its item guard', async () => {
     const s = await shelfOfFour();
     const share = await createShare(env.DB, { token: newShareToken(), name: 'Ours', libraryId: s.shelf.id, status: 'completed' });
-    expect(Object.keys(shareFilters(share)).sort()).toEqual(['mediaTypes', 'owned', 'sort', 'statuses', 'tag']);
-    expect(itemMatchesShare(share, s.his, [])).toBe(true); // finished by ravi only: still in the view, for anyone
+    // no reader key: `wantedBy` is a want list, published only as a gift list of it (§16 #53), never who read what
+    expect(Object.keys(shareFilters(share)).sort()).toEqual(['mediaTypes', 'owned', 'sort', 'statuses', 'tag', 'wantedBy']);
+    expect(itemMatchesShare(share, s.his, [], [])).toBe(true); // finished by ravi only: still in the view, for anyone
     expect(await countMatchingItems(env.DB, s.shelf.id, shareFilters(share))).toBe(3);
   });
 
