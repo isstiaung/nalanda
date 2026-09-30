@@ -4,6 +4,7 @@
 import type { Item, ItemStatus, MediaType, NewItem } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import { isRecord, parseGrade } from './condition';
+import { cellPrice, minorToDecimal } from './money';
 import {
   formatReadsCell,
   inDisplayOrder,
@@ -47,6 +48,8 @@ export const EXPORT_COLUMNS = [
   'tags',
   'copies',
   'loans',
+  'purchase_price', // what was paid (§16 #61): a plain decimal in major units — 302.50 — and the currency it was in
+  'purchase_currency',
   'media_condition', // a record's grades (§16 #55): Discogs' codes, M to P — the sleeve's also Generic or No Cover
   'sleeve_condition',
   'began_on',
@@ -133,6 +136,7 @@ export function itemToCsvLine(
     tags.join(', '),
     item.copies,
     formatLoansCell(loans),
+    ...priceCells(item),
     item.mediaCondition,
     item.sleeveCondition,
     item.beganOn,
@@ -148,6 +152,16 @@ export function itemToCsvLine(
   ]);
 }
 
+/** A price's two cells (§16 #61): "302.50" and "INR", or both empty — never an amount without its currency. */
+function priceCells(item: Pick<Item, 'purchasePrice' | 'purchaseCurrency'>): [string, string] {
+  if (item.purchasePrice === null || item.purchasePrice === undefined || !item.purchaseCurrency) return ['', ''];
+  return [minorToDecimal(item.purchasePrice, item.purchaseCurrency), item.purchaseCurrency];
+}
+
+/** A row's price (§16 #61), for the item: both columns, or neither. */
+const rowPrice = (amount: string | undefined, currency: string | undefined, household: string | null | undefined) =>
+  cellPrice(amount, currency, household) ?? { purchasePrice: null, purchaseCurrency: null };
+
 /**
  * A row's grades (§16 #55), by code or by Discogs' wording, for a record only. A grade off the scale is dropped — never
  * kept in details, which share pages render: a condition is private.
@@ -162,6 +176,8 @@ export function rowGrades(mediaType: MediaType, media: string | undefined, sleev
 export type ImportOptions = {
   defaultType: MediaType;
   musicAsVinyl: boolean; // libib calls vinyl "music"; user opts in to remapping
+  // the household's currency (§16 #61): what a price without a currency of its own — libib's `price` — was paid in
+  currency?: string | null;
 };
 
 export type MappedRow = {
@@ -207,6 +223,10 @@ const KNOWN_COLUMNS = new Set([
   // fall into details, which every share page renders
   'wanted_by',
   'purchase_links',
+  // and what was paid (§16 #61): money is never published. libib's own `price` is mapped below, and stays in details
+  // — which published pages strip of money — only when it can't be read as a price in the household's currency
+  'purchase_price',
+  'purchase_currency',
   'item_type',
   'type',
   'ean_isbn13',
@@ -296,9 +316,14 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
   const lengthNum = Number.parseInt(digits(r['length']), 10);
   const copiesNum = Number.parseInt(digits(r['copies']), 10);
 
+  // a file's own price columns (a Nalanda export missing a column reads as libib), else libib's `price`, which has no
+  // currency: the household's. One that can't be read stays in details, which nothing published shows money from.
+  const own = cellPrice(r['purchase_price'], r['purchase_currency'], opts.currency);
+  const libibPrice = own ? null : cellPrice(r['price'], undefined, opts.currency);
+  const price = own ?? libibPrice;
   const details: Record<string, string> = {};
   for (const [k, v] of Object.entries(r)) {
-    if (!KNOWN_COLUMNS.has(k) && v) details[k] = v;
+    if (!KNOWN_COLUMNS.has(k) && v && !(k === 'price' && libibPrice)) details[k] = v;
   }
 
   const tags = (r['tags'] ?? '')
@@ -334,6 +359,7 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
       completedOn: r['completed'] || null,
       details: Object.keys(details).length ? JSON.stringify(details) : '{}',
       ...rowGrades(mediaType, r['media_condition'], r['sleeve_condition']),
+      ...(price ?? { purchasePrice: null, purchaseCurrency: null }),
     },
     tags,
   };
@@ -356,7 +382,7 @@ const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
  * columns. The shelf is the one chosen on the import form — `library` only names where a row came from — and
  * columns this format doesn't define are dropped, not kept in details (reading progress among them).
  */
-export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
+export function mapNalandaRow(row: Record<string, string>, household: string | null = null): MappedRow | null {
   const r: Record<string, string> = {};
   for (const [k, v] of Object.entries(row)) r[k.trim().toLowerCase()] = (v ?? '').trim();
 
@@ -435,6 +461,8 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
       ...(SQL_DATETIME.test(r['added_at'] ?? '') ? { addedAt: r['added_at'] } : {}),
       details,
       ...rowGrades(mediaType, r['media_condition'], r['sleeve_condition']),
+      // what was paid, in the currency the file says (§16 #61); one it doesn't say is the household's
+      ...rowPrice(r['purchase_price'], r['purchase_currency'], household),
     },
     reads,
     ...(reviews ? { reviews } : {}),
@@ -553,9 +581,11 @@ const KNOWN_GOODREADS = new Set([
   // reading: read_count and date_started become reads (ARCH.md §16 #41), so they no longer land in details
   'read_count',
   'date_started',
-  // not a Goodreads column, but private if a file carried one: never into details (§16 #55)
+  // not a Goodreads column, but private if a file carried one: never into details (§16 #55, #61)
   'media_condition',
   'sleeve_condition',
+  'purchase_price',
+  'purchase_currency',
 ]);
 
 /** Goodreads' three built-in exclusive shelves — they map to status, not tags. */
