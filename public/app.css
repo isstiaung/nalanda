@@ -1142,3 +1142,69 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 /* someone in the household wants it, and it isn't owned (§16 #53): the working accent, dotted — it pairs with the
    dashed ghost "Not owned" beside it, and is never a name */
 .pill.wanted { border-color: var(--accent); border-style: dotted; color: var(--accent); }
+
+/* ── year in review (ARCH.md §16 #59) ────────────────────────────────────────
+   The member's year beside the household's, each column its own figures. Counts in the
+   registrar's mono; the month bars in the indigo working accent, ratings in turmeric.
+   The bars are for the eye only (aria-hidden): a visually hidden table carries them. */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.yr-picker label { margin: 0 0.15rem 0 0; font-size: 12.5px; }
+.yr-picker select { height: 30px; }
+.yr-intro { max-width: 46rem; font-size: 12.5px; }
+.yr-empty { max-width: 40rem; margin-bottom: 2rem; }
+.yr-empty p { margin: 0; }
+.yr-section h3 { font-family: var(--mono); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-2); margin-bottom: 0.6rem; }
+.yr-section h4 { margin: 1rem 0 0.35rem; }
+.yr-section h3 + h4 { margin-top: 0; }
+.yr-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem 2rem; }
+.yr-pair.yr-solo { grid-template-columns: minmax(0, 1fr); max-width: 34rem; }
+.yr-col { min-width: 0; }
+.yr-col > .stat-row { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+.yr-list { list-style: none; counter-reset: yr; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.yr-list > li {
+  counter-increment: yr;
+  display: grid;
+  grid-template-columns: 1.4rem minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.yr-list > li::before { content: counter(yr); font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+.yr-name { min-width: 0; overflow-wrap: anywhere; }
+.yr-list .tag.yr-name { justify-self: start; margin: 0; white-space: normal; } /* a long tag wraps inside its chip rather than widen a phone */
+.yr-count { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); white-space: nowrap; text-align: right; }
+.yr-rating { white-space: nowrap; }
+.yr-rating .mono { font-size: 11.5px; color: var(--ink-2); }
+.yr-average { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 0.6rem; margin: 0; }
+.yr-average .rating { font-size: 15px; }
+.yr-average .yr-rating .mono { font-size: 15px; font-weight: 600; color: var(--ink); }
+.yr-props { grid-template-columns: 110px minmax(0, 1fr); }
+.yr-props dd a { overflow-wrap: anywhere; }
+.yr-undated { font-size: 12.5px; }
+
+/* the month chart: twelve columns, each a count over its bar and the month under it */
+.yr-chart { position: relative; margin: 0.9rem 0 0; } /* holds its hidden table, so the table never sits past the page's edge */
+.yr-chart-cap { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-3); margin-bottom: 0.3rem; }
+.yr-bars { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.yr-month { display: flex; flex-direction: column; min-width: 0; }
+.yr-n { font-family: var(--mono); font-size: 10px; line-height: 1.5; min-height: 1.5em; text-align: center; color: var(--ink-2); }
+.yr-bar { display: flex; align-items: flex-end; height: 84px; padding: 0 2px; border-bottom: 1px solid var(--line-strong); }
+.yr-fill { display: block; width: 100%; background: var(--accent); border-radius: 2px 2px 0 0; }
+.yr-m { font-family: var(--mono); font-size: 9.5px; text-align: center; color: var(--ink-3); padding-top: 0.25rem; overflow: hidden; }
+
+@media (max-width: 720px) {
+  .yr-pair { grid-template-columns: minmax(0, 1fr); gap: 1.75rem; }
+  .yr-props { grid-template-columns: 96px minmax(0, 1fr); }
+}

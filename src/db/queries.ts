@@ -23,6 +23,7 @@ import { MAX_LOANS_PER_CELL, type LoanDraft } from '../lib/loans';
 import { MAX_PLAYS_PER_ITEM, PLAYABLE_TYPES, RECENT_PLAYS, type CellPlay, type PersonPlay } from '../lib/plays';
 import { reviewOrderSql, stampReviews, summarizeReviews, type PersonReview, type ReviewDraft } from '../lib/reviews';
 import { seriesKey, type SeriesDraft } from '../lib/series';
+import { emptyPlays, emptyStats, PLAYS_TOP, YEAR_TOP, yearRange, type YearReview } from '../lib/yearreview';
 import * as s from './schema';
 import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Series, Share, User } from './schema';
 
@@ -2896,6 +2897,243 @@ export async function deleteGoal(d1: D1Database, id: number, by: Actor): Promise
     .bind(id, ...actorBinds(by))
     .run();
   return result.meta.changes > 0;
+}
+
+// ---------- year in review (ARCH.md §16 #59) ----------
+//
+// A year of reading and playing, counted in SQL and fetched in one batch — one D1 call, however large the catalogue.
+// A finish counts in the year its `ended_on` falls in (calendar dates, UTC); an undated finish is in no year. Reading
+// is books only, as a goal's count is (§16 #49). Every reading statement returns rows for two scopes, 'mine' (the
+// member's own reads, `reader_id`) and 'household' (everyone's, former members' included), from the one CTE below, so
+// the two columns can never be counted two different ways. Plays are the household's log (§16 #54), counted once.
+
+/**
+ * The year's finished books, twice over: `?1` is the member, `?2`/`?3` the year's first day and the next year's. `work`
+ * is the book whatever the edition — its title and creators, folded — so two editions of one book count once where a
+ * list counts books; a finish is still a finish, so re-reads count wherever finishes do. `fin` is materialized and the
+ * two scopes joined onto it, so each statement reads the year's finishes from `reads` once, not once per scope.
+ */
+const YEAR_FINISHES = `WITH fin AS MATERIALIZED (
+    SELECT r.item_id, r.reader_id, r.began_on, r.ended_on, i.title, i.creators, i.length,
+      lower(trim(i.title)) || char(31) || lower(trim(coalesce(i.creators, ''))) AS work
+    FROM reads r JOIN items i ON i.id = r.item_id
+    WHERE r.status = 'completed' AND r.ended_on >= ?2 AND r.ended_on < ?3 AND i.media_type = 'book'
+  ),
+  scoped AS (
+    SELECT s.scope, fin.* FROM (SELECT 'mine' AS scope UNION ALL SELECT 'household') s CROSS JOIN fin
+    WHERE s.scope = 'household' OR fin.reader_id = ?1
+  )`;
+
+/**
+ * Each reader's rating of each book they finished that year — once per reader and book, however often they finished it
+ * and in however many editions, so neither a re-read nor a second edition counts a rating twice: a reader who rated two
+ * editions of one book gave it the average of the two. Only the editions they finished that year count. A former
+ * member's reads (no reader) meet former members' reviews (no writer), as the app's own checks treat them as one nobody
+ * (§16 #43), so former members together are one reader here too.
+ */
+const YEAR_RATED = `${YEAR_FINISHES},
+  pairs AS (SELECT scope, reader_id, item_id, work, max(ended_on) AS last FROM scoped GROUP BY scope, reader_id, item_id),
+  rated AS (
+    SELECT p.scope, min(p.item_id) AS item_id, p.work, max(p.last) AS last, avg(rv.rating) AS rating FROM pairs p
+    JOIN reviews rv ON rv.item_id = p.item_id AND rv.user_id IS p.reader_id
+    WHERE rv.rating IS NOT NULL
+    GROUP BY p.scope, p.reader_id, p.work
+  )`;
+
+/**
+ * The creators of the year's finishes, one row each, ready to split into people on commas. Every provider and importer
+ * joins several authors with ", " (Open Library, Google Books, BoardGameGeek, Goodreads' author and additional authors),
+ * so a comma usually separates people — but a catalogue typed or imported by hand can hold one person written
+ * "Last, First": "Le Guin, Ursula K.", "Tolkien, J. R. R.", "Herbert, Frank". Such a string is one person, turned round
+ * ("Ursula K. Le Guin") so it meets the same author written the usual way. It is one when it has exactly one comma, no
+ * ';' or '&', no full stop before the comma (so "James S. A. Corey, Someone" stays two), and given names after it: a
+ * single word, or names ending in an initial ("Ursula K.", "J. R. R."), and not a suffix ("Martin Luther King, Jr."
+ * keeps its order, and the lone "Jr." is dropped as nobody). Two full names ("Terry Pratchett, Neil Gaiman") stay two
+ * people. ';' and ' & ' separate people too ("Pratchett & Gaiman").
+ */
+const YEAR_CREATORS = `named AS (
+    SELECT scope, work, ended_on, cr, trim(substr(cr, 1, instr(cr, ',') - 1)) AS a, trim(substr(cr, instr(cr, ',') + 1)) AS b
+    FROM (SELECT scope, work, ended_on, trim(coalesce(creators, '')) AS cr FROM scoped)
+  ),
+  people AS (
+    SELECT scope, work, ended_on,
+      CASE WHEN instr(cr, ',') > 0 AND instr(b, ',') = 0 AND instr(cr, ';') = 0 AND instr(cr, '&') = 0
+             AND a <> '' AND b <> '' AND instr(a, '.') = 0
+             AND lower(b) NOT IN ('jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv')
+             AND (instr(b, ' ') = 0 OR b GLOB '*[A-Z].')
+           THEN b || ' ' || a
+           ELSE replace(replace(cr, ';', ','), ' & ', ',')
+      END AS names
+    FROM named
+  )`;
+
+/** The first `n` rows of `inner` in each scope, by `order`. */
+const topPerScope = (inner: string, order: string, n: number) =>
+  `SELECT * FROM (SELECT *, row_number() OVER (PARTITION BY scope ORDER BY ${order}) AS rn FROM (${inner})) WHERE rn <= ${n}`;
+
+const scopeOf = (s: string): 'mine' | 'household' => (s === 'mine' ? 'mine' : 'household');
+
+/**
+ * Everything the Year in review page shows for `year`, for `userId` and for the household, in one D1 batch: ten
+ * statements, each an aggregate over at most a year of finishes or plays, returning a few dozen rows between them.
+ */
+export async function yearInReview(d1: D1Database, userId: number, year: number): Promise<YearReview> {
+  const [from, to] = yearRange(year);
+  const inYear = (query: string) => d1.prepare(query).bind(userId, from, to);
+  const [months, authors, tags, ratings, topRated, lengths, fastest, plays, meta, years] = await d1.batch([
+    // finishes and pages by month
+    inYear(
+      `${YEAR_FINISHES}
+       SELECT scope, CAST(substr(ended_on, 6, 2) AS INTEGER) AS month, count(*) AS books,
+         coalesce(sum(CASE WHEN length > 0 THEN length END), 0) AS pages, count(CASE WHEN length > 0 THEN 1 END) AS withLength
+       FROM scoped GROUP BY scope, month`,
+    ),
+    // most-read authors: creators split into people (YEAR_CREATORS: "A, B" is two, "Le Guin, Ursula K." one), and a
+    // lone "Jr." is nobody
+    inYear(
+      `${YEAR_FINISHES},
+       ${YEAR_CREATORS},
+       split(scope, work, ended_on, name, rest) AS (
+         SELECT scope, work, ended_on, '', names || ',' FROM people
+         UNION ALL
+         SELECT scope, work, ended_on, trim(substr(rest, 1, instr(rest, ',') - 1)), substr(rest, instr(rest, ',') + 1)
+         FROM split WHERE rest <> ''
+       )
+       ${topPerScope(
+         `SELECT scope, min(name) AS name, count(DISTINCT work) AS books, count(*) AS finishes, max(ended_on) AS last
+          FROM split WHERE name <> '' AND lower(name) NOT IN ('jr', 'jr.', 'sr', 'sr.')
+          GROUP BY scope, lower(name)`,
+         'books DESC, finishes DESC, last DESC, name',
+         YEAR_TOP,
+       )} ORDER BY scope, rn`,
+    ),
+    // most-used tags on the year's books
+    inYear(
+      `${YEAR_FINISHES}
+       ${topPerScope(
+         `SELECT s.scope, t.name, count(DISTINCT s.work) AS books, count(*) AS finishes, max(s.ended_on) AS last
+          FROM scoped s CROSS JOIN item_tags it ON it.item_id = s.item_id JOIN tags t ON t.id = it.tag_id
+          GROUP BY s.scope, t.id`,
+         'books DESC, finishes DESC, last DESC, name',
+         YEAR_TOP,
+       )} ORDER BY scope, rn`,
+    ),
+    // the average rating given
+    inYear(`${YEAR_RATED} SELECT scope, avg(rating) AS average, count(*) AS n FROM rated GROUP BY scope`),
+    // the highest-rated books: a book's ratings averaged across its readers and editions
+    inYear(
+      `${YEAR_RATED}
+       SELECT t.scope, t.item_id AS id, i.title, i.creators, t.rating FROM (
+         ${topPerScope(
+           'SELECT scope, work, min(item_id) AS item_id, avg(rating) AS rating, max(last) AS last FROM rated GROUP BY scope, work',
+           'rating DESC, last DESC, item_id',
+           YEAR_TOP,
+         )}
+       ) t JOIN items i ON i.id = t.item_id ORDER BY t.scope, t.rn`,
+    ),
+    // the longest and the shortest book with a length
+    inYear(
+      `${YEAR_FINISHES}
+       SELECT 'longest' AS which, * FROM (${topPerScope('SELECT scope, item_id, title, length, ended_on FROM scoped WHERE length > 0', 'length DESC, ended_on DESC, item_id', 1)})
+       UNION ALL
+       SELECT 'shortest' AS which, * FROM (${topPerScope('SELECT scope, item_id, title, length, ended_on FROM scoped WHERE length > 0', 'length ASC, ended_on DESC, item_id', 1)})`,
+    ),
+    // the fastest read, began to ended with both days counted; a read with no start, or ending before it starts, has none
+    inYear(
+      `${YEAR_FINISHES}
+       ${topPerScope(
+         `SELECT scope, item_id, title, CAST(julianday(ended_on) - julianday(began_on) AS INTEGER) + 1 AS days, ended_on
+          FROM scoped WHERE julianday(began_on) IS NOT NULL AND julianday(ended_on) >= julianday(began_on)`,
+         'days ASC, ended_on DESC, item_id',
+         1,
+       )}`,
+    ),
+    // the household's plays: a total and the most played, per type — a range on idx_plays_played_item
+    d1
+      .prepare(
+        `WITH p AS (
+           SELECT i.media_type AS type, p.item_id, i.title, count(*) AS plays, max(p.played_on) AS last
+           FROM plays p JOIN items i ON i.id = p.item_id
+           WHERE p.played_on >= ?1 AND p.played_on < ?2 AND i.media_type IN (${PLAYABLE_SQL})
+           GROUP BY p.item_id
+         )
+         SELECT type, NULL AS id, NULL AS title, sum(plays) AS plays, count(*) AS items, 0 AS rn FROM p GROUP BY type
+         UNION ALL
+         SELECT type, item_id, title, plays, 1, rn FROM (
+           SELECT *, row_number() OVER (PARTITION BY type ORDER BY plays DESC, last DESC, title, item_id) AS rn FROM p
+         ) WHERE rn <= ${PLAYS_TOP}
+         ORDER BY type, rn`,
+      )
+      .bind(from, to),
+    // the finished books with no end date, which are in no year, and how many members there are
+    d1
+      .prepare(
+        `SELECT (SELECT count(*) FROM users) AS members,
+           count(CASE WHEN r.reader_id = ?1 THEN 1 END) AS mine, count(*) AS household
+         FROM reads r JOIN items i ON i.id = r.item_id
+         WHERE r.status = 'completed' AND r.ended_on IS NULL AND i.media_type = 'book'`,
+      )
+      .bind(userId),
+    // the years there is anything to show for
+    d1.prepare(
+      `SELECT y FROM (
+         SELECT substr(r.ended_on, 1, 4) AS y FROM reads r JOIN items i ON i.id = r.item_id
+         WHERE r.status = 'completed' AND r.ended_on IS NOT NULL AND i.media_type = 'book'
+         UNION
+         SELECT substr(p.played_on, 1, 4) FROM plays p JOIN items i ON i.id = p.item_id WHERE i.media_type IN (${PLAYABLE_SQL})
+       ) WHERE y GLOB '[1-9][0-9][0-9][0-9]' ORDER BY y DESC`,
+    ),
+  ]);
+
+  const review: YearReview = {
+    year,
+    mine: emptyStats(),
+    household: emptyStats(),
+    plays: { vinyl: emptyPlays(), boardgame: emptyPlays() },
+    undated: { mine: 0, household: 0 },
+    years: [],
+    members: 0,
+  };
+  const rowsOf = <T>(r: D1Result | undefined) => (r?.results ?? []) as T[];
+  for (const m of rowsOf<{ scope: string; month: number; books: number; pages: number; withLength: number }>(months)) {
+    const s = review[scopeOf(m.scope)];
+    const slot = s.months[m.month - 1];
+    if (!slot) continue; // not a month: a date the app never writes
+    slot.books = m.books;
+    slot.pages = m.pages;
+    s.books += m.books;
+    s.pages += m.pages;
+    s.withLength += m.withLength;
+  }
+  for (const a of rowsOf<{ scope: string; name: string; books: number; finishes: number }>(authors)) {
+    review[scopeOf(a.scope)].authors.push({ name: a.name, books: a.books, finishes: a.finishes });
+  }
+  for (const t of rowsOf<{ scope: string; name: string; books: number }>(tags)) {
+    review[scopeOf(t.scope)].tags.push({ name: t.name, books: t.books });
+  }
+  for (const r of rowsOf<{ scope: string; average: number; n: number }>(ratings)) {
+    review[scopeOf(r.scope)].rating = { average: r.average, count: r.n };
+  }
+  for (const r of rowsOf<{ scope: string; id: number; title: string; creators: string | null; rating: number }>(topRated)) {
+    review[scopeOf(r.scope)].topRated.push({ id: r.id, title: r.title, creators: r.creators, rating: r.rating });
+  }
+  for (const l of rowsOf<{ which: string; scope: string; item_id: number; title: string; length: number }>(lengths)) {
+    review[scopeOf(l.scope)][l.which === 'longest' ? 'longest' : 'shortest'] = { id: l.item_id, title: l.title, length: l.length };
+  }
+  for (const f of rowsOf<{ scope: string; item_id: number; title: string; days: number }>(fastest)) {
+    review[scopeOf(f.scope)].fastest = { id: f.item_id, title: f.title, days: f.days };
+  }
+  for (const p of rowsOf<{ type: string; id: number | null; title: string | null; plays: number; items: number; rn: number }>(plays)) {
+    const log = p.type === 'vinyl' ? review.plays.vinyl : p.type === 'boardgame' ? review.plays.boardgame : null;
+    if (!log) continue;
+    if (p.rn === 0) Object.assign(log, { plays: p.plays, items: p.items });
+    else if (p.id !== null) log.top.push({ id: p.id, title: p.title ?? '', plays: p.plays });
+  }
+  const counts = rowsOf<{ members: number; mine: number; household: number }>(meta)[0];
+  review.undated = { mine: counts?.mine ?? 0, household: counts?.household ?? 0 };
+  review.members = counts?.members ?? 0;
+  review.years = rowsOf<{ y: string }>(years).map((r) => Number(r.y));
+  return review;
 }
 
 // ---------- cover backfill ----------

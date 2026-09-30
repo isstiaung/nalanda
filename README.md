@@ -55,6 +55,10 @@ manuscripts.
 - **Reading goals**: each member sets how many books they mean to finish in a year, and the
   Overview shows their count and pace. Connected households can hear when a goal is set, passes
   halfway and is reached, signed with the member's display name, if the household chooses.
+- **Year in review**: pick a year and see your reading beside the household's — books finished
+  and pages read month by month, most-read authors and tags, average rating, the highest-rated,
+  longest, shortest and fastest reads — and the household's records spun and games played.
+  Inside the app only.
 - **Loans**: track who borrowed what, with due dates and history — each item's page lists who has had it before, and for how long.
 - **Play log for games, listening log for records**: press **Played** on a board game or a
   record — today, or any day you pick — and its page keeps count ("Played 12 times · last on
