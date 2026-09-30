@@ -189,6 +189,7 @@ table { border-collapse: collapse; }
   font-weight: 400; /* the global summary rule bolds panel titles */
   cursor: pointer;
   user-select: none;
+  -webkit-tap-highlight-color: transparent; /* a phone's tap flash isn't one of our colours; :hover and focus show it */
 }
 .nav-section[open] > .nav-summary { margin: 0; } /* the global details[open] summary rule adds a bottom margin */
 .nav-summary::-webkit-details-marker { display: none; }
@@ -207,7 +208,8 @@ table { border-collapse: collapse; }
   transition: transform 120ms ease;
 }
 .nav-section[open] > .nav-summary::after { transform: rotate(45deg); }
-.nav-eyebrow { flex: 1; min-width: 0; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
+/* tracked a little tighter than .eyebrow, so "Sharing & connections" keeps one line beside its unread count */
+.nav-eyebrow { flex: 1; min-width: 0; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
 /* a closed section still says something in it is unread; open, each link shows its own */
 .nav-summary .nav-summary-unread { margin-left: 0; }
 .nav-section[open] .nav-summary-unread { display: none; }
