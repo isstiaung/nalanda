@@ -192,7 +192,7 @@ describe('the order', () => {
     const catan = (await gamesForTonight(env.DB, ANY, 60)).fit.find((x) => x.id === g.catan.id)!;
     expect(catan.lastPlayed).toBe('2026-09-14');
     const page = await html(asha, '/play');
-    expect(page).toContain('last played 14 Sep');
+    expect(page).toContain('last played 2026-09-14');
     expect(page).toContain('not played yet');
   });
 
@@ -355,7 +355,11 @@ describe('in the app only', () => {
     const res = await as(null, '/play');
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('/login');
-    expect((await as(null, '/play?pick=1', { htmx: true })).headers.get('location')).toBe('/login');
+    // htmx would swap a redirect's login page into the results: it is sent to log in as a whole page (§16 #65)
+    const htmx = await as(null, '/play?pick=1', { htmx: true });
+    expect(htmx.status).toBe(401);
+    expect(htmx.headers.get('HX-Redirect')).toBe('/login');
+    expect(htmx.headers.get('location')).toBeNull();
   });
 
   it('is not on share pages, which show a game’s BGG details — its weight among them — as they always have', async () => {

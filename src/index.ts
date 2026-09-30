@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { secureHeaders } from 'hono/secure-headers';
 import { countUsers, getShareByToken, getUserById } from './db/queries';
@@ -62,7 +62,11 @@ app.use(async (c, next) => {
     const allowed = site
       ? site === 'same-origin' || site === 'none' // none = direct user navigation
       : !origin || origin === new URL(c.req.url).origin;
-    if (!allowed) return c.text('Forbidden', 403);
+    if (!allowed) {
+      // htmx shows its own fixed sentence for this refusal, chosen by this header's value and never by the body (§16 #65)
+      if (c.req.header('HX-Request')) c.header('X-Nalanda-Refused', 'origin');
+      return c.text('Forbidden', 403);
+    }
   }
   await next();
   // Writes invalidate, coarsely: any successful mutation clears this isolate's
@@ -87,12 +91,25 @@ app.route('/', federationRoutes);
 // instead of 404ing the front door. (ARCH.md §16 #21)
 app.get('/', async (c, next) => {
   const homeToken = c.env.HOME_SHARE_TOKEN;
-  if (!homeToken) return next();
+  // an htmx request (Read next's Another) is someone in the app, never a visitor: a lapsed session goes to log in (§16 #65)
+  if (!homeToken || c.req.header('HX-Request')) return next();
   const session = getCookie(c, SESSION_COOKIE);
   if (await verifySessionToken(c.env.SESSION_SECRET, session, Math.floor(Date.now() / 1000))) return next();
   const share = await getShareByToken(c.env.DB, homeToken);
   return share ? c.redirect(`/share/${homeToken}`) : next();
 });
+
+/**
+ * Sends the person to another page. A browser's navigation gets the 302 it always did. An htmx request would follow a
+ * 302 itself and swap the page it lands on — the whole login page — into the section it targets, so it gets
+ * `HX-Redirect` instead, which htmx answers by loading that URL as the page (§16 #65). Its status isn't a 2xx, so a
+ * script's own fetch with the header (the Add page's review list) sees a refusal, and its body is a sentence for one.
+ */
+function sendTo(c: Context<AppEnv>, url: string, status: 401 | 403, reason: string) {
+  if (!c.req.header('HX-Request')) return c.redirect(url);
+  c.header('HX-Redirect', url);
+  return c.text(reason, status);
+}
 
 // ---- everything registered below this middleware requires a session ----
 app.use(async (c, next) => {
@@ -105,8 +122,8 @@ app.use(async (c, next) => {
   const row = session ? await getUserById(c.env.DB, session.userId) : null;
   const user = row && sessionMatches(session, row) ? row : null;
   if (!user) {
-    if ((await countUsers(c.env.DB)) === 0) return c.redirect('/setup');
-    return c.redirect('/login');
+    if ((await countUsers(c.env.DB)) === 0) return sendTo(c, '/setup', 401, 'Nalanda isn’t set up yet — reload the page.');
+    return sendTo(c, '/login', 401, 'Signed out — reload and sign in.');
   }
   c.set('user', {
     id: user.id,
@@ -115,7 +132,9 @@ app.use(async (c, next) => {
     mustChangePassword: user.mustChangePassword,
     sessionKey: user.sessionKey,
   });
-  if (user.mustChangePassword && !c.req.path.startsWith('/account')) return c.redirect('/account');
+  if (user.mustChangePassword && !c.req.path.startsWith('/account')) {
+    return sendTo(c, '/account', 403, 'Choose a new password first — reload the page.');
+  }
   await next();
 });
 

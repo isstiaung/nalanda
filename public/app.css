@@ -423,6 +423,26 @@ details[open] summary { margin-bottom: 0.75rem; }
 }
 output.notice { display: block; } /* a status message (<output>, bulk edit's result) set as any notice */
 article.notice { border: 1px solid var(--line); border-left: 3px solid var(--accent); background: var(--surface); padding: 0.9rem 1rem; }
+/* An htmx request that failed (§16 #65): one message, app-wide, in the page's own flow after <main> and sticky at the
+   bottom of the view — so it is seen wherever the control was, and nothing sits under it for good: scrolled to the
+   end, it is in its own slot below the page. Rubricated like a refused form's error, on an opaque ground (it passes
+   over the page), aligned with the content column. Empty, it takes no room and draws nothing. */
+.app-status {
+  position: sticky;
+  bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+  z-index: 20;
+  display: block;
+  margin: 0 max(2rem, calc((100% - 1080px) / 2)) 0.75rem;
+  padding: 0.6rem 0.85rem;
+  font-size: 12.5px;
+  color: color-mix(in srgb, var(--stamp) 85%, var(--ink));
+  background: linear-gradient(var(--stamp-tint), var(--stamp-tint)), var(--surface);
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--stamp);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+}
+.app-status:empty { padding: 0; margin-block: 0; border: 0; box-shadow: none; background: none; }
 p.error { font-size: 12.5px; color: color-mix(in srgb, var(--stamp) 85%, var(--ink)); background: var(--stamp-tint); border-left: 3px solid var(--stamp); padding: 0.55rem 0.8rem; border-radius: var(--radius-sm); }
 
 /* ── stat row (ledger totals) ─────────────────────────────────────────────── */
@@ -513,7 +533,7 @@ p.error { font-size: 12.5px; color: color-mix(in srgb, var(--stamp) 85%, var(--i
 
 /* max-width caps the title column under auto table layout so a long title
    truncates with an ellipsis instead of crowding every other column out */
-.cell-title { display: flex; align-items: center; gap: 0.65rem; min-width: 0; max-width: 420px; }
+.cell-title { display: flex; align-items: center; gap: 0.65rem; min-width: 0; max-width: 20rem; } /* a long title ellipsizes (its link's title says it whole) rather than pushing the table past a 1280px window */
 .cell-title .thumb { flex: none; width: 26px; height: 39px; border-radius: 3px; object-fit: cover; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); }
 .cell-title .thumb-fallback { flex: none; width: 26px; height: 39px; border-radius: 3px; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; justify-content: center; font-size: 13px; }
 .cell-title .t { min-width: 0; }
@@ -672,7 +692,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .filter-menu label { display: flex; align-items: center; gap: 0.45rem; margin: 0; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
 .filter-menu input[type='checkbox'] { width: auto; height: auto; margin: 0; accent-color: var(--accent); }
 .toolbar input[type='search'] { flex: 1 1 150px; width: auto; max-width: 190px; margin: 0; } /* gives way before the row wraps: a 13px Table/Covers toggle made a 1280 shelf's bar 16px too long for one line */
-.toolbar .spacer { flex: 1; }
+/* Columns and the view toggle: pushed to the row's end, and onto the next line together when the row wraps */
+.toolbar-end { margin-left: auto; display: inline-flex; align-items: center; gap: 0.5rem; }
 
 .view-toggle { display: inline-flex; height: var(--control-h); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow: hidden; }
 .view-toggle a { display: inline-flex; align-items: center; line-height: normal; padding: 0 0.7rem; font-family: var(--mono); font-size: var(--control-text); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); background: var(--surface); text-decoration: none; }
@@ -811,6 +832,9 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .candidate-cover img, .candidate-cover .cover-fallback { width: 84px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: var(--radius-sm); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; justify-content: center; font-size: 1.8rem; background: var(--surface-2); }
 .candidate-body strong { font-size: 14px; display: block; } /* its own line, even when no creator line follows */
 .candidate-body small { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.03em; }
+/* a result the catalog already has: a pill on a line of its own, opening that item */
+.candidate-body .in-catalog { display: block; width: fit-content; margin-top: 0.35rem; text-decoration: none; }
+.candidate-body .in-catalog:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
 .candidate-save { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.65rem; }
 #tab-search .inline-form input[type='search'] { flex: 1 1 16rem; }
 /* the typed-barcode field: its label beside it, wrapping under it on a phone */
@@ -841,6 +865,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .share-panel { margin-top: 0.9rem; }
 /* an h2 under the page's h1 (headings don't skip levels), set as the small heading it always looked like */
 .share-panel-head { font-size: 12.5px; color: var(--ink-2); }
+/* a publish form's link name: wide enough to read its whole placeholder, and the row's width on a phone */
+.inline-form input.share-name { flex: 0 1 22rem; min-width: 0; }
 .share-row {
   display: flex;
   align-items: center;
@@ -920,6 +946,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   body.nav-open::after { content: ''; position: fixed; inset: 0; background: rgba(23, 19, 16, 0.35); z-index: 35; }
   .mobile-bar .mobile-unread { margin-left: auto; text-decoration: none; }
   .content { padding: 1.1rem 1rem 3rem; }
+  .app-status { margin-inline: 1rem; } /* the phone's 16px gutter, as the content's */
   /* one phone gutter everywhere: public share pages and the login card sit on the same 16px line as the app */
   .share-shell, .offline-shell { padding: 1.25rem 1rem 3rem; }
   .auth-shell { padding: 1rem; }
@@ -1097,7 +1124,8 @@ details.read-edit > summary::-webkit-details-marker { display: none; }
 details.read-edit > summary:hover { color: var(--accent); }
 details.read-edit[open] { flex-basis: 100%; padding: 0.3rem 0 0.5rem; }
 details.read-edit[open] > summary { margin-bottom: 0.45rem; }
-details.read-edit .inline-form + .inline-form { margin-top: 0.4rem; }
+/* each form an edit holds (a review's Save, then Delete, then Move) sits clear of the one above */
+details.read-edit form + form { margin-top: 0.4rem; }
 details.read-add { margin-top: 0.7rem; }
 .form-note { margin: -0.25rem 0 0.75rem; font-size: 12.5px; }
 .read-count { font-size: 11px; }
@@ -1118,6 +1146,7 @@ details.read-add { margin-top: 0.7rem; }
 .member-reviews > li:first-child { border-top: none; padding-top: 0; }
 .review-by { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.7rem; margin: 0 0 0.3rem; font-size: 12.5px; }
 .review-by .reviewer { font-family: var(--mono); font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; overflow-wrap: anywhere; }
+.review-by .reviewer-self { color: var(--accent); }
 .review-by .mono { font-size: 11px; }
 .member-reviews .prewrap { margin: 0 0 0.35rem; overflow-wrap: anywhere; }
 /* a review's own form: rating, text, Save — stacked, since the text wants the width */
@@ -1145,6 +1174,9 @@ form.search-by-reader select { width: auto; margin: 0; max-width: 100%; }
 .read-next-by { margin: 0.15rem 0 0; color: var(--ink-2); font-size: 12.5px; overflow-wrap: anywhere; }
 .read-next-line { display: flex; flex-wrap: wrap; gap: 0.15rem 0.5rem; align-items: center; margin: 0.35rem 0 0; }
 .read-next .read-actions { gap: 0.5rem; margin-top: 0.8rem; }
+/* not owned: its own line, in ink rather than muted, with the pill drawn solid so it can't be missed */
+.read-next-unowned { font-size: 12.5px; color: var(--ink); }
+.read-next-unowned .pill.ghost { border-style: solid; border-color: var(--ink-2); color: var(--ink); }
 .read-next-empty { margin: 0; font-size: 13px; }
 @media (max-width: 880px) {
   .read-next { grid-template-columns: 64px minmax(0, 1fr); gap: 0.8rem; }
@@ -1257,6 +1289,8 @@ button.bulk-clear { height: 24px; padding: 0 0.45rem; font-weight: 400; }
    is circulation or danger, so no vermilion but Remove's hover, as on a page. */
 .play-form { margin: 0.35rem 0 0; }
 .play-form label { gap: 0.4rem; }
+/* the lend form's due date says what it is, as Played's "on" does */
+.lend-form label { gap: 0.4rem; }
 .play-log { list-style: none; margin: 0.7rem 0 0; padding: 0.4rem 0 0; display: grid; gap: 0.25rem; font-size: 13px; border-top: 1px solid var(--line); }
 .play-log li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.8rem; min-width: 0; }
 .play-log li > time { min-width: 6.5rem; font-size: 12px; }

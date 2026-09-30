@@ -6,6 +6,7 @@ import { hashPassword, tempPassword } from '../lib/auth';
 import { currencyCodes, currencyName, isCurrencyCode } from '../lib/money';
 import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
 import { page } from '../views/layout';
+import { ledgerDate } from '../lib/dates';
 
 const settings = new Hono<AppEnv>();
 
@@ -144,7 +145,7 @@ const UsersPage = ({
                 {u.role}
               </td>
               <td class="date hide-sm" data-label="Since">
-                {u.createdAt.slice(0, 10)}
+                {ledgerDate(u.createdAt)}
               </td>
               <td class="actions-cell">
                 <form method="post" action={`/settings/users/${u.id}/reset`} class="inline">

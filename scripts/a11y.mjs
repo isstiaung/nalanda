@@ -911,6 +911,23 @@ async function interactions(context, ids, variant) {
       await focusKept(page, where('Overview → Read next → Another'));
     });
 
+    // A failed htmx request (§16 #65): Another answered 500 by the browser itself, so nothing on the server changes.
+    // htmx swaps nothing; app.js says so in the layout's message region, which is audited showing, in both themes and
+    // at both widths — and the button pressed keeps focus.
+    await step('Overview → Another fails', async () => {
+      await open(page, '/');
+      const route = (url) => url.pathname === '/' && url.searchParams.has('not');
+      await page.route(route, (r) => r.fulfill({ status: 500, contentType: 'text/plain', body: 'Something went wrong.' }));
+      try {
+        await page.locator('#read-next-another').press('Enter');
+        await page.locator('#app-status').filter({ hasText: /\S/ }).waitFor({ timeout: 10_000 });
+        await axe(page, where('Overview → Another fails, the message showing'), variant.name);
+        await focusKept(page, where('Overview → Another fails'));
+      } finally {
+        await page.unroute(route);
+      }
+    });
+
     // a board game's play log: Played, then the play removed, each swapping #plays
     await step('Play log', async () => {
       await open(page, `/items/${ids.game}`);
@@ -1031,7 +1048,8 @@ async function interactions(context, ids, variant) {
       await axe(page, name, variant.name);
     };
     await step('Edit → refused', async () => {
-      await open(page, `/items/${ids.game}/edit`);
+      // a book: a game or record has no reading dates on its form (they take plays)
+      await open(page, `/items/${ids.book}/edit`);
       await submitted('Edit → refused, dates out of order', async () => {
         await page.locator('input[name="beganOn"]').fill('2024-05-02');
         await page.locator('input[name="completedOn"]').fill('2024-05-01');

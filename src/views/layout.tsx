@@ -26,12 +26,15 @@ const Head: FC<{ title: string }> = ({ title }) => (
     <meta name="apple-mobile-web-app-title" content="Nalanda" />
     <link rel="stylesheet" href="/app.css" />
     {/* Before paint, not in app.js (which is deferred): a deferred script would let
-        the full table render first and then visibly drop columns. */}
+        the full table render first and then visibly drop columns. Until someone picks columns on this device,
+        a window under 1400px wide starts without Tags, so the table fits beside the sidebar; Columns shows it
+        again (app.js keeps the same default). */}
     <script
       dangerouslySetInnerHTML={{
         __html:
-          "try{var h=localStorage.getItem('nalanda:hidden-columns');" +
-          "if(h)document.documentElement.setAttribute('data-hide-cols',h);}catch(e){}",
+          "var h=null;try{h=localStorage.getItem('nalanda:hidden-columns');}catch(e){}" +
+          "if(h===null&&window.matchMedia&&matchMedia('(max-width: 1399px)').matches)h='tags';" +
+          "if(h)document.documentElement.setAttribute('data-hide-cols',h);",
       }}
     />
     {/* Confirmation prompts. Their text lives in a data-confirm attribute, never in an inline handler: a name
@@ -284,6 +287,8 @@ export const Layout: FC<
             <main class="content" id="main" tabindex={-1}>
               <div class="content-inner">{children}</div>
             </main>
+            {/* an htmx request that fails says so here, in fixed words (app.js, §16 #65); empty, it takes no room */}
+            <output id="app-status" class="app-status" aria-live="polite"></output>
           </div>
         </div>
       </body>

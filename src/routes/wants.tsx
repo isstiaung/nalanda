@@ -6,6 +6,7 @@ import type { AppEnv } from '../env';
 import { giftListStamp } from '../lib/auth';
 import { BuyLinks, Cover, MEDIA_LABEL, NotOwnedPill, Pagination, wantLabel } from '../views/components';
 import { page } from '../views/layout';
+import { ledgerDate } from '../lib/dates';
 
 const wants = new Hono<AppEnv>();
 
@@ -76,7 +77,7 @@ wants.get('/wants', async (c) => {
                 <span class="mline">
                   <small class="muted">{MEDIA_LABEL[item.mediaType]}</small>
                   {item.copies === 0 ? <NotOwnedPill /> : null}
-                  {since.get(item.id) ? <small class="mono muted">since {since.get(item.id)!.slice(0, 10)}</small> : null}
+                  {since.get(item.id) ? <small class="mono muted">since {ledgerDate(since.get(item.id)!)}</small> : null}
                 </span>
                 <BuyLinks links={links.get(item.id) ?? []} />
                 {mine ? (

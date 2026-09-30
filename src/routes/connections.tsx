@@ -80,6 +80,7 @@ import { clearSharedViewsCache } from '../federation/routes';
 import { hashToken, newInviteToken } from '../federation/tokens';
 import { MEDIA_LABEL, STATUS_LABEL } from '../views/components';
 import { page } from '../views/layout';
+import { ledgerDate, ledgerDateTime } from '../lib/dates';
 
 const connections = new Hono<AppEnv>();
 
@@ -149,7 +150,7 @@ const ConnectionTable: FC<{
                   {row.baseUrl}
                 </td>
                 <td class="date hide-sm" data-label="Since">
-                  {since(row).slice(0, 10)}
+                  {ledgerDate(since(row))}
                 </td>
                 <td class="actions-cell">
                   {/* one flex row, so each pair sits the same 0.5rem apart as on /shares and /loans */}
@@ -410,10 +411,10 @@ const ConnectionsPage: FC<PageProps> = (p) => {
                     return (
                       <tr>
                         <td class="date" data-label="Created">
-                          {invite.createdAt.slice(0, 10)}
+                          {ledgerDate(invite.createdAt)}
                         </td>
                         <td class="date" data-label="Expires">
-                          {invite.expiresAt.slice(0, 10)}
+                          {ledgerDate(invite.expiresAt)}
                         </td>
                         <td data-label="State">{state}</td>
                         <td class="actions-cell">
@@ -877,7 +878,7 @@ const ConnectionFeedPage: FC<
                       <small class="muted">{formatBytes(sub.bytes)}</small>
                     </td>
                     <td class="date hide-sm" data-label="Last pulled">
-                      {sub.lastPulledAt ? sub.lastPulledAt.slice(0, 16) : 'Not yet'}
+                      {sub.lastPulledAt ? ledgerDateTime(sub.lastPulledAt) : 'Not yet'}
                     </td>
                     <td class="actions-cell">
                       <div class="inline-form">

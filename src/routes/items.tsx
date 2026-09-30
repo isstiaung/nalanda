@@ -66,6 +66,7 @@ import { bggRefresh, discogsPressing } from '../metadata';
 import {
   accNo,
   BuySection,
+  buyIsShown,
   CopiesPill,
   Cover,
   DetailsList,
@@ -100,6 +101,7 @@ import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
 import { recommendOnItemPage } from './recommendations';
 import { SeriesSection } from '../views/series';
+import { ledgerDate } from '../lib/dates';
 
 const items = new Hono<AppEnv>();
 
@@ -721,11 +723,16 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           <dd>{lib ? <a href={`/libraries/${lib.id}`}>{lib.name}</a> : '—'}</dd>
           <dt>Type</dt>
           <dd>{MEDIA_LABEL[item.mediaType]}</dd>
-          <dt>Status</dt>
-          <dd>
-            <ItemStatusPills item={item} />
-            {loan ? <span class={overdue ? 'pill overdue' : 'pill lent'}>{overdue ? 'Overdue' : 'Lent'}</span> : null}
-          </dd>
+          {/* a game or record has no reading status (it takes plays): the row stays only to say it's out */}
+          {!isPlayable(item.mediaType) || loan ? (
+            <>
+              <dt>Status</dt>
+              <dd>
+                <ItemStatusPills item={item} />
+                {loan ? <span class={overdue ? 'pill overdue' : 'pill lent'}>{overdue ? 'Overdue' : 'Lent'}</span> : null}
+              </dd>
+            </>
+          ) : null}
           <dt>Holding</dt>
           <dd>
             <HoldingPill item={item} />
@@ -793,14 +800,14 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
               <dd class="mono">{item.copies}</dd>
             </>
           ) : null}
-          {/* a book's dates are its reads, in the Reading section below */}
-          {item.beganOn && item.mediaType !== 'book' ? (
+          {/* a book's dates are its reads, in the Reading section below; a game or record has no reading dates to show */}
+          {item.beganOn && item.mediaType !== 'book' && !isPlayable(item.mediaType) ? (
             <>
               <dt>Began</dt>
               <dd class="mono">{item.beganOn}</dd>
             </>
           ) : null}
-          {item.completedOn && item.mediaType !== 'book' ? (
+          {item.completedOn && item.mediaType !== 'book' && !isPlayable(item.mediaType) ? (
             <>
               <dt>Completed</dt>
               <dd class="mono">{item.completedOn}</dd>
@@ -808,7 +815,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           ) : null}
           <dt>Added</dt>
           <dd class="mono">
-            {item.addedAt.slice(0, 10)}
+            {ledgerDate(item.addedAt)}
             {addedBy ? ` · ${addedBy.username}` : ''}
           </dd>
         </dl>
@@ -838,7 +845,9 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           <PlaysSection item={item} count={plays.count} plays={plays.plays} today={todayUtc()} viewer={viewer} people={people} />
         ) : null}
 
-        <BuySection itemId={item.id} links={log.want.links} error={link?.error} label={link?.label} url={link?.url} />
+        {buyIsShown(item, log.want.wanters) || link ? (
+          <BuySection itemId={item.id} links={log.want.links} error={link?.error} label={link?.label} url={link?.url} />
+        ) : null}
 
         {grouped ? (
           <>
@@ -862,7 +871,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
             people={people}
             grouped={grouped}
           />
-        ) : grouped && log.reads.length ? (
+        ) : grouped && log.reads.length && !isPlayable(item.mediaType) ? (
           // a record's or game's reads are kept from the edit form; with more than one person, here is whose they are
           <ReadsByPerson item={item} reads={log.reads} viewer={viewer} people={people} />
         ) : null}
@@ -900,10 +909,13 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
             </form>
           ))}
           {copyFree ? (
-            <form method="post" action={`/items/${item.id}/loan`} class="inline-form">
+            <form method="post" action={`/items/${item.id}/loan`} class="inline-form lend-form">
               <input name="borrower" placeholder="Borrower" aria-label="Borrower" required />
               <input name="contact" placeholder="Contact (optional)" aria-label="Contact (optional)" />
-              <input type="date" name="dueOn" aria-label="Due date" />
+              <label>
+                <span class="muted">Due</span>
+                <input type="date" name="dueOn" aria-label="Due date" />
+              </label>
               <button type="submit">Lend</button>
             </form>
           ) : null}
