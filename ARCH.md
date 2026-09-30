@@ -2438,7 +2438,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       `/covers/<uuid>` into our R2, and `storeCover()` kept any `image/*` — an `image/svg+xml` with a
       `<script>`, served back publicly from this origin, runs with this origin's cookies. The first time
       another instance chose the bytes. `storeCover()` now keeps only raster types (JPEG, PNG, GIF, WebP,
-      AVIF) from any source, follows no redirect for a peer's URL (`followRedirects: false`), and
+      AVIF) from any source, follows no redirect for a peer's URL (`followRedirects: false`) and refuses
+      one of those that names no type at all — a guess would let the peer's silence pick it; a provider's
+      missing type is still read as JPEG, as it always was, since the guess can only be a raster type and
+      the CSP below holds whatever the bytes are — and
       `serveCover()` sends `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline';
       sandbox` on every cover, including any stored before.
     - *A race for the last place answered 200.* Two different recommendations arriving together for the
@@ -2493,10 +2496,14 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     pre-existing table identical in every pre-existing column to the restore, `foreign_key_check` clean,
     `integrity_check` ok. Deleted afterwards.
 
-    **Within the free plan.** The item page spends one call on the section (`recommendTargets()`: the
-    active households, our latest recommendation of the item to each and whether a view holds it, in one
-    query) and one more for the name it would be signed with — 16 in all measured, 15 without
-    households. Sending: 11 calls and two outbound fetches (their descriptor, the push). Receiving: 7.
+    **Within the free plan.** The item page spends no call on the section: its two queries — the active
+    households with our latest recommendation of the item to each and whether a view holds it
+    (`recommendTargetsStatement()`), and the name it would be signed with (`outwardNameStatement()`) — ride
+    last in the reading log's batch (`itemPageLog(…, extra)`, the batch want lists already share, #53),
+    and `recommendOnItemPage()` renders from their results. Measured and pinned by a test: **14 calls with
+    connections on** — form showing, or no household to send to — and **11 with them off**, both what main
+    had before recommendations (review found the first cut at 16: a call each for the two queries).
+    Sending: 11 calls and two outbound fetches (their descriptor, the push). Receiving: 7.
     The Recommended page: 11 before its background pull, which runs within the budgeted handle;
     `appliedAlready()` asks about recommendations only when a page holds some. Tests count each.
 
