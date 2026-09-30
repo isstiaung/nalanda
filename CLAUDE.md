@@ -248,6 +248,9 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    links.ts (purchase links: the http(s) check, the export's want and link cells — §16 #53),
                    yearreview.ts (the Year in review page's shapes and arithmetic; its one batch is
                    yearInReview() in queries.ts, its page routes/yearreview.tsx — ARCH.md §16 #59)
+                   games.ts (a board game's weight bands, the play-tonight filters, and what "Refresh
+                   from BGG" may fill; the filtering SQL is gamesForTonight in queries.ts, the page
+                   routes/play.tsx, ARCH.md §16 #60)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments and borrowing (comments.ts,
