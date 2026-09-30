@@ -387,6 +387,25 @@ async function furnish(admin, member) {
   const imported = await admin.request.post(`${BASE}/api/import`, { data: { libraryId: shelves.books, rows: filler, defaultType: 'book' } });
   if (!imported.ok()) throw new Error(`Importing the filler books failed: ${imported.status()}`);
 
+  // want lists (§16 #53): the filler books made not owned and wanted, so the Wanted badge shows on shelves and on
+  // the Read next card; a purchase link on one; and the admin's list published as a gift list
+  const shelfPage = await html(admin, `/libraries/${shelves.books}?q=Ledger`);
+  const fillers = [...new Set([...shelfPage.matchAll(/href="\/items\/(\d+)" title="Ledger volume/g)].map((m) => m[1]))];
+  if (fillers.length < 50) throw new Error(`furnishing: found ${fillers.length} filler books`);
+  const bulk = await admin.request.post(`${BASE}/bulk`, {
+    data: new URLSearchParams([['action', 'not-owned'], ['back', '/'], ...fillers.map((id) => ['id', id])]).toString(),
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    maxRedirects: 0,
+  });
+  if (bulk.status() >= 400) throw new Error(`furnishing: bulk not-owned → ${bulk.status()}`);
+  for (const id of fillers) await post(admin, `/items/${id}/want`, { want: '1' });
+  const wanted = Number(fillers[0]);
+  await post(admin, `/items/${wanted}/links`, { label: 'Bookshop', url: 'https://example.org/ledger-volume' }, { htmx: true });
+  const stamp = (await html(admin, '/wants')).match(/name="wantStamp" value="([^"]+)"/)?.[1];
+  if (!stamp) throw new Error('furnishing: /wants offers no gift-list publish form');
+  const before = new Set([...(await html(admin, '/shares')).matchAll(/\/share\/([A-Za-z0-9_-]{16,})/g)].map((m) => m[1]));
+  await post(admin, '/shares', { wantUserId: String(adminId), wantStamp: stamp });
+
   const shares = [...new Set([...(await html(admin, '/shares')).matchAll(/\/share\/([A-Za-z0-9_-]{16,})/g)].map((m) => m[1]))];
 
   // what the pages below rely on is really there — a check that fails here names the step, instead of the audit
@@ -407,14 +426,17 @@ async function furnish(admin, member) {
   const seriesId = Number((await html(admin, '/series')).match(/href="\/series\/(\d+)"/)?.[1]);
   if (!seriesId) throw new Error('furnishing: /series lists no series');
   if (shares.length < 5 || !wishlist) throw new Error(`furnishing: ${shares.length} share links and wishlist ${wishlist}`);
-  return { shelves, wishlist, seriesId, book, game, record, reading, reread, overdue, temp, shares, member };
+  const giftToken = shares.find((t) => !before.has(t));
+  if (!giftToken) throw new Error('furnishing: the gift list was not published');
+  await expect(`/libraries/${shelves.books}`, 'the Wanted badge', /pill wanted/);
+  await expect('/wants', 'the want list and its purchase link', /want-card[\s\S]*Bookshop/);
+  return { shelves, wishlist, seriesId, book, game, record, reading, reread, overdue, temp, shares, giftToken, wanted, raviId, member };
 }
 
 // ── pages ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
 function pageList(ids) {
   const s = ids.shelves;
-  const [shareA, shareB, shareC, shareD, shareE] = ids.shares;
   const list = [
     ['Overview', '/'],
     ['Shelf: books, table', `/libraries/${s.books}`],
@@ -437,6 +459,8 @@ function pageList(ids) {
     ['Series', '/series'],
     ['Series: one series', `/series/${ids.seriesId}`],
     ['Reading goals', '/goals'],
+    ['Want list: yours', '/wants'],
+    ['Want list: a member\'s', `/wants?member=${ids.raviId}`],
     ['Add items', '/add'],
     ['Search: empty', '/search'],
     ['Search: results', '/search?q=le+guin'],
@@ -454,9 +478,7 @@ function pageList(ids) {
     ['Borrowed', '/borrowed'],
     ['Not found (signed in)', '/no-such-page', 404],
   ];
-  for (const [i, token] of [shareA, shareB, shareC, shareD, shareE].entries()) {
-    if (token) list.push([`Share ${i + 1}: list`, `/share/${token}`]);
-  }
+  for (const [i, token] of ids.shares.entries()) list.push([`Share ${i + 1}${token === ids.giftToken ? ' (gift list)' : ''}: list`, `/share/${token}`]);
   list.push(['Share: not found', '/share/not-a-real-token', 404]);
   return list;
 }
@@ -467,6 +489,9 @@ async function shareItemPages(context, tokens) {
   const seen = new Set();
   for (const token of tokens) {
     const list = await html(context, `/share/${token}`);
+    // every list's first item, whatever its markup (a gift list's cards differ from a shelf's)
+    const first = list.match(/href="(\/share\/[^"]+\/items\/\d+)"/)?.[1];
+    if (first && !out.some(([, path]) => path === first)) out.push([`Share item: first on /share/${token.slice(0, 6)}…`, first]);
     for (const m of list.matchAll(/href="(\/share\/[^"]+\/items\/\d+)"[\s\S]*?<small class="muted">([^<]+)<\/small>/g)) {
       const kind = m[2];
       const title = list.slice(m.index, m.index + 600).match(/<strong>([^<]+)<\/strong>/)?.[1] ?? '';
@@ -811,6 +836,46 @@ async function interactions(context, ids, variant) {
       await swapPlays('Remove a play', () => plays.locator('.play-log button', { hasText: 'Remove' }).first().press('Enter'));
     });
 
+    // the item page's want toggle (#want-bar) and Where to buy's add and remove (#buy), each swapped in place
+    await step('Want list and Where to buy', async () => {
+      await open(page, `/items/${ids.wanted}`);
+      const swapIn = async (sel, label, fn) => {
+        const before = await page.locator(sel).innerHTML();
+        await fn();
+        await page.waitForFunction(([q, b]) => document.querySelector(q)?.innerHTML !== b, [sel, before], { timeout: 10_000 });
+        await page.waitForTimeout(50);
+        await axe(page, where(label), variant.name);
+        await focusKept(page, where(label));
+      };
+      const toggle = () => page.locator('#want-bar button.want-toggle').press('Enter');
+      await swapIn('#want-bar', 'Item → taken off the want list', toggle);
+      await swapIn('#want-bar', 'Item → back on the want list', toggle);
+      await page.locator('#buy summary', { hasText: 'Add a link' }).press('Enter');
+      await swapIn('#buy', 'Where to buy → a link refused', async () => {
+        await page.locator('#buy input[name="url"]').fill('not a link');
+        await page.locator('#buy form.buy-form').evaluate((f) => (f.noValidate = true));
+        await page.locator('#buy').getByRole('button', { name: 'Add link' }).press('Enter');
+      });
+      await swapIn('#buy', 'Where to buy → a link added', async () => {
+        await page.locator('#buy input[name="label"]').fill(`Shop ${variant.scheme} ${variant.width}`);
+        await page.locator('#buy input[name="url"]').fill(`https://example.org/${variant.scheme}-${variant.width}`);
+        await page.locator('#buy').getByRole('button', { name: 'Add link' }).press('Enter');
+      });
+      await swapIn('#buy', 'Where to buy → a link removed', () => page.locator('#buy .buy-links button', { hasText: 'Remove' }).last().press('Enter'));
+    });
+
+    // Read next's card with the Wanted badge: nearly every candidate is a wanted, not-owned book here
+    await step('Overview → Read next, wanted', async () => {
+      for (let i = 0; i < 10; i++) {
+        await open(page, '/');
+        if (await page.locator('#read-next .pill.wanted').count()) {
+          await axe(page, 'Overview → Read next with the Wanted badge', variant.name);
+          return;
+        }
+      }
+      throw new Error('ten suggestions, none of them a wanted book');
+    });
+
     // bulk edit: pick two items, the bar says so; a tag added in bulk leaves its notice; a bulk delete asks first
     await step('Bulk edit', async () => {
       await open(page, `/libraries/${ids.shelves.books}`);
@@ -1000,6 +1065,8 @@ async function main() {
     await page.waitForURL(`${BASE}/`);
     await page.close();
   }
+  // the member wants a book too, so their list isn't empty when the admin looks at it
+  await post(member, `/items/${ids.book}/want`, { want: '1' });
   const memberPages = [
     ['Member: overview', '/'],
     ['Member: item, book being read', `/items/${ids.reading}`],
@@ -1008,6 +1075,7 @@ async function main() {
     ['Member: search', '/search?q=le+guin'],
     ['Member: account', '/account'],
     ['Member: reading goals', '/goals'],
+    ['Member: want list', '/wants'],
   ];
 
   for (const variant of VARIANTS) {

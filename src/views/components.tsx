@@ -1830,7 +1830,7 @@ export const BuySection: FC<{
 }> = ({ itemId, links, error, label, url }) => (
   <div class="detail-section buy-section" id="buy">
     <p class="eyebrow">Where to buy</p>
-    {error ? <p class="error">{error}</p> : null}
+    {error ? <p class="error" role="alert">{error}</p> : null}
     {links.length ? (
       <ul class="buy-links editable">
         {links.map((l) => (

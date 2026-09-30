@@ -1872,8 +1872,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     parallel branches also edit, so it waits; the Add page's lookups need Open Library, and when
     they find nothing the report lists them as not audited instead of failing
     (`A11Y_REQUIRE_LOOKUP=1` makes it fail, and CI doesn't set it, so an Open Library outage can't
-    block a pull request); a filter menu's run hides, for that run only, the controls the open
-    menu is on top of, since axe's target-size counts them as neighbours though no one can tap them;
+    block a pull request); a filter menu's run checks target size for the menu's own checkboxes
+    only, with the controls the menu is on top of set invisible for that run, since axe counts them
+    as neighbours though no one can tap them (the page under the menu is measured uncovered);
     a filter menu near a phone's right edge lines up with its button's right edge (app.js).
 
 **2026-09-30 — where it lives:**
@@ -2458,14 +2459,18 @@ pages have no repeated navigation to skip); keyboard focus survives an htmx swap
   its own temporary `--persist-to` state, a throwaway session secret and connections key, seeded by
   `scripts/seed-demo.mjs --no-covers` and furnished further over HTTP (covers from a local image
   server, a second member, a loan past due, a read in progress, published links with names and
-  progress on, an empty shelf, a shelf with a second page, a second member). Playwright's Chromium
+  progress on, an empty shelf, a shelf with a second page, a second member, a book series with a
+  gap, a location, a returned loan, a graded record with its pressing and tracklist, plays, a reading
+  goal, want lists with a purchase link, and a published gift list). Playwright's Chromium
   visits every page in the list, as the admin, as that member and signed out, and runs axe-core's
   WCAG 2.0 / 2.1 / 2.2 A and AA rules, its best-practice rules and the two experimental WCAG ones
   (label in name, bold-paragraph headings), in both themes at 1280 and 390 wide. On a phone it also
   fails a page that scrolls sideways (reflow, which axe doesn't test). It opens every closed
   `<details>` and looks again (the toolbar's menus one at a time); performs the htmx interactions
   from the keyboard and audits what comes back, failing one that drops focus to `<body>`; submits the
-  refused and one-time forms (a temporary password, an invitation link); opens the phone menu; and
+  refused and one-time forms (a temporary password, an invitation link, a bulk delete's
+  confirmation, a bulk action's notice); loads the Add page with scans held offline, and
+  `/offline.html`; opens the phone menu; and
   walks the keyboard: the first Tab is the skip link, following it lands in `<main>`, every stop
   shows a focus indicator that draws something (an outline not clipped away, a ring that isn't a
   faint tint, or a border that changes), every visible control is reached, and the tab order comes
@@ -2479,10 +2484,11 @@ pages have no repeated navigation to skip); keyboard focus survives an htmx swap
 attribute, so a `<div hx-post hx-trigger="click">` — interactive, but not to a keyboard or a
 screen reader — would pass. The rule that closes the gap: `hx-get`/`hx-post` go only on forms,
 buttons and links, which the browser already makes focusable and operable. Today they are the
-Add page's two lookup forms, the Reading section's forms and the Holding toggle buttons. The
-runtime layer covers the other half: it performs those swaps (record, remove a page, add, edit,
-delete and move a read, finish, stop, read again, the Holding toggle, both lookups) and audits the
-page with the new HTML in it. A swapped-in error is `role="alert"`, since htmx moves no focus to
+Add page's two lookup forms, the Reading section's, play log's, want bar's and Where to buy's forms,
+Read next's Another, and the Holding toggle buttons. The runtime layer covers the other half: it
+performs those swaps (record, remove a page, add, edit, delete and move a read, finish, stop, read
+again, Played and removing a play, the want toggle, adding, refusing and removing a purchase link,
+Another, the Holding toggle, both lookups) and audits the page with the new HTML in it. A swapped-in error is `role="alert"`, since htmx moves no focus to
 tell anyone; and a swap keeps keyboard focus — htmx restores it to an element with the same id, and
 app.js gives it to the swapped region otherwise.
 
