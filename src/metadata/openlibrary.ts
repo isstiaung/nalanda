@@ -1,4 +1,5 @@
 import { fetchWithTimeout, USER_AGENT } from '../env';
+import { cleanSeriesName, parseSeriesNumber, type SeriesDraft } from '../lib/series';
 import { cleanDescription, type Candidate, type MetadataProvider } from './provider';
 
 type OlDoc = {
@@ -10,13 +11,18 @@ type OlDoc = {
   number_of_pages_median?: number;
   cover_i?: number;
   isbn?: string[];
+  // The work's series, from Open Library's series records (§16 #52): parallel lists, the first series first. Only
+  // some works carry them — The Expanse and Discworld do, A Wizard of Earthsea doesn't (checked 2026-09-30) — and a
+  // position can be "0.5", or an omnibus's "1-3".
+  series_name?: string[];
+  series_position?: string[];
 };
 
-const FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,isbn';
+const FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,isbn,series_name,series_position';
 // The backfill never reads the isbn list, and it dwarfs the rest: a search for a work with many
 // editions answers in 78 KB with it and 17 KB without. A Worker parses that inside a 10 ms CPU
 // budget, several times per item — so cover/detail lookups ask for the lean set.
-const LEAN_FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i';
+const LEAN_FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,series_name,series_position';
 
 async function searchOl(q: string, limit: number, fields: string = FIELDS): Promise<OlDoc[]> {
   const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&fields=${fields}&limit=${limit}`;
@@ -24,6 +30,16 @@ async function searchOl(q: string, limit: number, fields: string = FIELDS): Prom
   if (!res.ok) return [];
   const data = (await res.json()) as { docs?: OlDoc[] };
   return data.docs ?? [];
+}
+
+/**
+ * A search doc's first series, when it names one. A position that isn't a single number — an omnibus's "1-3" — keeps
+ * the series without a number rather than guess which volume it is.
+ */
+export function seriesOf(doc: Pick<OlDoc, 'series_name' | 'series_position'>): { series?: SeriesDraft } {
+  const name = cleanSeriesName(doc.series_name?.[0]);
+  if (!name) return {};
+  return { series: { name, number: parseSeriesNumber(doc.series_position?.[0]) ?? null } };
 }
 
 function toCandidate(doc: OlDoc, isbn13?: string): Candidate | null {
@@ -44,6 +60,7 @@ function toCandidate(doc: OlDoc, isbn13?: string): Candidate | null {
     isbn13,
     coverUrl,
     workKey: doc.key?.startsWith('/works/') ? doc.key : undefined,
+    ...seriesOf(doc),
     details: {},
     provider: 'openlibrary',
   };

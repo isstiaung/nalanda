@@ -13,6 +13,11 @@ type Volume = {
     pageCount?: number;
     imageLinks?: { thumbnail?: string };
     industryIdentifiers?: Array<{ type: string; identifier: string }>;
+    // Deliberately unread (ARCH.md §16 #52). Checked 2026-09-30: most volumes, the Expanse and Harry Potter among them,
+    // carry no seriesInfo at all; the few that do (Play Books comics, mostly) give a display number and a seriesId but
+    // never the series' name, and /books/v1/series/get, which has it, refuses an API key ("Expected OAuth2 access
+    // token"). A number with no series to put it in fills nothing.
+    seriesInfo?: unknown;
   };
 };
 
