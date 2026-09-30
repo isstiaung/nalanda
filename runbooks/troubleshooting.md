@@ -17,6 +17,10 @@ Local dev prints to the `npm run dev` terminal.
 | Detects but "no book found" | Open Library gaps happen. Try the Search tab, or set `GOOGLE_BOOKS_KEY`. Manual entry always works. |
 | Vinyl barcode → token notice | Set the `DISCOGS_TOKEN` secret ([deploy.md](deploy.md) → API tokens). |
 | No camera at all | Type the digits into the field under the scanner — same lookup. |
+| "No signal" page while online | The installed app shows its offline page when your server doesn't answer a page at all (Worker down, DNS, captive Wi-Fi). Open the address in the browser to see the real error. Scans made meanwhile are held and listed on **Add items** once pages load again. |
+| Offline page says nobody is signed in | Scans are held only for the account signed in on the phone, and logging out clears them. Sign in once with signal, then scan. |
+| Held scans vanished | Someone else signed in on the phone (the queue belongs to one account at a time), or that account logged out. Scans aren't sent anywhere until reviewed, so there's nothing to recover. |
+| Phone still shows an old icon or files | The browser checks `/sw.js` on each visit and swaps in a new version at once; a home-screen icon updates when the browser next reads the manifest. Removing and re-adding the app is the quick way. |
 
 ## Lookups
 

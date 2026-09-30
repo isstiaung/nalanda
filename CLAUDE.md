@@ -115,6 +115,12 @@ shape from this file.
   but rotation can lag up to 1 h on untouched isolates (ARCH.md §16 #19).
 - `/covers/:key` is intentionally public — keys are random UUIDs; never make them
   enumerable or derived from item data.
+- **The service worker never stores a page or an API answer** (ARCH.md §16 #48): only the
+  files in `STATIC` in `public/sw.js`, and it leaves `/share/*` entirely alone. Offline scans
+  hold a barcode and a time, nothing else, and belong to the account signed in on the device:
+  a different account's pages empty the queue, logout empties it, and POST /items refuses a
+  held scan's add (`scanOwner`) for anyone else. Bump `VERSION` in sw.js when `STATIC` or its
+  behaviour changes.
 - Connections see only `toConnectionItem()` fields (`src/federation/items.ts`, built on
   `toPublicItem()`), and only for items inside a connection view. Availability is a derived
   boolean — never a borrower, due date or copies count; reading history is a count
@@ -183,13 +189,18 @@ src/federation/    connections between instances (docs/proposals/connections.md)
                    in-app notifications in routes/notifications (recorded in src/db/federation.ts)
 public/            app.css, scanner.js, import.js, app.js, covers.js (swaps a cover that fails to
                    load for its media-icon box; app and share pages) + vendor/ (htmx, zxing, eczar fonts)
+                   + the installed app (ARCH.md §16 #48): manifest.webmanifest, icons/, sw.js (keeps
+                   only static files — never a page or API answer, never touches /share), offline.html
+                   (static scan-only page), scan-queue.js (the device's IndexedDB queue of offline
+                   scans: barcode + time only) and scan-review.js (the Add page's review list)
                    + bgg/ (BGG's "Powered by BGG" logos, committed unmodified — its API terms
                    require them beside its data; src/views/attribution.tsx, ARCH.md §16 #44)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;
                    apply-migrations.ts resets + re-migrates D1 before EVERY test and fails
                    any test that logs an error it didn't capture and check (console.ts),
-                   and fetch-mock.ts stubs outbound fetch (see §16 #25)
+                   and fetch-mock.ts stubs outbound fetch (see §16 #25); public/ is bound
+                   as ASSETS for tests only, to read static files as served (§16 #48)
 scripts/           vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp config),
                    backup.mjs + backup-dir.mjs (a same-day backup never overwrites),
                    wrangler-remote.mjs + remote-config.mjs (real db id → temp config),

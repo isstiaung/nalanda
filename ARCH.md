@@ -414,13 +414,16 @@ GET  /                         dashboard: libraries, recent adds, loans out, "Re
 GET  /libraries/:id            item grid/list; filter/sort/paging via htmx partials
                                (?readBy= — "Read by", never publishable; §16 #43)
 GET  /items/:id                detail  ·  GET /items/:id/edit
-POST /items                    create  ·  POST /items/:id (update) · POST /items/:id/delete
+POST /items                    create (htmx: answers with the added entry; a held scan's
+                               scanOwner must be the signed-in account's, §16 #48)
+                               ·  POST /items/:id (update) · POST /items/:id/delete
 POST /items/:id/progress       record a page · POST /items/:id/progress/:entry/delete
 POST /items/:id/reads/start    open a read ("Read again") · POST /items/:id/reads (a past read)
 POST /items/:id/reads/:read    correct · …/finish · …/stop · …/delete   (books; §16 #41)
                                · …/move (admins: to another member, with its pages; §16 #43)
 POST /items/:id/reviews/:rev   edit · …/delete · …/move (admins)   — own review, or any for an admin
 GET  /add                      add flow: scan | search | manual
+GET  /add/review               ?barcode=…&scanned=… — one scan held offline, looked up (partial; §16 #48)
 GET  /api/lookup               ?barcode=… | ?q=…&type=boardgame → JSON candidates
 POST /items/:id/loan           lend    ·  POST /loans/:id/return
 GET  /loans                    out + overdue + history
@@ -493,6 +496,8 @@ Every authenticated page route returns a full document normally and a partial wh
 │   └── lib/                          # auth.ts (pbkdf2, cookie), share.ts (public-field
 │                                     # whitelist), csv.ts, covers.ts, reads.ts, reviews.ts
 ├── public/                           # app.css, app.js, scanner.js, import.js, covers.js;
+│                                     # manifest, icons/, sw.js, offline.html, scan-queue.js,
+│                                     # scan-review.js (the installed app, §16 #48);
 │                                     # vendor/ (htmx, zxing wasm, eczar fonts) is copied
 │                                     # in on install and gitignored
 └── test/                             # vitest, runs in workerd with real D1/R2 simulators
@@ -567,7 +572,7 @@ backfill for imported items (client-driven batches, OL → Google Books → Disc
 ~~per-member ratings/status~~ (done in 1.3.0, §16 #43) · stats page · bulk edit · TMDB/IGDB providers if movies/video
 games ever matter · Cloudflare Access as an optional extra gate · custom domain hookup.
 
-**Non-goals:** multi-tenant SaaS, native mobile apps, offline sync, public social features
+**Non-goals:** multi-tenant SaaS, native mobile apps, offline sync (holding scans for review is not sync — §16 #48), public social features
 or fediverse interop, ebook file hosting (calibre-web's territory), background jobs of any
 kind. (Pairwise connections between two self-hosted instances are in scope — §16 #29.)
 
@@ -1381,6 +1386,83 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     sits between the totals and the shelves; a stopped read doesn't take a book out of the pool
     (the owner's rule names finished and open reads only).
 
+**2026-09-30 — an app on the phone, and scanning with no signal:**
+48. **The installed app keeps no pages; offline scans are barcodes held on the device, for the
+    account signed in there.** Nalanda installs to a home screen (manifest with id, scope, a Scan
+    shortcut, paper as theme and background; 192/512 tiles with see-through corners, a full-bleed
+    maskable 512 — the tiled master's tower at 0.8 scale, centred, inside the 40% safe zone — and
+    the 180 apple-touch-icon; iOS home-screen metas). The owner's three decisions: installable;
+    the scanner works with no signal, holding barcodes in IndexedDB until the Add page's review
+    list, where each is added to a chosen shelf or dropped (or "add all to <shelf>"), and nothing is
+    added unseen; and **no authenticated HTML or API answer is ever cached on the phone** (shared
+    devices).
+
+    *The service worker* (`public/sw.js`, served from the root as a static file, so its scope is
+    `/`) keeps one versioned cache, `nalanda-static-v<VERSION>`, of the files in `STATIC`: the
+    offline page, app.css, the favicon, the Eczar fonts, scan-queue.js, scanner.js and the ZXing
+    reader with its wasm — nothing about anyone. Navigations go to the network and are never
+    stored; only a failed one gets `/offline.html`. A listed file is network-first (refreshing
+    its copy, used only when the network fails), so a deploy reaches phones at once and nobody is
+    stranded on old assets; install fetches past the HTTP cache without credentials and refuses
+    anything but a 200 that wasn't redirected; activation deletes every older `nalanda-` cache;
+    `skipWaiting` + `clients.claim`, and app.js registers with `updateViaCache: 'none'`. Every
+    other request — `/share/*` (never answered, even offline: its behaviour is unchanged), API
+    calls, htmx partials, covers, other origins, every POST — gets no `respondWith` at all.
+    Registered from app pages and the login page only; share pages never register it.
+
+    *Why a static offline page rather than caching `/add`:* the Add page is a signed-in page
+    (shelves, the sidebar's names), so keeping it would break the rule. `offline.html` is a
+    static file with the scanner and nothing else; it stands in for any page the network can't
+    reach. The Add page already open when the signal goes keeps scanning too: a barcode found
+    while `navigator.onLine` is false, or whose lookup never reached the server (`htmx:sendError`
+    on `/add/results`), is held instead. Offline, the camera stays on for the next barcode.
+
+    *The queue* (`scan-queue.js`): IndexedDB `nalanda-scans`, one row per barcode —
+    `{ barcode, scannedAt }` and nothing else — at most 200, a repeat kept once. The review list
+    (`scan-review.js`) looks each one up through `GET /add/review?barcode=&scanned=` — the lookup
+    behind `/api/lookup`, one barcode a request, two at a time, so each stays in one request's
+    subrequest and CPU budget — which renders the entry server-side (`ReviewEntry`), testable in
+    workerd, rather than building cards from `/api/lookup`'s JSON in the browser. Adding posts
+    the entry's form to `POST /items` with `HX-Request`, which answers htmx with the added entry
+    (one handler, two renders); a row leaves the queue only after that 200. Drop is the device's
+    alone: it deletes the row, and no server route exists for it.
+
+    *Whose queue:* the device's and the signed-in account's. Every signed-in page carries an
+    opaque stamp, `scanQueueOwner()` = HMAC(`SESSION_SECRET`, `scan-queue:<id>`), 16 bytes; app.js
+    keeps it in localStorage and, **when a different stamp appears, deletes the queue** before
+    anything reads it (it runs first, and IndexedDB serves a delete before a later open). **Logout
+    also deletes it** and forgets the stamp (bounded at 1.5 s so a stuck IndexedDB can't keep
+    anyone signed in). Chosen over logout-only because a session can end without a logout (expiry,
+    a cleared cookie) and the next person to sign in on a family phone would have seen the scans;
+    the stamp covers that, and logout covers a device nobody signs back into. With no stamp —
+    signed out — the offline page won't hold scans. A review entry carries the stamp it was
+    rendered for (`scanOwner`), and `POST /items` refuses it with 409 for anyone else — a list
+    left open in one tab while someone else signs in in another adds nothing. The stamp says
+    nothing about the account, and its message has a colon, which a session payload (base64url)
+    never does, so no stamp is a valid session signature.
+
+    *Headers:* `secureHeaders()` sets no CSP and no Permissions-Policy, so the worker, the manifest,
+    the camera and IndexedDB need nothing; static files never pass through the Worker anyway.
+    Signed-in pages keep sending no Cache-Control, as before. `wrangler.jsonc` sets
+    `html_handling: "none"`: Cloudflare otherwise redirects `/offline.html` to `/offline`, which
+    the worker can't store as a navigation answer, and a missing `/offline` would reach the login
+    redirect; `MISSING_ASSET` now covers `.html`, so a missing one 404s.
+
+    *Tests:* vitest binds `public/` as `ASSETS` (tests only) to read the manifest, icons and sw.js
+    as served, and runs sw.js's own source against a stand-in `self`/`caches`/`fetch` —
+    install, activate, and a table of requests. What needs a browser (registration, going
+    offline, IndexedDB, the review list, logout) was checked with Playwright against a scratch
+    dev server.
+
+    **Chosen without asking, overrulable:** network-first for the listed files (no speed-up
+    online, in exchange for never serving an old one while the network works); a 200-scan cap;
+    re-rendering the 192/512 tiles, whose corners were white; a manifest shortcut to /add; the
+    offline page refuses to hold scans when nobody is signed in on the device; "add all" skips
+    entries with no match; `/offline.html` rather than `/offline`. The §14 non-goal "offline sync"
+    stands: nothing is synced — the phone holds barcodes until a person reviews them.
+
+## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
+
 The honest comparison, since it was asked:
 
 - **What this app is**: ~a dozen CRUD pages (lists, forms, a detail view) plus exactly one
@@ -1403,7 +1485,9 @@ The honest comparison, since it was asked:
 - **CPU budget**: SSR-to-string on every request is a few ms of template work — fine at
   10 ms. A React SPA would also be fine (static assets are free); this isn't the deciding
   factor, simplicity is.
-- **When we'd switch**: if the app grows real-time features, offline/PWA ambitions, or
+- **When we'd switch**: if the app grows real-time features, offline/PWA ambitions beyond
+  installing and holding scans (§16 #48 — a static offline page and plain browser JS, no client
+  router), or
   heavy in-page interactivity (drag-drop shelf curation, say) — or if you simply decide you
   want to write React. The swap is contained: Hono stays as the API layer, routes already
   speak JSON where it matters, and the SPA mounts in front. Nothing in the data model or

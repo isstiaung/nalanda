@@ -24,6 +24,10 @@ manuscripts.
   Private notes, loans, and copy counts never appear. Reviews can link out to blog posts.
   One admin page lists everything you've published, with the item count each link
   exposes.
+- **An app on your phone, and scanning with no signal**: install it to your home screen
+  (below), and the scanner keeps working in a basement or a bookshop — barcodes are held on
+  the phone and listed on **Add items** for you to add or drop once you're back online. No
+  page of your catalog is ever stored on the phone.
 - **Family accounts**: admin + members, no email infrastructure needed.
 - **Everyone's own reading and reviews**: each member's reads, pages, rating and review are
   their own, shown under their name on the book's page, and a "Read by" filter narrows a shelf
@@ -134,6 +138,19 @@ point Cloudflare's dashboard git integration at a branch with an empty build com
 `npm run deploy` as the deploy command, and set `D1_DATABASE_ID` as a build variable on
 the Worker. Resource setup, custom domains, rollback, and data migration are covered step
 by step in [runbooks/deploy.md](runbooks/deploy.md).
+
+## On your phone
+
+Nalanda installs to a phone's home screen and opens full-screen, like an app. Sign in on the
+phone first, in the browser, over HTTPS (your `workers.dev` address or custom domain):
+
+- **iPhone / iPad** — in **Safari**, tap **Share** → **Add to Home Screen** → **Add**.
+- **Android** — in **Chrome**, open the **⋮** menu → **Install app** (or **Add to Home screen**),
+  and confirm. Long-press the icon for a **Scan** shortcut.
+
+The camera needs HTTPS, which Cloudflare gives you. With no signal, opening the app shows a
+scan-only page; each barcode is held on the phone until you're back online, when **Add items**
+lists them for you to add to a shelf or drop. Logging out clears anything still held.
 
 ## Operations
 
