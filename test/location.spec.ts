@@ -10,7 +10,7 @@ import type { Bindings } from '../src/env';
 import { toConnectionItem, toFeedItem } from '../src/federation/items';
 import { clearSharedViewsCache } from '../src/federation/routes';
 import { EXPORT_COLUMNS, mapLibibRow, mapNalandaRow } from '../src/lib/csv';
-import { newShareToken, toPublicItem } from '../src/lib/share';
+import { newShareToken, shareFilters, toPublicItem } from '../src/lib/share';
 import { clearSharePageCache } from '../src/routes/share';
 import { answerOutbound, connectPeer, instanceA, json, makeKeys, makePeer, setUpA, type Peer } from './federation-helpers';
 import { as, book, html, member, rows } from './member-helpers';
@@ -118,6 +118,14 @@ describe('where it lives: search', () => {
     expect(page).toContain('Kind of Blue');
     expect(page).not.toContain('Blue Train');
     expect(await html(asha, `/libraries/${shelf.id}?q=blue`)).toContain('Blue Train'); // titles still match
+  });
+
+  it('is never a published view’s filter: a share link captures no search text', async () => {
+    const shelf = await createLibrary(env.DB, 'Records');
+    const share = await createShare(env.DB, { token: newShareToken(), name: 'All', libraryId: shelf.id, tag: 'jazz' });
+    // the shelf box's `q` matches locations, so a view that carried it would publish where things are kept
+    expect(shareFilters(share)).not.toHaveProperty('q');
+    expect(Object.keys(share)).not.toContain('q');
   });
 });
 
