@@ -1339,19 +1339,21 @@ items.post('/items/:id/plays/:playId/delete', async (c) => {
  * fillPressing() says exactly which fields it may write. With htmx it answers 200 whatever the result — htmx swaps
  * nothing on an error status — with the pressing section's content, what else a fill changes (the rest of the details,
  * published, publisher, length) out of band, and the result's fixed sentence into the section's live region: no read
- * beyond the record's own, since a fill's values are what it wrote. Without htmx, a redirect back to the section.
+ * beyond the record's own, since a fill's values are what it wrote — except after losing the race ("changed"), the
+ * rare path, which reads the record again to show the edit that won. Without htmx, a redirect back to the section.
  */
 items.post('/items/:id/discogs', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
   if (!isRecord(item.mediaType)) return c.text('Pressing details are for records.', 400);
-  const answer = (code: string, fill?: Filled, byBarcode = false) => {
-    if (!c.req.header('HX-Request')) {
+  const htmx = !!c.req.header('HX-Request');
+  const answer = (code: string, fill?: Filled, byBarcode = false, current: Item = item) => {
+    if (!htmx) {
       const f = fill ? `&f=${fill.filled.join(',')}` : '';
       return c.redirect(`/items/${id}?discogs=${code}${f}${byBarcode ? '&via=barcode' : ''}#pressing`);
     }
-    const shown = fill ? { ...item, details: fill.details, publisher: fill.publisher, published: fill.published, length: fill.length } : item;
+    const shown = fill ? { ...item, details: fill.details, publisher: fill.publisher, published: fill.published, length: fill.length } : current;
     const details = parseDetails(shown.details);
     return c.html(
       <>
@@ -1372,7 +1374,11 @@ items.post('/items/:id/discogs', async (c) => {
   const byBarcode = found.via === 'barcode';
   const fill = fillPressing(item, found.pressing, 'gaps');
   if (!fill.filled.length) return answer('nothing', undefined, byBarcode);
-  if (!(await applyPressingFill(c.env.DB, id, item, fill))) return answer('changed');
+  if (!(await applyPressingFill(c.env.DB, id, item, fill))) {
+    // someone saved it meanwhile: in place, show what they saved (one more read, on this rare path only)
+    const now = htmx ? await getItem(c.env.DB, id) : item;
+    return now ? answer('changed', undefined, false, now) : c.notFound();
+  }
   return answer('filled', fill, byBarcode);
 });
 
@@ -1449,17 +1455,19 @@ items.post('/items/:id/links/:linkId/delete', async (c) => {
  * fill, written only if nothing changed meanwhile. It never overwrites a value: fillGame() says exactly which fields it
  * may write. Never called on a page load. With htmx it answers 200 whatever the result — htmx swaps nothing on an
  * error status — with the details list, the length out of band, and the result's fixed sentence into the section's
- * live region: no read beyond the game's own, since a fill's values are what it wrote. Without htmx, a redirect back
- * to the details section.
+ * live region: no read beyond the game's own, since a fill's values are what it wrote — except after losing the race
+ * ("changed"), the rare path, which reads the game again to show the edit that won. Without htmx, a redirect back to
+ * the details section.
  */
 items.post('/items/:id/bgg', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
   if (item.mediaType !== 'boardgame') return c.text('BoardGameGeek details are for board games.', 400);
-  const answer = (code: string, fill?: GameFill) => {
-    if (!c.req.header('HX-Request')) return c.redirect(`/items/${id}?bgg=${code}${fill ? `&f=${fill.filled.join(',')}` : ''}#details`);
-    const shown = fill ? { ...item, details: fill.details, length: fill.length } : item;
+  const htmx = !!c.req.header('HX-Request');
+  const answer = (code: string, fill?: GameFill, current: Item = item) => {
+    if (!htmx) return c.redirect(`/items/${id}?bgg=${code}${fill ? `&f=${fill.filled.join(',')}` : ''}#details`);
+    const shown = fill ? { ...item, details: fill.details, length: fill.length } : current;
     return c.html(
       <>
         <GameDetailsList details={parseDetails(shown.details)} />
@@ -1477,7 +1485,11 @@ items.post('/items/:id/bgg', async (c) => {
   if (!found.ok) return answer(found.failure);
   const fill = fillGame(item, found.game);
   if (!fill.filled.length) return answer('nothing');
-  if (!(await applyGameFill(c.env.DB, id, item, fill))) return answer('changed');
+  if (!(await applyGameFill(c.env.DB, id, item, fill))) {
+    // someone saved it meanwhile: in place, show what they saved (one more read, on this rare path only)
+    const now = htmx ? await getItem(c.env.DB, id) : item;
+    return now ? answer('changed', undefined, now) : c.notFound();
+  }
   return answer('filled', fill);
 });
 
