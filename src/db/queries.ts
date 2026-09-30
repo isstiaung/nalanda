@@ -2757,16 +2757,19 @@ const YEAR_FINISHES = `WITH fin AS MATERIALIZED (
   )`;
 
 /**
- * Each reader's rating of each book they finished that year — once per reader and book, however often they finished it,
- * so a re-read doesn't count its rating twice. A former member's reads (no reader) meet former members' reviews (no
- * writer), as the app's own checks treat them as one nobody (§16 #43).
+ * Each reader's rating of each book they finished that year — once per reader and book, however often they finished it
+ * and in however many editions, so neither a re-read nor a second edition counts a rating twice: a reader who rated two
+ * editions of one book gave it the average of the two. Only the editions they finished that year count. A former
+ * member's reads (no reader) meet former members' reviews (no writer), as the app's own checks treat them as one nobody
+ * (§16 #43), so former members together are one reader here too.
  */
 const YEAR_RATED = `${YEAR_FINISHES},
   pairs AS (SELECT scope, reader_id, item_id, work, max(ended_on) AS last FROM scoped GROUP BY scope, reader_id, item_id),
   rated AS (
-    SELECT p.scope, p.item_id, p.work, p.last, rv.rating FROM pairs p
+    SELECT p.scope, min(p.item_id) AS item_id, p.work, max(p.last) AS last, avg(rv.rating) AS rating FROM pairs p
     JOIN reviews rv ON rv.item_id = p.item_id AND rv.user_id IS p.reader_id
     WHERE rv.rating IS NOT NULL
+    GROUP BY p.scope, p.reader_id, p.work
   )`;
 
 /**

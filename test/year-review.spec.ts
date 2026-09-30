@@ -249,6 +249,34 @@ describe('ratings and highlights', () => {
     expect((await yearInReview(env.DB, ravi.id, 2025)).mine.rating).toEqual({ average: 8, count: 1 });
   });
 
+  it('counts a reader’s ratings of two editions of one book as one rating of that book', async () => {
+    const asha = await member('asha', 'admin');
+    const ravi = await member('ravi');
+    const hardback = await book(asha, { title: 'Dune', creators: 'Frank Herbert' });
+    const paperback = await book(asha, { title: 'Dune', creators: 'Frank Herbert' }); // another edition
+    const other = await book(asha, { title: 'Emma', creators: 'Jane Austen' });
+    await finish(hardback.id, asha, '2025-01-10');
+    await finish(paperback.id, asha, '2025-06-10');
+    await finish(other.id, asha, '2025-03-10');
+    await finish(hardback.id, ravi, '2025-04-10');
+    await rate(hardback.id, asha, 10);
+    await rate(paperback.id, asha, 6); // Asha gave Dune 10 and 6: to the year, one rating of 8
+    await rate(other.id, asha, 4);
+    await rate(hardback.id, ravi, 2);
+
+    const r = await yearInReview(env.DB, asha.id, 2025);
+    expect(r.mine.rating).toEqual({ average: 6, count: 2 }); // (8 + 4) / 2, not (10 + 6 + 4) / 3
+    expect(r.mine.topRated.map((b) => [b.title, b.rating])).toEqual([
+      ['Dune', 8],
+      ['Emma', 4],
+    ]);
+    expect(r.household.rating).toEqual({ average: 14 / 3, count: 3 }); // Asha's 8 and 4, Ravi's 2
+    expect(r.household.topRated.map((b) => [b.title, b.rating])).toEqual([
+      ['Dune', 5], // Asha's 8 and Ravi's 2
+      ['Emma', 4],
+    ]);
+  });
+
   it('finds the longest and shortest book with a length, and the fastest read, both days counted', async () => {
     const asha = await member('asha', 'admin');
     const ravi = await member('ravi');
