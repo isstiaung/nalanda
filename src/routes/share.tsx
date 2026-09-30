@@ -30,7 +30,7 @@ import {
   type PublicItem,
 } from '../lib/share';
 import { BggCredit, fromBgg } from '../views/attribution';
-import { BuyLinks, DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, RecordDetails, stars, WantedPill } from '../views/components';
+import { BuyLinks, DetailsList, LENGTH_UNIT, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, RecordDetails, stars, WantedPill } from '../views/components';
 
 const share = new Hono<AppEnv>();
 
@@ -266,7 +266,9 @@ async function giftItemPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
           {gift.length ? (
             <>
               <dt>Length</dt>
-              <dd class="mono">{gift.length}</dd>
+              <dd class="mono">
+                {gift.length} {LENGTH_UNIT[gift.mediaType] ?? ''}
+              </dd>
             </>
           ) : null}
         </dl>
@@ -478,7 +480,9 @@ share.get('/:token/items/:id', async (c) => {
           {pub.length ? (
             <>
               <dt>Length</dt>
-              <dd class="mono">{pub.length}</dd>
+              <dd class="mono">
+                {pub.length} {LENGTH_UNIT[pub.mediaType] ?? ''}
+              </dd>
             </>
           ) : null}
         </dl>
@@ -517,7 +521,7 @@ share.get('/:token/items/:id', async (c) => {
             <p class="prewrap">{pub.review}</p>
           </div>
         ) : null}
-        <p>
+        <p class="back-link">
           <a href={`/share/${token}`}>← back to {view.name}</a>
         </p>
       </div>
