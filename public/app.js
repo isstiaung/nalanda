@@ -158,6 +158,27 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('load', sync);
   }
 
+  // The sidebar's sections (ARCH.md §16 #62) open and close natively — they're <details>. This only remembers
+  // which ones the member opened, in a small `nav` cookie the server reads to render them open: the first paint is
+  // already right, with nothing to restore after load. A section open only because it holds the current page is
+  // never written down: only a click on its header counts (Enter and Space on a focused <summary> click it too).
+  document.getElementById('sidebar')?.addEventListener('click', (e) => {
+    const summary = e.target.closest('summary');
+    const section = summary?.parentElement;
+    if (!section || !section.matches('details.nav-section[data-nav]') || summary !== section.firstElementChild) return;
+    const opening = !section.open; // the click runs before the <details> toggles
+    const kept = new Set(
+      ((document.cookie.match(/(?:^|;\s*)nav=([^;]*)/) || [])[1] || '').split('.').filter((id) => /^[a-z]+$/.test(id)),
+    );
+    if (opening) kept.add(section.dataset.nav);
+    else kept.delete(section.dataset.nav);
+    const value = [...kept].slice(0, 8).join('.');
+    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = value
+      ? `nav=${value}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`
+      : `nav=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
+  });
+
   // The phone drawer. aria-expanded follows it, so a screen reader hears whether the menu is open; while closed,
   // CSS keeps it out of the tab order and the accessibility tree (visibility: hidden, after the slide).
   const navToggle = document.getElementById('nav-toggle');

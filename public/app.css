@@ -169,8 +169,48 @@ table { border-collapse: collapse; }
 /* the narrow sidebar needs a slightly denser sub-line to stay on one line */
 .sidebar .brand-sub { font-size: 9.5px; letter-spacing: 0.08em; }
 
-.nav-section { display: flex; flex-direction: column; gap: 1px; }
-.nav-eyebrow { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); padding: 0 0.45rem; margin-bottom: 0.35rem; }
+/* Navigation (ARCH.md §16 #62): three pinned links, then sections that fold. Each section is a <details> whose
+   <summary> is its eyebrow, with a chevron that turns as it opens; it opts out of the global details frame. */
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-pinned, .nav-links { display: flex; flex-direction: column; gap: 1px; }
+.nav-pinned { margin-bottom: 0.75rem; }
+.sidebar .nav-section { border: none; border-radius: 0; padding: 0; margin: 0; background: none; }
+.sidebar .nav-section::after { content: none; }
+.nav-section[open] > .nav-links { margin: 1px 0 0.6rem; }
+.nav-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 28px; /* the hit target: past 24px, the size of a nav link */
+  padding: 0 0.45rem;
+  margin: 0;
+  border-radius: var(--radius-sm);
+  font-weight: 400; /* the global summary rule bolds panel titles */
+  cursor: pointer;
+  user-select: none;
+}
+.nav-section[open] > .nav-summary { margin: 0; } /* the global details[open] summary rule adds a bottom margin */
+.nav-summary::-webkit-details-marker { display: none; }
+.nav-summary:hover { background: var(--surface-2); }
+.nav-summary:hover .nav-eyebrow { color: var(--ink-2); }
+/* the chevron: two borders of a small square, pointing right while closed and down once open */
+.nav-summary::after {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-right: 2px;
+  border-right: 1.5px solid var(--ink-3);
+  border-bottom: 1.5px solid var(--ink-3);
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+}
+.nav-section[open] > .nav-summary::after { transform: rotate(45deg); }
+.nav-eyebrow { flex: 1; min-width: 0; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
+/* a closed section still says something in it is unread; open, each link shows its own */
+.nav-summary .nav-summary-unread { margin-left: 0; }
+.nav-section[open] .nav-summary-unread { display: none; }
 
 .nav-link {
   display: flex;
@@ -728,6 +768,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
     box-shadow: var(--shadow);
   }
   body.nav-open .sidebar { transform: translateX(0); visibility: visible; transition: transform 160ms ease, visibility 0s; }
+  /* a section header is tapped with a thumb in the drawer: a taller target than the pointer needs */
+  .nav-summary { min-height: 34px; }
   .mobile-bar {
     display: flex;
     align-items: center;
