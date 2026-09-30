@@ -378,7 +378,7 @@ describe('loans through the export and back', () => {
     expect(withLoans.flatMap((p) => p.rows).every((r) => parseLoansCell(r.loans).length === 20)).toBe(true);
     // however many loans, one query for them: a page costs what it did with none
     expect(new Set(withLoans.map((p) => p.queries))).toEqual(new Set([without.pages[0]!.queries]));
-    expect(withLoans[0]!.queries).toBeLessThan(10);
+    expect(withLoans[0]!.queries).toBeLessThanOrEqual(10); // with plays beside loans since #54 met #57
     // and the pages join into what the one-request export streams
     expect(text).toBe((await call('/export.csv', cookie)).text);
   });

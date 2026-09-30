@@ -159,7 +159,7 @@ describe('an export in pages, as the Export button fetches it', () => {
       const { res, body, queries } = await get(`/export.csv?${query}${query ? '&' : ''}after=${after}`, cookie);
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toMatch(/^text\/csv/);
-      expect(queries, `page after ${after}`).toBeLessThan(10); // one bounded slice per request
+      expect(queries, `page after ${after}`).toBeLessThanOrEqual(10); // one bounded slice per request: items, tags, reads, reviews, loans, progress, plays, and the session
       const rows = Number(res.headers.get('x-export-rows'));
       expect(rows).toBeLessThanOrEqual(EXPORT_PAGE);
       expect(body.split('\r\n').filter(Boolean).length).toBe(rows + (after === '0' ? 1 : 0)); // the header leads page one only

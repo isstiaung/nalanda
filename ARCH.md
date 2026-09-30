@@ -1636,7 +1636,7 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     in `TABLES` order, then this migration — all 34 pre-existing tables (FTS shadow tables included) identical in row counts and row
     hashes, all 85 pre-existing schema objects unchanged, `plays` empty, no foreign-key violations,
     integrity ok. D1 (budget 50, #37): a game's page is 11 calls (with lending history's), one more than
-    without plays, however many plays; a shared item page 5, the same for a hit and a miss; an export page 9.
+    without plays, however many plays; a shared item page 5, the same for a hit and a miss; an export page 10 once loans (#57) sit beside plays.
 
     **Chosen without asking, overrulable:** only board games and records (not `music`, `movie` or
     `videogame`) — one constant; the date defaults to the server's UTC day and may be tomorrow, as a
