@@ -567,7 +567,8 @@ POST /items/:id/plays          "Played": a play today or on the date given (game
 GET  /items/:id/plays          every play, 100 a page · POST /items/:id/plays/:play/delete (its
                                logger, or an admin; ?back=plays returns to that page)
 POST /items/:id/bgg            "Refresh from BGG": one `thing` request by details.bgg_id, fills blanks
-                               only (board games; redirects back with ?bgg=<code>; §16 #60)
+                               only (board games; with HX-Request → the details in place, else
+                               redirects back with ?bgg=<code>; §16 #60)
 GET  /play                     "What should we play tonight?": ?players=&time=&weight=, and ?pick=1
                                (&not=<id>) for one; with HX-Request → the results alone (§16 #60)
 GET  /add                      add flow: scan | search | manual
@@ -2258,6 +2259,21 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       while Discogs was asked wins and the page says to refresh again. A click is the
       session check, one read and one write (3 D1 calls). Discogs' 429 ("busy"), 404, 401
       and timeouts come back as a notice by code, never as text from the URL.
+      **Amended (after 1.6.0): it updates in place, with the redirect as the no-script
+      fallback.** With `HX-Request` the handler answers 200 whatever the result (htmx swaps
+      nothing on an error status): the pressing section's content (`#pressing-body`), and out
+      of band the rest of the details with Discogs' credit when that's where it goes
+      (`#pressing-more`) and the published, publisher and length rows (`#item-filled`, a
+      `display: contents` group in the props list) — everything on the page a fill can change —
+      rendered from the row it read plus the fill it wrote, so still 3 D1 calls filled and 2
+      otherwise, against 3 + 11 for the redirect and the page reload it replaces. The fixed
+      sentence goes out of band into `#discogs-status`, an `<output>` that stays on the page
+      beside the button, so a screen reader hears it; the page the no-script redirect lands on
+      shows its sentence there too. The button is disabled while the request is out
+      (`hx-disabled-elt`) and keeps its id; public/app.js says "Asking Discogs…" in the region
+      meanwhile, and a fixed "Something went wrong — try again." on a failed request
+      (`htmx:responseError`, `htmx:sendError`), for these forms only (`data-refresh-status`).
+      Without htmx: the same redirect as before.
     - **CPU.** Parsing is one pass over Discogs' JSON with caps on every string; tests keep
       a record's page, with a 400-line tracklist, at the same D1 calls as a book's.
     - **Credit (amended by #63).** Wherever this pressing shows, Discogs' terms want "Data
@@ -2779,7 +2795,12 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     timeout, or a 200 that isn't an `<items>` answer (an error message, an HTML page) "unavailable"; an answer without that id "not found" — each a fixed
     sentence chosen by a code in the redirect (`?bgg=<code>`), never text from the URL or from BGG. A
     game's page never calls BGG, and tests replay BGG's XML from `test/fixtures/bgg.ts`, written in the
-    shape BGG's API2 returns.
+    shape BGG's API2 returns. **Amended (after 1.6.0): it updates in place, as #55's refresh does, with
+    the redirect as the no-script fallback.** With `HX-Request`: a 200 whatever the result, holding the
+    details list (`#game-details`), the length row out of band (`#item-filled`) and the sentence out of
+    band into `#bgg-status`, the section's persistent `<output>`; 3 D1 calls filled, 2 otherwise. The
+    button is disabled while BGG is asked, which with the five-second pacing keeps a double click from
+    spending the isolate's one request on nothing, and app.js says "Asking BGG…" meanwhile.
 
     **Chosen without asking, overrulable:** the band edges at 2 and 3; time as the longer end, with
     Length as the last resort; only games with a copy not on loan, and not-owned games (`copies = 0`)
