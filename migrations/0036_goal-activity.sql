@@ -14,7 +14,8 @@
 --    per-person finish, never inside an import, and only while a connection view exists. A past read added later
 --    crosses no line on anyone's feed. Dated now; they keep the finish that crossed (read_id, item_id), so a
 --    milestone goes only to views that hold that book — where its finish is news already — and goes when that read
---    does. `goal_set` is recorded by the goal's own write (setGoal in src/db/queries.ts), never here.
+--    does. `goal_set` is recorded by the goal's own write (setGoal in src/db/queries.ts), never here. A third trigger
+--    takes a milestone away when its finish stops being one, so the next finish that crosses the line is news.
 --
 -- 3. Instances that already have members keep the switches they had; new ones start with names and goals on (the
 --    last statement).
@@ -121,6 +122,20 @@ BEGIN
     WHERE g.user_id = new.reader_id AND g.year = CAST(substr(new.ended_on, 1, 4) AS INTEGER)
       AND ((c.n >= g.target AND c.n - 1 + c.counted < g.target)
         OR (c.n < g.target AND c.n >= (g.target + 1) / 2 AND c.n - 1 + c.counted < (g.target + 1) / 2));
+END;
+--> statement-breakpoint
+-- A milestone stands on the finish that crossed the line. When that read stops being a finish of that year — stopped,
+-- reopened, or re-dated into another year — the milestone goes, as it does when the read is deleted: withdrawn at each
+-- connection's next check, and out of the way of the finish that crosses the line next. Left in place, hidden, it
+-- would hold the goal's one row of that kind and turn that later milestone away. Recorded whether or not a view exists:
+-- taking a row away is never news. A milestone of the year the read now ends in stays: it may be the one the UPDATE
+-- trigger above just recorded.
+CREATE TRIGGER `member_goal_reads_undone` AFTER UPDATE OF `status`, `ended_on` ON `reads`
+WHEN old.status = 'completed'
+BEGIN
+  DELETE FROM `member_activity` WHERE `read_id` = new.id AND `goal_id` IS NOT NULL
+    AND (new.status IS NOT 'completed' OR `goal_id` NOT IN (
+      SELECT g.id FROM `reading_goals` g WHERE g.year IS CAST(substr(new.ended_on, 1, 4) AS INTEGER)));
 END;
 --> statement-breakpoint
 -- 0027's triggers, word for word.

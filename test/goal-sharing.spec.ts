@@ -302,6 +302,46 @@ describe('whose goal', () => {
   });
 });
 
+describe('a milestone’s finish undone', () => {
+  beforeEach(async () => {
+    await connected();
+    await updateSiteSettings(env.DB, { namesToConnections: true, goalsToConnections: true });
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  // found by the adversarial pass: a stopped crossing read left its hidden "reached" in the goal's one row of that
+  // kind, and the finish that genuinely reached the goal again was never news
+  it('goes with it — stopped, reopened or re-dated — so the next finish that crosses the line is news', async () => {
+    const asha = await named('u-asha', 'Asha', 'admin');
+    const y = thisYear();
+    await setGoal(env.DB, asha.id, y, 2, actor(asha));
+    await finished(asha, { title: 'One' });
+    const two = await finished(asha, { title: 'Two' });
+    const first = await pull();
+    expect(goalLines(first.entries)).toEqual([`Asha goal_set 0/2 ${y}`, `Asha goal_halfway 1/2 ${y}`, `Asha goal_reached 2/2 ${y}`]);
+    const reachedId = first.entries.find((e) => e.kind === 'goal_reached')!.id;
+
+    const readTwo = (await rows<{ id: number }>('SELECT id FROM reads WHERE item_id = ?1', two.id))[0]!.id;
+    await env.DB.prepare("UPDATE reads SET status = 'abandoned' WHERE id = ?1").bind(readTwo).run(); // stopped, not finished
+    expect(await check([reachedId])).toEqual([reachedId]);
+    expect(await rows("SELECT id FROM member_activity WHERE kind = 'goal_reached'")).toEqual([]);
+
+    await finished(asha, { title: 'Three' }); // 2 of 2 again, today: news
+    expect(goalLines((await pull(first.latest)).entries)).toEqual([`Asha goal_reached 2/2 ${y}`]);
+
+    // re-dated into last year: no longer this year's finish, and its milestone goes too
+    const readThree = (await rows<{ id: number }>("SELECT r.id FROM reads r JOIN items i ON i.id = r.item_id WHERE i.title = 'Three'"))[0]!.id;
+    await env.DB.prepare('UPDATE reads SET ended_on = ?2 WHERE id = ?1').bind(readThree, `${y - 1}-12-30`).run();
+    expect(await rows("SELECT id FROM member_activity WHERE kind = 'goal_reached'")).toEqual([]);
+    // and a finish that stays a finish of the same year keeps its milestone when its date moves within the year
+    await setGoal(env.DB, asha.id, y, 3, actor(asha)); // 1 of 3 (One)
+    const four = await finished(asha, { title: 'Four' }); // 2 of 3: halfway
+    expect(await goalRowKinds()).toEqual(['goal_set', 'goal_halfway']);
+    await env.DB.prepare('UPDATE reads SET ended_on = ?2 WHERE item_id = ?1').bind(four.id, `${y}-01-01`).run();
+    expect(await goalRowKinds()).toEqual(['goal_set', 'goal_halfway']);
+  });
+});
+
 // ---------- compatibility, both ways ----------
 
 describe('compatibility: the protocol stays version 1', () => {
