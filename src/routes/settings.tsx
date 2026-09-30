@@ -116,7 +116,12 @@ const UsersPage = ({
               <td>
                 <strong>{u.username}</strong>
                 {u.id === self ? <small class="muted"> (you)</small> : null}
-                {u.mustChangePassword ? <span class="pill progress"> Temp password</span> : null}
+                {u.mustChangePassword ? (
+                  <>
+                    {' '}
+                    <span class="pill progress">Temp password</span>
+                  </>
+                ) : null}
               </td>
               <td>
                 {/* shown outside the app only where names are switched on (§16 #45); an admin can set anyone's */}
@@ -160,7 +165,7 @@ const UsersPage = ({
       </table>
     </div>
 
-    <section style="margin-top:1.5rem">
+    <section class="settings-section">
       <p class="eyebrow">Add a member</p>
       <form method="post" action="/settings/users" class="inline-form">
         <input name="username" placeholder="username" aria-label="Username" required />

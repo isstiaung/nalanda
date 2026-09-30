@@ -875,6 +875,15 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 /* a section's form, table and notes keep apart, in whatever order they come */
 .fed-section > :not(.eyebrow) + * { margin-top: 0.75rem; }
 
+/* ── members, account ─────────────────────────────────────────────────────── */
+
+/* Members' "Add a member" and "Household currency": clear of what's above, and a form's note clear of its button */
+.settings-section { margin-top: 1.5rem; }
+.settings-section > form + p { margin-top: 0.75rem; }
+/* Account's password and display-name panels: two frames, not one frame touching the next */
+.account-card + .account-card { margin-top: 1rem; }
+.account-card form + .form-note { margin-top: 0.75rem; }
+
 /* ── connections: feed ────────────────────────────────────────────────────── */
 
 .feed { display: grid; gap: 0.75rem; max-width: 46rem; }
