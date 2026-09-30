@@ -63,7 +63,7 @@ describe('/shares', () => {
     expect(html).toContain(share.token);
     // two of the three items are completed — the filtered view exposes only those
     const row = html.slice(html.indexOf('Finished only'));
-    expect(row).toMatch(/<td class="num">2<\/td>/);
+    expect(row).toMatch(/<td class="num" data-label="Items">2<\/td>/);
   });
 });
 
@@ -119,7 +119,7 @@ describe('tag links', () => {
     expect((await request(`/share/${link!.token}/items/${other.id}`)).status).toBe(404); // scope holds by id too
 
     const sharesPage = await (await request('/shares', admin.id)).text();
-    expect(sharesPage.slice(sharesPage.indexOf('>Reviewed<'))).toMatch(/<td class="num">2<\/td>/);
+    expect(sharesPage.slice(sharesPage.indexOf('>Reviewed<'))).toMatch(/<td class="num" data-label="Items">2<\/td>/);
   });
 });
 
