@@ -39,9 +39,9 @@ Local dev prints to the `npm run dev` terminal.
 - **"Discogs is busy"** after Refresh from Discogs: Discogs allows 60 requests a minute per
   token, and each click is one. Wait a minute and click again.
 - **Refresh from Discogs doesn't change a field**: it only fills blanks, never replaces a value
-  (ARCH.md §16 #55). To take Discogs' value instead — say a record added before pressing details kept the
-  short format a search gave it — clear that key in the edit form's details JSON, save, and
-  refresh. **"Found by barcode — refresh again for the tracklist"**: a barcode search has no
+  (ARCH.md §16 #55). To take Discogs' value instead — say a record added before pressing
+  details kept the short format a search gave it — clear that key in the edit form's details
+  JSON, save, and refresh. **"Found by barcode — refresh again for the tracklist"**: a barcode search has no
   tracklist; the release id it stored fetches one on the next click.
 - **Weird edition data** (wrong publisher/year): providers return their "best" edition.
   Edit the item after saving — lookup fills the form, it doesn't own the data.

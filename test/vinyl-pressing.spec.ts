@@ -320,6 +320,19 @@ describe('Refresh from Discogs', () => {
     expect((await getItem(env.DB, lp.id))!.updatedAt).toBe('2000-01-01 00:00:00');
   });
 
+  it('promises a tracklist on the next click only when it has a release id to fetch it by', async () => {
+    const asha = await member('asha', 'admin');
+    // a hand-typed discogs_id that isn't an id: kept (never overwritten), so every refresh goes by barcode
+    const lp = await record(asha, { isbn13: '0724384260910', details: JSON.stringify({ discogs_id: 'see sleeve' }) });
+    countingFetch(() => new Response(JSON.stringify(SEARCH_BY_BARCODE)));
+    const res = await call(asha, `/items/${lp.id}/discogs`, { body: {} });
+    expect(res.headers.get('location')).toContain('&via=barcode');
+    expect((await detailsOf(lp.id))['discogs_id']).toBe('see sleeve');
+    const shown = await page(asha, res.headers.get('location')!.split('#')[0]!);
+    expect(shown).toContain('Filled from Discogs: label,');
+    expect(shown).not.toContain('refresh again for the tracklist');
+  });
+
   it('says why when Discogs can’t help, and writes nothing', async () => {
     const asha = await member('asha', 'admin');
     const lp = await record(asha, { details: JSON.stringify({ discogs_id: 249504 }) });

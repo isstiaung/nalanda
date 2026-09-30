@@ -392,8 +392,12 @@ const FILLED_LABEL: Record<string, string> = {
 function discogsNotice(c: Context<AppEnv>, details: Record<string, unknown>): string | null {
   const code = c.req.query('discogs');
   if (!code) return null;
-  // found by barcode: a search result has no tracklist, but the release id it stored fetches one next time
-  const more = c.req.query('via') === 'barcode' && !Array.isArray(details['tracklist']) ? ' Found by barcode — refresh again for the tracklist.' : '';
+  // found by barcode: a search result has no tracklist, but the release id it stored fetches one next time — a
+  // promise only while there is a usable id to fetch it by (a hand-typed discogs_id that isn't one keeps the barcode)
+  const more =
+    c.req.query('via') === 'barcode' && !Array.isArray(details['tracklist']) && releaseIdOf(details)
+      ? ' Found by barcode — refresh again for the tracklist.'
+      : '';
   if (code === 'filled') {
     const fields = (c.req.query('f') ?? '').split(',').filter((f) => Object.hasOwn(FILLED_LABEL, f)).map((f) => FILLED_LABEL[f]);
     return `Filled from Discogs: ${fields.length ? fields.join(', ') : 'nothing new'}.${more}`;
