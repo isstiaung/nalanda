@@ -8,6 +8,11 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [Unreleased]
+
+### Added
+- **Read next on the Overview.** A card suggests one book you haven't finished and aren't reading now, picked at random from any book in the catalog, owned or not ("Not owned" shows when you don't own it). What other members have read doesn't matter: it goes by your own reads. **Another** picks a different book in place, and **Start reading** starts your own read and takes you to the book's page. When you've finished or are reading every book, the card says so; a catalog without books doesn't show it.
+
 ## [1.3.0] - 2026-09-29
 
 Everyone's own reading. Each member of a household now has their own reads, recorded pages, rating and review, and a book's page shows everyone's under their name. A book still has one status on your shelves, and share links and connected households still see one household rating and review, with no names. Board games now carry BoardGameGeek's "Powered by BGG" logo, as its API terms require.
