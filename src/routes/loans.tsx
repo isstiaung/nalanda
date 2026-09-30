@@ -7,6 +7,7 @@ import {
   returnLoan,
 } from '../db/queries';
 import type { AppEnv } from '../env';
+import { isIsoDate } from '../lib/reads';
 import { page } from '../views/layout';
 import { loanRequestsSection } from './borrowing';
 
@@ -129,7 +130,8 @@ loans.post('/items/:id/loan', async (c) => {
       itemId,
       borrower,
       contact: String(body['contact'] ?? '').trim() || null,
-      dueOn: String(body['dueOn'] ?? '').trim() || null,
+      // a calendar date or none, as a connection's lend takes it: anything else couldn't round-trip through the export
+      dueOn: isIsoDate(String(body['dueOn'] ?? '').trim()) ? String(body['dueOn']).trim() : null,
     });
     if (!lent) return c.text('Every copy is already out on loan.', 409);
   }
