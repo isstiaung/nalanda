@@ -681,6 +681,17 @@ describe('purchase price: a row edited by hand', () => {
     const page = await as(asha, `/libraries/${shelf.id}`);
     expect(page.status).toBe(200);
     expect(await page.text()).toContain('<span class="money">₹10</span> <span class="muted">for 1</span>');
+    // a code shaped like one that Intl doesn't know: out of the totals, as it is out of its own page and the export
+    const zzz = await book(asha, { libraryId: shelf.id, title: 'Unknown code' });
+    await setPrice(zzz.id, 700, 'ZZZ');
+    const t = (await shelfTotals(env.DB, shelf.id)).shelves.get(shelf.id)!;
+    expect(t.paid).toEqual([{ currency: 'INR', count: 1, total: '1000' }]);
+    expect(t.priced).toBe(1);
+    const again = await (await as(asha, `/libraries/${shelf.id}`)).text();
+    expect(again).not.toContain('ZZZ');
+    expect(again).toContain('<span class="money">₹10</span> <span class="muted">for 1</span> <span class="muted">— of 6 books on this shelf</span>');
+    expect(await html(asha, `/items/${zzz.id}`)).not.toContain('<dt>Paid</dt>');
+    await env.DB.prepare('DELETE FROM items WHERE id = ?1').bind(zzz.id).run();
     expect((await as(asha, '/')).status).toBe(200);
     for (const i of odd) {
       const itemPage = await as(asha, `/items/${i.id}`);

@@ -21,7 +21,7 @@ import { MAX_LINKS_PER_ITEM, type LinkDraft } from '../lib/links';
 import { MAX_LOANS_PER_CELL, type LoanDraft } from '../lib/loans';
 import { MAX_PLAYS_PER_ITEM, PLAYABLE_TYPES, RECENT_PLAYS, type CellPlay, type PersonPlay } from '../lib/plays';
 import { reviewOrderSql, stampReviews, summarizeReviews, type PersonReview, type ReviewDraft } from '../lib/reviews';
-import type { CurrencyTotal } from '../lib/money';
+import { isCurrencyCode, type CurrencyTotal } from '../lib/money';
 import { seriesKey, type SeriesDraft } from '../lib/series';
 import * as s from './schema';
 import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Series, Share, User } from './schema';
@@ -337,6 +337,9 @@ export async function shelfTotals(
     t.byType.push({ mediaType: r.mediaType, count: r.n });
   }
   for (const r of (money?.results ?? []) as Array<{ libraryId: number; currency: string; n: number; total: string }>) {
+    // a code Intl doesn't know — only a hand-edited row — is left out, as the item page and the export leave it out
+    // (isStoredPrice): the SQL filter only checks its shape
+    if (!isCurrencyCode(r.currency)) continue;
     const t = of(r.libraryId);
     t.priced += r.n;
     t.paid.push({ currency: r.currency, count: r.n, total: r.total });
