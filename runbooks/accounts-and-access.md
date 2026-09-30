@@ -7,7 +7,10 @@
 3. A temporary password is shown **once** — send it to them however you like.
 4. They log in with it and are forced to set their own password before doing anything else.
 
-Members can do everything except manage users and publish/rotate share links.
+Members can do everything except manage users, publish or rotate share links, and **delete items
+in bulk**. Bulk edit's other actions (tag, untag, move to a shelf, owned, not owned) are open to
+everyone. Its **Delete** shows only to admins, and the server refuses it to anyone else with a 403.
+A member can still delete a single item from its page (ARCH.md §16 #47).
 
 **Display names.** Each member can set a display name on their **Account** page, and an admin can set
 anyone's in the Members table. It's optional, not a login, and not unique (two people can both be

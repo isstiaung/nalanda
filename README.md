@@ -47,6 +47,9 @@ manuscripts.
 - **Tags, half-star ratings, full-text search** across the collection, plus a quick
   title/author filter inside every shelf and sorting by newest, title, rating, or date
   finished.
+- **Bulk edit**: tick items on a shelf or in search results, or select a whole page, then tag
+  or untag them, move them to another shelf, or mark them owned or not owned, up to 250 at
+  a time. Admins can delete in bulk too, after a confirmation that names what goes.
 - **Reading progress**: record the page you're on, keep the log of how you got there, and
   see how far through a book you are. Connections follow it in their feed, page by page;
   it stays off public share links unless you choose to show it there.
