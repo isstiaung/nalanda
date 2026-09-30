@@ -9,6 +9,8 @@ declare namespace Cloudflare {
     COVERS: R2Bucket;
     SESSION_SECRET: string;
     TEST_MIGRATIONS: import('cloudflare:test').D1Migration[];
+    // public/, served as Cloudflare serves it — bound in vitest.config.ts for tests only
+    ASSETS: Fetcher;
   }
 }
 

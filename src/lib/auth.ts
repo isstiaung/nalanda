@@ -69,6 +69,18 @@ export async function createSessionToken(secret: string, userId: number, nowSeco
   return `${payload}.${sig}`;
 }
 
+/**
+ * Whose scans a device's offline queue holds (ARCH.md §16 #48): an opaque stamp per account, written into every
+ * signed-in page. A page signed in as someone else finds a different stamp and empties the queue before anything
+ * shows it, and adding from the review list must carry the stamp of whoever is signed in now. An HMAC, so the stamp
+ * says nothing about the account; its message ("scan-queue:<id>") has a colon, which a session payload — base64url —
+ * never does, so no stamp is ever a valid session signature.
+ */
+export async function scanQueueOwner(secret: string, userId: number): Promise<string> {
+  const sig = await crypto.subtle.sign('HMAC', await hmacKey(secret), enc.encode(`scan-queue:${userId}`));
+  return b64url.encode(new Uint8Array(sig).slice(0, 16));
+}
+
 /** Returns the user id for a valid, unexpired token; null otherwise — always null without a session secret. */
 export async function verifySessionToken(
   secret: string | undefined,

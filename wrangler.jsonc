@@ -4,7 +4,10 @@
   "main": "src/index.ts",
   "compatibility_date": "2025-09-01",
   "assets": {
-    "directory": "./public"
+    "directory": "./public",
+    // /offline.html is served as /offline.html, not redirected to /offline: the service worker keeps that file
+    // under its own name, and a missing one 404s (MISSING_ASSET) instead of reaching the login redirect.
+    "html_handling": "none"
   },
   // database_id is an all-zero placeholder on purpose: this repo names no specific
   // Cloudflare resource. `npm run dev`, local migrations, and the tests all work

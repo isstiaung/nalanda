@@ -3,7 +3,8 @@ import { listLibraries, listPeople } from '../db/queries';
 import type { AppEnv } from '../env';
 import { lookupByBarcode, searchByName, type SearchType } from '../metadata';
 import { BggAttribution } from '../views/attribution';
-import { CandidateCard, ItemForm } from '../views/components';
+import { scanQueueOwner } from '../lib/auth';
+import { CandidateCard, ItemForm, ReviewEntry, SCANNED_AT } from '../views/components';
 import { page } from '../views/layout';
 
 const add = new Hono<AppEnv>();
@@ -20,6 +21,40 @@ add.get('/add', async (c) => {
           <span class="sub">SCAN · SEARCH · MANUAL ENTRY</span>
         </div>
       </div>
+      {/* Scans held on this device while it was offline (ARCH.md §16 #48). scan-review.js shows this only when there
+          are some, and looks each one up through /add/review; nothing is added until someone presses a button. */}
+      <section id="scan-review" class="scan-review" hidden>
+        <p class="eyebrow">Held on this device</p>
+        <article class="notice scan-review-head">
+          <div>
+            <strong>
+              <span id="scan-review-count" class="mono">
+                0
+              </span>{' '}
+              <span id="scan-review-noun">scanned while offline</span>
+            </strong>
+            <p class="muted">
+              Each is looked up here now. Pick a shelf, then add it or drop it — nothing is added until you do.
+            </p>
+          </div>
+          {libs.length ? (
+            <form id="scan-review-all" class="inline-form">
+              <select name="libraryId" aria-label="Shelf for all of them">
+                {libs.map((l) => (
+                  <option value={String(l.id)}>{l.name}</option>
+                ))}
+              </select>
+              <button type="submit" disabled>
+                {/* one inline run: a button lays its children out with a gap */}
+                <span>
+                  Add all to <span data-shelf-name>{libs[0]?.name}</span>
+                </span>
+              </button>
+            </form>
+          ) : null}
+        </article>
+        <div id="scan-review-list"></div>
+      </section>
       <div role="group" class="tab-bar">
         <button type="button" class="tab active" data-tab="scan">
           📷 Scan
@@ -75,7 +110,9 @@ add.get('/add', async (c) => {
       <section id="tab-manual" class="tab-panel" hidden>
         <ItemForm libraries={libs} action="/items" submitLabel="Add item" perMember={people.length > 1} />
       </section>
+      <script src="/scan-queue.js" defer></script>
       <script src="/scanner.js" defer></script>
+      <script src="/scan-review.js" defer></script>
     </>,
   );
 });
@@ -104,6 +141,32 @@ add.get('/add/results', async (c) => {
       ))}
       {result.candidates.some((candidate) => candidate.provider === 'bgg') ? <BggAttribution /> : null}
     </>,
+  );
+});
+
+/**
+ * One entry of the Add page's review list: a barcode held on the device while offline, looked up now — the same
+ * lookup as /api/lookup, one barcode a request so each stays inside a request's subrequest and CPU budget.
+ * `scanned` is the time the device recorded, shown back and nothing more. Always a partial: there's no page here.
+ */
+add.get('/add/review', async (c) => {
+  const barcode = c.req.query('barcode')?.trim() ?? '';
+  if (!/^\d{8,14}$/.test(barcode)) return c.text('Not a barcode.', 400);
+  const scanned = c.req.query('scanned')?.trim() ?? '';
+  const [result, libs, scanOwner] = await Promise.all([
+    lookupByBarcode(c.env, barcode),
+    listLibraries(c.env.DB),
+    scanQueueOwner(c.env.SESSION_SECRET ?? '', c.get('user').id),
+  ]);
+  return c.html(
+    <ReviewEntry
+      barcode={barcode}
+      scannedAt={SCANNED_AT.test(scanned) ? scanned : null}
+      candidate={result.candidates[0] ?? null}
+      notices={result.notices}
+      libraries={libs}
+      scanOwner={scanOwner}
+    />,
   );
 });
 

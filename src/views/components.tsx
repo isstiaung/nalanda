@@ -1098,49 +1098,159 @@ export const ItemForm: FC<{
   );
 };
 
+/** What a candidate's save form posts to POST /items: its details as the provider gave them. */
+const CandidateFields: FC<{ candidate: Candidate }> = ({ candidate }) => (
+  <>
+    <input type="hidden" name="mediaType" value={candidate.mediaType} />
+    <input type="hidden" name="title" value={candidate.title} />
+    <input type="hidden" name="creators" value={candidate.creators ?? ''} />
+    <input type="hidden" name="publisher" value={candidate.publisher ?? ''} />
+    <input type="hidden" name="published" value={candidate.published ?? ''} />
+    <input type="hidden" name="description" value={candidate.description ?? ''} />
+    <input type="hidden" name="length" value={candidate.length?.toString() ?? ''} />
+    <input type="hidden" name="isbn13" value={candidate.isbn13 ?? ''} />
+    <input type="hidden" name="isbn10Upc" value={candidate.isbn10Upc ?? ''} />
+    <input type="hidden" name="coverUrl" value={candidate.coverUrl ?? ''} />
+    <input type="hidden" name="details" value={JSON.stringify(candidate.details)} />
+  </>
+);
+
+const ShelfSelect: FC<{ libraries: Library[] }> = ({ libraries }) => (
+  <select name="libraryId" aria-label="Shelf">
+    {libraries.map((l) => (
+      <option value={String(l.id)}>{l.name}</option>
+    ))}
+  </select>
+);
+
+const CandidateCover: FC<{ candidate: Candidate }> = ({ candidate }) => (
+  <div class="candidate-cover">
+    {candidate.coverUrl ? (
+      <img src={candidate.coverUrl} alt="" loading="lazy" data-fallback={MEDIA_ICON[candidate.mediaType]} />
+    ) : (
+      <div class="cover-fallback">{MEDIA_ICON[candidate.mediaType]}</div>
+    )}
+  </div>
+);
+
+const CandidateSummary: FC<{ candidate: Candidate }> = ({ candidate }) => (
+  <>
+    <strong>{candidate.title}</strong>
+    {candidate.creators ? <div>{candidate.creators}</div> : null}
+    <small class="muted">
+      {MEDIA_LABEL[candidate.mediaType]}
+      {candidate.published ? ` · ${candidate.published}` : ''}
+      {candidate.publisher ? ` · ${candidate.publisher}` : ''}
+      {' · via '}
+      {candidate.provider}
+    </small>
+  </>
+);
+
 /** A lookup result with a one-click "add to shelf" form. */
 export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[] }> = ({ candidate, libraries }) => (
   <article class="candidate">
-    <div class="candidate-cover">
-      {candidate.coverUrl ? (
-        <img src={candidate.coverUrl} alt="" loading="lazy" data-fallback={MEDIA_ICON[candidate.mediaType]} />
-      ) : (
-        <div class="cover-fallback">{MEDIA_ICON[candidate.mediaType]}</div>
-      )}
-    </div>
+    <CandidateCover candidate={candidate} />
     <div class="candidate-body">
-      <strong>{candidate.title}</strong>
-      {candidate.creators ? <div>{candidate.creators}</div> : null}
-      <small class="muted">
-        {MEDIA_LABEL[candidate.mediaType]}
-        {candidate.published ? ` · ${candidate.published}` : ''}
-        {candidate.publisher ? ` · ${candidate.publisher}` : ''}
-        {' · via '}
-        {candidate.provider}
-      </small>
+      <CandidateSummary candidate={candidate} />
       <form method="post" action="/items" class="candidate-save">
-        <input type="hidden" name="mediaType" value={candidate.mediaType} />
-        <input type="hidden" name="title" value={candidate.title} />
-        <input type="hidden" name="creators" value={candidate.creators ?? ''} />
-        <input type="hidden" name="publisher" value={candidate.publisher ?? ''} />
-        <input type="hidden" name="published" value={candidate.published ?? ''} />
-        <input type="hidden" name="description" value={candidate.description ?? ''} />
-        <input type="hidden" name="length" value={candidate.length?.toString() ?? ''} />
-        <input type="hidden" name="isbn13" value={candidate.isbn13 ?? ''} />
-        <input type="hidden" name="isbn10Upc" value={candidate.isbn10Upc ?? ''} />
-        <input type="hidden" name="coverUrl" value={candidate.coverUrl ?? ''} />
-        <input type="hidden" name="details" value={JSON.stringify(candidate.details)} />
-        <select name="libraryId" aria-label="Shelf">
-          {libraries.map((l) => (
-            <option value={String(l.id)}>{l.name}</option>
-          ))}
-        </select>
+        <CandidateFields candidate={candidate} />
+        <ShelfSelect libraries={libraries} />
         <button type="submit">Add to shelf</button>
         <button type="submit" name="logOnly" value="1" class="btn" title="Catalog as read/reviewed without owning a copy — opens the edit form for your rating and review">
           Log — not owned
         </button>
       </form>
     </div>
+  </article>
+);
+
+/** When the device says a held scan was made: an ISO timestamp in UTC, or it isn't shown. */
+export const SCANNED_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?Z$/;
+
+/**
+ * One scan held on the device while offline, looked up now that it's back (ARCH.md §16 #48). The Add page's review
+ * list shows one per held barcode, and nothing is added until someone presses Add here or "Add all". The form carries
+ * `scanOwner`, the stamp of whoever it was rendered for, so POST /items refuses it once someone else is signed in.
+ * The scan time shows in UTC until scan-review.js rewrites it in the device's own time.
+ */
+export const ReviewEntry: FC<{
+  barcode: string;
+  scannedAt: string | null;
+  candidate: Candidate | null;
+  notices: string[];
+  libraries: Library[];
+  scanOwner: string;
+}> = ({ barcode, scannedAt, candidate, notices, libraries, scanOwner }) => {
+  const drop = (
+    <button type="button" class="btn" data-review-drop>
+      Drop
+    </button>
+  );
+  return (
+    <article class="candidate review-entry" data-barcode={barcode}>
+      {candidate ? (
+        <CandidateCover candidate={candidate} />
+      ) : (
+        <div class="candidate-cover">
+          <div class="cover-fallback" aria-hidden="true">
+            ?
+          </div>
+        </div>
+      )}
+      <div class="candidate-body">
+        <small class="review-scan">
+          {barcode}
+          {scannedAt ? (
+            <>
+              {' · scanned '}
+              <time datetime={scannedAt}>{`${scannedAt.slice(0, 16).replace('T', ' ')} UTC`}</time>
+            </>
+          ) : null}
+        </small>
+        {candidate ? (
+          <>
+            <CandidateSummary candidate={candidate} />
+            {libraries.length ? (
+              <form method="post" action="/items" class="candidate-save" data-review-add>
+                <CandidateFields candidate={candidate} />
+                <input type="hidden" name="scanOwner" value={scanOwner} />
+                <ShelfSelect libraries={libraries} />
+                <button type="submit">Add to shelf</button>
+                {drop}
+              </form>
+            ) : (
+              <>
+                <p class="notice">
+                  There's no shelf to add it to yet — make one on the <a href="/">Overview</a> first.
+                </p>
+                <div class="candidate-save">{drop}</div>
+              </>
+            )}
+          </>
+        ) : (
+          <>
+            <strong>No match</strong>
+            {notices.map((n) => (
+              <div class="muted">{n}</div>
+            ))}
+            <div class="candidate-save">
+              <button type="button" class="btn" data-review-retry>
+                Look up again
+              </button>
+              {drop}
+            </div>
+          </>
+        )}
+      </div>
+    </article>
+  );
+};
+
+/** What POST /items answers the review list with: the entry, now added. */
+export const ReviewAdded: FC<{ id: number; title: string; shelf: string }> = ({ id, title, shelf }) => (
+  <article class="notice review-entry" data-added>
+    Added <a href={`/items/${id}`}>{title}</a> to {shelf}.
   </article>
 );
 
