@@ -26,6 +26,50 @@ export function weightBand(w: number | null | undefined): Weight | null {
   return WEIGHTS.find((k) => w >= WEIGHT_BANDS[k].from && w < WEIGHT_BANDS[k].below) ?? null;
 }
 
+/** The time choices the form offers, in minutes. Any whole number of minutes up to a day works from the URL. */
+export const TIME_CHOICES = [20, 30, 45, 60, 90, 120, 180, 240] as const;
+export const MAX_MINUTES = 24 * 60;
+export const MAX_PLAYERS = 99;
+
+/** "45 min", "1 hour", "1½ hours", "3 hours". */
+export function minutesLabel(m: number): string {
+  if (m < 60) return `${m} min`;
+  if (m % 60 === 0) return m === 60 ? '1 hour' : `${m / 60} hours`;
+  if (m % 30 === 0) return `${Math.floor(m / 60)}½ hours`;
+  return `${m} min`;
+}
+
+/** What the household asked for: each null means "any". */
+export type GameFilters = { players: number | null; minutes: number | null; weight: Weight | null };
+
+const whole = (raw: string | undefined, max: number): number | null => {
+  const t = (raw ?? '').trim();
+  if (!/^\d{1,4}$/.test(t)) return null;
+  const n = Number(t);
+  return n >= 1 && n <= max ? n : null;
+};
+
+/** The filters from a query string. Anything that isn't one of the allowed values reads as "any", never an error. */
+export function parseGameFilters(q: Record<string, string | undefined>): GameFilters {
+  const w = q['weight'];
+  return {
+    players: whole(q['players'], MAX_PLAYERS),
+    minutes: whole(q['time'], MAX_MINUTES),
+    weight: (WEIGHTS as readonly string[]).includes(w ?? '') ? (w as Weight) : null,
+  };
+}
+
+/** The filters as a query string, for links and the "Pick another" form: only what's set, in a fixed order. */
+export function gameFilterParams(f: GameFilters): URLSearchParams {
+  const p = new URLSearchParams();
+  if (f.players !== null) p.set('players', String(f.players));
+  if (f.minutes !== null) p.set('time', String(f.minutes));
+  if (f.weight !== null) p.set('weight', f.weight);
+  return p;
+}
+
+export const anyFilter = (f: GameFilters): boolean => f.players !== null || f.minutes !== null || f.weight !== null;
+
 /**
  * A game's BGG id from its details — a positive whole number, or digits typed as text (a libib import keeps every
  * value as text). Null when there is none to look it up by.
