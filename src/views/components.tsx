@@ -5,7 +5,7 @@ import { ITEM_STATUSES, MEDIA_GRADES, MEDIA_TYPES, SLEEVE_GRADES } from '../db/s
 import { GRADE_NAME, isRecord } from '../lib/condition';
 import { splitPressing, trackCount, type Track } from '../lib/pressing';
 import { goalPace, goalPercent, paceLabel, pacePercent } from '../lib/goals';
-import { currencyDigits, formatMoney, minorToDecimal, type CurrencyTotal } from '../lib/money';
+import { currencyDigits, formatMoney, isStoredPrice, minorToDecimal, type CurrencyTotal } from '../lib/money';
 import { progressPercent } from '../lib/progress';
 import { linkHost } from '../lib/links';
 import { isPlayable, playDate } from '../lib/plays';
@@ -1675,7 +1675,7 @@ export type PriceFieldProps = {
  * form never guesses a currency.
  */
 export const PriceField: FC<PriceFieldProps> = ({ household, admin, item, sent, error }) => {
-  const own = item?.purchasePrice !== null && item?.purchasePrice !== undefined && item?.purchaseCurrency ? item.purchaseCurrency : null;
+  const own = isStoredPrice(item?.purchasePrice, item?.purchaseCurrency) ? item!.purchaseCurrency : null;
   const choices = [...new Set([own, household].filter((c): c is string => !!c))];
   if (!choices.length) {
     return (

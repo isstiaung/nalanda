@@ -4,7 +4,7 @@
 import type { Item, ItemStatus, MediaType, NewItem } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import { isRecord, parseGrade } from './condition';
-import { cellPrice, minorToDecimal } from './money';
+import { cellPrice, isStoredPrice, minorToDecimal } from './money';
 import {
   formatReadsCell,
   inDisplayOrder,
@@ -154,8 +154,8 @@ export function itemToCsvLine(
 
 /** A price's two cells (§16 #61): "302.50" and "INR", or both empty — never an amount without its currency. */
 function priceCells(item: Pick<Item, 'purchasePrice' | 'purchaseCurrency'>): [string, string] {
-  if (item.purchasePrice === null || item.purchasePrice === undefined || !item.purchaseCurrency) return ['', ''];
-  return [minorToDecimal(item.purchasePrice, item.purchaseCurrency), item.purchaseCurrency];
+  if (!isStoredPrice(item.purchasePrice, item.purchaseCurrency)) return ['', ''];
+  return [minorToDecimal(item.purchasePrice!, item.purchaseCurrency), item.purchaseCurrency];
 }
 
 /** A row's price (§16 #61), for the item: both columns, or neither. */

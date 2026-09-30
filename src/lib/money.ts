@@ -85,6 +85,14 @@ export function parseMoney(raw: unknown, currency: string): MoneyParse {
   return { ok: true, minor: Number(whole + fraction.padEnd(digits, '0')) };
 }
 
+/**
+ * Whether a stored price can be shown: whole, non-negative minor units with a known currency. Everything the app writes
+ * is; a row edited by hand might not be, and is then left out — of the page, the totals and the export — rather than
+ * failing any of them.
+ */
+export const isStoredPrice = (minor: unknown, currency: unknown): currency is string =>
+  Number.isSafeInteger(minor) && (minor as number) >= 0 && isCurrencyCode(currency);
+
 /** Minor units as a plain decimal in major units — "302.50", "38500" — for the form, the CSV and Intl. Exact. */
 export function minorToDecimal(minor: number | bigint | string, currency: string): string {
   const s = String(minor).trim();

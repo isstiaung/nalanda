@@ -54,7 +54,7 @@ import { deleteCover, storeCover } from '../lib/covers';
 import { isPlayable, MAX_PLAYS_PER_ITEM, playDateProblem } from '../lib/plays';
 import { fillPressing, recordBarcode, releaseIdOf } from '../lib/pressing';
 import { checkPurchaseLink, MAX_LINKS_PER_ITEM } from '../lib/links';
-import { isCurrencyCode, parseMoney } from '../lib/money';
+import { isCurrencyCode, isStoredPrice, parseMoney } from '../lib/money';
 import { MAX_PROGRESS_PAGE } from '../lib/progress';
 import { isReadStatus, readDateProblem, summarizeReads, todayUtc, type ReadDraft } from '../lib/reads';
 import { reviewText } from '../lib/reviews';
@@ -217,7 +217,7 @@ function formPrice(
   if (!('purchasePrice' in body)) return { values: null, problem: null };
   const amount = typeof body['purchasePrice'] === 'string' ? body['purchasePrice'].trim() : '';
   const sentCurrency = typeof body['purchaseCurrency'] === 'string' ? body['purchaseCurrency'].trim() : '';
-  const own = existing?.purchasePrice !== null && existing?.purchasePrice !== undefined ? existing.purchaseCurrency : null;
+  const own = isStoredPrice(existing?.purchasePrice, existing?.purchaseCurrency) ? existing!.purchaseCurrency : null;
   const allowed = [own, household].filter((c): c is string => !!c && isCurrencyCode(c));
   const currency = sentCurrency ? (allowed.includes(sentCurrency) ? sentCurrency : null) : (household ?? own ?? null);
   const sent = { amount, currency: currency ?? sentCurrency };
@@ -585,11 +585,11 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
             </>
           ) : null}
           {/* what was paid (§16 #61): this page only — money is never on share pages or to connections */}
-          {item.purchasePrice !== null && item.purchaseCurrency ? (
+          {isStoredPrice(item.purchasePrice, item.purchaseCurrency) ? (
             <>
               <dt>Paid</dt>
               <dd>
-                <Money minor={item.purchasePrice} currency={item.purchaseCurrency} />
+                <Money minor={item.purchasePrice!} currency={item.purchaseCurrency} />
               </dd>
             </>
           ) : null}

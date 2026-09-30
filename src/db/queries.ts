@@ -318,7 +318,8 @@ export async function shelfTotals(
     bind(
       d1.prepare(
         `SELECT library_id AS libraryId, purchase_currency AS currency, count(*) AS n, CAST(sum(purchase_price) AS TEXT) AS total
-         FROM items ${where ? `${where} AND` : 'WHERE'} purchase_price IS NOT NULL AND purchase_currency IS NOT NULL
+         FROM items ${where ? `${where} AND` : 'WHERE'} typeof(purchase_price) = 'integer' AND purchase_price >= 0
+           AND purchase_currency GLOB '[A-Z][A-Z][A-Z]'
          GROUP BY library_id, purchase_currency`,
       ),
     ),
