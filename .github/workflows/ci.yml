@@ -38,8 +38,9 @@ jobs:
           node-version: 24
           cache: npm
 
-      # postinstall vendors htmx, the ZXing WASM and the fonts into public/vendor/
-      - run: npm ci
+      # postinstall vendors htmx, the ZXing WASM and the fonts into public/vendor/; retried, as in a11y
+      - name: npm ci
+        run: for i in 1 2 3; do timeout 180 npm ci && exit 0; echo "npm ci attempt $i didn't finish; retrying"; done; exit 1
 
       - run: npm run typecheck
 
@@ -54,19 +55,41 @@ jobs:
   # starts `wrangler dev` on 127.0.0.1:8817 with a throwaway state directory and a
   # throwaway session secret and connections key it makes itself — no secrets from here.
   a11y:
+    name: a11y (${{ matrix.variant }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
+    strategy:
+      # every variant reports, even when one fails
+      fail-fast: false
+      matrix:
+        variant: ['light 1280', 'dark 1280', 'light 390', 'dark 390']
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
         with:
+          # Node 24 ships npm 11, which writes package-lock.json; see the check job
           node-version: 24
           cache: npm
 
-      - run: npm ci
+      # the registry has hung this step on a runner; give up after 3 minutes and try again
+      - name: npm ci
+        run: for i in 1 2 3; do timeout 180 npm ci && exit 0; echo "npm ci attempt $i didn't finish; retrying"; done; exit 1
 
-      # Chromium's headless shell and the system libraries it needs — no other browser
-      - run: npx playwright install --with-deps --only-shell chromium
+      # Chromium's headless shell, kept between runs for this Playwright version; the system
+      # libraries it needs are installed every time (they live outside the cache)
+      - id: playwright
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        id: chromium
+        with:
+          path: ~/.cache/ms-playwright
+          key: chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+      - if: steps.chromium.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps --only-shell chromium
+      - if: steps.chromium.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
 
       - run: npm run a11y
+        env:
+          A11Y_VARIANT: ${{ matrix.variant }}

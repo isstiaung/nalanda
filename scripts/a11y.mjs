@@ -5,6 +5,7 @@
 //   npm run a11y                  # the whole audit; exits 1 on any violation
 //   npm run a11y -- --only=shelf  # just the pages whose name contains "shelf"
 //   npm run a11y -- --keep        # leave the server running afterwards, to look around
+//   A11Y_VARIANT='dark 390' npm run a11y   # one theme and width only (CI runs the four in parallel)
 //
 // It never touches your development database or port: it starts its own `wrangler dev` on 127.0.0.1:8817 with
 // its own --persist-to state in a temporary directory, removed afterwards. It brings what it needs: a throwaway
@@ -59,12 +60,19 @@ const EXPERIMENTAL = ['label-content-name-mismatch', 'p-as-heading'];
 // a person to look at; it doesn't fail the run, but it is never silent
 const REVIEW = ['color-contrast', 'target-size'];
 
-const VARIANTS = [
+const ALL_VARIANTS = [
   { name: 'light 1280', scheme: 'light', width: 1280, height: 900 },
   { name: 'dark 1280', scheme: 'dark', width: 1280, height: 900 },
   { name: 'light 390', scheme: 'light', width: 390, height: 844 },
   { name: 'dark 390', scheme: 'dark', width: 390, height: 844 },
 ];
+// A11Y_VARIANT="dark 390" (or several, comma-separated) audits only those; CI runs the four side by side
+const PICKED = (process.env.A11Y_VARIANT ?? '').split(',').map((v) => v.trim()).filter(Boolean);
+const VARIANTS = PICKED.length ? ALL_VARIANTS.filter((v) => PICKED.includes(v.name)) : ALL_VARIANTS;
+if (PICKED.length && VARIANTS.length !== PICKED.length) {
+  console.error(`a11y: A11Y_VARIANT names ${PICKED.join(', ')}; the variants are ${ALL_VARIANTS.map((v) => v.name).join(', ')}`);
+  process.exit(2);
+}
 
 // ── report ────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -1511,7 +1519,7 @@ async function main() {
     }
   }
   const states = new Set(audited.map((a) => a.replace(/ \[.*\]$/, '')));
-  console.log(`\na11y: ${audited.length} axe runs over ${states.size} pages and states (WCAG 2.0/2.1/2.2 A+AA, light and dark, 1280 and 390 wide):`);
+  console.log(`\na11y: ${audited.length} axe runs over ${states.size} pages and states (WCAG 2.0/2.1/2.2 A+AA; ${VARIANTS.map((v) => v.name).join(', ')}):`);
   for (const s of states) console.log(`  · ${s}`);
   if (unaudited.length) {
     console.log('\nNot audited (needs the internet):');
