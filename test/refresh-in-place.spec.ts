@@ -199,19 +199,28 @@ describe('Refresh from Discogs, in place', () => {
     });
   }
 
-  it('answers "changed" when the record was saved while Discogs was asked, and shows it as it was read', async () => {
+  it('answers "changed" when the record was saved while Discogs was asked, and shows the edit that won — one read more', async () => {
     const asha = await member('asha', 'admin');
     const lp = await item(asha, { details: JSON.stringify(pressingOf) });
     vi.stubGlobal('fetch', async () => {
-      await env.DB.prepare('UPDATE items SET details = ?1 WHERE id = ?2').bind(JSON.stringify({ ...pressingOf, country: 'Mine' }), lp.id).run();
+      await env.DB.prepare('UPDATE items SET details = ?1, publisher = ?2 WHERE id = ?3')
+        .bind(JSON.stringify({ ...pressingOf, country: 'Mine', genres: ['Theirs'] }), 'Their label', lp.id)
+        .run();
       return new Response(JSON.stringify(RELEASE_249504));
     });
-    const body = await partial(await call(asha, `/items/${lp.id}/discogs`, { body: {}, htmx: true }));
+    const budget = { left: 1000 };
+    const body = await partial(await call(asha, `/items/${lp.id}/discogs`, { body: {}, htmx: true, db: budgeted(env.DB, budget) }));
     expect(body).toContain(
       oobStatus('discogs-status', 'This record was saved by someone else while Discogs was asked, so nothing was written. Refresh again.'),
     );
     expect(body).not.toContain('PB 41447'); // nothing of Discogs' was written, or shown
-    expect(JSON.parse((await getItem(env.DB, lp.id))!.details)).toEqual({ ...pressingOf, country: 'Mine' });
+    // what was saved meanwhile, in every region the answer swaps — not the record as the click first read it
+    const main = body.slice(0, body.indexOf('<div id="pressing-more"'));
+    expect(main).toContain('<dd>Mine</dd>');
+    expect(body.slice(body.indexOf('<div id="pressing-more"'), body.indexOf('<div id="item-filled"'))).toContain('Theirs');
+    expect(body.slice(body.indexOf('<div id="item-filled"'))).toContain('<dt>Publisher</dt><dd>Their label</dd>');
+    expect(1000 - budget.left).toBe(4); // the session, the record, the write that lost, the record again
+    expect(JSON.parse((await getItem(env.DB, lp.id))!.details)).toEqual({ ...pressingOf, country: 'Mine', genres: ['Theirs'] });
   });
 
   it('swaps in exactly what the page shows after the fill: the pressing, the rest, and published, publisher, length', async () => {
@@ -350,17 +359,22 @@ describe('Refresh from BGG, in place', () => {
     expect(body).toContain(oobStatus('bgg-status', 'BoardGameGeek is busy — it asks apps to wait a few seconds between requests. Try again shortly.'));
   });
 
-  it('answers "changed" when the game was saved while BGG was asked', async () => {
+  it('answers "changed" when the game was saved while BGG was asked, and shows the edit that won — one read more', async () => {
     const asha = await member('asha', 'admin');
     const g = await game(asha, { bgg_id: 13 });
     vi.stubGlobal('fetch', async () => {
-      await env.DB.prepare('UPDATE items SET details = ?1 WHERE id = ?2').bind(JSON.stringify({ bgg_id: 13, players_min: 5 }), g.id).run();
+      await env.DB.prepare('UPDATE items SET details = ?1, length = 45 WHERE id = ?2').bind(JSON.stringify({ bgg_id: 13, players_min: 5 }), g.id).run();
       return new Response(THING_13);
     });
-    const body = await partial(await call(asha, `/items/${g.id}/bgg`, { body: {}, htmx: true }));
+    const budget = { left: 1000 };
+    const body = await partial(await call(asha, `/items/${g.id}/bgg`, { body: {}, htmx: true, db: budgeted(env.DB, budget) }));
     expect(body).toContain(
       oobStatus('bgg-status', 'This game was saved by someone else while BoardGameGeek was asked, so nothing was written. Refresh again.'),
     );
+    expect(body.slice(0, body.indexOf('<div id="item-filled"'))).toMatch(/<dd>5<\/dd>/);
+    expect(body.slice(body.indexOf('<div id="item-filled"'))).toContain('<dt>Length</dt><dd class="mono">45 min play time</dd>');
+    expect(body).not.toContain('2.29'); // nothing of BGG's was written, or shown
+    expect(1000 - budget.left).toBe(4);
     expect(JSON.parse((await getItem(env.DB, g.id))!.details)).toEqual({ bgg_id: 13, players_min: 5 });
   });
 
@@ -427,6 +441,8 @@ describe('the item page', () => {
     expect(block).toContain("'htmx:afterRequest'"); // focus back to the button, which was disabled while it waited
     expect(block).toContain("'htmx:responseError'");
     expect(block).toContain("'htmx:sendError'");
+    expect(block).toContain("'htmx:sendAbort'");
+    expect(block).toContain("'htmx:timeout'");
     expect(block).toContain("'Something went wrong — try again.'");
     expect(block).toContain('dataset.refreshBusy');
   });
