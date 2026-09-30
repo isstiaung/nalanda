@@ -1955,8 +1955,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       its id stops answering. A test holds the twins together over every kind of share. It is created,
       rotated and removed as any share, admin-only, from the member's Want list page or `/shares`,
       which names whose list it is (by username — that page is inside the app). The publish form
-      carries the member's username beside their id and both must match, since a removed member's id
-      is reused (the adversarial pass published a newcomer's list from a stale form). `isWholeShelfShare()`
+      carries a stamp of the member's account (`giftListStamp()`, over `accountIdentity()`, #56) beside
+      their id and both must match, since a removed member's id is reused (the adversarial pass
+      published a newcomer's list from a stale form; a username match, the first fix, could be reused too). `isWholeShelfShare()`
       is false for it and `shareVisibility()` leaves it out, so it never makes a shelf read *Shared*.
     - **What a gift list shows** is `toGiftItem()`, built on `toPublicItem()` like `toConnectionItem()`:
       title, creators, cover, type, publisher, published, length, description, `inCollection` (as
@@ -2019,27 +2020,40 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       `isbn13` or `isbn10_upc`) or Discogs release id, a board game by its BGG id (`details.bgg_id`,
       compared as text) — `existingForWant()`, one query. A record scanned by its barcode now keeps it
       on the result (`isbn10_upc`), since Discogs' answer doesn't carry it.
-    - **The export reads a page's cells in one call.** Tags, reading log, reads, reviews, wants and
-      links for a page's id range are one batch (`exportCellsForIdRange()`, sharing the reads and
-      reviews SQL with their single-purpose twins; a test holds them to the same rows). A page is two
-      calls — its items and the batch — where it was five before want lists and would have been six;
-      the streamed export of a 2,000-item catalog (one page) measures 5 calls in all, and stays
-      inside the 50-call budget (#37) up to ~22 pages, 44,000 items.
+    - **The export reads a page's cells in one call.** Tags, reading log, reads, reviews, loans (#57),
+      plays (#54), series (#52), wants and links for a page's id range are one batch
+      (`exportCellsForIdRange()`, nine statements). Each is the statement its single-purpose twin runs —
+      reads, reviews, loans and plays share their SQL with `readsForIdRange()` and its neighbours, and
+      a test holds the two paths to the same rows — and the loans statement keeps #57's page cap
+      exactly: the same `LIMIT`, the same cut at the last item whose loans all fit, and an item with
+      more than a page's worth still goes out alone, its loans read by `loansForIdRange()` in a third
+      call. Series are those of the items in the range, which are exactly the page's. So a page is two
+      calls — its items and the batch — where it was eight after loans, plays and series, and would
+      have been nine with want lists; the streamed export of today's 1,999 items (one page of 2,000)
+      measures 5 calls in all, the Export button's page 5 too, and the stream stays inside the 50-call
+      budget (#37) to about 22 pages, 44,000 items — the free plan's CPU binds long before.
     - **Not built: "bought it".** A marker so two givers don't buy the same thing wasn't asked for; it
       would need a public write, which share links have never had. A possible follow-up.
 
-    **Migration 0028_want-to-read**, one generated migration: `CREATE TABLE wants`, `CREATE TABLE
-    purchase_links`, two indexes, `ALTER TABLE shares ADD want_user_id`. No data changes. Rehearsed
-    on production's backup of 2026-09-29 (0000–0027, the per-table restore in `TABLES` order, then
-    0028) in throwaway local state: all 34 pre-existing tables — the FTS index's own among them —
-    identical in every pre-existing column (1,998 items, 381 reads, 359 reviews, 3 shares, 2 users),
-    the 14 triggers unchanged, no foreign-key violations, integrity ok; `wants` and `purchase_links`
-    empty and `want_user_id` NULL on every share. D1, by test: a gift list 5 calls (either page, 70
-    wanted items with two links each), a gift item 6, a want-list page 8, a book's page 10 (budget
-    50, #37); the export adds one call a page (both cells in one batch).
+    **Migration 0037_want-to-read**, one generated migration: `CREATE TABLE wants`, `CREATE TABLE
+    purchase_links`, two indexes, `ALTER TABLE shares ADD want_user_id`. No data changes. It was 0028
+    until 1.4.0's session keys and the location, series, vinyl, plays and goals migrations took
+    0028–0036, and was regenerated from the unchanged schema; `drizzle-kit generate` then reports
+    nothing to do. Rehearsed on a local copy of production's backup of 2026-09-30 (0000–0029, the
+    per-table restore in `TABLES` order — read from backup.mjs as text; the backup predates `series`,
+    `plays` and `reading_goals`, so those were skipped — then 0030–0036, then 0037) in throwaway local
+    state: 0037 left all 37 existing tables identical — the FTS index's own among them, `shares` in
+    every pre-existing column — with 1,999 items, 381 reads, 359 reviews, 3 shares and 2 users; the 17
+    triggers unchanged, no foreign-key violations, integrity ok; `wants` and `purchase_links` empty and
+    `want_user_id` NULL on every share. D1, by test: a gift list 4 calls (either page, 70 wanted items
+    with two links each), a gift item 7 (the shelf route's own 6 — the same work for every id, so a
+    hit can't be told from a miss — and one for its links and name), a want-list page 9 for an admin, a
+    book's page 11, the Overview's Read next card none extra (budget 50, #37). The item page reads its
+    want list and links in its reading log's batch (`itemPageLog()`), so want lists add no call there.
+    A gift-list publish form names its member by `giftListStamp()`, an HMAC over the account's
+    identity (#56), since ids are reused.
 
-    **Chosen without asking, overrulable:** only the ISBN-13 decides that a result is already in the
-    catalog (a record's or game's "Want" adds it again); the gift list is sorted by title and the
+    **Chosen without asking, overrulable:** the gift list is sorted by title and the
     member's page newest-wanted first; "On the shelves" marks a wanted item the household owns
     rather than hiding it, since the owner asked for the member's list exactly; the gift item page
     keeps the description; links cap at 20 an item and labels at 60 characters, and an empty label
