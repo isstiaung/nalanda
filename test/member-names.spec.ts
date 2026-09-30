@@ -33,7 +33,7 @@ import { clearSharePageCache } from '../src/routes/share';
 import app from '../src/index';
 import * as before from './fixtures/items-before-names';
 import { answerOutbound, connectPeer, instanceA, json, makeKeys, makePeer, setUpA, sqlAgo, type Peer } from './federation-helpers';
-import { actor, as, book, member, rows, type Member } from './member-helpers';
+import { actor, as, book, member, rows, type Member, upgradedSwitches } from './member-helpers';
 
 const LOGINS = ['u-asha-login', 'u-ravi-login', 'u-mira-login'];
 /** Starts and finishes reach the per-person log only as they happen (migration 0027), so the scene's happen today. */
@@ -113,7 +113,9 @@ describe('display names', () => {
 
 // ---------- with both switches off, nothing changes ----------
 
-describe('with both switches off (the default), nothing anyone outside sees changes', () => {
+describe('with both switches off, nothing anyone outside sees changes', () => {
+  // off: how an instance upgraded from 1.3 has them (§16 #49) — a new one starts with them on
+  beforeEach(upgradedSwitches);
   it('serves share pages byte for byte as without display names at all', async () => {
     const { item, shelf } = await scene();
     const share = await createShare(env.DB, { token: newShareToken(), name: 'Ours', libraryId: shelf.id });
@@ -238,6 +240,7 @@ describe('share pages with names on', () => {
   });
 
   it('switch only from its own form, only for an admin, and leave progress on shares alone', async () => {
+    await upgradedSwitches();
     const asha = await member('u-asha-login', 'admin');
     const ravi = await member('u-ravi-login');
     await updateSiteSettings(env.DB, { progressOnShares: true });
@@ -372,6 +375,7 @@ describe('connections with names on', () => {
   });
 
   it('switch streams cleanly both ways, withdrawing named entries once names go off', async () => {
+    await upgradedSwitches(); // names off first: the household's stream
     const { asha } = await scene();
     const household = await pull();
     expect(household.entries.every((e) => e.id < MEMBER_ACTIVITY_BASE)).toBe(true);

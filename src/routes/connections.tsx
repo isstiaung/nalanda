@@ -204,7 +204,7 @@ const SharedViews: FC<{
         <button type="submit">Save</button>
       </form>
       <p class="muted">
-        Off by default: they see your household as one — "finished", "rated" — with no names. On, their feed gets an
+        Off, they see your household as one — "finished", "rated" — with no names. On, their feed gets an
         entry per person, signed with each member's <strong>display name</strong> ("Priya finished …", "Ravi rated …",
         and when someone starts a book), and a book's page lists everyone's rating and review. Members without a display
         name stay unnamed; login usernames never leave this library, and nor do the dates of anyone's reads. Comments

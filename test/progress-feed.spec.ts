@@ -32,6 +32,7 @@ import {
   type Keys,
   type Peer,
 } from './federation-helpers';
+import { upgradedSwitches } from './member-helpers';
 
 // The DB layer's own callers here act for the whole household, as an admin would (§16 #43).
 const HOUSEHOLD = { id: null, admin: true };
@@ -143,6 +144,7 @@ type FeedBody = {
 };
 
 describe('serving progress to a connection', () => {
+  beforeEach(upgradedSwitches); // the household's stream, names off (§16 #49)
   let peer: Peer;
   beforeEach(async () => {
     await setUpA();

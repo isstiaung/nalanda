@@ -16,6 +16,9 @@
 --    milestone goes only to views that hold that book — where its finish is news already — and goes when that read
 --    does. `goal_set` is recorded by the goal's own write (setGoal in src/db/queries.ts), never here.
 --
+-- 3. Instances that already have members keep the switches they had; new ones start with names and goals on (the
+--    last statement).
+--
 -- The count is goalCountSql() in src/db/queries.ts, word for word: each finished read of a book by the goal's member
 -- with its end date in the goal's year. A test holds the two together.
 
@@ -189,3 +192,12 @@ WHEN EXISTS (SELECT 1 FROM `connection_views`)
 BEGIN
   INSERT INTO `member_activity` (`item_id`, `kind`, `at`, `progress_id`) VALUES (new.item_id, 'progress', new.at, new.id);
 END;
+--> statement-breakpoint
+-- New defaults, same instance (§16 #49). From this version a new instance starts with names on share pages, names to
+-- connections and goals to connections all on — the code's defaults, used only while there's no site_settings row.
+-- An instance that already has members keeps exactly what it has: with a row it keeps its row (0028 gave the new
+-- goals column 0, off); without one it had been running on the old defaults, so this writes them down — progress on
+-- share pages off, progress to connections on, names off, goals off. A new instance has no members when it migrates,
+-- so it gets no row, and the new defaults.
+INSERT OR IGNORE INTO `site_settings` (`id`, `progress_on_shares`, `progress_to_connections`, `names_on_shares`, `names_to_connections`, `goals_to_connections`)
+SELECT 1, 0, 1, 0, 0, 0 WHERE EXISTS (SELECT 1 FROM `users`);

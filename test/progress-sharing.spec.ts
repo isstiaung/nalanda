@@ -79,14 +79,16 @@ describe('the whitelist', () => {
 });
 
 describe('site settings', () => {
-  it('defaults to off with no row, and round-trips', async () => {
-    // share pages private, connections included — the answer the household gave when this was designed
-    expect(await getSiteSettings(env.DB)).toEqual({ progressOnShares: false, progressToConnections: true, namesOnShares: false, namesToConnections: false, goalsToConnections: false });
+  it('keeps progress off on share pages with no row, and round-trips', async () => {
+    // progress: share pages private, connections included — the answer the household gave when this was designed;
+    // names and goals start on for a new instance (§16 #49 — test/defaults.spec.ts has the upgrade side)
+    const fresh = { progressOnShares: false, progressToConnections: true, namesOnShares: true, namesToConnections: true, goalsToConnections: true };
+    expect(await getSiteSettings(env.DB)).toEqual(fresh);
     await updateSiteSettings(env.DB, { progressOnShares: true });
-    expect(await getSiteSettings(env.DB)).toEqual({ progressOnShares: true, progressToConnections: true, namesOnShares: false, namesToConnections: false, goalsToConnections: false });
+    expect(await getSiteSettings(env.DB)).toEqual({ ...fresh, progressOnShares: true });
     await updateSiteSettings(env.DB, { progressToConnections: false });
-    // updating one setting leaves the other as it was
-    expect(await getSiteSettings(env.DB)).toEqual({ progressOnShares: true, progressToConnections: false, namesOnShares: false, namesToConnections: false, goalsToConnections: false });
+    // updating one setting leaves the others as they were
+    expect(await getSiteSettings(env.DB)).toEqual({ ...fresh, progressOnShares: true, progressToConnections: false });
   });
 });
 

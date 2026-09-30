@@ -11,7 +11,7 @@ import {
   storeEntries,
 } from '../src/db/federation';
 import { createItem, createLibrary, deleteItem, setDisplayName, updateSiteSettings } from '../src/db/queries';
-import { member } from './member-helpers';
+import { member, upgradedSwitches } from './member-helpers';
 import type { Bindings } from '../src/env';
 import { budgeted } from '../src/federation/budget';
 import { itemStamp } from '../src/federation/items';
@@ -290,6 +290,7 @@ describe('comments on a connected household’s reviews', () => {
   });
 
   it('are signed "A member" — the display name only with names on for connections — never with a login', async () => {
+    await upgradedSwitches(); // names off to start with
     await followTheirReview(77);
     const pushes: Record<string, unknown>[] = [];
     answerOutbound((req) => {

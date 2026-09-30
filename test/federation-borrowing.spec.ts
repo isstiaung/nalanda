@@ -4,7 +4,7 @@ import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createConnectionView, getConnection, getFederationSettings, postComment, requestToBorrow } from '../src/db/federation';
 import { createItem, createLibrary, createLoan, deleteItem, setDisplayName, setItemTags, updateSiteSettings } from '../src/db/queries';
-import { member } from './member-helpers';
+import { member, upgradedSwitches } from './member-helpers';
 import type { Item } from '../src/db/schema';
 import type { Bindings } from '../src/env';
 import { receiveBorrowing } from '../src/federation/borrowing';
@@ -341,6 +341,7 @@ describe('borrowing: this household asks', () => {
   });
 
   it('sends "A member" as the requester — the display name only with names on for connections — never a login', async () => {
+    await upgradedSwitches(); // names off to start with
     const pushes: Record<string, unknown>[] = [];
     answerOutbound((req) => {
       const { pathname } = new URL(req.url);

@@ -119,10 +119,10 @@ export async function setDisplayName(d1: D1Database, id: number, displayName: st
 export async function outwardName(d1: D1Database, userId: number): Promise<string> {
   const row = await d1
     .prepare(
-      `SELECT u.display_name AS name, coalesce((SELECT names_to_connections FROM site_settings WHERE id = 1), 0) AS on_
+      `SELECT u.display_name AS name, coalesce((SELECT names_to_connections FROM site_settings WHERE id = 1), ?2) AS on_
        FROM users u WHERE u.id = ?1`,
     )
-    .bind(userId)
+    .bind(userId, SITE_DEFAULTS.namesToConnections ? 1 : 0)
     .first<{ name: string | null; on_: number }>();
   return row?.on_ && row.name ? row.name : 'A member';
 }
@@ -1338,15 +1338,21 @@ export type SiteSettings = {
   namesToConnections: boolean; // §16 #45 — per-person feed entries and reviews, with display names, to connections
   goalsToConnections: boolean; // §16 #49 — members' reading goals as per-person entries; only while namesToConnections
 };
+/**
+ * What a new instance starts with (§16 #49): names on share pages and to connections, and goals to connections, on;
+ * progress on share pages off, and progress to connections on. An instance that had members before reading goals never uses
+ * these: migration 0036 pinned its row to what it had — every switch as it was, goals off — so upgrading changes
+ * nothing it shows anyone.
+ */
 const SITE_DEFAULTS: SiteSettings = {
   progressOnShares: false,
   progressToConnections: true,
-  namesOnShares: false,
-  namesToConnections: false,
-  goalsToConnections: false,
+  namesOnShares: true,
+  namesToConnections: true,
+  goalsToConnections: true,
 };
 
-/** One row, id 1. Absent means defaults, so a fresh instance needs no setup step. */
+/** One row, id 1. Absent means defaults — only ever on a new instance — so it needs no setup step. */
 export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
   const [row] = await db(d1).select().from(s.siteSettings).where(eq(s.siteSettings.id, 1));
   return row

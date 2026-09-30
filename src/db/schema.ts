@@ -199,8 +199,10 @@ export const federationSettings = sqliteTable('federation_settings', {
 });
 
 /**
- * Household-wide switches, in a single row (id 1). A missing row means every default, so a fresh
- * instance needs no setup step — and every default is the private choice.
+ * Household-wide switches, in a single row (id 1). A missing row means every default (SITE_DEFAULTS in
+ * src/db/queries.ts), so a new instance needs no setup step. Since reading goals a new instance starts with names and goals
+ * on (§16 #49); migration 0036 gave every instance that already had members a row pinning what it had. The column
+ * defaults below are what an ALTER TABLE gives existing rows — off — not what a new instance starts with.
  */
 export const siteSettings = sqliteTable('site_settings', {
   id: integer('id').primaryKey(),
