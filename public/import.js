@@ -40,14 +40,14 @@
       byTitle += d.byTitle ?? 0;
       enriched += d.enriched ?? 0;
       after = d.lastId;
-      backfillStatus.textContent = `Scanned ${plural(tried, 'item')} — ${plural(found, 'cover')} added, ${enriched} details filled…`;
+      backfillStatus.textContent = `Scanned ${plural(tried, 'item')} — ${plural(found, 'cover')} added, ${enriched} ${enriched === 1 ? 'detail' : 'details'} filled…`;
       if (d.done) break;
       await new Promise((r) => setTimeout(r, 300)); // politeness gap between batches
     }
     backfillStatus.textContent =
       `Done: ${plural(found, 'cover')} added` +
       (byTitle ? ` (${byTitle} matched by title/author — worth a quick skim)` : '') +
-      `, ${enriched} descriptions or details filled, ${tried - found} still without a cover. ` +
+      `, ${enriched} ${enriched === 1 ? 'description or detail' : 'descriptions or details'} filled, ${tried - found} still without a cover. ` +
       'Safe to re-run any time.';
     backfillBtn.disabled = false;
   });
@@ -156,16 +156,18 @@
     if (!res.ok) { append(`Preview failed (${res.status}).`); return; }
     const data = await res.json();
     const sampled = Math.min(200, rows.length);
+    // what the counts below cover: the whole file when the sample is all of it — never "the first 1 rows"
+    const inSample = sampled === rows.length ? 'in the file' : `in the first ${sampled} rows`;
     append(`${sampled === rows.length ? `All ${plural(sampled, 'row')}` : `Sample of the first ${sampled} rows`}: ${data.mapped} ${data.mapped === 1 ? 'maps' : 'map'} cleanly, ${data.skipped} would be skipped (no title).`);
     if (data.format === 'nalanda') {
       append(`Nalanda export detected: every column maps back as it was exported, into the shelf chosen above. Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
       append('Rows are added, never merged — importing the same export into this shelf twice adds everything twice.');
-      if (data.loans) append(`Loans in the first ${sampled} rows: ${data.loans} (${data.loansOut} still out), restored onto the items they belong to. A loan to a connected household comes back as an ordinary loan under the name it was lent to.`);
+      if (data.loans) append(`Loans ${inSample}: ${data.loans} (${data.loansOut} still out), restored onto the items they belong to. A loan to a connected household comes back as an ordinary loan under the name it was lent to.`);
       // whose each read and review becomes: a member of the same name here, or you
       const people = data.importer ? (data.people ?? []) : [];
       if (people.length) {
         if (!data.keepsNames) append(`As a member, everything in this file becomes yours (${data.importer}): only an admin's import keeps each reader's and reviewer's name.`);
-        append(`Readers and reviewers in the first ${sampled} rows:`);
+        append(`Readers and reviewers ${inSample}:`);
         const brings = (p) => [p.reads ? `${p.reads} ${p.reads === 1 ? 'read' : 'reads'}` : '', p.reviews ? `${p.reviews} ${p.reviews === 1 ? 'review' : 'reviews'}` : '', p.wants ? `${p.wants} on a want list` : ''].filter(Boolean).join(', ');
         for (const p of people) {
           const who = p.former ? 'a former member' : p.name === null ? 'nobody named (an older export)' : p.name;
@@ -183,7 +185,7 @@
     }
     // purchase prices (ARCH.md §16 #61): kept in the app, never on a share page; a price with no currency of its own is
     // the household's, so without one set a libib price stays in the item's details instead
-    if (data.prices) append(`Purchase prices in the first ${sampled} rows: ${data.prices}${data.currency ? ` (any without a currency of their own are in ${data.currency})` : ''}.`);
+    if (data.prices) append(`Purchase prices ${inSample}: ${data.prices}${data.currency ? ` (any without a currency of their own are in ${data.currency})` : ''}.`);
     if (data.pricesLeft) append(data.currency
       ? `${data.pricesLeft} ${data.pricesLeft === 1 ? 'price' : 'prices'} couldn’t be read as ${data.currency} and will stay in the item’s details, never shown on share pages.`
       : `${data.pricesLeft} ${data.pricesLeft === 1 ? 'price stays' : 'prices stay'} in the item’s details, never shown on share pages: no household currency is set. An admin sets it under Members, before importing, to bring them in as purchase prices.`);

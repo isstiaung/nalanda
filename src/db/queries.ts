@@ -651,13 +651,24 @@ export async function deleteItem(d1: D1Database, id: number): Promise<void> {
   await d1.batch([d1.prepare('DELETE FROM items WHERE id = ?1').bind(id), pruneSeries(d1)]);
 }
 
+/**
+ * `items.id` and `items.copies`, written out with their table. Drizzle writes a column inside a single-table select's
+ * `sql` field bare ("id"), and inside a subquery a bare name means the subquery's own table first: `"item_id" = "id"`
+ * under `FROM loans` compares loans.item_id with loans.id. WHERE and ORDER BY qualify their columns; select fields
+ * don't, so a correlated subquery there names the outer row through these.
+ */
+const OUTER_ITEM_ID = sql.raw('"items"."id"');
+const OUTER_ITEM_COPIES = sql.raw('"items"."copies"');
+/** On someone's want list and not owned — the "Wanted" badge (§16 #53) — as a select field of a query over items. */
+const wantedField = () => sql`${OUTER_ITEM_COPIES} = 0 AND EXISTS (SELECT 1 FROM ${s.wants} WHERE ${s.wants.itemId} = ${OUTER_ITEM_ID})`;
+
 /** The newest items, with the badges a shelf gives them — "Lent", and "Wanted" beside "Not owned" (§16 #53) — in the same query. */
 export async function recentItems(d1: D1Database, limit = 12): Promise<Array<Item & { onLoan: boolean; wanted: boolean }>> {
   return db(d1)
     .select({
       ...getTableColumns(s.items),
-      onLoan: sql`EXISTS (SELECT 1 FROM ${s.loans} WHERE ${s.loans.itemId} = ${s.items.id} AND ${s.loans.returnedOn} IS NULL)`.mapWith(Boolean),
-      wanted: sql`${s.items.copies} = 0 AND EXISTS (SELECT 1 FROM ${s.wants} WHERE ${s.wants.itemId} = ${s.items.id})`.mapWith(Boolean),
+      onLoan: sql`EXISTS (SELECT 1 FROM ${s.loans} WHERE ${s.loans.itemId} = ${OUTER_ITEM_ID} AND ${s.loans.returnedOn} IS NULL)`.mapWith(Boolean),
+      wanted: wantedField().mapWith(Boolean),
     })
     .from(s.items)
     .orderBy(desc(s.items.addedAt), desc(s.items.id))
@@ -684,7 +695,7 @@ export async function pickNextRead(d1: D1Database, readerId: number, notId: numb
       copies: s.items.copies,
       mediaType: s.items.mediaType,
       // the "Wanted" badge beside "Not owned" (§16 #53), in the same query
-      wanted: sql`${s.items.copies} = 0 AND EXISTS (SELECT 1 FROM ${s.wants} WHERE ${s.wants.itemId} = ${s.items.id})`.mapWith(Boolean),
+      wanted: wantedField().mapWith(Boolean),
     })
     .from(s.items)
     .where(
