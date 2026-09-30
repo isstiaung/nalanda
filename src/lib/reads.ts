@@ -92,13 +92,21 @@ export function summarizeReads(reads: ReadDraft[]): ReadState {
 
 // ---------- dates ----------
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const MONTH_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
-/** A real calendar date in YYYY-MM-DD — 2026-02-30 is not one. */
+/**
+ * A real calendar date in YYYY-MM-DD — 2026-02-30 is not one. By arithmetic rather than a Date round trip, which cost
+ * about a microsecond a date: an import page of loans checks thousands of them (§16 #57).
+ */
 export function isIsoDate(v: unknown): v is string {
-  if (typeof v !== 'string' || !ISO_DATE.test(v)) return false;
-  const d = new Date(`${v}T00:00:00Z`);
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+  if (typeof v !== 'string') return false;
+  const m = ISO_DATE.exec(v);
+  if (!m) return false;
+  const [year, month, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  if (month < 1 || month > 12 || day < 1) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  return day <= (month === 2 && leap ? 29 : MONTH_DAYS[month - 1]!);
 }
 
 export const todayUtc = () => new Date().toISOString().slice(0, 10);

@@ -27,6 +27,7 @@ import {
 import type { Item, ReadStatus } from '../src/db/schema';
 import {
   inDisplayOrder,
+  isIsoDate,
   ordinal,
   readDateProblem,
   readsFromColumns,
@@ -68,6 +69,28 @@ async function expectCacheMatchesReads(itemId: number) {
 const d = (status: ReadStatus, beganOn: string | null = null, endedOn: string | null = null): ReadDraft => ({ status, beganOn, endedOn });
 
 // ---------- the derivation ----------
+
+describe('isIsoDate', () => {
+  it('agrees with a Date round trip on every day of every month, leap years and centuries included', () => {
+    const byDate = (v: string) => {
+      const d = new Date(`${v}T00:00:00Z`);
+      return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+    };
+    const pad = (n: number, w: number) => String(n).padStart(w, '0');
+    let checked = 0;
+    for (const year of [0, 1, 4, 100, 400, 1900, 1999, 2000, 2023, 2024, 2025, 2100, 9999]) {
+      for (let month = 0; month <= 13; month++) {
+        for (let day = 0; day <= 32; day++) {
+          const v = `${pad(year, 4)}-${pad(month, 2)}-${pad(day, 2)}`;
+          expect(isIsoDate(v), v).toBe(byDate(v));
+          checked++;
+        }
+      }
+    }
+    expect(checked).toBe(13 * 14 * 33);
+    for (const v of ['2026-1-01', '2026-01-01 ', '2026-01-01T00:00:00Z', '20260101', '', null, 20260101]) expect(isIsoDate(v)).toBe(false);
+  });
+});
 
 describe('what reads make of an item', () => {
   const cases: Array<[string, ReadDraft[], Partial<ReturnType<typeof summarizeReads>>]> = [
