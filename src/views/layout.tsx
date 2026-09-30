@@ -189,7 +189,8 @@ export const Layout: FC<
                 </a>
               ) : null}
             </header>
-            <main class="content" id="main">
+            {/* tabindex=-1: the skip link moves focus here in every browser, not only where following a link does */}
+            <main class="content" id="main" tabindex={-1}>
               <div class="content-inner">{children}</div>
             </main>
           </div>

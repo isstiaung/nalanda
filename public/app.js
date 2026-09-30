@@ -187,3 +187,19 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 });
+
+// An htmx swap replaces what had focus. htmx puts focus back on an element with the same id; anything else (a
+// Finish button that became Read again, say) would leave keyboard focus on <body>, back at the top of the page.
+// Then the swapped region itself takes focus, so Tab carries on from where the person was.
+document.addEventListener('htmx:afterSettle', (e) => {
+  const active = document.activeElement;
+  if (active && active !== document.body) return;
+  const id = e.detail.target && e.detail.target.id;
+  const region = id ? document.getElementById(id) : null;
+  if (!region) return;
+  if (!region.hasAttribute('tabindex')) {
+    region.setAttribute('tabindex', '-1');
+    region.setAttribute('data-focus-landing', '');
+  }
+  region.focus({ preventScroll: true });
+});
