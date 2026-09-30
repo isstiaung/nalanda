@@ -323,7 +323,8 @@ request per click, by the stored release id or else the barcode, filling blanks 
 **Manual add/edit**: plain form, all media types, works from day one.
 
 **Reading again**: a finished book's page offers "Read again", which opens a new read; the
-book stays Completed, marked re-reading, until Finish or "Stop re-reading" closes it. Every
+book stays Completed, marked re-reading, until Finish or "Stop re-reading" closes it — and is
+listed under In progress too while it's read (§16 #64). Every
 read is listed on the book's page, correctable and deletable (§16 #41). Each is its reader's:
 the buttons act on the signed-in person's own reads, another member can start their first read
 of a book someone else finished, and everyone's reading shows under their name (§16 #43).
@@ -460,7 +461,8 @@ portable, and makes share routes trivially public. CF Access remains available l
   `GET /share/:token` (listing) and `GET /share/:token/items/:id` (item) render
   read-only pages with **no login**. The item route re-checks the item against the
   view's filters (`itemMatchesShare`) so a token can't be walked outside its scope by
-  id. (`libraries.share_token` is legacy — migrated into `shares` by 0004.)
+  id. A captured In progress also holds a book being read again (§16 #64), as the shelf's
+  filter does. (`libraries.share_token` is legacy — migrated into `shares` by 0004.)
 - **Field whitelist, not blacklist**: share pages render only title, creators, cover,
   publisher/label, published date, description, media details, tags, rating, review, and
   a derived boolean `inCollection` (`copies > 0`) so reading-log entries (`copies = 0`)
@@ -1248,6 +1250,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     and reviews per member. One consequence predates reads and stays: `completed_on` is the last finish, so
     deleting the latest finish, or adding a past finish newer than the current one, moves it, and
     0021's trigger announces a "finished" dated by the new date — dated honestly, but announced.
+    *Amended by #64 (2026-09-30):* the filters changed — a book being read again stays Completed
+    in the column, but every Status filter (shelf, share link, connection view) lists it under In
+    progress too, so it no longer stays out of In progress views; its status pill says "Re-reading".
 
 **2026-09-28 — versions and releases:**
 42. **Nalanda is released as SemVer versions, starting at 1.0.0, with notes written for whoever
@@ -1283,7 +1288,7 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       `completed_on` is the latest finish by anyone, `read_count` everyone's finishes, and
       `rereading` an open read, by anyone, of a book finished before, by anyone — so a member's
       first read of a book someone else finished shows as re-reading, and nothing moves between
-      views while it's read;
+      views while it's read (until #64, which lists it under In progress too);
     - **progress_page** is the latest page recorded in any open read (with none open, the deciding
       read's last page, as before) — what "progress on share pages" shows;
     - **rating** is the average of everyone's ratings, rounded to the 1–10 scale, and **review** the
@@ -3076,6 +3081,88 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     **Chosen without asking, overrulable:** the notice in the app on every credited page rather
     than only in the docs; crediting connections' records; the Add page's per-result credits;
     leaving want lists and listings uncredited; a record with only an id uncredited.
+
+**2026-09-30 — a re-read counts as In progress:**
+64. **A book being re-read counts as In progress, in every status filter, and still as Completed.**
+    The owner reported three books being read, one of them a re-read, and only two under Status =
+    In progress: #41 kept a re-read Completed "so nothing moves between status-filtered views", and
+    #43 carried that to a member's first read of a book someone else had finished. **The owner
+    decided: "Yes, everywhere"** — In progress lists every book someone is reading now, on a
+    shelf (with or without its search box; /search has no status filter), in share links and in
+    connection views, and a re-read still
+    also counts as Completed, because someone finished it. Share pages already treated a re-read
+    as being read now for progress (#41, `toPublicItem(item, { progress })`); the filters now
+    agree with them. What was decided:
+    - **The rule is the filter's, not the column's.** `items.status` keeps #41's meaning — the last
+      finish decides it — and no migration, trigger or stored value changes. `matchesStatus()`
+      (src/lib/reads.ts) says an item matches In progress when `status = 'in_progress'` or
+      `rereading = 1`, and any other status by the column; `statusWhere()` (src/db/queries.ts) is
+      its SQL twin. Ticking both In progress and Completed lists a re-read once.
+    - **Where it means "being read now".** Every place a Status filter or a view's captured status
+      decides what's inside: `itemFilterWhere` (so `listItems` — the shelf, its item count,
+      `shelfPage` — and `countMatchingItems[Many]`, the Shared links page's counts);
+      `shareFilters()`/`itemMatchesShare()`; a connection view's `inView()` (feed, removal
+      check, `countItemsInView`, `describeViews`' size and volume) and `itemMatchesView()` (the
+      item route, `itemIsShared`); and the raw-SQL view tests `sharedItem`, `sharedReviewedItem`
+      and `HOLDING_VIEW` (comments, borrowing, recommendations). `toPublicItem`'s "reading now"
+      for progress uses `matchesStatus()` too. Tests hold the twins together for every status.
+    - **Where it stays the column.** `refreshReadState()` and `summarizeReads()`, the edit form's
+      status, the activity triggers (a finish is recorded when `status`/`completed_on` change,
+      #40), `stillShows`' "a finish needs a Completed book", the export's `status`, and the
+      "Read by" filter, which reads `reads` directly (#43). No figure counts items by status:
+      the Overview, Year in review (#59) and series pages count reads.
+    - **The status pill says "Re-reading" in place of "Completed"** — the shelf table and the
+      item page (`StatusPills`) — so a re-read in an In progress list doesn't look finished;
+      shelf cards already carried the pill alone. It is not public: `toPublicItem()` and
+      `toConnectionItem()` have no status or `rereading` key, and none was added. What a
+      published In progress view says about a re-read — that someone in the household is reading
+      it now — is what it has always said about a first read, and was already inferable: from
+      its page on a share page with progress switched on (#41), and from a progress entry's
+      `readCount` in a connection's Feed, which says "re-reading".
+    - **A view filtered to In progress carries only reading that is still going on**
+      (`readingInView()` in src/db/federation.ts, in both streams, for the feed, a new follower's
+      first page, the removal check and the volume figures). Before, a book was in such a view only
+      while nobody had finished it, so a finish took the book, and every entry about it, out. Now a
+      book stays in while anyone is reading it, so the view keeps the rule per read:
+      - **no finish, nor a goal milestone** (#49), which is one. A book finished before enters the
+        view when a re-read starts, and its earlier finish — recorded while the book was outside,
+        under an id past a follower's cursor — would have reached followers as news that day, and
+        opened a new follower's first page. So would a member's milestone: Asha finishes X and
+        reaches her goal, Ravi starts his first read of X, and X is in the view with the milestone
+        as its entry. On the backup of 2026-09-30 the household's one In progress connection view
+        (books, one shelf) goes from 2 books to 4, and one of the two re-reads has such a finish
+        in the log;
+      - **a start or a page only while its read is open.** Two people reading one book: Asha
+        re-reading X, Ravi on his first read; when Ravi finishes (or stops), X stays in the view
+        because Asha is still reading it, but his `started` entry and his pages — per-person or,
+        with names off, the household's progress entries — are withdrawn at the next removal check
+        and left off new followers' pages. Asha's stay until her read closes. That is what a first
+        read always got: its finish took the book, and so its start and pages, out of the view. A
+        page with no read (from before reads, #41) stays with its book.
+    - **Entering or leaving a view is silent.** Starting a re-read records nothing in the
+      household's stream (#41), and one `started` entry, as ever, in the per-person stream (#45);
+      its pages are progress entries. Finishing it records a finish (completed_on moves, #41), which
+      the view doesn't carry, and its start and pages are withdrawn as its read closes, whether the
+      book then leaves the view (the last reader) or stays (someone else still reading). Stopping
+      it likewise. A Completed view is untouched. An entry of a kind the view does carry, recorded
+      while the book was outside — a rating, a review — arrives when it enters, dated when it
+      happened (#40), as it does for any book entering any view (a first read started after
+      rating it, an Owned toggle, a move between shelves); left as it is.
+    - **Sorted by date completed**, an In progress share link or view lists its re-reads first,
+      by their last finish: that shows the order of past finishes, never their dates. Accepted —
+      a view filtered to Completed shows far more.
+    - **Older peers.** A connected household reads our views' lists and feed from us, so one on
+      1.6.0 sees our In progress views include re-reads with nothing to update; its own In progress
+      views keep the old meaning until it upgrades. Nothing new goes over the wire.
+    - **Cost.** An OR in the same statement, and the per-read rule is subqueries inside the feed's
+      own statements: no D1 call. Tests pin the shelf page for every status, and a feed pull plus a
+      removal check on an In progress view at a Completed view's calls.
+
+    **Chosen without asking, overrulable:** the pill replaces "Completed" rather than sitting
+    beside it (as #41 had it); an In progress view carries no finishes or milestones, and a
+    reader's start and pages only while their read is open; a rating or review recorded while a
+    book was outside a view still arrives when it enters.
+
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
 The honest comparison, since it was asked:

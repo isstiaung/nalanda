@@ -12,6 +12,14 @@ Each release has an **Upgrading** section. Read it for every version between you
 
 ### Changed
 - **Refresh from Discogs and Refresh from BGG update the page in place.** A click no longer reloads the whole page and jumps to the section: the pressing (or the game's details) changes where it is, along with the publisher, published year and length above it when the refresh filled them, and the result's message appears right above the button, the same sentence as before, and is read out by screen readers. While Discogs or BoardGameGeek is being asked, the button is greyed out and the message says "Asking Discogs…" or "Asking BGG…", so a second click can't slip through. If the request fails outright, it says "Something went wrong — try again." instead of doing nothing. With JavaScript off, the buttons work as before. No migration and no new secret: nothing to do when upgrading.
+- **A book being read again counts as In progress.** Status = **In progress** now lists every book someone in the household is reading, including one finished before and being read again, or one someone else finished that you're reading now. It still also counts as **Completed**, since it was finished; ticking both lists it once. This applies everywhere a status is filtered: shelves, share links and connection views filtered to In progress now include re-reads.
+- **A re-read's status says "Re-reading"** instead of "Completed" on shelves and on its page, so it doesn't look finished in an In progress list. Share pages and connected households still see no status.
+- **A connection view filtered to In progress shows only reading still going on.** It never sends a finish or a reading-goal milestone, so a book entering it because someone started reading it again doesn't bring an old finish along as news. When one person finishes or stops a book, their start and pages are taken back from households following the view, as they always were — even if the book stays in the view because someone else in your household is still reading it. Starting, finishing or stopping a re-read sends what reading a book for the first time does.
+
+### Upgrading
+- **No migration and no new secret.** Nothing is stored differently: the change is in how status filters read what's there.
+- **Share links and connection views filtered to In progress grow** to include books being read again. Check **Shared links** and **Connections** if that matters to you.
+- **Connections:** nothing changes on the wire. Households on 1.6.0 or older following your In progress views simply see the re-reads in them; their own In progress views keep the old meaning until they update.
 
 ## [1.6.0] - 2026-09-30
 
