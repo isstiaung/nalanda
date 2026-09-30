@@ -63,7 +63,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const tabs = document.querySelectorAll('.tab[data-tab]');
   tabs.forEach((tab) => {
     tab.addEventListener('click', () => {
-      tabs.forEach((t) => t.classList.toggle('active', t === tab));
+      tabs.forEach((t) => {
+        t.classList.toggle('active', t === tab);
+        t.setAttribute('aria-pressed', String(t === tab));
+      });
       document.querySelectorAll('.tab-panel').forEach((panel) => {
         const active = panel.id === `tab-${tab.dataset.tab}`;
         panel.hidden = !active;
@@ -71,6 +74,23 @@ document.addEventListener('DOMContentLoaded', () => {
       });
     });
   });
+
+  // A filter menu drops down from its button's left edge; one near the right of a phone's screen would hang off
+  // it and scroll the whole page sideways, so it lines up with its button's right edge instead.
+  document.addEventListener(
+    'toggle',
+    (e) => {
+      const menu = e.target.matches?.('details.filter[open]') ? e.target.querySelector('.filter-menu') : null;
+      if (!menu) return;
+      menu.style.left = '';
+      menu.style.right = '';
+      if (menu.getBoundingClientRect().right > document.documentElement.clientWidth - 8) {
+        menu.style.left = 'auto';
+        menu.style.right = '0';
+      }
+    },
+    true, // toggle doesn't bubble
+  );
 
   // Filter dropdowns close when clicking anywhere else (incl. opening another one).
   document.addEventListener('click', (e) => {
@@ -204,4 +224,20 @@ document.addEventListener('DOMContentLoaded', () => {
       navToggle.focus();
     });
   }
+});
+
+// An htmx swap replaces what had focus. htmx puts focus back on an element with the same id; anything else (a
+// Finish button that became Read again, say) would leave keyboard focus on <body>, back at the top of the page.
+// Then the swapped region itself takes focus, so Tab carries on from where the person was.
+document.addEventListener('htmx:afterSettle', (e) => {
+  const active = document.activeElement;
+  if (active && active !== document.body) return;
+  const id = e.detail.target && e.detail.target.id;
+  const region = id ? document.getElementById(id) : null;
+  if (!region) return;
+  if (!region.hasAttribute('tabindex')) {
+    region.setAttribute('tabindex', '-1');
+    region.setAttribute('data-focus-landing', '');
+  }
+  region.focus({ preventScroll: true });
 });

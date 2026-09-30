@@ -4,6 +4,7 @@ import type { AppEnv } from '../env';
 import { hashPassword, verifyPassword } from '../lib/auth';
 import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
 import { VERSION } from '../version';
+import { invalid } from '../views/components';
 import { page } from '../views/layout';
 
 const account = new Hono<AppEnv>();
@@ -31,15 +32,20 @@ const DisplayNameForm = ({ displayName, saved }: { displayName: string | null; s
   </article>
 );
 
+/** Which field a refused password change is about, so its message is tied to that field. */
+type PasswordField = 'current' | 'next' | 'confirm';
+
 const Form = ({
   mustChange,
   error,
+  errorField,
   ok,
   displayName,
   nameSaved,
 }: {
   mustChange: boolean;
   error?: string;
+  errorField?: PasswordField;
   ok?: boolean;
   displayName?: string | null;
   nameSaved?: boolean;
@@ -52,20 +58,24 @@ const Form = ({
       {mustChange ? (
         <p class="notice">Set your own password to continue — you logged in with a temporary one.</p>
       ) : null}
-      {error ? <p class="error">{error}</p> : null}
+      {error ? (
+        <p class="error" role="alert" id="password-error">
+          {error}
+        </p>
+      ) : null}
       {ok ? <p class="notice">Password changed.</p> : null}
       <form method="post" action="/account/password">
         <label>
           Current password
-          <input type="password" name="current" required autocomplete="current-password" />
+          <input type="password" name="current" required autocomplete="current-password" {...invalid(errorField === 'current' && error, 'password-error')} />
         </label>
         <label>
           New password <small>(at least 8 characters)</small>
-          <input type="password" name="next" required minlength={8} autocomplete="new-password" />
+          <input type="password" name="next" required minlength={8} autocomplete="new-password" {...invalid(errorField === 'next' && error, 'password-error')} />
         </label>
         <label>
           Confirm new password
-          <input type="password" name="confirm" required autocomplete="new-password" />
+          <input type="password" name="confirm" required autocomplete="new-password" {...invalid(errorField === 'confirm' && error, 'password-error')} />
         </label>
         <button type="submit">Change password</button>
       </form>
@@ -109,15 +119,15 @@ account.post('/account/password', async (c) => {
   const confirm = String(body['confirm'] ?? '');
 
   if (!(await verifyPassword(current, user.passwordHash))) {
-    return page(c, 'Account', <Form mustChange={user.mustChangePassword} error="Current password is wrong." />);
+    return page(c, 'Account', <Form mustChange={user.mustChangePassword} error="Current password is wrong." errorField="current" />);
   }
   if (next.length < 8) {
     return page(c, 'Account', (
-      <Form mustChange={user.mustChangePassword} error="New password must be at least 8 characters." />
+      <Form mustChange={user.mustChangePassword} error="New password must be at least 8 characters." errorField="next" />
     ));
   }
   if (next !== confirm) {
-    return page(c, 'Account', <Form mustChange={user.mustChangePassword} error="New passwords do not match." />);
+    return page(c, 'Account', <Form mustChange={user.mustChangePassword} error="New passwords do not match." errorField="confirm" />);
   }
   await setPassword(c.env.DB, user.id, await hashPassword(next), false);
   return c.redirect(user.mustChangePassword ? '/' : '/account?ok=1');

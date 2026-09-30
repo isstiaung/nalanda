@@ -74,6 +74,10 @@ const STATUS_PILL_CLASS: Record<ItemStatus, string> = {
   abandoned: 'pill dropped',
 };
 
+/** A refused form's fields point at the message that says why (aria-describedby), and are marked invalid. */
+export const invalid = (error: string | undefined | false, id: string) =>
+  error ? { 'aria-invalid': 'true' as const, 'aria-describedby': id } : {};
+
 /** rating is stored as half-stars 0–10, rendered as ★★★½ */
 export function stars(rating: number | null | undefined): string {
   if (!rating) return '';
@@ -249,7 +253,7 @@ const ProgressLine: FC<{ page: number; length: number | null; percent: number | 
       ) : null}
     </p>
     {percent !== null ? (
-      <div class="progress-track" role="img" aria-label={`${percent}% read`}>
+      <div class="progress-track" aria-hidden="true">
         <div class="progress-fill" style={`width:${percent}%`} />
       </div>
     ) : null}
@@ -363,14 +367,19 @@ export const ReadingSection: FC<{
       {/* pages go to an open read; recording one on a book never started starts it (§16 #34) */}
       {open || !mine.length ? (
         <form method="post" action={`${base}/progress`} class="inline-form" {...htmxTo(`${base}/progress`)}>
-          <input name="page" inputmode="numeric" pattern="[0-9]+" class="mono" size={6} placeholder="Page" aria-label="Page reached" required />
+          {/* the id: htmx puts focus back on the page field after the section swaps (anything else, app.js) */}
+          <input id="reading-page" name="page" inputmode="numeric" pattern="[0-9]+" class="mono" size={6} placeholder="Page" aria-label="Page reached" required />
           {item.length ? <span class="muted">of {item.length}</span> : null}
           {/* each form's own action is primary (a plain submit); Stop is secondary (.btn), Delete a danger action */}
           <button type="submit">Record</button>
         </form>
       ) : null}
 
-      {error ? <p class="error">{error}</p> : null}
+      {error ? (
+        <p class="error" role="alert">
+          {error}
+        </p>
+      ) : null}
 
       <PageLog item={item} entries={me.current} removable={true} />
 
@@ -485,7 +494,11 @@ export const ReadsByPerson: FC<{ item: Item; reads: ReadingRead[]; viewer: Viewe
   return (
     <div class="detail-section" id="reading">
       <p class="eyebrow">Reading</p>
-      {error ? <p class="error">{error}</p> : null}
+      {error ? (
+        <p class="error" role="alert">
+          {error}
+        </p>
+      ) : null}
       {readers.map((id) => {
         const them = personalReading(item, reads, [], id);
         return (
@@ -610,7 +623,7 @@ export const PlaysSection: FC<{ item: Item; count: number; plays: PlayLine[]; to
       ) : (
         <p class="reading-summary muted">Not played yet.</p>
       )}
-      {error ? <p class="error">{error}</p> : null}
+      {error ? <p class="error" role="alert">{error}</p> : null}
       {isPlayable(item.mediaType) ? (
         // pressing Played sends today's date, already in the field; picking another logs that day instead
         <form method="post" action={`${base}/plays`} class="inline-form play-form" hx-post={`${base}/plays`} hx-target="#plays" hx-swap="outerHTML" hx-disabled-elt="find button">
@@ -686,7 +699,7 @@ export const ReviewsSection: FC<{ item: Item; reviews: ReviewLine[]; viewer: Vie
                   <details class="read-edit">
                     <summary>Edit</summary>
                     <form method="post" action={`${base}/reviews/${r.id}`} class="review-form">
-                      <RatingSelect value={r.rating} />
+                      <RatingSelect value={r.rating} label="Rating" />
                       <textarea name="review" rows={3} aria-label="Review">
                         {r.review ?? ''}
                       </textarea>
@@ -736,6 +749,7 @@ export const ReviewsSection: FC<{ item: Item; reviews: ReviewLine[]; viewer: Vie
 export const MarkOwnedButton: FC<{ id: number }> = ({ id }) => (
   <button
     type="button"
+    id={`holding-${id}`}
     class="pill ghost pill-btn"
     hx-post={`/items/${id}/mark-owned`}
     hx-swap="outerHTML"
@@ -755,6 +769,7 @@ export const MarkOwnedButton: FC<{ id: number }> = ({ id }) => (
 export const MarkNotOwnedButton: FC<{ id: number }> = ({ id }) => (
   <button
     type="button"
+    id={`holding-${id}`}
     class="pill done pill-btn"
     hx-post={`/items/${id}/mark-not-owned`}
     hx-swap="outerHTML"
@@ -925,8 +940,10 @@ export const ItemGrid: FC<{ items: Item[]; onLoanIds?: Set<number>; wantedIds?: 
         {items.map((item) => (
           <div class="pick-cell">
             <ItemCard item={item} onLoan={onLoanIds?.has(item.id)} wanted={wantedIds?.has(item.id)} />
+            {/* the label is the bigger tap target; its words are the ones the box is named by */}
             <label class="pick">
               <PickBox id={item.id} title={item.title} />
+              <span class="sr-only">Select {item.title}</span>
             </label>
           </div>
         ))}
@@ -1113,7 +1130,8 @@ export const GoalMeter: FC<{ count: number; target: number; year: number; today:
         </span>{' '}
         <span class="muted mono">{target === 1 ? 'book' : 'books'}</span> <span class={pill}>{paceLabel(pace)}</span>
       </p>
-      <div class="goal-track" role="img" aria-label={`${count} of ${target} books read in ${year}, ${paceLabel(pace)}`}>
+      {/* the count and the pace are in words just above */}
+      <div class="goal-track" aria-hidden="true">
         <div class="progress-track">
           <div class="progress-fill" style={`width:${goalPercent(count, target)}%`} />
         </div>
@@ -1136,8 +1154,9 @@ export const Stat: FC<{ n: number | string; label: string; warn?: boolean; detai
   </div>
 );
 
-const RatingSelect: FC<{ value: number | null | undefined }> = ({ value }) => (
-  <select name="rating">
+/** `label` names it where no <label> wraps it (a review's own Edit form). */
+const RatingSelect: FC<{ value: number | null | undefined; label?: string }> = ({ value, label }) => (
+  <select name="rating" aria-label={label}>
     <option value="" selected={!value}>
       No rating
     </option>
@@ -1187,7 +1206,12 @@ export const ItemForm: FC<{
   delete details['reviewed_in'];
   return (
   <form method="post" action={action} class="form-card">
-    {error ? <p class="error">{error}</p> : null}
+    {/* the form refuses only a read that doesn't add up: status and dates point at the reason */}
+    {error ? (
+      <p class="error" role="alert" id="item-form-error">
+        {error}
+      </p>
+    ) : null}
     <div class="grid">
       <label>
         Shelf
@@ -1275,7 +1299,7 @@ export const ItemForm: FC<{
     <div class="grid">
       <label>
         {perMember ? 'Your status' : 'Status'}
-        <select name="status" disabled={readingLocked}>
+        <select name="status" disabled={readingLocked} {...invalid(error, 'item-form-error')}>
           {/* only what a read can become from here (`offered`, §16 #41) */}
           {ITEM_STATUSES.filter(offered).map((st) => (
             <option value={st} selected={(item?.status ?? 'not_started') === st}>
@@ -1296,12 +1320,18 @@ export const ItemForm: FC<{
     <div class="grid">
       <label>
         Began
-        <input type="date" name="beganOn" value={item?.beganOn ?? ''} disabled={readingLocked} />
+        <input type="date" name="beganOn" value={item?.beganOn ?? ''} disabled={readingLocked} {...invalid(error, 'item-form-error')} />
       </label>
       <label>
         Completed
         {/* an open read has no end: the date shown for a book in progress is always blank */}
-        <input type="date" name="completedOn" value={item?.status === 'in_progress' ? '' : (item?.completedOn ?? '')} disabled={readingLocked} />
+        <input
+          type="date"
+          name="completedOn"
+          value={item?.status === 'in_progress' ? '' : (item?.completedOn ?? '')}
+          disabled={readingLocked}
+          {...invalid(error, 'item-form-error')}
+        />
       </label>
     </div>
     {finishedBook && !readingLocked ? (
@@ -1360,7 +1390,7 @@ export const ItemForm: FC<{
     ) : null}
     <details>
       <summary>Advanced: details JSON</summary>
-      <textarea name="details" rows={3}>
+      <textarea name="details" rows={3} aria-label="Details JSON">
         {JSON.stringify(details)}
       </textarea>
     </details>
@@ -1946,7 +1976,7 @@ export const BuySection: FC<{
 }> = ({ itemId, links, error, label, url }) => (
   <div class="detail-section buy-section" id="buy">
     <p class="eyebrow">Where to buy</p>
-    {error ? <p class="error">{error}</p> : null}
+    {error ? <p class="error" role="alert">{error}</p> : null}
     {links.length ? (
       <ul class="buy-links editable">
         {links.map((l) => (

@@ -15,6 +15,9 @@ npm run db:migrate # creates the local SQLite database
 npm run dev        # http://localhost:8787 → /setup creates the admin account
 npm test           # vitest, inside the real Workers runtime
 npm run typecheck
+npm run lint       # accessibility rules (eslint-plugin-jsx-a11y) over the TSX views
+npx playwright install chromium   # once, for the next line
+npm run a11y       # axe-core on every page in a real browser — its own scratch server on :8817
 ```
 
 Everything runs offline. Local D1 is a real SQLite file and R2 is emulated, so you never need
@@ -78,7 +81,9 @@ arrive with a test.
 
 Conventional commit messages (`feat:`, `fix:`, `docs:`, `chore:`, `test:`), one completed unit
 of work per commit, and no batching of unrelated changes. Keep PRs focused enough to review in
-one sitting; CI runs typecheck and the test suite on every one.
+one sitting; CI runs typecheck, the accessibility lint, the test suite and the accessibility
+audit on every one. A new page or htmx interaction joins the audit's list in
+`scripts/a11y.mjs` (ARCH.md §18).
 
 **Target `main`.** The `deploy-site` branch is not a development branch — pushing to it
 deploys the maintainer's own instance, so it only ever moves by fast-forward from `main`

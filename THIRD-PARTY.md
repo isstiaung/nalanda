@@ -49,6 +49,22 @@ the folder; one that keeps BoardGameGeek keeps the logo.
 `wrangler`, `drizzle-kit`, `vitest`, `@cloudflare/vitest-pool-workers`,
 `@cloudflare/workers-types`, and `typescript` — all MIT or Apache-2.0, none shipped.
 
+The accessibility audit (ARCH.md §18) adds these, also never shipped:
+
+| Package | License | Used for |
+|---|---|---|
+| [`eslint`](https://eslint.org) | MIT | `npm run lint` |
+| [`eslint-plugin-jsx-a11y`](https://github.com/jsx-eslint/eslint-plugin-jsx-a11y) | MIT | the accessibility rules `npm run lint` runs |
+| [`@babel/core`](https://babeljs.io), [`@babel/eslint-parser`](https://babeljs.io) | MIT | parsing TSX for ESLint |
+| [`axe-core`](https://github.com/dequelabs/axe-core) | MPL-2.0 | `npm run a11y`'s checks, injected into the audit's browser |
+| [`playwright`](https://playwright.dev) | Apache-2.0 | `npm run a11y`'s browser automation |
+
+axe-core's MPL-2.0 is a file-level copyleft that applies to distributing axe-core's own files,
+modified or not. Nalanda doesn't distribute them — they stay in `node_modules` and run only in
+the audit's browser — and nothing here modifies them. The Chromium that
+`npx playwright install chromium` downloads for the audit is an open-source Chromium build under
+its own licenses, fetched to your machine or the CI runner, never into the repo or a deployment.
+
 ## Data sources
 
 Metadata and cover art are fetched at runtime from Open Library, Google Books,

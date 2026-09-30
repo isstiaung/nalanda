@@ -67,7 +67,7 @@ async function refuse(c: Context<AppEnv>, status: 400 | 403, message: string, ba
           <h1>Nothing changed</h1>
         </div>
       </div>
-      <p class="error">{message}</p>
+      <p class="error" role="alert">{message}</p>
       <p>
         <a href={back}>← Back</a>
       </p>

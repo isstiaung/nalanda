@@ -276,7 +276,7 @@ describe('the page', () => {
     expect(page).toMatch(/<label>Players<input type="number" name="players"[^>]*value="4"/);
     expect(page).toMatch(/<label>Time we have<select name="time">/);
     expect(page).toMatch(/<label>Weight<select name="weight">/);
-    expect(page).toContain('<p id="play-status" class="play-status" role="status" aria-live="polite">');
+    expect(page).toContain('<output id="play-status" class="play-status" aria-live="polite">');
     expect(page).toContain('5 games fit for 4 players. 1 more game might fit, but is missing details.');
     expect(page).toContain('Pick one for us');
     expect(page).toContain('<div id="play-results">');
@@ -285,7 +285,7 @@ describe('the page', () => {
     expect(res.headers.get('vary')).toContain('HX-Request');
     const partial = await res.text();
     expect(partial).not.toContain('<html');
-    expect(partial).toContain('<p id="play-status" hx-swap-oob="innerHTML">5 games fit for 4 players.');
+    expect(partial).toContain('<output id="play-status" hx-swap-oob="innerHTML">5 games fit for 4 players.');
   });
 
   it('lists the games missing a detail in their own group, saying which detail', async () => {

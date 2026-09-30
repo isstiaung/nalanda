@@ -136,7 +136,7 @@ const ConnectionTable: FC<{
               <th>Library</th>
               <th class="hide-sm">Address</th>
               <th class="hide-sm">Since</th>
-              <th class="actions-cell"></th>
+              <th class="actions-cell"><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
@@ -257,7 +257,7 @@ const SharedViews: FC<{
                 <th class="hide-sm">Shelf</th>
                 <th>Scope</th>
                 <th>Items</th>
-                <th class="actions-cell"></th>
+                <th class="actions-cell"><span class="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
@@ -336,7 +336,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
           </span>
         </div>
       </div>
-      {p.error ? <p class="error">{p.error}</p> : null}
+      {p.error ? <p class="error" role="alert">{p.error}</p> : null}
       {p.notice ? <article class="notice">{p.notice}</article> : null}
 
       <section class="fed-section">
@@ -395,7 +395,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
                     <th>Created</th>
                     <th>Expires</th>
                     <th>State</th>
-                    <th class="actions-cell"></th>
+                    <th class="actions-cell"><span class="sr-only">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -820,7 +820,7 @@ const ConnectionFeedPage: FC<
           </span>
         </div>
       </div>
-      {p.error ? <p class="error">{p.error}</p> : null}
+      {p.error ? <p class="error" role="alert">{p.error}</p> : null}
       {p.notice ? <article class="notice">{p.notice}</article> : null}
 
       <section class="fed-section">
@@ -836,7 +836,7 @@ const ConnectionFeedPage: FC<
                   <th>Settings</th>
                   <th class="hide-sm">Stored</th>
                   <th class="hide-sm">Last pulled</th>
-                  <th class="actions-cell"></th>
+                  <th class="actions-cell"><span class="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>

@@ -1841,6 +1841,63 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     names on, which is now the default. The existing suite runs as a new instance, names on; tests
     about names off say so with `upgradedSwitches()`.
 
+**2026-09-30 — an accessibility audit:**
+50. **Accessibility is checked in two layers, and CI fails on either (§18).** The owner asked for
+    an automated audit, compatible with eslint-plugin-jsx-a11y "as much as possible", and whether
+    that works with htmx. It does, in two halves. `npm run lint` runs jsx-a11y's `strict` preset
+    (plus `anchor-ambiguous-text`, `lang`, `no-aria-hidden-on-focusable`, `prefer-tag-over-role`)
+    and nothing else over the TSX. `strict` rather than `recommended`: the two differ only in the
+    allowances `recommended` makes for widgets built from divs and lists, and this app has none,
+    so they would only hide a regression. `npm run a11y` runs axe-core in Chromium over the whole
+    app, both themes, 1280 and 390 wide, with the htmx swaps performed and a keyboard walk. Both
+    are dev dependencies; nothing reaches the Worker bundle.
+
+    **Adapting the linter to hono/jsx.** jsx-ast-utils matches prop names case-insensitively, so
+    `tabindex`, `onclick` and `autocomplete` already read as their React spellings. `for` is a
+    different word from `htmlFor`, and `settings['jsx-a11y'].attributes` teaches it to the label
+    rules; `components` maps `RatingSelect` to the `<select>` it renders. `no-autofocus` alone
+    compares the name exactly, so a `no-restricted-syntax` twin catches `autofocus`; log in,
+    setup and search keep theirs, each with its reason in a disable comment. No jsx-a11y rule is
+    switched off. The parser is Babel's (`@babel/eslint-parser`, syntax plugins only): the repo's
+    TypeScript 7 has no JavaScript API, typescript-eslint needs `typescript` below 6.1 as a peer,
+    and npm can't give a peer a version other than the root's. These rules need no type
+    information. ESLint stays on 9 because the plugin's peer range ends there. A second
+    `no-restricted-syntax` selector says what §18 asks of htmx: `hx-get`/`hx-post` only on forms,
+    buttons and links.
+
+    **What the audit found and fixed:** no skip link; the active sidebar link and the Add page's
+    Scan/Search/Manual buttons shown by tint alone (now `aria-current`, `aria-pressed`); an
+    overdue loan on an item's page and an unread notification by colour alone (now words); four
+    contrast failures (rating stars on light paper, errors in the dark theme, muted text and
+    indigo pills on a hovered table row); links in running text told apart only by colour (now
+    underlined); fields named by placeholder or nothing (a shelf's rename box had neither); a
+    review's own rating select and the details JSON box unnamed; errors not tied to their fields;
+    empty action-column headers; an h1 → h4 jump in shelf settings; filter-menu checkboxes closer
+    than 24px; links with `role="button"`; no visible focus on a checkbox (only a 9% tint) or on the
+    Table/Covers and Scan/Search/Manual toggles (clipped by their frame); keyboard focus dropped to
+    `<body>` by an htmx swap; share links and a filter menu scrolling a phone's page sideways; the
+    Members table pushing its buttons off a phone's screen. The barcode scanner already had its
+    non-camera path, a typed barcode through the same lookup; it now has a visible label and the
+    intro names it.
+
+    **Chosen without asking, overrulable:** axe-core injected directly rather than through
+    `@axe-core/playwright`, and the `playwright` library rather than its test runner — one fewer
+    package, and the audit is a script with a report rather than a test suite; axe's
+    best-practice rules on top of the WCAG tags, because they check the structure screen-reader
+    users move by (and the owner's heading-level control needs heading-order), none disabled; the
+    dark theme's `--ink-3` lifts a shade (`#8f846d` → `#968b73`) and a hovered row keeps half its
+    tint, with a 2px indigo rule at its left edge so the hover still shows, rather than darkening
+    the hover or every muted label; light-theme stars mix in 20% ink,
+    as the in-progress pill does, while the lamp-lit gold is left alone; ratings still read to a
+    screen reader as star glyphs — a text alternative would touch eleven call sites that
+    parallel branches also edit, so it waits; the Add page's lookups need Open Library, and when
+    they find nothing the report lists them as not audited instead of failing
+    (`A11Y_REQUIRE_LOOKUP=1` makes it fail, and CI doesn't set it, so an Open Library outage can't
+    block a pull request); a filter menu's run checks target size for the menu's own checkboxes
+    only, with the controls the menu is on top of set invisible for that run, since axe counts them
+    as neighbours though no one can tap them (the page under the menu is measured uncovered);
+    a filter menu near a phone's right edge lines up with its button's right edge (app.js).
+
 **2026-09-30 — where it lives:**
 51. **An item's location is one free-text column, private like notes, and searchable.** A household
     with books in three rooms and games in the loft wants to know where a thing is. The owner
@@ -3020,3 +3077,84 @@ The honest comparison, since it was asked:
   want to write React. The swap is contained: Hono stays as the API layer, routes already
   speak JSON where it matters, and the SPA mounts in front. Nothing in the data model or
   provider layer would change.
+
+## 18. Accessibility
+
+**The bar.** WCAG 2.2 level AA (and so 2.0 and 2.1 A and AA) on every page — the app, the public
+share pages, log in and setup, the 404s — in the light and the lamp-lit theme, at desktop and phone
+widths, and after every htmx swap. The design system meets it with its own tokens: text keeps
+4.5:1 against whatever it sits on, hovered rows included; colour is never the only signal (a pill
+has its word, an overdue loan says "overdue", links in running text are underlined); every field
+has a name; every signed-in page starts with a "Skip to content" link past the sidebar (share, login and setup
+pages have no repeated navigation to skip); keyboard focus survives an htmx swap. Decision: §16 #50.
+
+**Two layers**, both in CI, both dev-only:
+
+- **Static — `npm run lint`** (`eslint.config.mjs`). ESLint with eslint-plugin-jsx-a11y's `strict`
+  rules over `src/**/*.tsx` — missing `alt`, a `<label>` with no control, empty headings and links,
+  invalid or misused ARIA, roles where an element exists — plus two `no-restricted-syntax` selectors
+  for what jsx-a11y can't see in hono/jsx: `autofocus`, and `hx-get`/`hx-post` on an element that
+  isn't a form, button or link. No other rules. It sees one component at a time, so what spans
+  components — heading order, contrast, a page's landmarks, whether a field ends up named — is the
+  runtime layer's. (`control-has-associated-label` stays off: it flags table cells, and components
+  whose label arrives as a prop.)
+- **Runtime — `npm run a11y`** (`scripts/a11y.mjs`). A scratch `wrangler dev` on 127.0.0.1:8817 with
+  its own temporary `--persist-to` state, a throwaway session secret and connections key, seeded by
+  `scripts/seed-demo.mjs --no-covers` and furnished further over HTTP (covers from a local image
+  server, a second member, a loan past due, a read in progress, published links with names and
+  progress on, an empty shelf, a shelf with a second page, a second member, a book series with a
+  gap, a location, a returned loan, a graded record with its pressing and tracklist, plays, a reading
+  goal, want lists with a purchase link, and a published gift list). Playwright's Chromium
+  visits every page in the list, as the admin, as that member and signed out, and runs axe-core's
+  WCAG 2.0 / 2.1 / 2.2 A and AA rules, its best-practice rules and the two experimental WCAG ones
+  (label in name, bold-paragraph headings), in both themes at 1280 and 390 wide. On a phone it also
+  fails a page that scrolls sideways (reflow, which axe doesn't test). It opens every closed
+  `<details>` and looks again (the toolbar's menus one at a time); performs the htmx interactions
+  from the keyboard and audits what comes back, failing one that drops focus to `<body>`; submits the
+  refused and one-time forms (a temporary password, an invitation link, a bulk delete's
+  confirmation, a bulk action's notice); loads the Add page with scans held offline, and
+  `/offline.html`; opens the phone menu; and
+  walks the keyboard: the first Tab is the skip link, following it lands in `<main>`, every stop
+  shows a focus indicator that draws something (an outline not clipped away, a ring that isn't a
+  faint tint, or a border that changes), every visible control is reached, and the tab order comes
+  back round (no trap). Anything axe can't decide about contrast or target size is listed for a
+  person to check. Any violation exits 1 with a report grouped by rule, naming page, theme, width
+  and element (on GitHub Actions, the count left for a person is a notice on the run). It waits for
+  each htmx swap by htmx's own `htmx:afterSettle`, never by a change in the HTML or a fixed delay, so a
+  slow runner checks the same moment a fast one does (`A11Y_CPU_THROTTLE=4` reproduces one). It never
+  touches port 8787, the development database or Cloudflare (`--local`, a temporary `--persist-to`, no
+  credentials in its environment and wrangler's config home inside that state), and never reads
+  `.dev.vars`: the Worker's variables come from an `--env-file` it writes, provider tokens empty, so a
+  local run is as offline as CI's (`A11Y_USE_DEV_VARS=1` opts back in). It removes its state and server
+  when done.
+
+**The htmx limitation.** The linter can't see `hx-*` behaviour: to it `hx-post` is an unknown
+attribute, so a `<div hx-post hx-trigger="click">` — interactive, but not to a keyboard or a
+screen reader — would pass. The rule that closes the gap: `hx-get`/`hx-post` go only on forms,
+buttons and links, which the browser already makes focusable and operable. Today they are the
+Add page's two lookup forms, the Reading section's, play log's, want bar's and Where to buy's forms,
+Read next's Another, and the Holding toggle buttons. The runtime layer covers the other half: it
+performs those swaps (record, remove a page, add, edit, delete and move a read, finish, stop, read
+again, Played and removing a play, the want toggle, adding, refusing and removing a purchase link,
+Another, the Holding toggle, both lookups) and audits the page with the new HTML in it. A swapped-in error is `role="alert"`, since htmx moves no focus to
+tell anyone; and a swap keeps keyboard focus — htmx restores it to an element with the same id, and
+app.js gives it to the swapped region otherwise.
+
+**How a new feature meets it.** Use the existing tokens and components; a new colour pairing must
+hold 4.5:1 for text in both themes. Wrap each field in its `<label>`, or give it an `aria-label`
+where there's no visible one; a refused form's error is `role="alert"`, and the fields it is about
+take `invalid(error, id)` (`src/views/components.tsx`). Say state in words or ARIA, not only colour.
+Links navigate and buttons act — no `role="button"` on a link. Headings don't skip levels. A new
+page joins `pageList()` in `scripts/a11y.mjs`, a new htmx interaction a step in `interactions()`;
+then `npm run lint` and `npm run a11y` pass.
+
+**What it doesn't cover.** Automated checks find perhaps a third to a half of real problems;
+nothing here replaces trying a page with a screen reader and a keyboard. Not reached: pages that need
+another household (a connected shelf, borrow requests and their errors, comment threads — the audit
+has no peer); board-game and record lookups (BGG and Discogs need tokens CI doesn't have); the "not
+ready yet" page an instance shows without a session secret; hover states (axe never hovers — a hovered
+row's contrast was worked out by hand). The Add page's book lookups need Open Library: when it finds
+nothing the report lists those states as not audited, as a warning on GitHub Actions, and
+`A11Y_REQUIRE_LOOKUP=1` makes that a failure. Text under an open menu, and symbols (the stars, media
+icons), are contrast checks axe leaves to a person; the report counts or lists them. Ratings read to a
+screen reader as their star glyphs.

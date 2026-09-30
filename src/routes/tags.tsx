@@ -44,7 +44,7 @@ const TagLinks: FC<{ tag: string; links: Share[]; origin: string }> = ({ tag, li
         <span>
           <strong>{v.name}</strong> <small class="muted">{shareScopeLabel(v)}</small>
           <br />
-          <a href={`${origin}/share/${v.token}`} class="mono">
+          <a href={`${origin}/share/${v.token}`} class="mono break-anywhere">
             {origin}/share/{v.token}
           </a>
         </span>
@@ -61,7 +61,7 @@ const TagLinks: FC<{ tag: string; links: Share[]; origin: string }> = ({ tag, li
     ))}
     <form method="post" action="/shares" class="inline-form">
       <input type="hidden" name="tag" value={tag} />
-      <input name="name" placeholder="Link name (shown as the public page title)" required />
+      <input name="name" placeholder="Link name (shown as the public page title)" aria-label="Link name" required />
       <select name="sort" aria-label="Order">
         <option value="title">By title</option>
         <option value="completed">By date finished</option>

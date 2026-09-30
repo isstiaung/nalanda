@@ -70,7 +70,7 @@ dashboard.get('/', async (c) => {
       <div class="page-head">
         <h1>Overview</h1>
         <div class="page-actions">
-          <a href="/add" role="button" class="btn-primary">
+          <a href="/add" class="btn btn-primary">
             Add items
           </a>
         </div>
@@ -175,7 +175,7 @@ dashboard.get('/', async (c) => {
         <details>
           <summary>New shelf</summary>
           <form method="post" action="/libraries" class="inline-form">
-            <input name="name" placeholder="e.g. Wishlist" required />
+            <input name="name" placeholder="e.g. Wishlist" aria-label="Shelf name" required />
             <button type="submit">Create shelf</button>
           </form>
         </details>

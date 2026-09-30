@@ -773,7 +773,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
 
         {grouped ? (
           <>
-            {reviewError ? <p class="error">{reviewError}</p> : null}
+            {reviewError ? <p class="error" role="alert">{reviewError}</p> : null}
             <ReviewsSection item={item} reviews={log.reviews} viewer={viewer} people={people} />
           </>
         ) : item.review ? (
@@ -822,6 +822,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
                     , due <span class="mono">{l.dueOn}</span>
                   </>
                 ) : null}
+                {/* said in words, not by the vermilion alone */}
+                {isOverdue(l) ? <strong> — overdue</strong> : null}
               </span>
               <button type="submit" class="btn">
                 Mark returned
@@ -830,8 +832,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           ))}
           {copyFree ? (
             <form method="post" action={`/items/${item.id}/loan`} class="inline-form">
-              <input name="borrower" placeholder="Borrower" required />
-              <input name="contact" placeholder="Contact (optional)" />
+              <input name="borrower" placeholder="Borrower" aria-label="Borrower" required />
+              <input name="contact" placeholder="Contact (optional)" aria-label="Contact (optional)" />
               <input type="date" name="dueOn" aria-label="Due date" />
               <button type="submit">Lend</button>
             </form>
@@ -843,7 +845,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
         {recommending}
 
         <div class="actions">
-          <a href={`/items/${item.id}/edit`} role="button">
+          <a href={`/items/${item.id}/edit`} class="btn">
             Edit
           </a>
           <form

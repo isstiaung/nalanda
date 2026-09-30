@@ -100,7 +100,7 @@ export const BulkNotice: FC<{ query: Record<string, string | undefined>; librari
     case 'move': {
       const to = libraries.find((l) => String(l.id) === query['to']);
       return (
-        <p class="notice" role="status">
+        <output class="notice">
           Moved {items}
           {to ? (
             <>
@@ -109,7 +109,7 @@ export const BulkNotice: FC<{ query: Record<string, string | undefined>; librari
             </>
           ) : null}
           .{same ? ` ${same} ${same === 1 ? 'was' : 'were'} there already.` : ''}
-        </p>
+        </output>
       );
     }
     case 'owned':
@@ -124,7 +124,7 @@ export const BulkNotice: FC<{ query: Record<string, string | undefined>; librari
       return null;
   }
   return (
-    <p class="notice" role="status">
+    <output class="notice">
       {text}
       {extra}
       {skipped ? (
@@ -136,7 +136,7 @@ export const BulkNotice: FC<{ query: Record<string, string | undefined>; librari
           owned and not owned set 0 or 1 copies, and would lose the count. Change it on each item’s edit form.
         </>
       ) : null}
-    </p>
+    </output>
   );
 };
 
@@ -177,7 +177,7 @@ export const DeleteConfirmation: FC<{ items: Array<{ id: number; title: string }
           <button type="submit" class="btn-danger">
             Delete {what}
           </button>
-          <a href={back} role="button">
+          <a href={back} class="btn">
             Cancel
           </a>
         </form>

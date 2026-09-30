@@ -149,6 +149,7 @@ npm install        # also vendors htmx, the ZXing barcode WASM, and fonts into p
 npm run db:migrate # create the local SQLite database
 npm run dev        # http://localhost:8787 → /setup creates the admin account
 npm test           # vitest, runs inside the real Workers runtime
+npm run lint       # accessibility rules over the views; npm run a11y audits every page in a browser
 ```
 
 Everything runs offline: local D1 is a real SQLite file, R2 is emulated, and the camera

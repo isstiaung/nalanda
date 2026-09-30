@@ -24,9 +24,18 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **A household currency**, set once by an admin under **Members → Household currency** (INR, USD, JPY — any ISO 4217 currency). Prices are entered in it, with its decimals: two for rupees and dollars, none for yen. Until it's set, the item form says so instead of offering a price. Changing it later converts nothing: prices already entered keep the currency they were entered in.
 - **What each shelf cost.** A shelf's page says what the household paid for it ("Paid ₹30,200 for 9 — of 12 records on this shelf"), and the Overview's shelf table gains a **Paid** column. Each currency is totalled on its own, never added to another.
 - **Purchase prices leave and come back through the CSV**, in two new columns, `purchase_price` (like `302.50`) and `purchase_currency` (like `INR`). A libib file's `price` column becomes the purchase price, in the household's currency, when one is set before you import.
+- **An accessibility audit, in CI.** `npm run lint` checks the views against eslint-plugin-jsx-a11y's strict rules, and `npm run a11y` runs axe-core (WCAG 2.2 A and AA) on every page in a real browser, light and dark, desktop and phone width, including the pages htmx changes in place, and walks each page with the keyboard. Both run on every pull request. For contributors only: nothing new is deployed.
+- **A "Skip to content" link** is the first thing Tab reaches on every page, so keyboard users no longer go through the whole sidebar each time.
 
 ### Changed
 - **The sidebar folds into sections.** Overview, Add items and Search stay at the top. Everything else is grouped by what you came to do: **Library** (Tags, Series), **Shelves**, **Reading** (Want list, Reading goals, Year in review), **Lending** (Loans, Borrowed), **Sharing & connections** (Shared links, Feed, Notifications, Recommended, Connections) and **Settings** (Import / export, Members, Account — Account moved here from the bottom; Log out stays there). Each section opens and closes from its header, with a click, a tap, or Enter and Space from the keyboard, and works without JavaScript. The section holding the page you're on is always open; the others start closed, and the ones you open stay open on that device, remembered in a small `nav` cookie so the page draws them open from the start. A closed section's header shows how many things in it are unread. Admin-only and connections-only links show to the same people as before.
+- **Colour is never the only signal.** An overdue loan on an item's page says "overdue"; the current page in the sidebar and the chosen Scan / Search / Manual button are announced as such; links inside sentences are underlined.
+- **Text contrast meets WCAG AA in both themes**: rating stars on light paper are a shade darker, error text a shade stronger, a hovered table row is a lighter tint, and the lamp-lit theme's small grey labels are a shade lighter.
+- **Every field has a name** screen readers announce, and a refused form's message is read out and tied to the fields it's about. The Add page's barcode box — the way in without a camera — has a visible label.
+- **Filter menus' checkboxes are spaced further apart**, so each is easier to tap, and a menu near the right edge of a phone's screen opens leftwards instead of hanging off it.
+- **Keyboard focus is always visible and stays put.** Checkboxes and the Table / Covers and Scan / Search / Manual toggles show a clear focus ring, and recording a page, finishing a read or toggling Owned keeps your place instead of sending focus back to the top of the page.
+- **Nothing scrolls a phone's page sideways**: long share links on a shelf's settings and a tag's page wrap, and the Members table keeps its buttons on screen.
+- **A hovered table row** is a lighter tint with an indigo rule at its left edge, and a row picked for bulk edit likewise (a firmer rule), so the text on it stays readable.
 
 ### Fixed
 - **Prices never reach share pages or connected households.** A libib import kept a file's `price` column in each item's details, which share pages and connected households were shown. Money in details is now left out of anything published; inside the app it stays where it was.
@@ -41,6 +50,7 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **Back up first** (`npm run backup`). Migration `0039_purchase-price` runs when you deploy. It adds two empty columns to items (`purchase_price`, `purchase_currency`) and an empty `currency` to the household settings, and changes no existing data — rehearsed on a production backup, every existing table and value came through identical. Rolling back is safe: older code ignores the columns.
 - **Set the household currency** under **Members** before entering prices, and before importing a libib file whose prices you want as purchase prices. Until then no one can enter a price, and libib prices stay in the item's details (never on share pages now).
 - An export from this version imports into an older one without its purchase prices, which older versions ignore. **No new secrets.** **Connections** are unaffected: prices never go to connected households, on any version.
+- Contributors: run `npm install`, then `npx playwright install chromium` once before `npm run a11y`.
 
 ## [1.5.0] - 2026-09-30
 

@@ -223,6 +223,12 @@ npm run dev:demo           # same, on :8788 with its own --persist-to state (scr
 npm run seed:demo          # fills that demo instance over HTTP; refuses a non-empty one
 npm test                   # vitest, runs inside workerd
 npm run typecheck          # tsc --noEmit
+npm run lint               # eslint-plugin-jsx-a11y (strict) over src/**/*.tsx, + no-restricted-syntax for
+                           # hono's `autofocus` and hx-* off forms/buttons/links — no other rules
+npm run a11y               # axe-core (WCAG 2.2 A/AA) on every page in Chromium, light + dark,
+                           # 1280 + 390 wide, htmx swaps and a keyboard walk; its own wrangler
+                           # dev on 127.0.0.1:8817 with temp --persist-to state (never 8787 or
+                           # your dev DB); `npx playwright install chromium` once (ARCH.md §18)
 npm run db:generate        # drizzle-kit generate — schema.ts → migrations/*.sql
 npm run db:migrate         # wrangler d1 migrations apply nalanda --local
 npm run db:migrate:remote  # same, against production (via wrangler:remote)
@@ -304,12 +310,14 @@ scripts/           vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp
                    backup.mjs + backup-dir.mjs (a same-day backup never overwrites),
                    wrangler-remote.mjs + remote-config.mjs (real db id → temp config),
                    seed-demo.mjs, hash-password.mjs, federation-keygen.mjs,
-                   backfill-remote.mjs + ts-resolve.mjs (runs src/metadata under Node)
+                   backfill-remote.mjs + ts-resolve.mjs (runs src/metadata under Node),
+                   a11y.mjs (the runtime accessibility audit; eslint.config.mjs is the static one)
 runbooks/          operational guides: deploy, updating (for self-hosters), backup/restore, accounts,
                    connections, libib import, goodreads import, metadata backfill, troubleshooting —
                    update when ops procedures change
-.github/           CI (typecheck + test; no secrets, never pull_request_target), release (on a
-                   vX.Y.Z tag: publishes that version's CHANGELOG section; never deploys),
+.github/           CI (typecheck + lint + test, and the a11y audit as its own job; no secrets,
+                   never pull_request_target), release (on a vX.Y.Z tag: publishes that
+                   version's CHANGELOG section; never deploys),
                    dependabot (minor/patch grouped, majors alone), CODEOWNERS
 CHANGELOG.md       every release, newest first, each with an Upgrading section (ARCH.md §16 #42)
 docs/screenshots/  README imagery, captured from seeded demo data — never real catalog data
@@ -328,6 +336,9 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
   secret, or anything needing a manual step must be in Upgrading.
 - Handlers render a full page normally, a partial when the `HX-Request` header is present —
   one handler, two renders.
+- Accessibility (ARCH.md §18): WCAG 2.2 AA in both themes. `hx-*` only on forms, buttons and links,
+  every field labelled, errors `role="alert"` (+ `invalid()` on their fields), colour never the only
+  signal; a new page or htmx swap joins `scripts/a11y.mjs`, and `npm run lint` + `npm run a11y` pass.
 - Mutations are POSTs; CSRF = `SameSite=Lax` session cookie + Origin-check middleware.
 - A write and whatever depends on it are **one batch**: a change and the message it queues for a
   connection, the notification it records, its replay marker, an item and its tags (ARCH.md §16 #39).

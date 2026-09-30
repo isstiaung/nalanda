@@ -389,7 +389,7 @@ describe('deleting', () => {
     expect(page).toContain('and 2 more.');
     for (const i of items) expect(page).toContain(`<input type="hidden" name="id" value="${i.id}"/>`);
     expect(page).toContain('<input type="hidden" name="confirm" value="1"/>');
-    expect(page).toContain('<a href="/libraries/1" role="button">Cancel</a>');
+    expect(page).toContain('<a href="/libraries/1" class="btn">Cancel</a>');
     expect((await rows('SELECT count(*) AS n FROM items'))[0]).toEqual({ n: 12 });
   });
 

@@ -19,6 +19,7 @@ import {
   verifyPassword,
   type AccountRef,
 } from '../lib/auth';
+import { invalid } from '../views/components';
 import { Brand, page } from '../views/layout';
 
 const auth = new Hono<AppEnv>();
@@ -35,20 +36,26 @@ async function signIn(c: Context<AppEnv>, secret: string, account: AccountRef): 
   });
 }
 
-const LoginForm = ({ error, note }: { error?: string; note?: string }) => (
+/** `fieldsWrong`: whether the error is about what was typed (a wrong password) rather than about waiting. */
+const LoginForm = ({ error, note, fieldsWrong = true }: { error?: string; note?: string; fieldsWrong?: boolean }) => (
   <article class="auth-card">
     <Brand />
     <h1>Log in</h1>
     {note ? <p class="notice">{note}</p> : null}
-    {error ? <p class="error">{error}</p> : null}
+    {error ? (
+      <p class="error" role="alert" id="login-error">
+        {error}
+      </p>
+    ) : null}
     <form method="post" action="/auth/login">
       <label>
         Username
-        <input name="username" required autofocus autocomplete="username" />
+        {/* eslint-disable-next-line no-restricted-syntax -- the login page is one form: its first field is where everyone starts */}
+        <input name="username" required autofocus autocomplete="username" {...invalid(fieldsWrong && error, 'login-error')} />
       </label>
       <label>
         Password
-        <input type="password" name="password" required autocomplete="current-password" />
+        <input type="password" name="password" required autocomplete="current-password" {...invalid(fieldsWrong && error, 'login-error')} />
       </label>
       <button type="submit">Log in</button>
     </form>
@@ -110,7 +117,7 @@ auth.post('/auth/login', async (c) => {
   if (!hasSessionSecret(secret)) return noSessionSecret(c);
   const ip = c.req.header('cf-connecting-ip') ?? 'local';
   if ((await recentLoginAttempts(c.env.DB, ip)) >= 10) {
-    return page(c, 'Log in', <LoginForm error="Too many attempts — try again in 10 minutes." />);
+    return page(c, 'Log in', <LoginForm error="Too many attempts — try again in 10 minutes." fieldsWrong={false} />);
   }
   const body = await c.req.parseBody();
   const username = String(body['username'] ?? '').trim();
@@ -133,24 +140,32 @@ auth.post('/auth/logout', (c) => {
   return c.redirect('/login');
 });
 
-const SetupForm = ({ error }: { error?: string }) => (
+type SetupField = 'username' | 'password' | 'confirm';
+
+/** `wrong`: the fields the error is about, which point at it. */
+const SetupForm = ({ error, wrong = [] }: { error?: string; wrong?: SetupField[] }) => (
   <article class="auth-card">
     <Brand />
     <h1>Welcome</h1>
     <p class="muted">Create the admin account. Family members can be added later under Members.</p>
-    {error ? <p class="error">{error}</p> : null}
+    {error ? (
+      <p class="error" role="alert" id="setup-error">
+        {error}
+      </p>
+    ) : null}
     <form method="post" action="/setup">
       <label>
         Username
-        <input name="username" required autofocus autocomplete="username" />
+        {/* eslint-disable-next-line no-restricted-syntax -- setup is one form, on a fresh instance: its first field is where everyone starts */}
+        <input name="username" required autofocus autocomplete="username" {...invalid(wrong.includes('username') && error, 'setup-error')} />
       </label>
       <label>
         Password <small>(at least 8 characters)</small>
-        <input type="password" name="password" required minlength={8} autocomplete="new-password" />
+        <input type="password" name="password" required minlength={8} autocomplete="new-password" {...invalid(wrong.includes('password') && error, 'setup-error')} />
       </label>
       <label>
         Confirm password
-        <input type="password" name="confirm" required autocomplete="new-password" />
+        <input type="password" name="confirm" required autocomplete="new-password" {...invalid(wrong.includes('confirm') && error, 'setup-error')} />
       </label>
       <button type="submit">Create account</button>
     </form>
@@ -175,10 +190,10 @@ auth.post('/setup', async (c) => {
   const password = String(body['password'] ?? '');
   const confirm = String(body['confirm'] ?? '');
   if (!username || password.length < 8) {
-    return page(c, 'Setup', <SetupForm error="Username required; password must be at least 8 characters." />);
+    return page(c, 'Setup', <SetupForm error="Username required; password must be at least 8 characters." wrong={['username', 'password']} />);
   }
   if (password !== confirm) {
-    return page(c, 'Setup', <SetupForm error="Passwords do not match." />);
+    return page(c, 'Setup', <SetupForm error="Passwords do not match." wrong={['confirm']} />);
   }
   // The count above only saves hashing on a closed setup. The batch decides: of two setups racing, one wins. The
   // loser goes to login, which says why: usually it's the second click of a double-click, whose response is the

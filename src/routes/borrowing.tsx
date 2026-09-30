@@ -518,7 +518,7 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
           </span>
         </div>
       </div>
-      {flash.error ? <p class="error">{flash.error}</p> : null}
+      {flash.error ? <p class="error" role="alert">{flash.error}</p> : null}
 
       <section>
         <p class="eyebrow">Borrowed now</p>
@@ -563,7 +563,7 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
                   <th>From</th>
                   <th class="hide-sm">Asked</th>
                   <th>Status</th>
-                  <th class="actions-cell"></th>
+                  <th class="actions-cell"><span class="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -627,7 +627,7 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
                   <th>Book</th>
                   <th>From</th>
                   <th>Returned</th>
-                  <th class="actions-cell"></th>
+                  <th class="actions-cell"><span class="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -706,7 +706,7 @@ export async function loanRequestsSection(c: Context<AppEnv>): Promise<Child | n
               <th>Item</th>
               <th>From</th>
               <th class="hide-sm">Asked</th>
-              <th class="actions-cell"></th>
+              <th class="actions-cell"><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>

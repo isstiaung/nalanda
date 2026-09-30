@@ -15,6 +15,8 @@
 // instance with no users.
 
 const BASE = process.argv.find((a) => a.startsWith('--url='))?.slice(6) ?? 'http://localhost:8788';
+// --no-covers skips the live cover fetch: the accessibility audit (scripts/a11y.mjs) seeds offline.
+const COVERS = !process.argv.includes('--no-covers');
 const USERNAME = 'librarian';
 const PASSWORD = 'demo-password';
 
@@ -135,18 +137,20 @@ async function main() {
   }
 
   // Covers, in the same small batches the browser walks through.
-  process.stdout.write('fetching covers');
-  let after = 0;
-  let found = 0;
-  for (;;) {
-    const res = await call('/api/backfill-covers', { method: 'POST', json: { after } });
-    const out = await res.json();
-    found += out.found;
-    after = out.lastId;
-    process.stdout.write('.');
-    if (out.done) break;
+  if (COVERS) {
+    process.stdout.write('fetching covers');
+    let after = 0;
+    let found = 0;
+    for (;;) {
+      const res = await call('/api/backfill-covers', { method: 'POST', json: { after } });
+      const out = await res.json();
+      found += out.found;
+      after = out.lastId;
+      process.stdout.write('.');
+      if (out.done) break;
+    }
+    console.log(`\n${found} covers stored`);
   }
-  console.log(`\n${found} covers stored`);
 
   // One live loan and one published share, so those screens aren't empty.
   const shelves = await (await call('/libraries')).text();

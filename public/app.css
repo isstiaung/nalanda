@@ -67,7 +67,7 @@
     --line-strong: #463d2e;
     --ink: #ece4d2;
     --ink-2: #ab9f88;
-    --ink-3: #8f846d; /* 5.0:1 on paper */
+    --ink-3: #968b73; /* 5.5:1 on paper, 4.7:1 on a hovered table row */
     --accent: #8ba0d9;
     --accent-strong: #a5b7e6;
     --accent-ink: #10141f;
@@ -106,11 +106,24 @@ h4 { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
 p { margin: 0 0 0.75rem; }
 a { color: var(--accent); text-decoration: none; }
 a:hover { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }
+/* A link inside running text is underlined: indigo against ink is too close to tell apart by colour alone. */
+p:not(.back-link) a:not(.btn):not(.tag) { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
 hr { border: none; border-top: 1px solid var(--line); margin: 1.25rem 0; }
 code { font-family: var(--mono); font-size: 0.92em; background: var(--surface-2); padding: 0.1em 0.4em; border-radius: 4px; }
 table { border-collapse: collapse; }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
+
+/* Text for screen readers only, the app's one class for it: an empty table header's name, a button's name saying
+   which item it acts on, a chart's table, a closed sidebar section's "unread". */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* The first Tab stop on every app page (layout.tsx): out of sight until focused, then a small indigo tab at the
+   top left, over the sidebar and the phone bar alike. */
+.skip-link { position: absolute; top: 0.5rem; left: 0.5rem; z-index: 60; padding: 0.45rem 0.8rem; border-radius: var(--radius-sm); background: var(--accent); color: var(--accent-ink); font-size: 12.5px; font-weight: 600; box-shadow: var(--shadow); }
+.skip-link:not(:focus) { width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.skip-link:hover, .skip-link:focus { color: var(--accent-ink); text-decoration: none; }
+/* what the skip link or an htmx swap focuses is a landing place, not a control: no ring round the whole page */
+#main:focus, [data-focus-landing]:focus { outline: none; }
 
 .mono { font-family: var(--mono); }
 .muted { color: var(--ink-2); }
@@ -210,9 +223,6 @@ table { border-collapse: collapse; }
 .nav-section[open] > .nav-summary::after { transform: rotate(45deg); }
 /* tracked a little tighter than .eyebrow, so "Sharing & connections" keeps one line beside its unread count */
 .nav-eyebrow { flex: 1; min-width: 0; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
-/* Text for screen readers only: the app's one class for it (a button's name saying which item it acts on,
-   a chart's table, a closed section's "unread"). */
-.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 /* a closed section still says something in it is unread; open, each link shows its own */
 .nav-summary .nav-summary-unread { margin-left: 0; }
 .nav-section[open] .nav-summary-unread { display: none; }
@@ -327,6 +337,8 @@ input:focus, select:focus, textarea:focus {
   box-shadow: 0 0 0 3px var(--accent-tint);
 }
 input[type='checkbox'] { width: auto; height: auto; margin: 0 0.4rem 0 0; accent-color: var(--accent); }
+/* input:focus's faint ring is no indicator on a checkbox, whose border doesn't change colour: it gets the outline */
+input[type='checkbox']:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 input[type='date'] { font-family: var(--mono); font-size: 12px; }
 input[inputmode='numeric'] { font-family: var(--mono); }
 input[type='search'] { font-size: 13px; }
@@ -380,8 +392,9 @@ details[open] summary { margin-bottom: 0.75rem; }
   border-radius: var(--radius-sm);
   margin: 0 0 0.75rem;
 }
+output.notice { display: block; } /* a status message (<output>, bulk edit's result) set as any notice */
 article.notice { border: 1px solid var(--line); border-left: 3px solid var(--accent); background: var(--surface); padding: 0.9rem 1rem; }
-p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px solid var(--stamp); padding: 0.55rem 0.8rem; border-radius: var(--radius-sm); }
+p.error { font-size: 12.5px; color: color-mix(in srgb, var(--stamp) 85%, var(--ink)); background: var(--stamp-tint); border-left: 3px solid var(--stamp); padding: 0.55rem 0.8rem; border-radius: var(--radius-sm); }
 
 /* ── stat row (ledger totals) ─────────────────────────────────────────────── */
 
@@ -413,7 +426,8 @@ p.error { font-size: 12.5px; background: var(--stamp-tint); border-left: 3px sol
 }
 .data-table td { padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--line); font-size: 13px; vertical-align: middle; }
 .data-table tbody tr:last-child td { border-bottom: none; }
-.data-table tbody tr:hover { background: var(--accent-tint); }
+.data-table tbody tr:hover { background: color-mix(in srgb, var(--accent-tint) 50%, transparent); } /* half the tint: muted text keeps 4.5:1 */
+.data-table tbody tr:hover > td:first-child { box-shadow: inset 2px 0 0 var(--accent); } /* and an indigo rule marks the row */
 .data-table td.num, .data-table td.date { font-family: var(--mono); font-size: 12px; color: var(--ink-2); white-space: nowrap; }
 .data-table .actions-cell { text-align: right; white-space: nowrap; width: 1%; }
 /* row actions stay on one line — the cell is narrow, and a wrapped pair reads as two rows */
@@ -491,6 +505,11 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 
 .acc-no { font-family: var(--mono); font-size: 11px; color: var(--ink-3); letter-spacing: 0.04em; white-space: nowrap; }
 .rating { color: var(--brass); font-size: 12.5px; letter-spacing: 0.08em; white-space: nowrap; }
+/* on light paper the stars take a touch of ink, as the in-progress pill does (4.7:1); the lamp-lit gold reads as is */
+.rating { color: color-mix(in srgb, var(--brass) 80%, var(--ink)); }
+@media (prefers-color-scheme: dark) {
+  .rating { color: var(--brass); }
+}
 
 /* ── covers & grid view ───────────────────────────────────────────────────── */
 
@@ -554,9 +573,9 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   z-index: 20;
   min-width: 170px;
   max-width: calc(100vw - 2rem);
-  padding: 0.55rem 0.7rem;
+  padding: 0.55rem 0.7rem 0.8rem; /* the last checkbox, too, keeps 24px clear of what's below the menu */
   display: grid;
-  gap: 0.35rem;
+  gap: 0.8rem; /* each checkbox keeps 24px clear of the next: they are touch targets (WCAG 2.5.8) */
   background: var(--surface);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
@@ -569,6 +588,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 
 .view-toggle { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow: hidden; }
 .view-toggle a { padding: 0.3rem 0.7rem; font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); background: var(--surface); text-decoration: none; }
+/* the toggles clip to their rounded frame, so their focus ring is drawn inside */
+.view-toggle a:focus-visible, .tab-bar .tab:focus-visible { outline-offset: -3px; }
 .view-toggle a + a { border-left: 1px solid var(--line-strong); }
 .view-toggle a.active { background: var(--accent-tint); color: var(--accent-strong); font-weight: 600; }
 .view-toggle a:hover { text-decoration: none; color: var(--ink); }
@@ -702,6 +723,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .candidate-body small { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.03em; }
 .candidate-save { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.65rem; }
 #tab-search .inline-form input[type='search'] { flex: 1 1 16rem; }
+/* the typed-barcode field: its label beside it, wrapping under it on a phone */
+#tab-scan .inline-form label { gap: 0.5rem; flex-wrap: wrap; }
 .candidate-save select { width: auto; margin: 0; height: 30px; font-size: 12.5px; }
 
 /* scans held on the device while offline, waiting on the Add page (ARCH.md §16 #48) — candidate cards under a notice */
@@ -726,6 +749,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 /* ── share (public) ───────────────────────────────────────────────────────── */
 
 .share-panel { margin-top: 0.9rem; }
+/* an h2 under the page's h1 (headings don't skip levels), set as the small heading it always looked like */
+.share-panel-head { font-size: 12.5px; color: var(--ink-2); }
 .share-row {
   display: flex;
   align-items: center;
@@ -830,6 +855,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   /* the item table still scrolls on a phone (Columns trims it), but a long title no longer hides Status */
   .cell-title { max-width: 11rem; }
   .data-table .sub-settings select { max-width: 7.5rem; }
+  /* Members: a display-name box narrow enough that Reset password and Remove stay on the phone's screen */
+  .data-table .display-name-form input { width: 6.5rem; }
   .data-table .sub-settings input[type='number'] { width: 4.25rem; }
   /* columns already hidden on a phone have nothing to toggle */
   #columns-menu label:has(> [data-col='type'], > [data-col='shelf'], > [data-col='year'], > [data-col='completed'], > [data-col='tags'], > [data-col='acc']) { display: none; }
@@ -1021,7 +1048,7 @@ form.search-by-reader select { width: auto; margin: 0; max-width: 100%; }
 .play-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0 1rem; align-items: end; max-width: 46rem; }
 .play-filters label { margin-bottom: 0.8rem; }
 .play-buttons { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.8rem; }
-.play-status { max-width: 46rem; margin: 0.2rem 0 1rem; font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+.play-status { display: block; max-width: 46rem; margin: 0.2rem 0 1rem; font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
 .game-list { list-style: none; margin: 0; padding: 0; max-width: 46rem; border-top: 1px solid var(--line); }
 .game-row { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 0.85rem; padding: 0.7rem 0; border-bottom: 1px solid var(--line); }
 .game-thumb { display: block; width: 44px; aspect-ratio: 2 / 3; border-radius: var(--radius-sm); overflow: hidden; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); }
@@ -1057,7 +1084,9 @@ form.search-by-reader select { width: auto; margin: 0; max-width: 100%; }
 .data-table :is(th, td).col-pick { width: 1%; padding-left: 0.6rem; padding-right: 0; }
 .data-table .col-pick + :is(th, td) { padding-left: 0.45rem; }
 .col-pick input { margin: 0; width: 15px; height: 15px; vertical-align: middle; }
-.data-table tbody tr:has(.bulk-pick:checked) { background: var(--accent-tint); }
+/* 60% of the tint, as a hovered row keeps half (muted text holds 4.5:1), and a firmer rule than hover's */
+.data-table tbody tr:has(.bulk-pick:checked) { background: color-mix(in srgb, var(--accent-tint) 60%, transparent); }
+.data-table tbody tr:has(.bulk-pick:checked) > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 
 .pick-cell { position: relative; min-width: 0; }
 /* a 30px target over the cover's corner, so a thumb can hit it on a phone */

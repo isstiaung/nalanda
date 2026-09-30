@@ -195,7 +195,7 @@ libraries.get('/libraries/:id', async (c) => {
               Play tonight
             </a>
           ) : null}
-          <a href="/add" role="button">
+          <a href="/add" class="btn">
             Add items
           </a>
         </div>
@@ -290,18 +290,18 @@ libraries.get('/libraries/:id', async (c) => {
       <details>
         <summary>Shelf settings</summary>
         <form method="post" action={`/libraries/${id}`} class="inline-form">
-          <input name="name" value={lib.name} required />
+          <input name="name" value={lib.name} aria-label="Shelf name" required />
           <button type="submit">Rename</button>
         </form>
         {user.role === 'admin' ? (
           <div class="share-panel">
-            <h4>Public share links</h4>
+            <h2 class="share-panel-head">Public share links</h2>
             {shares.map((v) => (
               <div class="share-row">
                 <span>
                   <strong>{v.name}</strong> <small class="muted">{shareScopeLabel(v)}</small>
                   <br />
-                  <a href={`${origin}/share/${v.token}`} class="mono">
+                  <a href={`${origin}/share/${v.token}`} class="mono break-anywhere">
                     {origin}/share/{v.token}
                   </a>
                 </span>
@@ -323,7 +323,7 @@ libraries.get('/libraries/:id', async (c) => {
               {statuses.length === 1 ? <input type="hidden" name="status" value={statuses[0]} /> : null}
               {owned !== undefined ? <input type="hidden" name="owned" value={owned ? '1' : '0'} /> : null}
               <input type="hidden" name="sort" value={sort} />
-              <input name="name" placeholder="Link name (shown as the public page title)" required />
+              <input name="name" placeholder="Link name (shown as the public page title)" aria-label="Link name" required />
               <button type="submit">Publish current view</button>
             </form>
             <small class="muted">

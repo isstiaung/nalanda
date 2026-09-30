@@ -44,7 +44,7 @@ loans.get('/loans', async (c) => {
                   <th>Borrower</th>
                   <th class="hide-sm">Since</th>
                   <th>Due</th>
-                  <th class="actions-cell"></th>
+                  <th class="actions-cell"><span class="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>

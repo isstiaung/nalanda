@@ -82,7 +82,7 @@ async function seriesPage(c: Context<AppEnv>, id: number, error?: string, sent?:
       <VolumeLedger volumes={volumes} missing={missing} />
       <details class="series-edit" open={!!error}>
         <summary>Edit series</summary>
-        {error ? <p class="error">{error}</p> : null}
+        {error ? <p class="error" role="alert">{error}</p> : null}
         <form method="post" action={`/series/${s.id}`} class="form-card">
           <div class="grid">
             <label>

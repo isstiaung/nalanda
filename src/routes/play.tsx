@@ -276,9 +276,9 @@ play.get('/play', async (c) => {
       <>
         <Results view={view} f={f} today={today} />
         {/* out of band, into the live region that was already on the page, so a screen reader hears the change */}
-        <p id="play-status" hx-swap-oob="innerHTML">
+        <output id="play-status" hx-swap-oob="innerHTML">
           {status}
-        </p>
+        </output>
       </>,
     );
   }
@@ -294,9 +294,10 @@ play.get('/play', async (c) => {
         </div>
       </div>
       <Filters f={f} />
-      <p id="play-status" class="play-status" role="status" aria-live="polite">
+      {/* an <output> is a live status region of its own (role "status"), which the lint prefers to a role on a <p> */}
+      <output id="play-status" class="play-status" aria-live="polite">
         {status}
-      </p>
+      </output>
       <div id="play-results">
         <Results view={view} f={f} today={today} />
       </div>

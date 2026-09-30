@@ -253,6 +253,10 @@ export const Layout: FC<
     <Head title={title} />
     {user ? (
       <body data-scan-owner={scanOwner}>
+        {/* the first Tab stop on every page: past the sidebar, straight to the page itself */}
+        <a href="#main" class="skip-link">
+          Skip to content
+        </a>
         <div class="app">
           <Sidebar user={user} path={path} libraries={libraries} federation={federation} unread={unread} navOpen={navOpen} />
           <div>
@@ -276,7 +280,8 @@ export const Layout: FC<
                 </a>
               ) : null}
             </header>
-            <main class="content">
+            {/* tabindex=-1: the skip link moves focus here in every browser, not only where following a link does */}
+            <main class="content" id="main" tabindex={-1}>
               <div class="content-inner">{children}</div>
             </main>
           </div>
