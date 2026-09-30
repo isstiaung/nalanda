@@ -17,6 +17,7 @@ import {
   type ReadDraft,
   type ReadRow,
 } from '../lib/reads';
+import { FEWEST_PLAYERS, WEIGHT_BANDS, type GameFilters } from '../lib/games';
 import { MAX_LINKS_PER_ITEM, type LinkDraft } from '../lib/links';
 import { MAX_LOANS_PER_CELL, type LoanDraft } from '../lib/loans';
 import { MAX_PLAYS_PER_ITEM, PLAYABLE_TYPES, RECENT_PLAYS, type CellPlay, type PersonPlay } from '../lib/plays';
@@ -557,6 +558,26 @@ export async function applyPressingFill(
   return res.meta.changes > 0;
 }
 
+/**
+ * Writes what "Refresh from BGG" filled in (§16 #60) — only if the game's details and length are still as it read
+ * them, so an edit saved while BGG was asked wins. False when something changed: nothing is written.
+ */
+export async function applyGameFill(
+  d1: D1Database,
+  id: number,
+  before: Pick<Item, 'details' | 'length'>,
+  after: Pick<Item, 'details' | 'length'>,
+): Promise<boolean> {
+  const res = await d1
+    .prepare(
+      `UPDATE items SET details = ?1, length = ?2, updated_at = datetime('now')
+       WHERE id = ?3 AND media_type = 'boardgame' AND details = ?4 AND length IS ?5`,
+    )
+    .bind(after.details, after.length, id, before.details, before.length)
+    .run();
+  return res.meta.changes > 0;
+}
+
 /** Deletes an item, and its series with it if it was the series' last volume here (§16 #52). */
 export async function deleteItem(d1: D1Database, id: number): Promise<void> {
   await d1.batch([d1.prepare('DELETE FROM items WHERE id = ?1').bind(id), pruneSeries(d1)]);
@@ -598,6 +619,153 @@ export async function pickNextRead(d1: D1Database, readerId: number, notId: numb
     .orderBy(...(notId === null ? [] : [sql`${s.items.id} = ${notId}`]), sql`random()`)
     .limit(1);
   return pick ?? null;
+}
+
+// ---------- what should we play tonight (ARCH.md §16 #60) ----------
+
+/** A game as "What should we play tonight?" lists it: what it's filtered on, as the query read it, and its last play. */
+export type TonightGame = Pick<Item, 'id' | 'title' | 'creators' | 'coverKey' | 'mediaType'> & {
+  playersMin: number | null;
+  playersMax: number | null;
+  minutes: number | null;
+  weight: number | null;
+  lastPlayed: string | null;
+};
+
+/**
+ * A number from a game's details: a JSON number, or text that is only a number (a libib import keeps every value as
+ * text). Anything else is no value. `key` is one of this file's constants, never input.
+ */
+const detailNumber = (key: string) => {
+  const at = `'$.${key}'`;
+  const v = `json_extract(d, ${at})`;
+  return `CASE json_type(d, ${at})
+      WHEN 'integer' THEN ${v}
+      WHEN 'real' THEN ${v}
+      WHEN 'text' THEN CASE WHEN trim(${v}) GLOB '[0-9]*' AND trim(${v}) NOT GLOB '*[^0-9.]*' AND trim(${v}) NOT GLOB '*.*.*'
+        THEN CAST(trim(${v}) AS REAL) END
+    END`;
+};
+const atLeastOne = (expr: string) => `CASE WHEN (${expr}) >= 1 THEN (${expr}) END`;
+
+/**
+ * Every board game that could come out tonight, each classed against the filters: `fit` 1 when everything asked
+ * about is known and fits, 0 when nothing known rules it out but something asked about is missing ("not enough
+ * details"), and NULL when something known rules it out. ?1 players, ?2 minutes, ?3–?4 the weight band; NULL is any.
+ *
+ * - Only games that are here: in the collection (copies > 0) with a copy not out on loan.
+ * - Players: inside [players_min, players_max], a range typed backwards read the right way round. Only a maximum starts
+ *   the range at FEWEST_PLAYERS (1); only a minimum reads as exactly that many (src/lib/games.ts).
+ * - Time, conservatively: the longer end of the playing time its details give (playtime_max, else playtime_min, the
+ *   larger when both are there), else the Length column (BGG's playing time), and it fits only within the minutes.
+ * - Weight: BGG's 1–5 average, in the band's [from, below).
+ */
+const TONIGHT_CTE = `
+WITH here AS (
+  SELECT i.id, i.title, i.creators, i.cover_key, i.media_type, i.length,
+         CASE WHEN json_valid(i.details) THEN i.details ELSE '{}' END AS d
+  FROM items i
+  WHERE i.media_type = 'boardgame'
+    AND i.copies > (SELECT count(*) FROM loans l WHERE l.item_id = i.id AND l.returned_on IS NULL)
+),
+-- MATERIALIZED: each game's numbers are worked out once. Left to itself SQLite flattens these CTEs into the query,
+-- copying every json_extract into each place a later step names the value — enough copies to run it out of memory.
+raw AS MATERIALIZED (
+  SELECT id, title, creators, cover_key, media_type, length,
+         ${atLeastOne(detailNumber('players_min'))} AS p1,
+         ${atLeastOne(detailNumber('players_max'))} AS p2,
+         ${atLeastOne(detailNumber('playtime_min'))} AS t1,
+         ${atLeastOne(detailNumber('playtime_max'))} AS t2,
+         ${detailNumber('weight')} AS w
+  FROM here
+),
+g AS MATERIALIZED (
+  SELECT id, title, creators, cover_key, media_type,
+         CASE WHEN p1 IS NULL AND p2 IS NOT NULL THEN ${FEWEST_PLAYERS} ELSE min(coalesce(p1, p2), coalesce(p2, p1)) END AS pmin,
+         max(coalesce(p1, p2), coalesce(p2, p1)) AS pmax,
+         coalesce(max(coalesce(t2, t1), coalesce(t1, t2)), CASE WHEN length >= 1 THEN length END) AS minutes,
+         CASE WHEN w >= 1 AND w <= 5 THEN w END AS weight
+  FROM raw
+),
+c AS (
+  SELECT g.*,
+    CASE
+      WHEN (?1 IS NOT NULL AND pmin IS NOT NULL AND NOT (pmin <= ?1 AND ?1 <= pmax))
+        OR (?2 IS NOT NULL AND minutes IS NOT NULL AND minutes > ?2)
+        OR (?3 IS NOT NULL AND weight IS NOT NULL AND NOT (weight >= ?3 AND weight < ?4)) THEN NULL
+      WHEN (?1 IS NOT NULL AND pmin IS NULL) OR (?2 IS NOT NULL AND minutes IS NULL) OR (?3 IS NOT NULL AND weight IS NULL) THEN 0
+      ELSE 1
+    END AS fit
+  FROM g
+)`;
+
+const TONIGHT_COLUMNS = `id, title, creators, cover_key AS coverKey, media_type AS mediaType, pmin AS playersMin, pmax AS playersMax,
+  minutes, weight, (SELECT max(p.played_on) FROM plays p WHERE p.item_id = r.id) AS lastPlayed`;
+
+const tonightBinds = (f: GameFilters) => {
+  const band = f.weight ? WEIGHT_BANDS[f.weight] : null;
+  return [f.players, f.minutes, band?.from ?? null, band?.below ?? null];
+};
+
+/**
+ * The games that fit tonight and the ones missing a detail it needs, each in random order and at most `limit` of
+ * each, with how many there are in all. One D1 call, however big the catalog: the classing is one pass over the
+ * board games, the random order and the counts are window functions, and the last play is read from
+ * `idx_plays_item_played` for the rows returned.
+ */
+export async function gamesForTonight(
+  d1: D1Database,
+  filters: GameFilters,
+  limit: number,
+): Promise<{ fit: TonightGame[]; fitTotal: number; unknown: TonightGame[]; unknownTotal: number }> {
+  const { results } = await d1
+    .prepare(
+      `${TONIGHT_CTE}
+       SELECT ${TONIGHT_COLUMNS}, fit, n FROM (
+         SELECT c.*, row_number() OVER (PARTITION BY fit ORDER BY random()) AS rn, count(*) OVER (PARTITION BY fit) AS n
+         FROM c WHERE fit IS NOT NULL
+       ) r
+       WHERE rn <= ?5
+       ORDER BY fit DESC, rn`,
+    )
+    .bind(...tonightBinds(filters), limit)
+    .all<TonightGame & { fit: number; n: number }>();
+  const out = { fit: [] as TonightGame[], fitTotal: 0, unknown: [] as TonightGame[], unknownTotal: 0 };
+  for (const { fit, n, ...game } of results) {
+    if (fit === 1) {
+      out.fit.push(game);
+      out.fitTotal = n;
+    } else {
+      out.unknown.push(game);
+      out.unknownTotal = n;
+    }
+  }
+  return out;
+}
+
+/**
+ * "Pick one for us": one random game among those that fit, or null when none does — with how many fit and how many
+ * are missing a detail, for the page to say so. `notId` (the pick just shown) sorts last, so "Pick another" shows it
+ * again only when it is the only game that fits. One D1 call.
+ */
+export async function pickGameForTonight(
+  d1: D1Database,
+  filters: GameFilters,
+  notId: number | null = null,
+): Promise<{ pick: TonightGame | null; fitTotal: number; unknownTotal: number }> {
+  const row = await d1
+    .prepare(
+      `${TONIGHT_CTE}
+       SELECT ${TONIGHT_COLUMNS}, fit, sum(fit) OVER () AS fits, count(*) OVER () AS n
+       FROM c r WHERE fit IS NOT NULL
+       ORDER BY fit DESC, id = ?5, random()
+       LIMIT 1`,
+    )
+    .bind(...tonightBinds(filters), notId ?? 0)
+    .first<TonightGame & { fit: number; fits: number; n: number }>();
+  if (!row) return { pick: null, fitTotal: 0, unknownTotal: 0 };
+  const { fit, fits, n, ...game } = row;
+  return { pick: fit === 1 ? game : null, fitTotal: fits, unknownTotal: n - fits };
 }
 
 /** Reading-log entries: cataloged (reviewed, rated) but not physically owned. */

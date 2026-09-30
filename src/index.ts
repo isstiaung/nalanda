@@ -22,6 +22,7 @@ import libraryRoutes from './routes/libraries';
 import loanRoutes from './routes/loans';
 import { MISSING_ASSET, notFound } from './routes/notfound';
 import notificationsRoutes from './routes/notifications';
+import playRoutes from './routes/play';
 import searchRoutes from './routes/search';
 import settingsRoutes from './routes/settings';
 import shareRoutes, { clearSharePageCache } from './routes/share';
@@ -118,6 +119,7 @@ app.use(async (c, next) => {
 
 app.route('/', dashboardRoutes);
 app.route('/', goalRoutes);
+app.route('/', playRoutes);
 app.route('/', libraryRoutes);
 app.route('/', shareAdminRoutes);
 app.route('/', itemRoutes);

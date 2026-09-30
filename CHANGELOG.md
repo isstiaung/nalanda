@@ -8,6 +8,16 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [Unreleased]
+
+### Added
+- **What should we play tonight?** A new page, linked from the Overview and from any shelf showing board games, for game night: say how many players, how much time you have and what weight (light, medium or heavy, from BoardGameGeek's complexity rating: light below 2, medium 2 to under 3, heavy 3 and up), and it lists the board games on your shelves that fit, in random order, each with when it was last played. **Pick one for us** picks one of them at random, and **Pick another** picks again. A game fits the time only if its longest playing time does. Games missing a detail you asked about are listed under **Not enough details** instead of being hidden. Games out on loan, and games you don't own, are left out. The page is inside the app only; share pages and connected households don't see it.
+- **Board games keep BGG's weight.** A game added from a BoardGameGeek search now keeps its complexity rating ("Weight (1–5)", such as 2.29) with its players and playing time. It is catalogue data like those: it shows on the game's page and on share pages, and goes out and comes back in the CSV's `details` column.
+- **Refresh from BGG** on a board game's page fills its weight, player count and playing time for games already in your catalog, using its BoardGameGeek id (`bgg_id` in details). One request per click, a few seconds apart; it fills only what's blank and never changes a value that's there, including anything you typed yourself. Needs the `BGG_TOKEN` secret, as search does.
+
+### Upgrading
+- **What should we play tonight** needs no migration: a game's weight lives in its details. Games added before it have no weight until you press **Refresh from BGG** on their page (one game per click, a few seconds apart); until then they appear under **Not enough details** when you filter by weight. A connected household on an older version sees the weight among a game's details, as it sees its player count.
+
 ## [1.5.0] - 2026-09-30
 
 A lot for games, records and reading: a play and listening log, reading goals (shared with connected households if you like), want lists with shop links and gift-list shares, series with what's missing and what's next, a record's condition and pressing from Discogs, where each thing lives, and loans in the export.
