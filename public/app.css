@@ -938,6 +938,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .feed-cover .cover-fallback { font-size: 1.6rem; }
 .feed-body { min-width: 0; }
 .feed-body .eyebrow { margin: 0 0 0.25rem; }
+.feed-date { white-space: nowrap; } /* a date never breaks at its hyphens under a long household name */
 .feed-line { margin: 0 0 0.2rem; line-height: 1.35; overflow-wrap: anywhere; }
 .feed-line small { color: var(--ink-2); }
 .feed-review { margin: 0.45rem 0 0; font-size: 13px; overflow-wrap: anywhere; }

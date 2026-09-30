@@ -226,7 +226,7 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] | nul
       <div class="feed-body">
         <p class="eyebrow">
           {showHousehold ? `${card.householdName} · ` : ''}
-          {card.published.slice(0, 10)}
+          <span class="feed-date">{card.published.slice(0, 10)}</span>
         </p>
         <p class="feed-line">
           {/* a name from another household: escaped text, like everything else here */}
@@ -319,7 +319,7 @@ const GoalFeedCard: FC<{ card: GoalCard; showHousehold: boolean }> = ({ card, sh
       <div class="feed-body">
         <p class="eyebrow">
           {showHousehold ? `${card.householdName} · ` : ''}
-          {card.published.slice(0, 10)}
+          <span class="feed-date">{card.published.slice(0, 10)}</span>
         </p>
         <p class="feed-line">
           <span class="feed-by">{goal.by} </span>
