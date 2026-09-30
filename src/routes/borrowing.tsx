@@ -541,7 +541,15 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
                     </td>
                     <td>{b.householdName}</td>
                     <td class="date hide-sm">{b.borrowedOn}</td>
-                    <td class="date">{b.dueOn && b.dueOn < todayStr ? <span class="pill overdue">Overdue · {b.dueOn}</span> : (b.dueOn ?? '—')}</td>
+                    <td class="date due-cell">
+                      <span>{b.dueOn ?? '—'}</span>
+                      {b.dueOn && b.dueOn < todayStr ? (
+                        <>
+                          {' '}
+                          <span class="pill overdue">Overdue</span>
+                        </>
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>

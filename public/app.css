@@ -434,6 +434,9 @@ p.error { font-size: 12.5px; color: color-mix(in srgb, var(--stamp) 85%, var(--i
 .data-table .actions-cell .inline-form { flex-wrap: nowrap; justify-content: flex-end; }
 /* a share URL is one long unbreakable token; let it fold instead of widening the table */
 .break-anywhere { overflow-wrap: anywhere; }
+/* a due date and its Overdue pill: one line when there's room, the pill under the date on a phone */
+.data-table td.due-cell { white-space: normal; }
+.data-table td.due-cell > span { white-space: nowrap; }
 .data-table + p { margin-top: 0.75rem; }
 
 /* max-width caps the title column under auto table layout so a long title

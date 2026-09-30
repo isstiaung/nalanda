@@ -68,9 +68,15 @@ loans.get('/loans', async (c) => {
                         {l.contact ? <small class="muted"> · {l.contact}</small> : null}
                       </td>
                       <td class="date hide-sm">{l.loanedOn}</td>
-                      <td class="date">
-                        {/* the date too, as Borrowed shows it: how overdue matters as much as that it is */}
-                        {overdue ? <span class="pill overdue">Overdue · {l.dueOn}</span> : (l.dueOn ?? '—')}
+                      <td class="date due-cell">
+                        {/* the date stays when it's passed: how overdue matters as much as that it is */}
+                        <span>{l.dueOn ?? '—'}</span>
+                        {overdue ? (
+                          <>
+                            {' '}
+                            <span class="pill overdue">Overdue</span>
+                          </>
+                        ) : null}
                       </td>
                       <td class="actions-cell">
                         <form method="post" action={`/loans/${l.id}/return`}>
