@@ -255,7 +255,13 @@ the buttons act on the signed-in person's own reads, another member can start th
 of a book someone else finished, and everyone's reading shows under their name (§16 #43).
 
 **Lending**: from an item page, "lend" captures borrower + optional due date; dashboard and
-`/loans` show what's out and overdue; "returned" stamps `returned_on`. History is kept.
+`/loans` show what's out and overdue; "returned" stamps `returned_on`. History is kept: `/loans`
+lists recent returns, and an item's page lists its own under "Lent before" — each borrower, the
+span and its length in days, newest first, the latest 20 with older ones counted (one query,
+`pastLoansForItem()`). A loan to a connected household is an ordinary loan linked by
+`connection_loans` (§16 #29), so its return is kept the same way and it shows as "household
+(their member)" while that link lasts; removing the connection drops the link, and the loan keeps
+the borrower it was lent under. In-app only, like every loan (§9).
 
 **Publish a view**: admin publishes any filtered view of a shelf (or the whole shelf —
 that's just a view with no filters) from the shelf page → each published view is a row

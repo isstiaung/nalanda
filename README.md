@@ -33,7 +33,7 @@ manuscripts.
   names on, when each member's rating and review appear under the display name they chose, and
   connected households get a feed entry per person. "Read by" can't be published, and usernames
   never leave the app. Admins can move a read or review credited to the wrong person.
-- **Loans**: track who borrowed what, with due dates and history.
+- **Loans**: track who borrowed what, with due dates and history — each item's page lists who has had it before, and for how long.
 - **Connections between households** (optional): connect with another household that
   self-hosts Nalanda — follow each other's reading in a feed, comment on each other's
   reviews, and borrow each other's books with the loan tracked on both sides. One-to-one
