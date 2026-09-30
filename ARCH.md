@@ -1630,9 +1630,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     plays an item (a game a day for thirteen years), in the app and in an import, so no page or
     export cell grows without bound. `scripts/backup.mjs` backs the table up after `reviews`.
 
-    **Migration 0028** (generated, one CREATE TABLE and two indexes) touches nothing else. Rehearsed
-    on production's backup of 2026-09-29: 0000–0027, the per-table restore in `TABLES` order, then
-    0028 — all 34 pre-existing tables (FTS shadow tables included) identical in row counts and row
+    **Migration 0030** (generated, one CREATE TABLE and two indexes; it was 0028 until 1.4.0's
+    session-key migrations took 0028–0029, and was regenerated unchanged) touches nothing else.
+    Rehearsed on a local copy of production's backup of 2026-09-29: 0000–0027, the per-table restore
+    in `TABLES` order, then this migration — all 34 pre-existing tables (FTS shadow tables included) identical in row counts and row
     hashes, all 85 pre-existing schema objects unchanged, `plays` empty, no foreign-key violations,
     integrity ok. D1 (budget 50, #37): a game's page is 11 calls (with lending history's), one more than
     without plays, however many plays; a shared item page 5, the same for a hit and a miss; an export page 9.
