@@ -8,6 +8,11 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [Unreleased]
+
+### Fixed
+- **Discogs attribution, as its API terms require.** A record whose pressing came from Discogs now says **Data provided by Discogs.** right below its pressing details, linked to that release's page on discogs.com, with Discogs' notice under it: "This application uses Discogs’ API but is not affiliated with, sponsored or endorsed by Discogs. ‘Discogs’ is a trademark of Zink Media, LLC." It shows on the record's page, on a share page showing the record, on a connected household's record, and beside each Discogs result on the Add page. A record counts as coming from Discogs when its details hold a Discogs release id and something Discogs filled in, so records you typed in yourself show no credit. Share pages show nothing new besides the credit: the release id in its link is the Discogs ID they already list, and a record's grades stay private. The notice is also in the README and THIRD-PARTY.md. No migration and no new secret: nothing to do when upgrading.
+
 ## [1.5.0] - 2026-09-30
 
 A lot for games, records and reading: a play and listening log, reading goals (shared with connected households if you like), want lists with shop links and gift-list shares, series with what's missing and what's next, a record's condition and pressing from Discogs, where each thing lives, and loans in the export.

@@ -171,7 +171,11 @@ shape from this file.
   connections. It lives in its own columns precisely because `details` is public; never move a
   grade into `details`, and an import drops an off-scale grade rather than keeping it there. Its
   **pressing** (label, catno, country, year, format, tracklist) is public catalogue data in
-  `details`; connections get its plain values, not the tracklist.
+  `details`; connections get its plain values, not the tracklist. Discogs' API terms want
+  "Data provided by Discogs." beside it, linked to the release, plus their not-affiliated notice
+  (ARCH.md §16 #63): `discogsLink()` in `src/views/attribution.tsx` decides — a record with a
+  `discogs_id` and something Discogs filled, never one typed in by hand — and builds the href from
+  a numeric release id only (else discogs.com). Never `nofollow` on it.
 - `/covers/:key` is intentionally public — keys are random UUIDs; never make them
   enumerable or derived from item data.
 - **The service worker never stores a page or an API answer** (ARCH.md §16 #48): only the
@@ -261,7 +265,8 @@ public/            app.css, scanner.js, import.js, app.js, covers.js (swaps a co
                    (static scan-only page), scan-queue.js (the device's IndexedDB queue of offline
                    scans: barcode + time only) and scan-review.js (the Add page's review list)
                    + bgg/ (BGG's "Powered by BGG" logos, committed unmodified — its API terms
-                   require them beside its data; src/views/attribution.tsx, ARCH.md §16 #44)
+                   require them beside its data; src/views/attribution.tsx, ARCH.md §16 #44 —
+                   Discogs' credit, text only, lives there too, §16 #63)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;
                    apply-migrations.ts resets + re-migrates D1 before EVERY test and fails
