@@ -65,7 +65,10 @@ function record(where, variant, results) {
     violations.set(v.id, rule);
     for (const node of v.nodes) {
       const key = `${where} · ${node.target.join(' ')}`;
-      const hit = rule.hits.get(key) ?? { summary: node.failureSummary?.split('\n').slice(1).join(' ').trim() ?? '', html: node.html, variants: new Set() };
+      // the element a check blames besides this one (target-size's too-close neighbour, a duplicate id's twin)
+      const related = [...node.any, ...node.all, ...node.none].flatMap((c) => c.relatedNodes ?? []).map((r) => r.html)[0];
+      const summary = (node.failureSummary?.split('\n').slice(1).join(' ').trim() ?? '') + (related ? ` [related: ${related.slice(0, 100)}]` : '');
+      const hit = rule.hits.get(key) ?? { summary, html: node.html, variants: new Set() };
       hit.variants.add(variant);
       rule.hits.set(key, hit);
     }
@@ -233,7 +236,6 @@ async function html(context, path) {
   return (await context.request.get(`${BASE}${path}`)).text();
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
 const daysAgo = (n) => new Date(Date.now() - n * 86400_000).toISOString().slice(0, 10);
 
 /** Everything the page list below needs that the seed doesn't make. Returns the ids it found or made. */
@@ -437,7 +439,11 @@ async function keyboard(page, where, variant) {
   await fromTop();
   await page.keyboard.press('Tab');
   const first = await stop();
-  if (!first) return fail('the first Tab focused nothing');
+  if (!first) {
+    // a page with nothing to focus (a share link that's gone) has no tab order to walk
+    const focusable = await page.evaluate(() => !!document.querySelector('a[href], button, input:not([type="hidden"]), select, textarea, summary, [tabindex]'));
+    return focusable ? fail('the first Tab focused nothing') : undefined;
+  }
   if (hasSidebar) {
     if (!first.skip) fail(`the first Tab stop is ${first.label}, not the "Skip to content" link`);
     else {
@@ -587,11 +593,26 @@ async function interactions(context, ids, variant) {
       await axe(page, where('Shelf → Holding toggled back to Owned'), variant.name);
     });
 
+    // the phone drawer: open, it's the page's navigation; Escape closes it and hands focus back
+    if (variant.width < 881) {
+      await step('Phone menu', async () => {
+        await open(page, '/');
+        const toggle = page.locator('#nav-toggle');
+        await toggle.click();
+        await page.locator('#sidebar .nav-link').first().waitFor({ state: 'visible', timeout: 5000 });
+        if ((await toggle.getAttribute('aria-expanded')) !== 'true') throw new Error('the menu button does not say it is expanded');
+        await axe(page, 'Phone menu open', variant.name);
+        await page.keyboard.press('Escape');
+        const back = await page.evaluate(() => document.activeElement?.id);
+        if (back !== 'nav-toggle') throw new Error(`Escape left focus on ${back || 'nothing'}, not the menu button`);
+      });
+    }
+
     // not htmx, but states a page only reaches by a refused submit: the error must sit with its fields
     await step('Edit → refused', async () => {
       await open(page, `/items/${ids.game}/edit`);
-      await page.getByLabel('Began').fill('2024-05-02');
-      await page.getByLabel('Completed').fill('2024-05-01');
+      await page.locator('input[name="beganOn"]').fill('2024-05-02');
+      await page.locator('input[name="completedOn"]').fill('2024-05-01');
       await page.getByRole('button', { name: 'Save changes' }).click();
       await page.locator('.error').waitFor({ timeout: 10_000 });
       await page.addScriptTag({ content: AXE });
@@ -698,6 +719,42 @@ async function main() {
         await axe(page, name, variant.name);
         // the keyboard walk once per width, in light: focus styles are the same tokens in both themes
         if (variant.scheme === 'light') await keyboard(page, name, variant.name);
+        // What a closed <details> holds (shelf settings, a read's Edit form, the toolbar's filter menus) is hidden
+        // from axe until it opens. Panels all open together; the toolbar menus drop down over each other, so
+        // those open one at a time, as a person opens them.
+        const shut = await page.evaluate(() => {
+          const closed = [...document.querySelectorAll('details:not([open])')];
+          closed.forEach((d, i) => d.setAttribute('data-a11y-shut', String(i)));
+          const menus = closed.filter((d) => d.classList.contains('filter'));
+          for (const d of closed) if (!menus.includes(d)) d.open = true;
+          return { panels: closed.length - menus.length, menus: menus.map((d) => [d.dataset.a11yShut, d.querySelector('summary')?.textContent?.trim()]) };
+        });
+        if (shut.panels) await axe(page, `${name} (closed sections opened)`, variant.name);
+        for (const [i, label] of shut.menus) {
+          // Only this menu open, the page otherwise as it loaded. What the open menu covers can't be tapped
+          // while it's open, but axe's target-size still counts it as a neighbour of the menu's checkboxes: set
+          // those covered controls invisible for this one run (they were audited above, uncovered).
+          await page.evaluate((n) => {
+            for (const d of document.querySelectorAll('details[data-a11y-shut]')) d.open = d.dataset.a11yShut === n;
+            const m = document.querySelector(`details[data-a11y-shut="${n}"] .filter-menu`)?.getBoundingClientRect();
+            if (!m) return;
+            for (const el of document.querySelectorAll('a[href], button, input, select, textarea, summary')) {
+              if (el.closest('details.filter[open]')) continue;
+              const r = el.getBoundingClientRect();
+              if (r.left < m.right && r.right > m.left && r.top < m.bottom && r.bottom > m.top) {
+                el.style.visibility = 'hidden';
+                el.setAttribute('data-a11y-covered', '');
+              }
+            }
+          }, i);
+          await axe(page, `${name} (menu "${label}" open)`, variant.name);
+          await page.evaluate(() => {
+            for (const el of document.querySelectorAll('[data-a11y-covered]')) {
+              el.style.visibility = '';
+              el.removeAttribute('data-a11y-covered');
+            }
+          });
+        }
       }
     });
     await withVariant(member, variant, async (page) => {
@@ -719,11 +776,12 @@ async function main() {
       nodes++;
       lines.push(`  • ${key}  [${[...hit.variants].join(', ')}]`);
       lines.push(`      ${hit.html.slice(0, 160)}`);
-      if (hit.summary) lines.push(`      ${hit.summary.slice(0, 240)}`);
+      if (hit.summary) lines.push(`      ${hit.summary.slice(0, 400)}`);
     }
   }
   const states = new Set(audited.map((a) => a.replace(/ \[.*\]$/, '')));
-  console.log(`\na11y: ${audited.length} axe runs over ${states.size} pages and states (WCAG 2.0/2.1/2.2 A+AA, light and dark, 1280 and 390 wide)`);
+  console.log(`\na11y: ${audited.length} axe runs over ${states.size} pages and states (WCAG 2.0/2.1/2.2 A+AA, light and dark, 1280 and 390 wide):`);
+  for (const s of states) console.log(`  · ${s}`);
   if (unaudited.length) {
     console.log('\nNot audited (needs the internet):');
     for (const u of unaudited) console.log(`  – ${u}`);
@@ -736,6 +794,13 @@ async function main() {
   const ok = !lines.length && !failures.length && !lookupMissing;
   console.log(ok ? '\na11y: no violations ✓' : '\na11y: FAILED');
   return ok;
+}
+
+// Ctrl-C (or a CI cancel) still stops the server and removes the scratch state
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    cleanup().finally(() => process.exit(130));
+  });
 }
 
 let ok = false;
