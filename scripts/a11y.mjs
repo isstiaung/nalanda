@@ -7,11 +7,13 @@
 //   npm run a11y -- --keep        # leave the server running afterwards, to look around
 //
 // It never touches your development database or port: it starts its own `wrangler dev` on 127.0.0.1:8817 with
-// its own --persist-to state in a temporary directory, removed afterwards. Everything it needs comes from here:
-// a throwaway session secret and connections key, seed data from scripts/seed-demo.mjs (offline, --no-covers),
-// and cover images from a tiny server on :8818 that the Worker fetches like any cover URL. The one step that
-// needs the internet is looking up a book on the Add page (Open Library): when that finds nothing, the report
-// says which states went unaudited, and A11Y_REQUIRE_LOOKUP=1 turns that into a failure.
+// its own --persist-to state in a temporary directory, removed afterwards. It brings what it needs: a throwaway
+// session secret and connections key, seed data from scripts/seed-demo.mjs (offline, --no-covers), and cover
+// images from a tiny server on :8818 that the Worker fetches like any cover URL. (A .dev.vars beside
+// wrangler.jsonc still loads, as it does for `npm run dev`: with BGG or Discogs tokens in it, local runs look up
+// more than CI does.) The one step that needs the internet is looking up a book on the Add page (Open Library):
+// when that finds nothing, the report says which states went unaudited (a warning annotation on GitHub
+// Actions), and A11Y_REQUIRE_LOOKUP=1 turns that into a failure.
 //
 // A11Y_CHROMIUM=/path/to/chrome uses an installed Chromium-family browser instead of Playwright's
 // (`npx playwright install chromium`).
@@ -38,11 +40,15 @@ const KEEP = process.argv.includes('--keep');
 const USERNAME = 'librarian'; // seed-demo.mjs's admin
 const PASSWORD = 'demo-password';
 
-// WCAG 2.0, 2.1 and 2.2, levels A and AA — the bar (ARCH.md §18) — plus the few best-practice rules that check
-// structure a screen-reader user navigates by: one main landmark, content inside landmarks, one h1, headings that
-// don't skip levels, and a skip link that goes somewhere.
-const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'];
-const BEST_PRACTICE = ['heading-order', 'page-has-heading-one', 'landmark-one-main', 'region', 'skip-link', 'empty-heading', 'empty-table-header', 'landmark-unique'];
+// WCAG 2.0, 2.1 and 2.2, levels A and AA — the bar (ARCH.md §18) — plus axe's best-practice rules (the structure
+// a screen-reader user navigates by: landmarks, one h1, headings that don't skip levels, a skip link that goes
+// somewhere) and the experimental WCAG rules that tag selection leaves out: a visible label that's part of the
+// accessible name (2.5.3), and a bold paragraph standing in for a heading.
+const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa', 'best-practice'];
+const EXPERIMENTAL = ['label-content-name-mismatch', 'p-as-heading'];
+// what axe can't decide on its own (text over an image, a background it can't compute) for these is reported for
+// a person to look at; it doesn't fail the run, but it is never silent
+const REVIEW = ['color-contrast', 'target-size'];
 
 const VARIANTS = [
   { name: 'light 1280', scheme: 'light', width: 1280, height: 900 },
@@ -57,6 +63,7 @@ const violations = new Map(); // rule id → { impact, help, helpUrl, hits: Map<
 const failures = []; // keyboard, reachability, scripting problems: plain lines
 const audited = []; // "page [variant]"
 const unaudited = []; // states the audit couldn't reach, with why
+const needsReview = new Map(); // "rule · page · target" → variants, from axe's incomplete results
 
 function record(where, variant, results) {
   audited.push(`${where} [${variant}]`);
@@ -75,36 +82,79 @@ function record(where, variant, results) {
   }
 }
 
+let symbolsOnly = 0; // incomplete contrast checks on text that is only symbols: stars, media icons
+
 async function axe(page, where, variant) {
+  // from the top: after a keyboard walk the page is scrolled, and the phone's sticky bar would sit over text
+  // (and a table the walk scrolled sideways would hide its first column under its own edge)
+  await page.evaluate(() => {
+    window.scrollTo(0, 0);
+    for (const el of document.querySelectorAll('.data-table')) el.scrollLeft = 0;
+  });
   const results = await page.evaluate(
-    async ({ tags, extra }) => {
-      return window.axe.run(document, {
+    ({ tags, extra }) =>
+      window.axe.run(document, {
         runOnly: { type: 'tag', values: tags },
         rules: Object.fromEntries(extra.map((id) => [id, { enabled: true }])),
-        resultTypes: ['violations'],
-      });
-    },
-    { tags: WCAG_TAGS, extra: BEST_PRACTICE },
+        resultTypes: ['violations', 'incomplete'],
+      }),
+    { tags: TAGS, extra: EXPERIMENTAL },
   );
-  // runOnly by tag leaves the best-practice rules out; run them on their own and merge
-  const extra = await page.evaluate(
-    (ids) => window.axe.run(document, { runOnly: { type: 'rule', values: ids }, resultTypes: ['violations'] }),
-    BEST_PRACTICE,
-  );
-  record(where, variant, { violations: [...results.violations, ...extra.violations] });
+  record(where, variant, results);
+  // Reflow (WCAG 1.4.10), which axe doesn't test: on a phone the page itself never scrolls sideways. A table may
+  // scroll inside its own frame; nothing else may stick out past the screen's edge.
+  if ((page.viewportSize()?.width ?? 1280) < 500) {
+    const over = await page.evaluate(() => {
+      const w = document.documentElement.clientWidth;
+      if (document.documentElement.scrollWidth <= w + 1) return null;
+      let worst = null;
+      for (const el of document.body.querySelectorAll('*')) {
+        const r = el.getBoundingClientRect();
+        if (r.right <= w + 1 || r.width === 0 || !el.checkVisibility({ contentVisibilityAuto: true, visibilityProperty: true })) continue;
+        let inScroller = false;
+        for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+          if (getComputedStyle(a).overflowX !== 'visible') {
+            inScroller = true;
+            break;
+          }
+        }
+        if (!inScroller && (!worst || r.right > worst.right)) worst = { right: r.right, html: el.outerHTML.slice(0, 120) };
+      }
+      return `the page is ${document.documentElement.scrollWidth}px wide on a ${w}px screen${worst ? `; ${worst.html} reaches ${Math.round(worst.right)}px` : ''}`;
+    });
+    if (over) failures.push(`reflow · ${where} [${variant}]: ${over}`);
+  }
+  for (const r of results.incomplete.filter((i) => REVIEW.includes(i.id))) {
+    for (const node of r.nodes) {
+      // ★★★★½ and the media icons: axe won't rate symbols. The stars' colours are set for 4.5:1 (ARCH.md §18)
+      if (/only non-text characters/.test(node.any[0]?.message ?? '')) {
+        symbolsOnly++;
+        continue;
+      }
+      const key = `${r.id} · ${where} · ${node.target.join(' ')} — ${(node.any[0]?.message ?? '').slice(0, 140)}`;
+      needsReview.set(key, (needsReview.get(key) ?? new Set()).add(variant));
+    }
+  }
 }
 
 // ── the throwaway instance ────────────────────────────────────────────────────────────────────────────────────
 
 const WRANGLER = join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'wrangler.cmd' : 'wrangler');
 const stateDir = mkdtempSync(join(tmpdir(), 'nalanda-a11y-'));
+// Everything here is local: wrangler runs with --local and a temporary --persist-to, and never with --remote.
+// Its environment also drops any Cloudflare credentials and the production database id, so no wrangler call
+// made by this script could reach a Cloudflare account even by mistake, and sends no usage metrics.
+const LOCAL_ENV = { ...process.env, CI: '1', WRANGLER_SEND_METRICS: 'false' };
+for (const key of ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_API_KEY', 'CLOUDFLARE_EMAIL', 'CLOUDFLARE_ACCOUNT_ID', 'CF_API_TOKEN', 'CF_ACCOUNT_ID', 'D1_DATABASE_ID']) {
+  delete LOCAL_ENV[key];
+}
 let server = null;
 let coverServer = null;
 let browser = null;
 
 function run(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CI: '1' }, ...opts });
+    const child = spawn(cmd, args, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env: LOCAL_ENV, ...opts });
     let out = '';
     child.stdout.on('data', (d) => (out += d));
     child.stderr.on('data', (d) => (out += d));
@@ -128,6 +178,7 @@ async function startServer() {
     WRANGLER,
     [
       'dev',
+      '--local', // no remote bindings, whatever the config ever says
       '--ip', '127.0.0.1',
       '--port', String(PORT),
       '--inspector-port', String(INSPECTOR_PORT),
@@ -137,7 +188,7 @@ async function startServer() {
       // connections switched on, so Feed, Notifications, Borrowed and Connections render (without a peer)
       '--var', `FEDERATION_PRIVATE_KEY:${await federationKey()}`,
     ],
-    { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', env: { ...process.env, CI: '1' } },
+    { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', env: LOCAL_ENV },
   );
   server.stdout.on('data', (d) => (log += d));
   server.stderr.on('data', (d) => (log += d));
@@ -226,9 +277,18 @@ async function cleanup() {
 // ── driving the app ───────────────────────────────────────────────────────────────────────────────────────────
 
 /** A form POST through the browser context's cookie jar; returns the response (redirects not followed). */
-async function post(context, path, form) {
-  const res = await context.request.post(`${BASE}${path}`, { form, maxRedirects: 0 });
-  if (res.status() >= 400) throw new Error(`POST ${path} → ${res.status()}: ${(await res.text()).slice(0, 300)}`);
+async function post(context, path, form, { htmx = false } = {}) {
+  // as htmx: the reading routes answer a refusal with the section and its error, where a plain post would redirect
+  // and drop it
+  const headers = htmx ? { 'HX-Request': 'true' } : {};
+  const res = await context.request.post(`${BASE}${path}`, { form, headers, maxRedirects: 0 });
+  // many handlers refuse with a 200 and the page again, its error on it: a refused step fails the audit rather
+  // than quietly leaving it to check a poorer page
+  const body = res.status() < 300 ? await res.text() : '';
+  const refused = body.match(/<p class="error"[^>]*>([\s\S]*?)<\/p>/)?.[1];
+  if (res.status() >= 400 || refused) {
+    throw new Error(`POST ${path} → ${res.status()}: ${(refused ?? body).replace(/<[^>]+>/g, '').trim().slice(0, 300)}`);
+  }
   return res;
 }
 
@@ -272,19 +332,23 @@ async function furnish(admin, member) {
   const overdue = await find('Azul');
 
   // reading: a page recorded, a second finish (so "Read 2 times" and ×2 show), a loan past its due date
-  await post(admin, `/items/${reading}/progress`, { page: '120' });
-  await post(admin, `/items/${reread}/reads`, { status: 'completed', beganOn: '2019-01-02', endedOn: '2019-02-03' });
+  await post(admin, `/items/${reading}/progress`, { page: '120' }, { htmx: true });
+  await post(admin, `/items/${reread}/reads`, { status: 'completed', beganOn: '2019-01-02', endedOn: '2019-02-03' }, { htmx: true });
   await post(admin, `/items/${overdue}/loan`, { borrower: 'Meera', contact: '', dueOn: daysAgo(3) });
 
   // a second member — the reading and review sections then name people
   const minted = await (await post(admin, '/settings/users', { username: 'ravi', role: 'member' })).text();
   const temp = minted.match(/<code>([^<]+)<\/code>/)?.[1];
   if (!temp) throw new Error('No temporary password shown for the new member');
-  const people = await html(admin, '/settings/users');
-  const raviId = Number(people.match(/action="\/settings\/users\/(\d+)\/display-name"[\s\S]*?Display name for ravi/)?.[1]);
-  const adminId = Number(people.match(/action="\/settings\/users\/(\d+)\/display-name"[\s\S]*?Display name for librarian/)?.[1]);
+  // each member's display-name form: its action's id, and the name its field is labelled with
+  const people = new Map(
+    [...(await html(admin, '/settings/users')).matchAll(/action="\/settings\/users\/(\d+)\/display-name"[\s\S]*?aria-label="Display name for ([^"]+)"/g)].map((m) => [m[2], Number(m[1])]),
+  );
+  const raviId = people.get('ravi');
+  const adminId = people.get(USERNAME);
   await post(admin, `/settings/users/${adminId}/display-name`, { displayName: 'Lakshmi' });
-  if (raviId) await post(admin, `/settings/users/${raviId}/display-name`, { displayName: 'Ravi' });
+  if (!raviId || !adminId) throw new Error('Could not find the members on /settings/users');
+  await post(admin, `/settings/users/${raviId}/display-name`, { displayName: 'Ravi' });
 
   // names and progress on share pages, so their fullest form is audited; a tag share and a board-game share too
   await post(admin, '/shares/settings', { setting: 'progress', progressOnShares: 'on' });
@@ -298,8 +362,27 @@ async function furnish(admin, member) {
   await post(admin, '/connections/views', { name: 'Finished books', libraryId: String(shelves.books), mediaType: 'book', status: 'completed', owned: '' });
   await post(admin, '/connections/invites', {});
 
-  const shares = [...(await html(admin, '/shares')).matchAll(/\/share\/([A-Za-z0-9_-]{16,})/g)].map((m) => m[1]);
-  return { shelves, book, game, record, reading, reread, overdue, temp, shares: [...new Set(shares)], member };
+  // an empty shelf, and enough books that a shelf has a second page (60 to a page)
+  const wishlist = Number((await post(admin, '/libraries', { name: 'Wishlist' })).headers().location?.match(/\/libraries\/(\d+)/)?.[1]);
+  const filler = Array.from({ length: 55 }, (_, i) => ({ Title: `Ledger volume ${i + 1}`, Creators: 'The Registrar', 'Item Type': 'Books', Status: 'not begun', Copies: '1' }));
+  const imported = await admin.request.post(`${BASE}/api/import`, { data: { libraryId: shelves.books, rows: filler, defaultType: 'book' } });
+  if (!imported.ok()) throw new Error(`Importing the filler books failed: ${imported.status()}`);
+
+  const shares = [...new Set([...(await html(admin, '/shares')).matchAll(/\/share\/([A-Za-z0-9_-]{16,})/g)].map((m) => m[1]))];
+
+  // what the pages below rely on is really there — a check that fails here names the step, instead of the audit
+  // quietly looking at a poorer page
+  const expect = async (path, what, pattern) => {
+    if (!pattern.test(await html(admin, path))) throw new Error(`furnishing: ${path} does not show ${what}`);
+  };
+  await expect(`/items/${reading}`, 'the page recorded', /p\. 120/);
+  await expect(`/items/${reread}`, 'a second finish', /read 2 times/);
+  await expect(`/items/${overdue}`, 'the overdue loan', /overdue/);
+  await expect(`/items/${book}`, 'its cover', /<img class="cover-img"/);
+  await expect('/connections', 'the shared view', /Finished books/);
+  await expect(`/libraries/${shelves.books}?page=2`, 'a second page', /class="pagination"/);
+  if (shares.length < 5 || !wishlist) throw new Error(`furnishing: ${shares.length} share links and wishlist ${wishlist}`);
+  return { shelves, wishlist, book, game, record, reading, reread, overdue, temp, shares, member };
 }
 
 // ── pages ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -314,6 +397,8 @@ function pageList(ids) {
     ['Shelf: games, table', `/libraries/${s.games}`],
     ['Shelf: vinyl, covers', `/libraries/${s.vinyl}?view=grid`],
     ['Shelf: filtered, nothing matches', `/libraries/${s.vinyl}?type=book`],
+    ['Shelf: empty', `/libraries/${ids.wishlist}`],
+    ['Shelf: books, second page', `/libraries/${s.books}?page=2`],
     ['Item: book, being read', `/items/${ids.reading}`],
     ['Item: book, read twice', `/items/${ids.reread}`],
     ['Item: book with cover', `/items/${ids.book}`],
@@ -404,19 +489,48 @@ async function keyboard(page, where, variant) {
     page.evaluate(() => {
       const el = document.activeElement;
       if (!el || el === document.body || el === document.documentElement) return null;
+      // A focus indicator, judged by what it would draw, not merely that a style is set:
       const s = getComputedStyle(el);
-      const outline = s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) > 0;
-      const shadow = s.boxShadow && s.boxShadow !== 'none';
-      // a date input's calendar button: focus sits inside the browser's own control, which draws its own ring
-      const native = el.matches(':focus-within') && !el.matches(':focus');
       const r = el.getBoundingClientRect();
+      const alpha = (color) => {
+        const parts = color.match(/rgba?\(([^)]*)\)/)?.[1].split(/[\s,/]+/).filter(Boolean) ?? [];
+        return parts.length > 3 ? parseFloat(parts[3]) : 1;
+      };
+      // - an outline that is drawn, not faint, and not clipped away on two or more sides by an ancestor that hides
+      //   its overflow (a 2px ring inside a rounded toggle clipped top and bottom reads as nothing)
+      const ow = parseFloat(s.outlineWidth) || 0;
+      let outline = s.outlineStyle !== 'none' && ow > 0 && alpha(s.outlineColor) >= 0.5;
+      const grow = ow + (parseFloat(s.outlineOffset) || 0);
+      if (outline && grow > 0) {
+        for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
+          const as = getComputedStyle(a);
+          if (as.overflowX === 'visible' && as.overflowY === 'visible') continue;
+          const ar = a.getBoundingClientRect();
+          const clipped = [r.top - grow < ar.top - 0.5, r.bottom + grow > ar.bottom + 0.5, r.left - grow < ar.left - 0.5, r.right + grow > ar.right + 0.5];
+          if (clipped.filter(Boolean).length >= 2) outline = false;
+          break;
+        }
+      }
+      // - a box-shadow ring that isn't a faint tint (input:focus's 9% indigo glow is not, on its own, an indicator)
+      const shadow = s.boxShadow !== 'none' && alpha(s.boxShadow.match(/rgba?\([^)]*\)/)?.[0] ?? 'rgb(0,0,0)') >= 0.3;
+      // - or a border or background that changes on focus (a field's border turning indigo): compared with an
+      //   unfocused twin of the element, placed beside it for a moment
+      const twin = el.cloneNode(false);
+      twin.removeAttribute('id');
+      el.after(twin);
+      const t = getComputedStyle(twin);
+      const changed =
+        (parseFloat(s.borderTopWidth) > 0 && s.borderTopColor !== t.borderTopColor) || s.backgroundColor !== t.backgroundColor;
+      twin.remove();
+      // - a date input's calendar button: focus sits inside the browser's own control, which draws its own ring
+      const native = el.matches(':focus-within') && !el.matches(':focus');
       const name = (el.getAttribute('aria-label') || el.textContent || el.getAttribute('name') || '').trim().replace(/\s+/g, ' ');
       return {
         id: el.getAttribute('data-a11y-k'),
         label: `<${el.tagName.toLowerCase()}${el.className && typeof el.className === 'string' ? ` class="${el.className.trim()}"` : ''}> "${name.slice(0, 40)}"`,
         inMain: !!el.closest('main'),
         skip: el.classList.contains('skip-link'),
-        visible: outline || shadow || native,
+        visible: outline || shadow || changed || native,
         onScreen: r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth,
       };
     });
@@ -460,13 +574,19 @@ async function keyboard(page, where, variant) {
 
   // Every stop, once round: each must show focus, and the walk must come back to the start — a page that never
   // lets go of focus traps it. A date input is up to four stops (month, day, year, calendar), hence the margin.
-  const total = await page.evaluate(
-    () =>
-      [...document.querySelectorAll('a[href], button, input, select, textarea, summary, [tabindex]')].filter(
-        (el) => !el.disabled && el.getAttribute('tabindex') !== '-1' && el.type !== 'hidden' && el.checkVisibility?.({ visibilityProperty: true }) !== false,
-      ).length,
+  const tabbable = await page.evaluate(() =>
+    [...document.querySelectorAll('a[href], button, input, select, textarea, summary, [tabindex]')]
+      .filter(
+        (el) =>
+          !el.disabled &&
+          el.getAttribute('tabindex') !== '-1' &&
+          el.type !== 'hidden' &&
+          !el.closest('[inert]') &&
+          el.checkVisibility?.({ visibilityProperty: true }) !== false,
+      )
+      .map((el) => [el.getAttribute('data-a11y-k'), `<${el.tagName.toLowerCase()}> "${(el.getAttribute('aria-label') || el.textContent || el.getAttribute('name') || '').trim().replace(/\s+/g, ' ').slice(0, 40)}"`]),
   );
-  const limit = total * 4 + 25;
+  const limit = tabbable.length * 4 + 25;
   const seen = [];
   const invisible = new Set();
   let reachedMain = false;
@@ -489,6 +609,10 @@ async function keyboard(page, where, variant) {
     cur = await stop();
   }
   for (const label of invisible) fail(`no visible focus indicator on ${label}`);
+  // every visible control was a stop: focus jumping back to the start, or out to <body>, early is no pass
+  const visited = new Set(seen.map((st) => st.id));
+  const missed = tabbable.filter(([id]) => !visited.has(id));
+  if (wrapped && missed.length) fail(`Tab never reached ${missed.length}: ${missed.slice(0, 5).map(([, l]) => l).join(', ')}`);
   if (mainHasStops && !reachedMain) fail('Tab never reached anything in <main>');
   if (!wrapped) {
     const tail = seen.slice(-6).map((s) => s.label).join(' → ');
@@ -505,10 +629,38 @@ async function interactions(context, ids, variant) {
     try {
       await fn();
     } catch (err) {
-      failures.push(`htmx · ${name} [${variant.name}]: ${err.message.split('\n')[0]}`);
+      failures.push(`interaction · ${name} [${variant.name}]: ${err.message.split('\n')[0]}`);
     }
   };
+  // after a swap, keyboard focus must be somewhere, not dropped back to <body> at the top of the page
+  const focusKept = async (page, what) => {
+    const lost = await page.evaluate(() => !document.activeElement || document.activeElement === document.body);
+    if (lost) failures.push(`keyboard · ${what} [${variant.name}]: focus fell to <body> after the swap`);
+  };
+  // A lookup needs Open Library, which can be slow or refuse a burst: one retry, then it's reported as not audited
+  // (and on GitHub Actions as a warning), with what came back instead — a notice says why.
+  const lookup = async (page, submit, results, label) => {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      // empty first, so what was there from the last lookup can't pass for this one's answer
+      await page.evaluate((sel) => {
+        const box = document.querySelector(sel);
+        if (box) box.innerHTML = '';
+      }, results);
+      await submit();
+      const settled = page.locator(`${results} .candidate, ${results} .notice`).first();
+      await settled.waitFor({ timeout: 20_000 }).catch(() => {});
+      if (await page.locator(`${results} .candidate`).count()) return true;
+      if (attempt === 2) {
+        const notice = (await page.locator(`${results} .notice`).allTextContents()).join(' ').trim();
+        unaudited.push(`${label} [${variant.name}]: ${notice ? `the lookup said "${notice.slice(0, 120)}"` : 'no answer within 20 s'}`);
+      }
+    }
+    return false;
+  };
+
   await withVariant(context, variant, async (page) => {
+    page.on('dialog', (d) => d.accept()); // hx-confirm's "Delete this read…?"
+
     // Add → Scan: typing a barcode, the path that needs no camera
     await step('Add → typed barcode', async () => {
       await open(page, '/add');
@@ -517,78 +669,87 @@ async function interactions(context, ids, variant) {
       await barcode.press('Enter');
       await page.locator('#scan-results .notice').waitFor({ timeout: 10_000 });
       await axe(page, where('Add → typed barcode, not valid'), variant.name);
-
-      await barcode.fill('9780441478125');
-      await barcode.press('Enter');
-      const card = page.locator('#scan-results .candidate');
-      await card.first().waitFor({ timeout: 20_000 }).catch(() => {});
-      if (await card.count()) await axe(page, where('Add → typed ISBN, a book found'), variant.name);
-      else unaudited.push(`Add → typed ISBN → candidate card [${variant.name}]: the lookup found nothing (offline?)`);
+      const found = await lookup(page, async () => {
+        await barcode.fill('9780441478125');
+        await barcode.press('Enter');
+      }, '#scan-results', 'Add → typed ISBN → candidate card');
+      if (found) await axe(page, where('Add → typed ISBN, a book found'), variant.name);
     });
 
     await step('Add → Search', async () => {
       await open(page, '/add');
       await page.getByRole('button', { name: /search/i }).first().click();
+      if ((await page.getByRole('button', { name: /search/i }).first().getAttribute('aria-pressed')) !== 'true') {
+        throw new Error('the Search button does not say it is pressed');
+      }
       const q = page.locator('#tab-search input[name="q"]');
-      await q.fill('Piranesi');
-      await q.press('Enter');
-      await page.locator('#search-results .candidate, #search-results .notice').first().waitFor({ timeout: 20_000 }).catch(() => {});
-      if (await page.locator('#search-results .candidate').count()) await axe(page, where('Add → search results'), variant.name);
-      else unaudited.push(`Add → Search → results [${variant.name}]: the search found nothing (offline?)`);
+      const found = await lookup(page, async () => {
+        await q.fill('Piranesi');
+        await q.press('Enter');
+      }, '#search-results', 'Add → Search → results');
+      if (found) await axe(page, where('Add → search results'), variant.name);
       await page.getByRole('button', { name: /manual/i }).click();
       await axe(page, where('Add → Manual tab'), variant.name);
     });
 
-    // the reading section: every form in it swaps the section
+    // The reading section: every form in it swaps the section. Driven from the keyboard (Enter on the field or
+    // the button), so what happens to focus afterwards is what a keyboard user gets.
     const reading = page.locator('#reading');
-    const swapped = async (fn) => {
+    const swap = async (label, fn) => {
       const before = await reading.innerHTML();
       await fn();
       await page.waitForFunction((b) => document.querySelector('#reading')?.innerHTML !== b, before, { timeout: 10_000 });
+      await page.waitForTimeout(50); // htmx settles, and app.js puts focus back, a tick after the swap
+      await axe(page, where(`Reading → ${label}`), variant.name);
+      await focusKept(page, where(`Reading → ${label}`));
     };
+    // the viewer's own block: with more than one member, everyone's reading is on the page, the viewer's first
+    const own = () => reading.locator('.reader-self');
     await step('Reading', async () => {
       await open(page, `/items/${ids.reading}`);
-      await swapped(async () => {
+      await swap('Record, refused', async () => {
         await reading.getByLabel('Page reached').fill('999999');
-        await reading.getByRole('button', { name: 'Record' }).click();
+        await reading.getByLabel('Page reached').press('Enter');
       });
-      await axe(page, where('Reading → Record, refused'), variant.name);
-      await swapped(async () => {
+      await swap('Record a page', async () => {
         await reading.getByLabel('Page reached').fill('150');
-        await reading.getByRole('button', { name: 'Record' }).click();
+        await reading.getByRole('button', { name: 'Record' }).press('Enter');
       });
-      await axe(page, where('Reading → Record a page'), variant.name);
-      await reading.locator('summary', { hasText: 'Add a past read' }).click();
-      await swapped(async () => {
+      await swap('Remove a page', () => own().locator('.progress-log button', { hasText: 'Remove' }).first().press('Enter'));
+      await reading.locator('summary', { hasText: 'Add a past read' }).press('Enter');
+      await swap('Add a past read', async () => {
         const form = reading.locator('details.read-add form');
         await form.getByLabel('Began').fill('2015-05-01');
         await form.getByLabel('Ended').fill('2015-06-01');
-        await form.getByRole('button', { name: 'Add' }).click();
+        await form.getByRole('button', { name: 'Add' }).press('Enter');
       });
-      await axe(page, where('Reading → Add a past read'), variant.name);
-      await reading.locator('.read-history summary', { hasText: 'Edit' }).first().click();
+      await reading.locator('.read-history summary', { hasText: 'Edit' }).first().press('Enter');
       await axe(page, where('Reading → a read opened for editing'), variant.name);
-      await swapped(() => reading.locator('.read-history details[open] form').first().getByRole('button', { name: 'Save' }).click());
-      await axe(page, where('Reading → Save a read'), variant.name);
-      await swapped(() => reading.getByRole('button', { name: 'Finish' }).click());
-      await axe(page, where('Reading → Finish'), variant.name);
-      await swapped(() => reading.getByRole('button', { name: /Read again/ }).click());
-      await axe(page, where('Reading → Read again'), variant.name);
-      await swapped(() => reading.getByRole('button', { name: /Stop/ }).click());
-      await axe(page, where('Reading → Stop'), variant.name);
+      await swap('Save a read', () => reading.locator('.read-history details[open] form').first().getByRole('button', { name: 'Save' }).press('Enter'));
+      // the past read just added, deleted (hx-confirm, accepted above) — the last line of the viewer's history
+      await own().locator('.read-history > li', { hasText: '2015-05-01' }).locator('summary').press('Enter');
+      await swap('Delete a read', () => own().locator('.read-history details[open] button', { hasText: 'Delete this read' }).press('Enter'));
+      await swap('Finish', () => reading.getByRole('button', { name: 'Finish' }).first().press('Enter'));
+      await swap('Read again', () => reading.getByRole('button', { name: /Read again/ }).press('Enter'));
+      await swap('Stop', () => reading.getByRole('button', { name: /Stop/ }).first().press('Enter'));
+      // an admin moves a finished read of theirs to another member
+      await own().locator('.read-history > li summary', { hasText: 'Edit' }).first().press('Enter');
+      await swap('Move a read to another member', () => own().locator('.read-history details[open] button', { hasText: /^Move/ }).first().press('Enter'));
       // open again, as it was, for the next variant
-      await swapped(() => reading.getByRole('button', { name: /Read again|Start again/ }).click());
+      await swap('Read again, to leave it open', () => reading.getByRole('button', { name: /Read again|Start again/ }).first().press('Enter'));
     });
 
     // the Holding toggle, on a shelf's table
     await step('Shelf → Holding toggle', async () => {
       await open(page, `/libraries/${ids.shelves.books}`);
       const toggle = page.locator(`button[hx-post="/items/${ids.book}/mark-not-owned"]`);
-      await toggle.click();
+      await toggle.press('Enter');
       const back = page.locator(`button[hx-post="/items/${ids.book}/mark-owned"]`);
       await back.waitFor({ timeout: 10_000 });
+      await page.waitForTimeout(50);
       await axe(page, where('Shelf → Holding toggled to Not owned'), variant.name);
-      await back.click();
+      await focusKept(page, where('Shelf → Holding toggle'));
+      await back.press('Enter');
       await toggle.waitFor({ timeout: 10_000 });
       await axe(page, where('Shelf → Holding toggled back to Owned'), variant.name);
     });
@@ -608,25 +769,53 @@ async function interactions(context, ids, variant) {
       });
     }
 
-    // not htmx, but states a page only reaches by a refused submit: the error must sit with its fields
+    // Not htmx, but states a page only reaches by submitting a form in the browser: refusals, whose error must sit
+    // with its fields, and what an admin is shown once (a temporary password, an invitation link).
+    const submitted = async (name, fn) => {
+      await fn();
+      await page.waitForLoadState('load');
+      await page.addScriptTag({ content: AXE });
+      await axe(page, name, variant.name);
+    };
     await step('Edit → refused', async () => {
       await open(page, `/items/${ids.game}/edit`);
-      await page.locator('input[name="beganOn"]').fill('2024-05-02');
-      await page.locator('input[name="completedOn"]').fill('2024-05-01');
-      await page.getByRole('button', { name: 'Save changes' }).click();
-      await page.locator('.error').waitFor({ timeout: 10_000 });
-      await page.addScriptTag({ content: AXE });
-      await axe(page, 'Edit → refused, dates out of order', variant.name);
+      await submitted('Edit → refused, dates out of order', async () => {
+        await page.locator('input[name="beganOn"]').fill('2024-05-02');
+        await page.locator('input[name="completedOn"]').fill('2024-05-01');
+        await page.getByRole('button', { name: 'Save changes' }).click();
+        await page.locator('.error').waitFor({ timeout: 10_000 });
+      });
     });
     await step('Account → refused', async () => {
       await open(page, '/account');
-      await page.getByLabel('Current password').fill('not-the-password');
-      await page.getByLabel(/^New password/).fill('another-password');
-      await page.getByLabel('Confirm new password').fill('another-password');
-      await page.getByRole('button', { name: 'Change password' }).click();
-      await page.locator('.error').waitFor({ timeout: 10_000 });
-      await page.addScriptTag({ content: AXE });
-      await axe(page, 'Account → refused, wrong password', variant.name);
+      await submitted('Account → refused, wrong password', async () => {
+        await page.getByLabel('Current password').fill('not-the-password');
+        await page.getByLabel(/^New password/).fill('another-password');
+        await page.getByLabel('Confirm new password').fill('another-password');
+        await page.getByRole('button', { name: 'Change password' }).click();
+        await page.locator('.error').waitFor({ timeout: 10_000 });
+      });
+    });
+    await step('Members → add a member', async () => {
+      const username = `guest-${variant.scheme}-${variant.width}`;
+      await open(page, '/settings/users');
+      await submitted('Members → a new member\'s temporary password', async () => {
+        await page.getByLabel('Username').fill(username);
+        await page.getByRole('button', { name: 'Create account' }).click();
+        await page.locator('article.notice code').waitFor({ timeout: 10_000 });
+      });
+      await submitted('Members → refused, username taken', async () => {
+        await page.getByLabel('Username').fill(username);
+        await page.getByRole('button', { name: 'Create account' }).click();
+        await page.locator('.error').waitFor({ timeout: 10_000 });
+      });
+    });
+    await step('Connections → invitation', async () => {
+      await open(page, '/connections');
+      await submitted('Connections → a new invitation link', async () => {
+        await page.getByRole('button', { name: 'Create an invitation' }).click();
+        await page.locator('article.notice').first().waitFor({ timeout: 10_000 });
+      });
     });
   });
 }
@@ -688,8 +877,33 @@ async function main() {
 
   const pages = pageList(ids);
   pages.push(...(await shareItemPages(admin, ids.shares)));
+
+  // the member's forced password change, in every variant, then the change itself: after it, the app as a member
+  // sees it (other people's reads without their forms, a shelf without the share panel)
+  for (const variant of VARIANTS) {
+    if (!chosen('member')) break;
+    await withVariant(member, variant, async (page) => {
+      await open(page, '/account');
+      await axe(page, 'Member: must change password', variant.name);
+    });
+  }
+  {
+    const page = await member.newPage();
+    await page.goto(`${BASE}/account`);
+    await page.getByLabel('Current password').fill(ids.temp);
+    await page.getByLabel(/^New password/).fill('member-password');
+    await page.getByLabel('Confirm new password').fill('member-password');
+    await page.getByRole('button', { name: 'Change password' }).click();
+    await page.waitForURL(`${BASE}/`);
+    await page.close();
+  }
   const memberPages = [
-    ['Account: must change password (member)', '/account'],
+    ['Member: overview', '/'],
+    ['Member: item, book being read', `/items/${ids.reading}`],
+    ['Member: item, book read twice', `/items/${ids.reread}`],
+    ['Member: shelf', `/libraries/${ids.shelves.books}`],
+    ['Member: search', '/search?q=le+guin'],
+    ['Member: account', '/account'],
   ];
 
   for (const variant of VARIANTS) {
@@ -705,6 +919,16 @@ async function main() {
         await page.waitForLoadState('load');
         await page.addScriptTag({ content: AXE });
         await axe(page, 'Log in → wrong password', variant.name);
+      }
+      // an invitation link opened in a browser: it only explains itself (connections are on and named here)
+      if (chosen('Invitation')) {
+        try {
+          await open(page, '/connect');
+          await axe(page, 'Invitation link (/connect)', variant.name);
+          if (variant.scheme === 'light') await keyboard(page, 'Invitation link (/connect)', variant.name);
+        } catch (err) {
+          failures.push(`unreachable · Invitation link [${variant.name}]: ${err.message}`);
+        }
       }
     });
     await withVariant(admin, variant, async (page) => {
@@ -729,19 +953,34 @@ async function main() {
           for (const d of closed) if (!menus.includes(d)) d.open = true;
           return { panels: closed.length - menus.length, menus: menus.map((d) => [d.dataset.a11yShut, d.querySelector('summary')?.textContent?.trim()]) };
         });
-        if (shut.panels) await axe(page, `${name} (closed sections opened)`, variant.name);
+        if (shut.panels) {
+          await axe(page, `${name} (closed sections opened)`, variant.name);
+          // the forms they hold get the keyboard walk too
+          if (variant.scheme === 'light') await keyboard(page, `${name} (closed sections opened)`, variant.name);
+        }
         for (const [i, label] of shut.menus) {
           // Only this menu open, the page otherwise as it loaded. What the open menu covers can't be tapped
           // while it's open, but axe's target-size still counts it as a neighbour of the menu's checkboxes: set
-          // those covered controls invisible for this one run (they were audited above, uncovered).
+          // those covered controls invisible for this one run (they were audited above, uncovered). "Covered"
+          // means the browser says the menu is on top where they overlap, so a menu that slipped under the page
+          // (a z-index slip) hides nothing, and the overlap is reported.
           await page.evaluate((n) => {
             for (const d of document.querySelectorAll('details[data-a11y-shut]')) d.open = d.dataset.a11yShut === n;
-            const m = document.querySelector(`details[data-a11y-shut="${n}"] .filter-menu`)?.getBoundingClientRect();
-            if (!m) return;
+          }, i);
+          await page.waitForTimeout(50); // app.js lines an opened menu up with the screen's edge on its toggle event
+          await page.evaluate((n) => {
+            const menu = document.querySelector(`details[data-a11y-shut="${n}"] .filter-menu`);
+            if (!menu) return;
+            const m = menu.getBoundingClientRect();
             for (const el of document.querySelectorAll('a[href], button, input, select, textarea, summary')) {
-              if (el.closest('details.filter[open]')) continue;
+              if (menu.contains(el) || el.closest('details.filter[open]')) continue;
               const r = el.getBoundingClientRect();
-              if (r.left < m.right && r.right > m.left && r.top < m.bottom && r.bottom > m.top) {
+              if (!(r.left < m.right && r.right > m.left && r.top < m.bottom && r.bottom > m.top)) continue;
+              // on top where the two overlap: the menu, or the page has put the menu underneath (reported, then)
+              const x = (Math.max(r.left, m.left) + Math.min(r.right, m.right)) / 2;
+              const y = (Math.max(r.top, m.top) + Math.min(r.bottom, m.bottom)) / 2;
+              const top = document.elementFromPoint(x, y);
+              if (top && menu.contains(top)) {
                 el.style.visibility = 'hidden';
                 el.setAttribute('data-a11y-covered', '');
               }
@@ -754,14 +993,22 @@ async function main() {
               el.removeAttribute('data-a11y-covered');
             }
           });
+          // and the menu's checkboxes get the keyboard walk, once per width
+          if (variant.scheme === 'light') await keyboard(page, `${name} (menu "${label}" open)`, variant.name);
         }
       }
     });
     await withVariant(member, variant, async (page) => {
       for (const [name, path] of memberPages) {
         if (!chosen(name)) continue;
-        await open(page, path);
+        try {
+          await open(page, path);
+        } catch (err) {
+          failures.push(`unreachable · ${name} [${variant.name}]: ${err.message}`);
+          continue;
+        }
         await axe(page, name, variant.name);
+        if (variant.scheme === 'light') await keyboard(page, name, variant.name);
       }
     });
     if (chosen('htmx')) await interactions(admin, ids, variant);
@@ -785,6 +1032,13 @@ async function main() {
   if (unaudited.length) {
     console.log('\nNot audited (needs the internet):');
     for (const u of unaudited) console.log(`  – ${u}`);
+    // on GitHub Actions, an annotation on the run, so a flaky lookup can't pass unnoticed
+    if (process.env.GITHUB_ACTIONS) console.log(`::warning title=a11y::${unaudited.length} Add-page lookup states not audited: ${unaudited.join('; ')}`);
+  }
+  if (symbolsOnly) console.log(`\n(${symbolsOnly} contrast checks on symbol-only text — stars, media icons — which axe leaves to a person)`);
+  if (needsReview.size) {
+    console.log(`\nFor a person to check (${needsReview.size}): axe couldn't decide these itself`);
+    for (const [key, variants] of needsReview) console.log(`  ? ${key}  [${[...variants].join(', ')}]`);
   }
   // an audit that looked at nothing (an --only that matched no page) proves nothing
   if (!audited.length) failures.push('no page was audited');
