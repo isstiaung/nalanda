@@ -8,6 +8,14 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [Unreleased]
+
+### Added
+- **Year in review.** A new **Year in review** page in the sidebar shows a year of your reading beside the household's: books finished (a re-read counts again) and pages read, with a month-by-month chart; most-read authors and most-used tags; the average rating given, the highest-rated books, the longest and shortest book and the fastest read. The household's records spun and games played, with the most played of each, show once below. Pick any year with a finished book or a play, or this one. A book counts in the year it was finished; finishes with no date count in no year, and the page says how many there are. It's inside the app only: share pages and connected households never see it.
+
+### Upgrading
+- **Year in review** needs no migration and no new secret, and connected households see nothing of it.
+
 ## [1.5.0] - 2026-09-30
 
 A lot for games, records and reading: a play and listening log, reading goals (shared with connected households if you like), want lists with shop links and gift-list shares, series with what's missing and what's next, a record's condition and pressing from Discogs, where each thing lives, and loans in the export.
