@@ -8,8 +8,11 @@ export const MAX_LINKS_PER_ITEM = 20;
 
 export type LinkDraft = { label: string; url: string };
 
-/** Control and format characters (bidi overrides among them), which have no business in a label. */
-const INVISIBLE = /[\p{Cc}\p{Cf}]/gu;
+/**
+ * Control and format characters (bidi overrides among them), which have no business in a label — but for the
+ * zero-width joiner and non-joiner, which Persian words, Indic conjuncts and emoji sequences need (as display names keep them).
+ */
+const INVISIBLE = /(?![\u200c\u200d])[\p{Cc}\p{Cf}]/gu;
 
 /**
  * A pasted link, checked: an absolute http: or https: URL — so never javascript:, data:, a relative path or a
@@ -34,8 +37,10 @@ export function checkPurchaseLink(rawLabel: string, rawUrl: string): LinkDraft |
   if (url.username || url.password) return 'That address carries a user name or password — remove it before adding the link.';
   const href = url.href;
   if (href.length > MAX_LINK_URL) return `A link’s address can be at most ${MAX_LINK_URL} characters.`;
+  // cut by code point, so a label never ends in half an emoji
   const label =
-    rawLabel.replace(INVISIBLE, '').replace(/\s+/g, ' ').trim().slice(0, MAX_LINK_LABEL).trim() || url.hostname.replace(/^www\./, '');
+    Array.from(rawLabel.replace(INVISIBLE, '').replace(/\s+/g, ' ').trim()).slice(0, MAX_LINK_LABEL).join('').trim() ||
+    url.hostname.replace(/^www\./, '');
   return { label, url: href };
 }
 

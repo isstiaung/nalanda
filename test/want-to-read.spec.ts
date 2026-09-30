@@ -20,6 +20,7 @@ import {
   setWant,
   startRead,
   updateItemWithTags,
+  updateRead,
   updateSiteSettings,
 } from '../src/db/queries';
 import type { Item, Share } from '../src/db/schema';
@@ -54,7 +55,7 @@ async function household() {
 }
 
 async function giftList(of: Member, by: Member): Promise<Share> {
-  const res = await as(by, '/shares', { body: { wantUserId: String(of.id) } });
+  const res = await as(by, '/shares', { body: { wantUserId: String(of.id), wantUsername: of.name } });
   expect(res.status).toBe(302);
   const shares = await listShares(env.DB);
   return shares.at(-1)!;
@@ -200,6 +201,26 @@ describe('each member’s want list', () => {
     expect(await wantsOf(asha.id)).toEqual([b.id]); // someone else finishing it leaves hers
   });
 
+  it('loses a book whose open read is corrected to Completed — by its reader, not by a refused hand', async () => {
+    const { asha, ravi, shelf } = await household();
+    const mira = await member('mira');
+    const b = await book(asha, { libraryId: shelf.id, title: 'Beloved' });
+    await setWant(env.DB, b.id, ravi.id, true);
+    await startRead(env.DB, b.id, '2026-09-01', ravi.id);
+    const read = (await rows<{ id: number }>('SELECT id FROM reads WHERE reader_id = ?1', ravi.id))[0]!.id;
+    const done = { status: 'completed' as const, beganOn: '2026-09-01', endedOn: '2026-09-20' };
+    expect(await updateRead(env.DB, b.id, read, done, actor(mira))).toBe(false); // not hers to correct
+    expect(await wantsOf(ravi.id)).toEqual([b.id]);
+    expect(await updateRead(env.DB, b.id, read, { ...done, status: 'abandoned' }, actor(ravi))).toBe(true); // a stop keeps it
+    expect(await wantsOf(ravi.id)).toEqual([b.id]);
+    expect(await updateRead(env.DB, b.id, read, done, actor(ravi))).toBe(true); // stopped → completed: a correction, not a finish now
+    expect(await wantsOf(ravi.id)).toEqual([b.id]);
+    await startRead(env.DB, b.id, '2026-09-21', ravi.id);
+    const open = (await rows<{ id: number }>("SELECT id FROM reads WHERE reader_id = ?1 AND status = 'in_progress'", ravi.id))[0]!.id;
+    expect(await updateRead(env.DB, b.id, open, { status: 'completed', beganOn: '2026-09-21', endedOn: '2026-09-25' }, actor(ravi))).toBe(true);
+    expect(await wantsOf(ravi.id)).toEqual([]);
+  });
+
   it('loses a book marked Completed on the edit form, but keeps a want to read a finished one again', async () => {
     const { asha, shelf, other } = await household();
     const b = await book(asha, { libraryId: shelf.id, title: 'Dune' });
@@ -248,7 +269,11 @@ describe('purchase links', () => {
       expect(typeof checkPurchaseLink('Shop', bad), bad).toBe('string');
     }
     expect(checkPurchaseLink('', 'https://www.bookshop.example/p/123')).toEqual({ label: 'bookshop.example', url: 'https://www.bookshop.example/p/123' });
-    expect(checkPurchaseLink('  Book‮shop   UK ', 'http://shop.example')).toEqual({ label: 'Bookshop UK', url: 'http://shop.example/' });
+    expect(checkPurchaseLink('  Book\u202eshop   UK ', 'http://shop.example')).toEqual({ label: 'Bookshop UK', url: 'http://shop.example/' });
+    // joiners stay — Persian and Indic text and emoji sequences need them — and a label is never cut inside a character
+    expect(checkPurchaseLink('می\u200cخرم 👨\u200d👩\u200d👧', 'https://x.example/')).toMatchObject({ label: 'می\u200cخرم 👨\u200d👩\u200d👧' });
+    const cut = (checkPurchaseLink(`${'a'.repeat(59)}😀😀`, 'https://x.example/') as { label: string }).label;
+    expect(cut).toBe(`${'a'.repeat(59)}😀`);
     // quotes and angle brackets in a query are percent-encoded by the parser — nothing to break out of an attribute with
     const tricky = checkPurchaseLink('x', 'https://shop.example/?q="><script>alert(1)</script>');
     expect(tricky).toEqual({ label: 'x', url: 'https://shop.example/?q=%22%3E%3Cscript%3Ealert(1)%3C/script%3E' });
@@ -262,8 +287,10 @@ describe('purchase links', () => {
     expect((await add(ravi, 'Bookshop', 'https://bookshop.example/piranesi')).status).toBe(302);
     for (const bad of ['javascript:alert(document.cookie)', 'data:text/html;base64,PHNjcmlwdD4=', '/items/1/delete', '//evil.example']) {
       const res = await add(ravi, 'Evil', bad, true);
-      expect(res.status, bad).toBe(422);
-      expect(await res.text()).toContain('class="error"');
+      expect(res.status, bad).toBe(200); // htmx swaps only a 2xx by default: the section must come back with the reason
+      const section = await res.text();
+      expect(section).toContain('class="error"');
+      expect(section).toContain('id="buy"');
     }
     // without htmx a refusal is the item page again, with the reason and what was sent
     const refused = await add(ravi, 'Evil', 'javascript:alert(1)');
@@ -271,7 +298,7 @@ describe('purchase links', () => {
     const refusedPage = await refused.text();
     expect(refusedPage).toContain('Only web links');
     expect(refusedPage).not.toContain('href="javascript:');
-    expect((await add(asha, 'Again', 'https://bookshop.example/piranesi', true)).status).toBe(422); // the same address twice
+    expect(await (await add(asha, 'Again', 'https://bookshop.example/piranesi', true)).text()).toContain('That link is here already.');
     expect(await linksOf(b.id)).toEqual([{ id: expect.any(Number), label: 'Bookshop', url: 'https://bookshop.example/piranesi' }]);
 
     // escaped wherever it shows, and opened safely
@@ -297,7 +324,7 @@ describe('purchase links', () => {
     const b = await book(asha, { libraryId: shelf.id });
     for (let i = 0; i < 20; i++) await as(asha, `/items/${b.id}/links`, { body: { label: `Shop ${i}`, url: `https://shop${i}.example/` } });
     const over = await as(asha, `/items/${b.id}/links`, { body: { label: 'One more', url: 'https://more.example/' }, htmx: true });
-    expect(over.status).toBe(422);
+    expect(over.status).toBe(200);
     expect(await over.text()).toContain('at most 20');
     expect(await linksOf(b.id)).toHaveLength(20);
   });
@@ -318,8 +345,12 @@ describe('purchase links', () => {
 describe('a gift list', () => {
   it('is published, rotated and removed by an admin only, and listed in the inventory', async () => {
     const { asha, ravi } = await household();
-    expect((await as(ravi, '/shares', { body: { wantUserId: String(ravi.id) } })).status).toBe(403);
-    expect((await as(asha, '/shares', { body: { wantUserId: '999999' } })).status).toBe(400);
+    expect((await as(ravi, '/shares', { body: { wantUserId: String(ravi.id), wantUsername: 'ravi' } })).status).toBe(403);
+    expect((await as(asha, '/shares', { body: { wantUserId: '999999', wantUsername: 'ravi' } })).status).toBe(400);
+    // a form made for someone else — an id reused after a removal — publishes nothing
+    expect((await as(asha, '/shares', { body: { wantUserId: String(ravi.id), wantUsername: 'zoe' } })).status).toBe(400);
+    expect((await as(asha, '/shares', { body: { wantUserId: String(ravi.id) } })).status).toBe(400);
+    expect(await listShares(env.DB)).toEqual([]);
     const share = await giftList(ravi, asha);
     expect(share).toMatchObject({ wantUserId: ravi.id, libraryId: null, mediaType: null, status: null, owned: null, tag: null, sort: 'title' });
     expect(share.token).toMatch(/^[0-9a-f]{32}$/);

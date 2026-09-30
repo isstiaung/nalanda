@@ -1179,7 +1179,7 @@ async function linksResponse(c: Context<AppEnv>, id: number, refused?: { error: 
   }
   try {
     const { links } = await wantsAndLinks(c.env.DB, id);
-    if (refused) c.status(422);
+    // a refusal answers 200: htmx swaps nothing on a 4xx by default, and the section must show why
     return c.html(<BuySection itemId={id} links={links} error={refused?.error} label={refused?.label} url={refused?.url} />);
   } catch {
     c.header('HX-Redirect', `/items/${id}`);

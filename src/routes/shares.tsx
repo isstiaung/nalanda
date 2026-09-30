@@ -204,7 +204,9 @@ shares.post('/shares', async (c) => {
   if (str('wantUserId')) {
     const raw = str('wantUserId');
     const member = /^\d{1,15}$/.test(raw) ? await getUserById(c.env.DB, Number(raw)) : null;
-    if (!member) return c.text('No such member.', 400);
+    // A user id is reused once the newest member is removed, so a form left open from before could name someone
+    // else: it carries the username it was made for, and must still match.
+    if (!member || member.username !== str('wantUsername')) return c.text('No such member — reload their want list and publish again.', 400);
     await createShare(c.env.DB, { token: newShareToken(), name: 'Want list', libraryId: null, wantUserId: member.id, sort: 'title' });
     return c.redirect(`/wants?member=${member.id}`);
   }

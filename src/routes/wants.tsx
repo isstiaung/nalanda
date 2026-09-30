@@ -140,6 +140,8 @@ wants.get('/wants', async (c) => {
           ) : null}
           <form method="post" action="/shares" class="inline-form">
             <input type="hidden" name="wantUserId" value={String(member.id)} />
+            {/* users.id can be reused once a member is removed: the publish names whose list it meant, too */}
+            <input type="hidden" name="wantUsername" value={member.username} />
             <button type="submit">{shares.length ? 'Publish another link' : 'Publish as a gift list'}</button>
           </form>
           <p class="muted">

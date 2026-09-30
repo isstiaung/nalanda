@@ -1702,7 +1702,17 @@ export async function addPastRead(d1: D1Database, itemId: number, read: ReadDraf
  * reader has another open. True when it changed.
  */
 export async function updateRead(d1: D1Database, itemId: number, readId: number, read: ReadDraft, by: Actor): Promise<boolean> {
-  const [updated] = await d1.batch([
+  const [, updated] = await d1.batch([
+    // Correcting an open read to Completed finishes it: the book leaves its reader's want list (§16 #53), as Finish
+    // takes it off. First, while the read still says it was open, and on the same conditions the UPDATE below has.
+    d1
+      .prepare(
+        `DELETE FROM wants WHERE ?3 = 'completed' AND item_id = ?2
+           AND EXISTS (SELECT 1 FROM items WHERE id = ?2 AND media_type = 'book')
+           AND user_id = (SELECT r.reader_id FROM reads r WHERE r.id = ?1 AND r.item_id = ?2 AND r.status = 'in_progress'
+             AND ${allowed('r.reader_id', '?4', '?5')})`,
+      )
+      .bind(readId, itemId, read.status, ...actorBinds(by)),
     d1
       .prepare(
         `UPDATE reads SET status = ?3, began_on = ?4, ended_on = ?5
@@ -2155,7 +2165,8 @@ export async function wantListExtras(
  */
 export async function shareGuardFacts(d1: D1Database, itemId: number): Promise<{ tags: string[]; wanters: number[] }> {
   const [t, w] = await d1.batch([
-    d1.prepare('SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = ?1 ORDER BY t.name').bind(itemId),
+    // no ORDER BY, as tagsForItems() had none: a shelf's share page lists an item's tags as it always did
+    d1.prepare('SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = ?1').bind(itemId),
     d1.prepare('SELECT user_id AS id FROM wants WHERE item_id = ?1').bind(itemId),
   ]);
   return {
