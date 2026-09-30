@@ -25,6 +25,9 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **What each shelf cost.** A shelf's page says what the household paid for it ("Paid ₹30,200 for 9 — of 12 records on this shelf"), and the Overview's shelf table gains a **Paid** column. Each currency is totalled on its own, never added to another.
 - **Purchase prices leave and come back through the CSV**, in two new columns, `purchase_price` (like `302.50`) and `purchase_currency` (like `INR`). A libib file's `price` column becomes the purchase price, in the household's currency, when one is set before you import.
 
+### Changed
+- **The sidebar folds into sections.** Overview, Add items and Search stay at the top. Everything else is grouped by what you came to do: **Library** (Tags, Series), **Shelves**, **Reading** (Want list, Reading goals, Year in review), **Lending** (Loans, Borrowed), **Sharing & connections** (Shared links, Feed, Notifications, Recommended, Connections) and **Settings** (Import / export, Members, Account — Account moved here from the bottom; Log out stays there). Each section opens and closes from its header, with a click, a tap, or Enter and Space from the keyboard, and works without JavaScript. The section holding the page you're on is always open; the others start closed, and the ones you open stay open on that device, remembered in a small `nav` cookie so the page draws them open from the start. A closed section's header shows how many things in it are unread. Admin-only and connections-only links show to the same people as before.
+
 ### Fixed
 - **Prices never reach share pages or connected households.** A libib import kept a file's `price` column in each item's details, which share pages and connected households were shown. Money in details is now left out of anything published; inside the app it stays where it was.
 
