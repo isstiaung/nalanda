@@ -1951,7 +1951,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       rule). Both read the list **as it stands**: an item taken off, or finished, leaves the page and
       its id stops answering. A test holds the twins together over every kind of share. It is created,
       rotated and removed as any share, admin-only, from the member's Want list page or `/shares`,
-      which names whose list it is (by username — that page is inside the app). `isWholeShelfShare()`
+      which names whose list it is (by username — that page is inside the app). The publish form
+      carries the member's username beside their id and both must match, since a removed member's id
+      is reused (the adversarial pass published a newcomer's list from a stale form). `isWholeShelfShare()`
       is false for it and `shareVisibility()` leaves it out, so it never makes a shelf read *Shared*.
     - **What a gift list shows** is `toGiftItem()`, built on `toPublicItem()` like `toConnectionItem()`:
       title, creators, cover, type, publisher, published, length, description, `inCollection` (as
@@ -1969,11 +1971,12 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       read" is a wish not yet met, and a stale one would keep a finished book on a gift list for
       someone to buy. It is the moment of finishing that clears it: Finish on an open read
       (`closeRead`, straight after its UPDATE, guarded by `changes()` so a refused finish clears
-      nothing), and the edit form's Completed on a book the editor hadn't finished — only theirs,
-      only a book (a record or a game "Completed" was heard or played, which isn't having it). Not a
-      stop (they still mean to read it), not a past read added from the book's page or a correction
-      (history, not a finish now), not an import (so the export round-trips), and not someone else's
-      finish. A want added to a book you've finished — to read it again — stays until that re-read
+      nothing), correcting an open read to Completed (`updateRead`, on the UPDATE's own conditions —
+      found by the adversarial pass), and the edit form's Completed on a book the editor hadn't
+      finished — only the reader's, only a book (a record or a game "Completed" was heard or played,
+      which isn't having it). Not a stop (they still mean to read it), not a past read added from the
+      book's page or a correction of a closed read (history, not a finish now), not an import (so the
+      export round-trips), and not someone else's finish. A want added to a book you've finished — to read it again — stays until that re-read
       is finished.
     - **Removing a member clears their want list — chosen.** Reads and reviews are the household's
       history and stay unattributed (#43); a want is a wish for later, and a nobody's wish means
