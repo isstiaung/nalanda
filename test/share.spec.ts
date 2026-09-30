@@ -34,6 +34,8 @@ const item: Item = {
   readCount: 1,
   rereading: false,
   details: '{"series":"Earthsea"}',
+  mediaCondition: null,
+  sleeveCondition: null,
   addedBy: 3,
   addedAt: '2026-01-01 10:00:00',
   updatedAt: '2026-01-10 10:00:00',

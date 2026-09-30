@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "23a581ea-6997-4cc5-8ba4-0bd2bb75358c",
-  "prevId": "8bc446a9-2d49-4e0e-9529-e3b76228a96b",
+  "id": "cb5fea14-a924-4ae1-b98c-a133e1d3d99c",
+  "prevId": "549650aa-da43-4434-a693-76351229691c",
   "tables": {
     "activity_log": {
       "name": "activity_log",
@@ -1348,6 +1348,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "location": {
+          "name": "location",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "copies": {
           "name": "copies",
           "type": "integer",
@@ -1394,6 +1401,20 @@
           "autoincrement": false,
           "default": "'{}'"
         },
+        "media_condition": {
+          "name": "media_condition",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "sleeve_condition": {
+          "name": "sleeve_condition",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "added_by": {
           "name": "added_by",
           "type": "integer",
@@ -1416,6 +1437,20 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(datetime('now'))"
+        },
+        "series_id": {
+          "name": "series_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "series_number": {
+          "name": "series_number",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -1430,6 +1465,13 @@
           "name": "idx_items_isbn13",
           "columns": [
             "isbn13"
+          ],
+          "isUnique": false
+        },
+        "idx_items_series": {
+          "name": "idx_items_series",
+          "columns": [
+            "series_id"
           ],
           "isUnique": false
         }
@@ -1454,6 +1496,19 @@
           "tableTo": "users",
           "columnsFrom": [
             "added_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "items_series_id_series_id_fk": {
+          "name": "items_series_id_series_id_fk",
+          "tableFrom": "items",
+          "tableTo": "series",
+          "columnsFrom": [
+            "series_id"
           ],
           "columnsTo": [
             "id"
@@ -1946,6 +2001,96 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
+    "plays": {
+      "name": "plays",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "played_on": {
+          "name": "played_on",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "logged_by": {
+          "name": "logged_by",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(datetime('now'))"
+        }
+      },
+      "indexes": {
+        "idx_plays_item_played": {
+          "name": "idx_plays_item_played",
+          "columns": [
+            "item_id",
+            "played_on"
+          ],
+          "isUnique": false
+        },
+        "idx_plays_played_item": {
+          "name": "idx_plays_played_item",
+          "columns": [
+            "played_on",
+            "item_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "plays_item_id_items_id_fk": {
+          "name": "plays_item_id_items_id_fk",
+          "tableFrom": "plays",
+          "tableTo": "items",
+          "columnsFrom": [
+            "item_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "plays_logged_by_users_id_fk": {
+          "name": "plays_logged_by_users_id_fk",
+          "tableFrom": "plays",
+          "tableTo": "users",
+          "columnsFrom": [
+            "logged_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "reading_progress": {
       "name": "reading_progress",
       "columns": {
@@ -2385,6 +2530,60 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "series": {
+      "name": "series",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "total": {
+          "name": "total",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(datetime('now'))"
+        }
+      },
+      "indexes": {
+        "series_key_unique": {
+          "name": "series_key_unique",
+          "columns": [
+            "key"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
