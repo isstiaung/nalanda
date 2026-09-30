@@ -1,5 +1,5 @@
 // All D1 access lives here (plus src/lib/covers.ts for R2) — ARCH.md §13.
-import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, getTableColumns, gt, gte, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { newSessionKey } from '../lib/auth';
 import {
@@ -651,8 +651,17 @@ export async function deleteItem(d1: D1Database, id: number): Promise<void> {
   await d1.batch([d1.prepare('DELETE FROM items WHERE id = ?1').bind(id), pruneSeries(d1)]);
 }
 
-export async function recentItems(d1: D1Database, limit = 12): Promise<Item[]> {
-  return db(d1).select().from(s.items).orderBy(desc(s.items.addedAt), desc(s.items.id)).limit(limit);
+/** The newest items, with the badges a shelf gives them — "Lent", and "Wanted" beside "Not owned" (§16 #53) — in the same query. */
+export async function recentItems(d1: D1Database, limit = 12): Promise<Array<Item & { onLoan: boolean; wanted: boolean }>> {
+  return db(d1)
+    .select({
+      ...getTableColumns(s.items),
+      onLoan: sql`EXISTS (SELECT 1 FROM ${s.loans} WHERE ${s.loans.itemId} = ${s.items.id} AND ${s.loans.returnedOn} IS NULL)`.mapWith(Boolean),
+      wanted: sql`${s.items.copies} = 0 AND EXISTS (SELECT 1 FROM ${s.wants} WHERE ${s.wants.itemId} = ${s.items.id})`.mapWith(Boolean),
+    })
+    .from(s.items)
+    .orderBy(desc(s.items.addedAt), desc(s.items.id))
+    .limit(limit);
 }
 
 /** What the Overview's "Read next" card shows of its pick. */
