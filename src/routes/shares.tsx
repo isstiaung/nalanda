@@ -54,6 +54,8 @@ shares.get('/shares', async (c) => {
           <span class="sub">
             {views.length} {views.length === 1 ? 'LINK' : 'LINKS'} · {exposed}{' '}
             {exposed === 1 ? 'ITEM' : 'ITEMS'} PUBLIC
+            {/* a sum of each link's count: an item two links show is counted twice */}
+            {views.length > 1 ? ', COUNTED PER LINK' : ''}
           </span>
         </div>
       </div>

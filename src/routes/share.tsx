@@ -158,6 +158,9 @@ function renderShare(c: Context<AppEnv>, title: string, shelf: string, body: Chi
 // ---------- gift lists: a member's want list, published (ARCH.md §16 #53) ----------
 
 const GIFT_MARK = 'Nalanda · want list';
+/** A tag's link spans every shelf, so its pages don't call themselves a shelf. */
+const TAG_MARK = 'Nalanda · shared tag';
+const shareMark = (view: Share) => (view.tag !== null ? TAG_MARK : undefined);
 
 const GiftCover: FC<{ item: GiftItem }> = ({ item }) =>
   item.coverKey ? (
@@ -334,7 +337,7 @@ share.get('/:token', async (c) => {
       </div>
       <Pagination page={current} pages={pages} makeHref={(p) => `/share/${token}?page=${p}`} />
     </>,
-    { bgg: publicItems.some(fromBgg) },
+    { bgg: publicItems.some(fromBgg), mark: shareMark(view) },
   );
 });
 
@@ -526,7 +529,7 @@ share.get('/:token/items/:id', async (c) => {
         </p>
       </div>
     </article>,
-    { bgg: fromBgg(pub) },
+    { bgg: fromBgg(pub), mark: shareMark(view) },
   );
 });
 
