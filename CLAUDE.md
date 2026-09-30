@@ -200,7 +200,8 @@ npm run dev:demo           # same, on :8788 with its own --persist-to state (scr
 npm run seed:demo          # fills that demo instance over HTTP; refuses a non-empty one
 npm test                   # vitest, runs inside workerd
 npm run typecheck          # tsc --noEmit
-npm run lint               # eslint-plugin-jsx-a11y (strict) over src/**/*.tsx — no other lint rules
+npm run lint               # eslint-plugin-jsx-a11y (strict) over src/**/*.tsx, + no-restricted-syntax for
+                           # hono's `autofocus` and hx-* off forms/buttons/links — no other rules
 npm run a11y               # axe-core (WCAG 2.2 A/AA) on every page in Chromium, light + dark,
                            # 1280 + 390 wide, htmx swaps and a keyboard walk; its own wrangler
                            # dev on 127.0.0.1:8817 with temp --persist-to state (never 8787 or

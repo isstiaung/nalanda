@@ -1840,7 +1840,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     switched off. The parser is Babel's (`@babel/eslint-parser`, syntax plugins only): the repo's
     TypeScript 7 has no JavaScript API, typescript-eslint needs `typescript` below 6.1 as a peer,
     and npm can't give a peer a version other than the root's. These rules need no type
-    information. ESLint stays on 9 because the plugin's peer range ends there.
+    information. ESLint stays on 9 because the plugin's peer range ends there. A second
+    `no-restricted-syntax` selector says what §18 asks of htmx: `hx-get`/`hx-post` only on forms,
+    buttons and links.
 
     **What the audit found and fixed:** no skip link; the active sidebar link and the Add page's
     Scan/Search/Manual buttons shown by tint alone (now `aria-current`, `aria-pressed`); an
@@ -1850,24 +1852,29 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     underlined); fields named by placeholder or nothing (a shelf's rename box had neither); a
     review's own rating select and the details JSON box unnamed; errors not tied to their fields;
     empty action-column headers; an h1 → h4 jump in shelf settings; filter-menu checkboxes closer
-    than 24px; links with `role="button"`. The barcode scanner already had its non-camera path,
-    a typed barcode through the same lookup; it now has a visible label and the intro names it.
+    than 24px; links with `role="button"`; no visible focus on a checkbox (only a 9% tint) or on the
+    Table/Covers and Scan/Search/Manual toggles (clipped by their frame); keyboard focus dropped to
+    `<body>` by an htmx swap; share links and a filter menu scrolling a phone's page sideways; the
+    Members table pushing its buttons off a phone's screen. The barcode scanner already had its
+    non-camera path, a typed barcode through the same lookup; it now has a visible label and the
+    intro names it.
 
     **Chosen without asking, overrulable:** axe-core injected directly rather than through
     `@axe-core/playwright`, and the `playwright` library rather than its test runner — one fewer
-    package, and the audit is a script with a report rather than a test suite; eight axe
-    best-practice rules on top of the WCAG tags (one main, content in landmarks, one h1, heading
-    order, skip link, empty headings and headers, unique landmarks), because they check the
-    structure screen-reader users move by and the owner's heading-level control needs one; the
+    package, and the audit is a script with a report rather than a test suite; axe's
+    best-practice rules on top of the WCAG tags, because they check the structure screen-reader
+    users move by (and the owner's heading-level control needs heading-order), none disabled; the
     dark theme's `--ink-3` lifts a shade (`#8f846d` → `#968b73`) and a hovered row keeps half its
-    tint, rather than darkening the hover or every muted label; light-theme stars mix in 20% ink,
+    tint, with a 2px indigo rule at its left edge so the hover still shows, rather than darkening
+    the hover or every muted label; light-theme stars mix in 20% ink,
     as the in-progress pill does, while the lamp-lit gold is left alone; ratings still read to a
     screen reader as star glyphs — a text alternative would touch eleven call sites that
     parallel branches also edit, so it waits; the Add page's lookups need Open Library, and when
     they find nothing the report lists them as not audited instead of failing
-    (`A11Y_REQUIRE_LOOKUP=1` makes it fail); a filter menu's run hides, for that run only, the
-    controls the open menu covers, since axe's target-size counts them as neighbours though no
-    one can tap them.
+    (`A11Y_REQUIRE_LOOKUP=1` makes it fail, and CI doesn't set it, so an Open Library outage can't
+    block a pull request); a filter menu's run hides, for that run only, the controls the open
+    menu is on top of, since axe's target-size counts them as neighbours though no one can tap them;
+    a filter menu near a phone's right edge lines up with its button's right edge (app.js).
 
 **2026-09-30 — where it lives:**
 51. **An item's location is one free-text column, private like notes, and searchable.** A household
@@ -2434,47 +2441,66 @@ share pages, log in and setup, the 404s — in the light and the lamp-lit theme,
 widths, and after every htmx swap. The design system meets it with its own tokens: text keeps
 4.5:1 against whatever it sits on, hovered rows included; colour is never the only signal (a pill
 has its word, an overdue loan says "overdue", links in running text are underlined); every field
-has a name; every page starts with a "Skip to content" link. Decision: §16 #50.
+has a name; every signed-in page starts with a "Skip to content" link past the sidebar (share, login and setup
+pages have no repeated navigation to skip); keyboard focus survives an htmx swap. Decision: §16 #50.
 
 **Two layers**, both in CI, both dev-only:
 
 - **Static — `npm run lint`** (`eslint.config.mjs`). ESLint with eslint-plugin-jsx-a11y's `strict`
-  rules and no others, over `src/**/*.tsx`: missing `alt`, a `<label>` with no control, empty
-  headings and links, invalid or misused ARIA, roles where an element exists, `autofocus`. It sees
-  one component at a time, so what spans components — heading order, contrast, a page's
-  landmarks — is the runtime layer's.
+  rules over `src/**/*.tsx` — missing `alt`, a `<label>` with no control, empty headings and links,
+  invalid or misused ARIA, roles where an element exists — plus two `no-restricted-syntax` selectors
+  for what jsx-a11y can't see in hono/jsx: `autofocus`, and `hx-get`/`hx-post` on an element that
+  isn't a form, button or link. No other rules. It sees one component at a time, so what spans
+  components — heading order, contrast, a page's landmarks, whether a field ends up named — is the
+  runtime layer's. (`control-has-associated-label` stays off: it flags table cells, and components
+  whose label arrives as a prop.)
 - **Runtime — `npm run a11y`** (`scripts/a11y.mjs`). A scratch `wrangler dev` on 127.0.0.1:8817 with
   its own temporary `--persist-to` state, a throwaway session secret and connections key, seeded by
   `scripts/seed-demo.mjs --no-covers` and furnished further over HTTP (covers from a local image
   server, a second member, a loan past due, a read in progress, published links with names and
-  progress on). Playwright's Chromium visits every page in the list and runs axe-core's WCAG 2.0 /
-  2.1 / 2.2 A and AA rules plus eight structural best-practice ones, in both themes at 1280 and 390
-  wide; opens every closed `<details>` and looks again (the toolbar's menus one at a time); performs
-  the htmx interactions and the refused forms and audits what comes back; opens the phone menu;
-  and walks the keyboard: the first Tab is the skip link, following it lands in `<main>`, every
-  stop shows focus, and the tab order comes back round (no trap). Any violation exits 1 with a
-  report grouped by rule, naming page, theme, width and element. It never touches port 8787 or the
-  development database, and removes its state and server when done.
+  progress on, an empty shelf, a shelf with a second page, a second member). Playwright's Chromium
+  visits every page in the list, as the admin, as that member and signed out, and runs axe-core's
+  WCAG 2.0 / 2.1 / 2.2 A and AA rules, its best-practice rules and the two experimental WCAG ones
+  (label in name, bold-paragraph headings), in both themes at 1280 and 390 wide. On a phone it also
+  fails a page that scrolls sideways (reflow, which axe doesn't test). It opens every closed
+  `<details>` and looks again (the toolbar's menus one at a time); performs the htmx interactions
+  from the keyboard and audits what comes back, failing one that drops focus to `<body>`; submits the
+  refused and one-time forms (a temporary password, an invitation link); opens the phone menu; and
+  walks the keyboard: the first Tab is the skip link, following it lands in `<main>`, every stop
+  shows a focus indicator that draws something (an outline not clipped away, a ring that isn't a
+  faint tint, or a border that changes), every visible control is reached, and the tab order comes
+  back round (no trap). Anything axe can't decide about contrast or target size is listed for a
+  person to check. Any violation exits 1 with a report grouped by rule, naming page, theme, width
+  and element. It never touches port 8787, the development database or Cloudflare (`--local`, a
+  temporary `--persist-to`, no credentials in its environment), and removes its state and server when
+  done.
 
 **The htmx limitation.** The linter can't see `hx-*` behaviour: to it `hx-post` is an unknown
 attribute, so a `<div hx-post hx-trigger="click">` — interactive, but not to a keyboard or a
 screen reader — would pass. The rule that closes the gap: `hx-get`/`hx-post` go only on forms,
 buttons and links, which the browser already makes focusable and operable. Today they are the
 Add page's two lookup forms, the Reading section's forms and the Holding toggle buttons. The
-runtime layer covers the other half: it performs each of those swaps and audits the page with the
-new HTML in it. A swapped-in error is `role="alert"`, since htmx moves no focus to tell anyone.
+runtime layer covers the other half: it performs those swaps (record, remove a page, add, edit,
+delete and move a read, finish, stop, read again, the Holding toggle, both lookups) and audits the
+page with the new HTML in it. A swapped-in error is `role="alert"`, since htmx moves no focus to
+tell anyone; and a swap keeps keyboard focus — htmx restores it to an element with the same id, and
+app.js gives it to the swapped region otherwise.
 
 **How a new feature meets it.** Use the existing tokens and components; a new colour pairing must
 hold 4.5:1 for text in both themes. Wrap each field in its `<label>`, or give it an `aria-label`
-where there's no visible one; a refused form's error is `role="alert"` and its fields take
-`invalid(error, id)` (`src/views/components.tsx`). Say state in words or ARIA, not only colour.
+where there's no visible one; a refused form's error is `role="alert"`, and the fields it is about
+take `invalid(error, id)` (`src/views/components.tsx`). Say state in words or ARIA, not only colour.
 Links navigate and buttons act — no `role="button"` on a link. Headings don't skip levels. A new
 page joins `pageList()` in `scripts/a11y.mjs`, a new htmx interaction a step in `interactions()`;
 then `npm run lint` and `npm run a11y` pass.
 
 **What it doesn't cover.** Automated checks find perhaps a third to a half of real problems;
-nothing here replaces trying a page with a screen reader and a keyboard. Pages that need another
-household (a connected shelf, borrow requests, comment threads) aren't reached — the audit has no
-peer. The Add page's lookups need Open Library: offline, the report lists those states as not
-audited (`A11Y_REQUIRE_LOOKUP=1` makes that a failure). Ratings read to a screen reader as their
-star glyphs.
+nothing here replaces trying a page with a screen reader and a keyboard. Not reached: pages that need
+another household (a connected shelf, borrow requests and their errors, comment threads — the audit
+has no peer); board-game and record lookups (BGG and Discogs need tokens CI doesn't have); the "not
+ready yet" page an instance shows without a session secret; hover states (axe never hovers — a hovered
+row's contrast was worked out by hand). The Add page's book lookups need Open Library: when it finds
+nothing the report lists those states as not audited, as a warning on GitHub Actions, and
+`A11Y_REQUIRE_LOOKUP=1` makes that a failure. Text under an open menu, and symbols (the stars, media
+icons), are contrast checks axe leaves to a person; the report counts or lists them. Ratings read to a
+screen reader as their star glyphs.

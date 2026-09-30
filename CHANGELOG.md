@@ -18,7 +18,10 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **Colour is never the only signal.** An overdue loan on an item's page says "overdue"; the current page in the sidebar and the chosen Scan / Search / Manual button are announced as such; links inside sentences are underlined.
 - **Text contrast meets WCAG AA in both themes**: rating stars on light paper are a shade darker, error text a shade stronger, a hovered table row is a lighter tint, and the lamp-lit theme's small grey labels are a shade lighter.
 - **Every field has a name** screen readers announce, and a refused form's message is read out and tied to the fields it's about. The Add page's barcode box — the way in without a camera — has a visible label.
-- **Filter menus' checkboxes are spaced further apart**, so each is easier to tap.
+- **Filter menus' checkboxes are spaced further apart**, so each is easier to tap, and a menu near the right edge of a phone's screen opens leftwards instead of hanging off it.
+- **Keyboard focus is always visible and stays put.** Checkboxes and the Table / Covers and Scan / Search / Manual toggles show a clear focus ring, and recording a page, finishing a read or toggling Owned keeps your place instead of sending focus back to the top of the page.
+- **Nothing scrolls a phone's page sideways**: long share links on a shelf's settings and a tag's page wrap, and the Members table keeps its buttons on screen.
+- **A hovered table row** is a lighter tint with an indigo rule at its left edge.
 
 ### Upgrading
 - Contributors: run `npm install`, then `npx playwright install chromium` once before `npm run a11y`.
