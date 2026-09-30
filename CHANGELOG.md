@@ -8,6 +8,19 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [Unreleased]
+
+### Added
+- **Recommend to a connected household.** An item's page has **Recommend to…**: pick a connected household, add a note if you like, and send. Any member can. Only items on a shelf you share with connections can be recommended, so it never shows them anything your shared shelves don't. They see the item as your shared shelves show it, your note, and your display name while names go to connections ("A member" otherwise), never your username. The page says whether it arrived, is waiting for their library to come back online, or was turned away. Each item goes to each household once.
+- **Recommended to you.** **Recommended** in the sidebar lists what connected households recommend to you, with the cover, their note and who sent it, and a notification says when one arrives. Anyone in the household can **Add to my want list** or **Dismiss** it; either way it leaves the list for everyone. Adding makes it a Not owned item on the shelf you choose, with its cover, or puts the want on the copy you already have (a game by its BGG id, a record by its Discogs id, or a book an earlier recommendation of it already added). The household that sent it isn't told what you did.
+- **Limits:** a note is up to 500 characters. From one household you take at most 20 recommendations a day and keep at most 50 waiting; past that theirs are turned away until you dismiss some. Dismiss is the only way to turn one down; disconnecting removes all of theirs.
+- **Export:** recommendations, sent and received, are in **Borrowed → Export connections data**, not in `/export.csv`, which holds your own items.
+
+### Upgrading
+- **Back up first** (`npm run backup`). Migration `0038_recommendations` runs when you deploy. It adds a `recommendations` table and changes nothing already there; rehearsed on a production backup, every existing table came through identical. `npm run backup` now backs it up too, restored after `borrowed_items` ([runbooks/backup-and-restore.md](runbooks/backup-and-restore.md)).
+- **No new secrets.**
+- **Connections:** the protocol is still version 1. Your library's descriptor now also lists the message types it takes (`accepts`), which older versions ignore. **Households on 1.5.0 or older can't receive recommendations**: their library refuses a message type it doesn't know, so yours checks first and sends nothing to them, saying they run an older version. Once they update, recommending to them works with nothing to do on either side. Everything else between you works as before, in both directions.
+
 ## [1.5.0] - 2026-09-30
 
 A lot for games, records and reading: a play and listening log, reading goals (shared with connected households if you like), want lists with shop links and gift-list shares, series with what's missing and what's next, a record's condition and pressing from Discogs, where each thing lives, and loans in the export.
