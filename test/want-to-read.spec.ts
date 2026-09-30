@@ -29,9 +29,10 @@ import { toConnectionItem } from '../src/federation/items';
 import { mapLibibRow } from '../src/lib/csv';
 import { checkPurchaseLink, parseLinksCell, parseWantsCell } from '../src/lib/links';
 import { isWholeShelfShare, itemMatchesShare, newShareToken, shareFilters, shareVisibility, toGiftItem } from '../src/lib/share';
+import { giftListStamp } from '../src/lib/auth';
 import { clearSharePageCache } from '../src/routes/share';
 import app from '../src/index';
-import { actor, as, book, html, member, rows, type Member } from './member-helpers';
+import { actor, as, book, html, member, rows, upgradedSwitches, type Member } from './member-helpers';
 
 const wantsOf = (userId: number) =>
   rows<{ itemId: number }>('SELECT item_id AS itemId FROM wants WHERE user_id = ?1 ORDER BY item_id', userId).then((r) => r.map((w) => w.itemId));
@@ -413,7 +414,13 @@ describe('a gift list', () => {
     const share = await giftList(ravi, asha);
     const pages = async () => [(await publicPage(`/share/${share.token}`)).text, (await publicPage(`/share/${share.token}/items/${b.id}`)).text];
 
-    // names off, no display name: unnamed
+    // a new instance starts with names on (§16 #49): a display name shows as soon as there is one
+    await setDisplayName(env.DB, ravi.id, 'Ravi K.');
+    for (const p of await pages()) expect(p).toContain('Ravi K.’s want list');
+    await setDisplayName(env.DB, ravi.id, null);
+
+    // names off, as an upgraded instance runs, and no display name: unnamed
+    await upgradedSwitches();
     const plain = await pages();
     for (const p of plain) {
       expect(p).toContain('A want list');
@@ -756,15 +763,15 @@ describe('D1 calls', () => {
     clearSharePageCache();
     const list = await count(`/share/${share.token}`);
     expect(list.status).toBe(200);
-    expect(list.calls).toBeLessThanOrEqual(5);
+    expect(list.calls).toBeLessThanOrEqual(4);
     clearSharePageCache();
     const second = await count(`/share/${share.token}?page=2`);
     expect(second.status).toBe(200);
-    expect(second.calls).toBeLessThanOrEqual(5);
+    expect(second.calls).toBeLessThanOrEqual(4);
     clearSharePageCache();
     const item = await count(`/share/${share.token}/items/${last!.id}`);
     expect(item.status).toBe(200);
-    expect(item.calls).toBeLessThanOrEqual(6);
+    expect(item.calls).toBeLessThanOrEqual(7); // the shelf route's own 6 — the same work for every id (§16 #43) — and one for the gift
     const wants = await count(`/wants?member=${ravi.id}`, asha.cookie);
     expect(wants.status).toBe(200);
     expect(wants.calls).toBeLessThanOrEqual(10);

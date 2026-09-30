@@ -193,7 +193,7 @@ describe('the Wanted badge to connections', () => {
     // this version keeps it
     expect(parseShelfItem(shelfItem)!.wanted).toBe(true);
     expect(parseItemDetail(detail)!.wanted).toBe(true);
-    expect(parseFeedEntry(feedEntry)!.item.wanted).toBe(true);
+    expect((parseFeedEntry(feedEntry) as { item: { wanted?: true } }).item.wanted).toBe(true);
     // an older household reads the same bytes, and simply doesn't have the field
     expect(before.parseShelfItem(shelfItem)).toMatchObject({ title: 'Wanted and not owned' });
     expect(before.parseShelfItem(shelfItem)).not.toHaveProperty('wanted');

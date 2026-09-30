@@ -7,13 +7,12 @@ import {
   getSeries,
   getShareByToken,
   getSiteSettings,
-  linksForItems,
+  giftExtras,
   listItems,
   namedReviews,
   playCount,
   shareGuardFacts,
   wantedAmong,
-  wantListOwnerName,
 } from '../db/queries';
 import type { Item, Share } from '../db/schema';
 import type { AppEnv } from '../env';
@@ -191,12 +190,11 @@ const GiftCard: FC<{ item: GiftItem; token: string }> = ({ item, token }) => (
 
 /** A gift list: every item its member wants now, on any shelf, with the household's purchase links, and nothing else. */
 async function giftListPage(c: Context<AppEnv>, view: Share & { wantUserId: number }, token: string, pageNum: number) {
-  const [{ items, total, page: current, pages }, owner] = await Promise.all([
-    listItems(c.env.DB, view.libraryId, { ...shareFilters(view), page: pageNum }),
-    wantListOwnerName(c.env.DB, view.wantUserId),
-  ]);
-  const links = await linksForItems(
+  const { items, total, page: current, pages } = await listItems(c.env.DB, view.libraryId, { ...shareFilters(view), page: pageNum });
+  // the page's links and the member's public name, in one call
+  const { owner, links } = await giftExtras(
     c.env.DB,
+    view.wantUserId,
     items.map((i) => i.id),
   );
   const gifts = items.map((i) => toGiftItem(i, links.get(i.id) ?? []));
@@ -226,7 +224,7 @@ async function giftListPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
 
 /** One item on a gift list: what finding the right one takes, and where to buy it. */
 async function giftItemPage(c: Context<AppEnv>, view: Share & { wantUserId: number }, token: string, item: Item) {
-  const [links, owner] = await Promise.all([linksForItems(c.env.DB, [item.id]), wantListOwnerName(c.env.DB, view.wantUserId)]);
+  const { owner, links } = await giftExtras(c.env.DB, view.wantUserId, [item.id]);
   const gift = toGiftItem(item, links.get(item.id) ?? []);
   const title = wantListTitle(owner);
   return renderShare(

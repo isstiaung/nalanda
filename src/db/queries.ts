@@ -2197,18 +2197,6 @@ function wantsAndLinksOf([w, l]: D1Result[]): {
   };
 }
 
-/** The purchase links of several items, oldest first — one query, the ids as one JSON parameter however many. */
-export async function linksForItems(d1: D1Database, itemIds: number[]): Promise<Map<number, Array<{ id: number; label: string; url: string }>>> {
-  const out = new Map<number, Array<{ id: number; label: string; url: string }>>();
-  if (!itemIds.length) return out;
-  const rows = await d1
-    .prepare('SELECT item_id AS itemId, id, label, url FROM purchase_links WHERE item_id IN (SELECT value FROM json_each(?1)) ORDER BY item_id, id')
-    .bind(JSON.stringify(itemIds))
-    .all<{ itemId: number; id: number; label: string; url: string }>();
-  for (const { itemId, ...link } of rows.results) out.set(itemId, [...(out.get(itemId) ?? []), link]);
-  return out;
-}
-
 /** When `userId` put each of these items on their want list, and the items' purchase links: one D1 call, for the want-list page. */
 export async function wantListExtras(
   d1: D1Database,
@@ -2247,18 +2235,32 @@ export async function shareGuardFacts(d1: D1Database, itemId: number): Promise<{
 }
 
 /**
- * The name a gift list goes by in public (§16 #53): its member's display name while an admin has names on for share
- * pages, else null — never a username. One query, the switch read inside it.
+ * A gift list's page's two facts in one D1 call: its items' purchase links, oldest first, and the name its member goes
+ * by in public — their display name only while names are on for share pages (the instance's default when no admin has
+ * set it, §16 #49), else null; never a username.
  */
-export async function wantListOwnerName(d1: D1Database, userId: number): Promise<string | null> {
-  const row = await d1
-    .prepare(
-      `SELECT u.display_name AS name, coalesce((SELECT names_on_shares FROM site_settings WHERE id = 1), 0) AS on_
-       FROM users u WHERE u.id = ?1`,
-    )
-    .bind(userId)
-    .first<{ name: string | null; on_: number }>();
-  return row?.on_ && row.name ? row.name : null;
+export async function giftExtras(
+  d1: D1Database,
+  userId: number,
+  itemIds: number[],
+): Promise<{ owner: string | null; links: Map<number, Array<{ id: number; label: string; url: string }>> }> {
+  const [o, l] = await d1.batch([
+    d1
+      .prepare(
+        `SELECT u.display_name AS name, coalesce((SELECT names_on_shares FROM site_settings WHERE id = 1), ?2) AS on_
+         FROM users u WHERE u.id = ?1`,
+      )
+      .bind(userId, SITE_DEFAULTS.namesOnShares ? 1 : 0),
+    d1
+      .prepare('SELECT item_id AS itemId, id, label, url FROM purchase_links WHERE item_id IN (SELECT value FROM json_each(?1)) ORDER BY item_id, id')
+      .bind(JSON.stringify(itemIds)),
+  ]);
+  const row = (o?.results ?? [])[0] as { name: string | null; on_: number } | undefined;
+  const links = new Map<number, Array<{ id: number; label: string; url: string }>>();
+  for (const { itemId, ...link } of (l?.results ?? []) as Array<{ itemId: number; id: number; label: string; url: string }>) {
+    links.set(itemId, [...(links.get(itemId) ?? []), link]);
+  }
+  return { owner: row?.on_ && row.name ? row.name : null, links };
 }
 
 export type AddLinkResult = 'added' | 'duplicate' | 'full' | 'missing';
