@@ -34,8 +34,15 @@ Local dev prints to the `npm run dev` terminal.
   is down. Try again later. Manual entry always works.
 - **"No board games found"**: BGG answered and nothing matched. Try BGG's own spelling, or
   fewer words.
-- **Discogs 401 in logs**: token revoked or mistyped — re-run
-  `npx wrangler secret put DISCOGS_TOKEN`.
+- **Discogs 401 in logs**, or **"Discogs refused the DISCOGS_TOKEN"** after Refresh from
+  Discogs: token revoked or mistyped — re-run `npx wrangler secret put DISCOGS_TOKEN`.
+- **"Discogs is busy"** after Refresh from Discogs: Discogs allows 60 requests a minute per
+  token, and each click is one. Wait a minute and click again.
+- **Refresh from Discogs doesn't change a field**: it only fills blanks, never replaces a value
+  (ARCH.md §16 #55). To take Discogs' value instead — say a record added before pressing details kept the
+  short format a search gave it — clear that key in the edit form's details JSON, save, and
+  refresh. **"Found by barcode — refresh again for the tracklist"**: a barcode search has no
+  tracklist; the release id it stored fetches one on the next click.
 - **Weird edition data** (wrong publisher/year): providers return their "best" edition.
   Edit the item after saving — lookup fills the form, it doesn't own the data.
 - **Backfill stops with "request failed (500)"**: a large backfill can trip the free plan's
