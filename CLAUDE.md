@@ -196,7 +196,10 @@ shape from this file.
   (`recommendableItem()`, checked at send time), and only to a household whose descriptor lists `Recommend`
   in `accepts`: 1.5.0 and older refuse a type they don't know (test/fixtures/*-v1.4.0.ts). A new directed
   type follows the same rule — advertise it in `ACCEPTS`, check `peerAccepts()` before queuing. What the
-  receiver does with one (want, dismiss) is never sent back.
+  receiver does with one (want, dismiss) is never sent back — though a wanted item on a shared shelf shows
+  there as any item does. Wanting one copies its cover from their `/covers/`: `storeCover()` keeps raster
+  types only and follows no redirect for a peer's URL, and `serveCover()` sends a sandboxing CSP, so no
+  cover can run script on this origin.
 - Strings from another instance — household names, view names, feed entries, members' names (`by`, `reviews`), comments,
   recommendations (title, creators, the name it's signed with, the note) —
   render only as escaped text. A comment thread is only ever shown to the two households in it. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:

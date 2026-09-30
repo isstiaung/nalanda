@@ -212,11 +212,13 @@ What the page tells you:
 **Receiving:** **Recommended** in the sidebar lists what households recommend to you, with the
 note and who sent it; a notification says when one arrives. Anyone in your household can
 **Add to my want list** — it joins the shelf you choose as a Not owned item, or the want goes on
-the copy you already have — or **Dismiss** it. Either way it leaves the list for everyone, and the
-household that sent it isn't told. The page also lists what your household has recommended.
+the copy you already have — or **Dismiss** it. Either way it leaves the list for everyone. The household
+that sent it gets no reply, but an item added to a shelf you share with them shows there like any
+other, Not owned and Wanted included. The page also lists what your household has recommended.
 
 **Limits:** from one household, 20 a day and 50 waiting at once; past that theirs are turned away
-until you dismiss some. There's no block: dismiss, or disconnect, which removes all of theirs.
+until you dismiss some. Your household sends each household at most 20 a day too, refused ones
+included. There's no block: dismiss, or disconnect, which removes all of theirs.
 
 ## Changing address
 

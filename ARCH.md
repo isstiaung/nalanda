@@ -2429,7 +2429,30 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     Dismissed and taken ones are kept 60 days (`RECOMMENDATIONS_KEPT_DAYS`, past any outbox's 30-day
     retention, so a late copy still finds its row), then pruned in the receiving batch. **Dismiss is the
     only answer**: no per-household block — disconnecting is that, and takes their recommendations with
-    it (`ON DELETE CASCADE`). The sender is never told what happened to one.
+    it (`ON DELETE CASCADE`). The sender is sent nothing about what happened to one — but an item wanted
+    onto a shelf that a connection view holds shows on that shelf as any item does, Not owned and Wanted
+    (#53), so a household that recommended it can see that someone here wants it. The page says so.
+
+    **Found by the adversarial pass, and fixed:**
+    - *A cover could carry script.* Wanting a recommendation copies its cover from the other household's
+      `/covers/<uuid>` into our R2, and `storeCover()` kept any `image/*` — an `image/svg+xml` with a
+      `<script>`, served back publicly from this origin, runs with this origin's cookies. The first time
+      another instance chose the bytes. `storeCover()` now keeps only raster types (JPEG, PNG, GIF, WebP,
+      AVIF) from any source, follows no redirect for a peer's URL (`followRedirects: false`), and
+      `serveCover()` sends `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline';
+      sandbox` on every cover, including any stored before.
+    - *A race for the last place answered 200.* Two different recommendations arriving together for the
+      last open place both passed the first check; the second's batch then stored nothing and was answered
+      "already received" — so its sender counted it delivered and could never send it again. Now nothing
+      inserted and not seen is a 409, which the sender marks refused.
+    - *The sender's own limit could be sidestepped.* A refused recommendation leaves the outbox, which is
+      what `MAX_SENT_PER_DAY` counts, so a member could try again and again against a household refusing
+      them. Recommendations to one household are also capped at `MAX_RECOMMENDATIONS_PER_DAY` a day on
+      the sending side, counted in `recommendations` whatever became of them.
+    - *Known, left as is:* a recommendation taken by an outbox pull rather than a push, and refused there
+      for a cap, stays "Sent" on the sender's side — a pull has no way to answer, as with any directed
+      message; and the name a recommendation is signed with is fixed when it is sent, as a comment's or a
+      borrow request's is.
 
     **Who.** Any member may recommend (as any member may comment or ask to borrow); the send checks this
     household's own `MAX_SENT_PER_DAY` to that household first. The whole household sees the list — the
@@ -2473,7 +2496,7 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     **Within the free plan.** The item page spends one call on the section (`recommendTargets()`: the
     active households, our latest recommendation of the item to each and whether a view holds it, in one
     query) and one more for the name it would be signed with — 16 in all measured, 15 without
-    households. Sending: 10 calls and two outbound fetches (their descriptor, the push). Receiving: 7.
+    households. Sending: 11 calls and two outbound fetches (their descriptor, the push). Receiving: 7.
     The Recommended page: 11 before its background pull, which runs within the budgeted handle;
     `appliedAlready()` asks about recommendations only when a page holds some. Tests count each.
 
