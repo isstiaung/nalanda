@@ -20,8 +20,9 @@ import {
 import { MAX_LOANS_PER_CELL, type LoanDraft } from '../lib/loans';
 import { MAX_PLAYS_PER_ITEM, PLAYABLE_TYPES, RECENT_PLAYS, type CellPlay, type PersonPlay } from '../lib/plays';
 import { reviewOrderSql, stampReviews, summarizeReviews, type PersonReview, type ReviewDraft } from '../lib/reviews';
+import { seriesKey, type SeriesDraft } from '../lib/series';
 import * as s from './schema';
-import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Share, User } from './schema';
+import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Series, Share, User } from './schema';
 
 const db = (d1: D1Database) => drizzle(d1);
 
@@ -302,6 +303,7 @@ export async function deleteLibrary(d1: D1Database, id: number): Promise<string[
     d1.prepare('DELETE FROM libraries WHERE id = ?1').bind(id),
     d1.prepare('DELETE FROM activity_log WHERE NOT EXISTS (SELECT 1 FROM connection_views)'),
     d1.prepare('DELETE FROM member_activity WHERE NOT EXISTS (SELECT 1 FROM connection_views)'),
+    pruneSeries(d1), // a series whose volumes were all on this shelf
   ]);
   return covers.map((c) => c.coverKey).filter((k): k is string => !!k);
 }
@@ -504,8 +506,9 @@ export async function updateItem(d1: D1Database, id: number, values: Partial<New
     .where(eq(s.items.id, id));
 }
 
+/** Deletes an item, and its series with it if it was the series' last volume here (§16 #52). */
 export async function deleteItem(d1: D1Database, id: number): Promise<void> {
-  await db(d1).delete(s.items).where(eq(s.items.id, id));
+  await d1.batch([d1.prepare('DELETE FROM items WHERE id = ?1').bind(id), pruneSeries(d1)]);
 }
 
 export async function recentItems(d1: D1Database, limit = 12): Promise<Item[]> {
@@ -559,6 +562,135 @@ export async function holdingsByType(
     .orderBy(desc(count()));
 }
 
+// ---------- series (ARCH.md §16 #52) ----------
+
+/**
+ * The statement that makes sure `draft`'s series exists — the first spelling of a name stays, since the name is
+ * unique by its key — and sets its total when the draft carries one. None without a series.
+ */
+function seriesUpsert(d1: D1Database, draft: SeriesDraft | null | undefined): D1PreparedStatement[] {
+  if (!draft) return [];
+  return [
+    d1
+      .prepare(
+        'INSERT INTO series (name, key, total) VALUES (?1, ?2, ?3) ON CONFLICT (key) DO UPDATE SET total = coalesce(excluded.total, series.total)',
+      )
+      .bind(draft.name, seriesKey(draft.name), draft.total ?? null),
+  ];
+}
+
+/** An item's values with its series: the id is looked up by key inside the item's own statement, so it rides one batch. */
+function withSeries<T extends Partial<NewItem>>(values: T, draft: SeriesDraft | null | undefined): T {
+  return {
+    ...values,
+    seriesId: draft ? sql`(SELECT id FROM series WHERE key = ${seriesKey(draft.name)})` : null,
+    seriesNumber: draft ? draft.number : null,
+  };
+}
+
+/**
+ * Deletes every series no item belongs to any more: the one an item just left, or whose last volume went. Its total
+ * goes with it. items.series_id has no ON DELETE (§16 #35), so a series is only ever deleted once nothing points at it.
+ */
+function pruneSeries(d1: D1Database): D1PreparedStatement {
+  return d1.prepare('DELETE FROM series WHERE NOT EXISTS (SELECT 1 FROM items WHERE items.series_id = series.id)');
+}
+
+export async function getSeries(d1: D1Database, id: number): Promise<Series | null> {
+  const [row] = await db(d1).select().from(s.series).where(eq(s.series.id, id));
+  return row ?? null;
+}
+
+/** A series' volume, with whether the signed-in member finished it or is reading it now — their own reads. */
+export type SeriesVolumeRow = Item & { finishedByMe: boolean; readingByMe: boolean };
+
+/** A series and every volume in it, with the viewer's own reading of each: one D1 call. Null when there's no such series. */
+export async function seriesWithVolumes(
+  d1: D1Database,
+  id: number,
+  viewer: number,
+): Promise<{ series: Series; volumes: SeriesVolumeRow[] } | null> {
+  const dbi = db(d1);
+  const mine = (status: 'completed' | 'in_progress') =>
+    sql<number>`EXISTS (SELECT 1 FROM ${s.reads} WHERE ${s.reads.itemId} = ${s.items.id} AND ${s.reads.readerId} = ${viewer} AND ${s.reads.status} = ${status})`;
+  const [found, rows] = await dbi.batch([
+    dbi.select().from(s.series).where(eq(s.series.id, id)),
+    dbi
+      .select({ item: s.items, finished: mine('completed'), reading: mine('in_progress') })
+      .from(s.items)
+      .where(eq(s.items.seriesId, id)),
+  ]);
+  const series = found[0];
+  if (!series) return null;
+  return { series, volumes: rows.map((r) => ({ ...r.item, finishedByMe: !!r.finished, readingByMe: !!r.reading })) };
+}
+
+export type SeriesSummary = { id: number; name: string; total: number | null; volumes: number; numbers: Array<number | null> };
+
+/** Every series the catalog holds a volume of, by name, with the numbers it holds: one query. */
+export async function listSeries(d1: D1Database): Promise<SeriesSummary[]> {
+  const rows = await db(d1)
+    .select({
+      id: s.series.id,
+      name: s.series.name,
+      total: s.series.total,
+      volumes: count(s.items.id),
+      // a volume without a number is an empty entry, so every volume is in the list: "3,,5"
+      numbers: sql<string>`group_concat(coalesce(${s.items.seriesNumber}, ''))`,
+    })
+    .from(s.series)
+    .innerJoin(s.items, eq(s.items.seriesId, s.series.id))
+    .groupBy(s.series.id)
+    .orderBy(asc(s.series.key));
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    total: r.total,
+    volumes: r.volumes,
+    numbers: String(r.numbers ?? '')
+      .split(',')
+      .map((n) => (n === '' ? null : Number(n))),
+  }));
+}
+
+/** Every series' name, for the edit form's suggestions. */
+export async function seriesNames(d1: D1Database): Promise<string[]> {
+  const rows = await db(d1).select({ name: s.series.name }).from(s.series).orderBy(asc(s.series.key)).limit(1000);
+  return rows.map((r) => r.name);
+}
+
+/** The series these ids name — the export's one extra query a page (one JSON parameter, however many ids). */
+export async function seriesForIds(d1: D1Database, ids: Array<number | null>): Promise<Map<number, Series>> {
+  const wanted = [...new Set(ids.filter((id): id is number => id !== null))];
+  if (!wanted.length) return new Map();
+  const rows = await db(d1)
+    .select()
+    .from(s.series)
+    .where(sql`${s.series.id} IN (SELECT value FROM json_each(${JSON.stringify(wanted)}))`);
+  return new Map(rows.map((r) => [r.id, r]));
+}
+
+/**
+ * Renames a series and sets its total, in one batch. A name another series already has (by key) merges this one
+ * into it: its volumes move there, and the total given — else the one there, else this one's — is kept. Returns
+ * the id the series has afterwards. The route checks the series exists first.
+ */
+export async function updateSeries(d1: D1Database, id: number, name: string, total: number | null): Promise<number | null> {
+  const key = seriesKey(name);
+  const other = 'EXISTS (SELECT 1 FROM series WHERE key = ?2 AND id <> ?1)';
+  const results = await d1.batch([
+    d1
+      .prepare('UPDATE series SET total = coalesce(?3, total, (SELECT total FROM series WHERE id = ?1)) WHERE key = ?2 AND id <> ?1')
+      .bind(id, key, total),
+    d1.prepare(`UPDATE items SET series_id = (SELECT id FROM series WHERE key = ?2) WHERE series_id = ?1 AND ${other}`).bind(id, key),
+    d1.prepare(`DELETE FROM series WHERE id = ?1 AND ${other}`).bind(id, key),
+    d1.prepare('UPDATE series SET name = ?3, key = ?2, total = ?4 WHERE id = ?1').bind(id, key, name, total),
+    d1.prepare('SELECT id FROM series WHERE key = ?1').bind(key),
+  ]);
+  const row = results[4]?.results[0] as { id: number } | undefined;
+  return row?.id ?? null;
+}
+
 // ---------- tags ----------
 
 export function normalizeTags(names: string[]): string[] {
@@ -601,11 +733,17 @@ export async function setItemTags(d1: D1Database, itemId: number, names: string[
  * (§16 #43) — in one batch: a failure between them saved it without them, and the person's second try saved it
  * twice. Returns its id.
  */
-export async function createItemWithTags(d1: D1Database, values: NewItem, names: string[]): Promise<number> {
+export async function createItemWithTags(d1: D1Database, values: NewItem, names: string[], series: SeriesDraft | null = null): Promise<number> {
   const reads = readsFromColumns(values.status ?? 'not_started', values.beganOn, values.completedOn);
   const reviews = stampReviews(reviewsFromColumns(values));
-  const q = db(d1).insert(s.items).values(withReviewState(withReadState(values, reads), reviews)).returning({ id: s.items.id }).toSQL();
-  const [created] = await d1.batch([
+  const q = db(d1)
+    .insert(s.items)
+    .values(withSeries(withReviewState(withReadState(values, reads), reviews), series))
+    .returning({ id: s.items.id })
+    .toSQL();
+  const upsert = seriesUpsert(d1, series);
+  const results = await d1.batch([
+    ...upsert,
     d1.prepare(q.sql).bind(...q.params),
     ...tagLinkStatements(d1, 'newest', names),
     ...readInsertStatements(d1, 'newest', reads, values.addedBy ?? null),
@@ -613,7 +751,7 @@ export async function createItemWithTags(d1: D1Database, values: NewItem, names:
     ...reviewInsertStatements(d1, 'newest', reviews, values.addedBy ?? null),
     refreshReviewState(d1, 'newest'),
   ]);
-  const row = created?.results[0] as { id: number } | undefined;
+  const row = results[upsert.length]?.results[0] as { id: number } | undefined;
   if (!row) throw new Error('failed to create item');
   return row.id;
 }
@@ -644,16 +782,32 @@ export async function updateItemWithTags(
   formRead?: FormRead,
   person: number | null = null,
   formReview?: FormReview,
+  series?: SeriesDraft | null, // undefined leaves the item's series as it is; null takes it out of one (§16 #52)
 ): Promise<void> {
-  // reading state and the rating and review come from reads and reviews alone
-  const { status: _s, beganOn: _b, completedOn: _c, readCount: _n, rereading: _r, progressPage: _p, rating: _g, review: _v, ...rest } = values;
+  // reading state and the rating and review come from reads and reviews alone; the series only from `series`
+  const {
+    status: _s,
+    beganOn: _b,
+    completedOn: _c,
+    readCount: _n,
+    rereading: _r,
+    progressPage: _p,
+    rating: _g,
+    review: _v,
+    seriesId: _i,
+    seriesNumber: _k,
+    ...rest
+  } = values;
   const q = db(d1)
     .update(s.items)
-    .set({ ...rest, updatedAt: sql`(datetime('now'))` })
+    .set({ ...(series === undefined ? rest : withSeries(rest, series)), updatedAt: sql`(datetime('now'))` })
     .where(eq(s.items.id, id))
     .toSQL();
   await d1.batch([
+    ...seriesUpsert(d1, series),
     d1.prepare(q.sql).bind(...q.params),
+    // the series it left, if this was that series' last volume
+    ...(series === undefined ? [] : [pruneSeries(d1)]),
     d1.prepare('DELETE FROM item_tags WHERE item_id = ?1').bind(id),
     ...tagLinkStatements(d1, id, names),
     ...(formRead ? formReadStatements(d1, id, person, formRead) : []),
@@ -2080,6 +2234,7 @@ export type ImportRow = {
   // a Nalanda export's `plays` (§16 #54); any other file brings none
   plays?: PersonPlay[];
   goodreads?: GoodreadsReading;
+  series?: SeriesDraft | null; // its series, and the series' total when the file gives one (§16 #52)
 };
 
 /**
@@ -2097,7 +2252,12 @@ export async function importItems(d1: D1Database, rows: ImportRow[]): Promise<nu
     const person = r.item.addedBy ?? null;
     const reads = oneOpenReadEach(r.reads ?? readsFromColumns(r.item.status ?? 'not_started', r.item.beganOn, r.item.completedOn), person).reads;
     const reviews = stampReviews(r.reviews ?? reviewsFromColumns(r.item));
-    const q = db(d1).insert(s.items).values(withReviewState(withReadState(r.item, reads), reviews)).returning({ id: s.items.id }).toSQL();
+    const q = db(d1)
+      .insert(s.items)
+      .values(withSeries(withReviewState(withReadState(r.item, reads), reviews), r.series))
+      .returning({ id: s.items.id })
+      .toSQL();
+    writes.push(...seriesUpsert(d1, r.series));
     itemAt.push(writes.length + 1); // +1: the marker leads the batch
     writes.push(
       d1.prepare(q.sql).bind(...q.params),

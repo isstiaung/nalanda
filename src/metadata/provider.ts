@@ -1,4 +1,5 @@
 import type { MediaType } from '../db/schema';
+import type { SeriesDraft } from '../lib/series';
 
 /** A normalized lookup result, ready to prefill the add-item confirm form. */
 export type Candidate = {
@@ -13,6 +14,8 @@ export type Candidate = {
   isbn10Upc?: string;
   coverUrl?: string; // provider-hosted; fetched into R2 only on save
   workKey?: string; // Open Library work record (/works/OL…W) — where its description lives
+  // Its series and number (§16 #52) — Open Library's search index knows it for many books, Google Books never names one
+  series?: SeriesDraft;
   details: Record<string, unknown>;
   provider: string;
 };

@@ -17,6 +17,7 @@ import {
   getPlay,
   getProgressEntry,
   getRead,
+  getSeries,
   getReview,
   listLibraries,
   listPeople,
@@ -26,6 +27,8 @@ import {
   pastLoansForItem,
   playLog,
   readingLog,
+  seriesNames,
+  seriesWithVolumes,
   startRead,
   tagsForItem,
   updateItem,
@@ -43,6 +46,7 @@ import { isPlayable, MAX_PLAYS_PER_ITEM, playDateProblem } from '../lib/plays';
 import { MAX_PROGRESS_PAGE } from '../lib/progress';
 import { isReadStatus, readDateProblem, summarizeReads, todayUtc, type ReadDraft } from '../lib/reads';
 import { reviewText } from '../lib/reviews';
+import { cleanSeriesName, formatSeriesNumber, parseSeriesNumber, type SeriesDraft } from '../lib/series';
 import { parseDetails } from '../lib/share';
 import {
   accNo,
@@ -70,6 +74,7 @@ import {
 import { page } from '../views/layout';
 import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
+import { SeriesSection } from '../views/series';
 
 const items = new Hono<AppEnv>();
 
@@ -135,7 +140,21 @@ type ParsedForm = {
   tags: string[];
   coverUrl: string;
   removeCover: boolean;
+  // the item's series (§16 #52): null for none. `seriesSent` is the typed text, for a refused form to give back, and
+  // `seriesProblem` why it can't be saved.
+  series: SeriesDraft | null;
+  seriesSent: { name: string; number: string };
+  seriesProblem: string | null;
 };
+
+/** The series fields: a name, and a number that needs one. Blank both, and the item is in no series. */
+function parseSeriesFields(nameRaw: string, numberRaw: string): Pick<ParsedForm, 'series' | 'seriesProblem'> {
+  const name = cleanSeriesName(nameRaw);
+  const number = parseSeriesNumber(numberRaw);
+  if (number === undefined) return { series: null, seriesProblem: 'A number in a series is like 3, or 2.5 for a book between two others.' };
+  if (!name) return { series: null, seriesProblem: number === null ? null : 'A number in a series needs the series’ name too.' };
+  return { series: { name, number }, seriesProblem: null };
+}
 
 /** A rating from a form: half-stars 1–10, or none. */
 const formRating = (raw: unknown): number | null => {
@@ -200,8 +219,13 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
     tags: str('tags').split(',').map((t) => t.trim()).filter(Boolean),
     coverUrl: str('coverUrl'),
     removeCover: str('removeCover') === '1',
+    ...parseSeriesFields(str('seriesName'), str('seriesNumber')),
+    seriesSent: { name: str('seriesName'), number: str('seriesNumber') },
   };
 }
+
+/** Why the form can't be saved — its reading, or its series — or null. */
+const formProblem = (readProblem: string | null, parsed: ParsedForm) => readProblem ?? parsed.seriesProblem;
 
 /** The form's status and dates, as the read they describe. */
 const readFields = (v: ParsedForm['values']) => ({ status: v.status ?? 'not_started', beganOn: v.beganOn ?? null, completedOn: v.completedOn ?? null });
@@ -246,10 +270,10 @@ items.post('/items', async (c) => {
   const logOnly = body['logOnly'] === '1';
   if (logOnly) parsed.values.copies = 0;
 
-  const problem = formReadProblem(null, readFields(parsed.values));
+  const problem = formProblem(formReadProblem(null, readFields(parsed.values)), parsed);
   if (problem && htmx) return c.text(problem, 400);
   if (problem) {
-    const [libs, people] = await Promise.all([listLibraries(c.env.DB), listPeople(c.env.DB)]);
+    const [libs, people, names] = await Promise.all([listLibraries(c.env.DB), listPeople(c.env.DB), seriesNames(c.env.DB)]);
     c.status(400);
     return page(
       c,
@@ -267,6 +291,8 @@ items.post('/items', async (c) => {
           coverUrl={parsed.coverUrl}
           error={problem}
           perMember={people.length > 1}
+          series={parsed.seriesSent}
+          seriesNames={names}
         />
       </>,
     );
@@ -276,7 +302,7 @@ items.post('/items', async (c) => {
   let id: number;
   try {
     // its status, dates, rating and review become the adder's read and review (added_by)
-    id = await createItemWithTags(c.env.DB, { ...parsed.values, coverKey, addedBy: c.get('user').id }, parsed.tags);
+    id = await createItemWithTags(c.env.DB, { ...parsed.values, coverKey, addedBy: c.get('user').id }, parsed.tags, parsed.series);
   } catch (err) {
     c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // nothing points at it
     throw err;
@@ -290,7 +316,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
   const viewer = viewerOf(c);
-  const [lib, tags, loans, people, log, lent, plays] = await Promise.all([
+  const [lib, tags, loans, people, log, lent, plays, inSeries] = await Promise.all([
     getLibrary(c.env.DB, item.libraryId),
     tagsForItem(c.env.DB, id),
     activeLoansForItem(c.env.DB, id),
@@ -298,6 +324,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
     readingLog(c.env.DB, id),
     pastLoansForItem(c.env.DB, id),
     playLog(c.env.DB, id),
+    // its series, with the viewer's own reading of every volume (§16 #52): one call, only for an item in one
+    item.seriesId !== null ? seriesWithVolumes(c.env.DB, item.seriesId, viewer.id) : null,
   ]);
   const addedBy = item.addedBy ? (people.find((p) => p.id === item.addedBy) ?? null) : null;
   const grouped = showsPeople(people, viewer, log);
@@ -423,6 +451,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
           </dd>
         </dl>
 
+        {inSeries ? <SeriesSection series={inSeries.series} volumes={inSeries.volumes} currentId={item.id} /> : null}
+
         {item.description ? <p class="prewrap">{item.description}</p> : null}
 
         {Object.keys(details).length ? (
@@ -533,11 +563,13 @@ items.get('/items/:id/edit', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
-  const [libs, tags, log, people] = await Promise.all([
+  const [libs, tags, log, people, names, current] = await Promise.all([
     listLibraries(c.env.DB),
     tagsForItem(c.env.DB, id),
     readingLog(c.env.DB, id),
     listPeople(c.env.DB),
+    seriesNames(c.env.DB),
+    item.seriesId !== null ? getSeries(c.env.DB, item.seriesId) : null,
   ]);
   return page(
     c,
@@ -556,6 +588,8 @@ items.get('/items/:id/edit', async (c) => {
         item={personalItem(item, log, c.get('user').id)}
         tags={tags}
         perMember={people.length > 1}
+        series={current ? { name: current.name, number: item.seriesNumber !== null ? formatSeriesNumber(item.seriesNumber) : '' } : null}
+        seriesNames={names}
       />
     </>,
   );
@@ -949,13 +983,16 @@ items.post('/items/:id', async (c) => {
   const sent = readFields(parsed.values);
   const unchanged =
     sent.status === mine.status && sent.beganOn === (mine.beganOn || null) && sent.completedOn === (mine.completedOn || null);
-  const problem = locked
-    ? 'status' in body && !unchanged
-      ? 'This book is being read again: its reads are started, finished and corrected on its page, not here.'
-      : null
-    : formReadProblem(mine, sent);
+  const problem = formProblem(
+    locked
+      ? 'status' in body && !unchanged
+        ? 'This book is being read again: its reads are started, finished and corrected on its page, not here.'
+        : null
+      : formReadProblem(mine, sent),
+    parsed,
+  );
   if (problem) {
-    const libs = await listLibraries(c.env.DB);
+    const [libs, names] = await Promise.all([listLibraries(c.env.DB), seriesNames(c.env.DB)]);
     c.status(400);
     return page(
       c,
@@ -977,6 +1014,8 @@ items.post('/items/:id', async (c) => {
           removeCover={parsed.removeCover}
           error={problem}
           perMember={people.length > 1}
+          series={parsed.seriesSent}
+          seriesNames={names}
         />
       </>,
     );
@@ -995,6 +1034,8 @@ items.post('/items/:id', async (c) => {
       locked ? undefined : { ...sent, clearReads: existing.mediaType !== 'book' },
       user.id,
       { rating: parsed.values.rating ?? null, review: reviewText(parsed.values.review) },
+      // a form without the series fields (one opened before they existed) leaves the series as it is
+      'seriesName' in body || 'seriesNumber' in body ? parsed.series : undefined,
     );
   } catch (err) {
     if (coverKey !== existing.coverKey) c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // the new one: unused

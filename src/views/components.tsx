@@ -5,6 +5,7 @@ import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import { progressPercent } from '../lib/progress';
 import { isPlayable, playDate } from '../lib/plays';
 import { latestReadDate, ordinal, summarizeReads, todayUtc, type ReadDraft, type ReadRow } from '../lib/reads';
+import { formatSeriesNumber } from '../lib/series';
 import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
 
@@ -1111,7 +1112,11 @@ export const ItemForm: FC<{
   coverUrl?: string;
   removeCover?: boolean;
   perMember?: boolean;
-}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverUrl, removeCover, perMember }) => {
+  // the item's series as the form shows it — typed text, so a refused form gives back what was sent (§16 #52)
+  series?: { name: string; number: string } | null;
+  // every series' name, offered as the series field is typed
+  seriesNames?: string[];
+}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverUrl, removeCover, perMember, series, seriesNames }) => {
   // a book being read again: status and dates describe its last finish, and the re-read is managed on its page
   const readingLocked = item?.mediaType === 'book' && !!item?.rereading;
   // A book finished before: the form edits that finish, so it offers Completed only — reading it again, or a stop, is
@@ -1158,6 +1163,30 @@ export const ItemForm: FC<{
       Creators <small>(authors / designers / artists)</small>
       <input name="creators" value={item?.creators ?? ''} />
     </label>
+    <div class="grid series-fields">
+      <label>
+        Series <small>(optional)</small>
+        <input name="seriesName" value={series?.name ?? ''} list="series-names" autocomplete="off" placeholder="The Expanse" />
+      </label>
+      <label>
+        Number in series
+        <input
+          name="seriesNumber"
+          value={series?.number ?? ''}
+          inputmode="decimal"
+          pattern="#?\s*\d{1,4}(\.\d{1,2})?"
+          title="A number: 3, or 2.5 for a book between two others"
+          placeholder="3"
+        />
+      </label>
+    </div>
+    {seriesNames?.length ? (
+      <datalist id="series-names">
+        {seriesNames.map((n) => (
+          <option value={n} />
+        ))}
+      </datalist>
+    ) : null}
     <div class="grid">
       <label>
         ISBN-13 / EAN
@@ -1295,6 +1324,8 @@ const CandidateFields: FC<{ candidate: Candidate }> = ({ candidate }) => (
     <input type="hidden" name="length" value={candidate.length?.toString() ?? ''} />
     <input type="hidden" name="isbn13" value={candidate.isbn13 ?? ''} />
     <input type="hidden" name="isbn10Upc" value={candidate.isbn10Upc ?? ''} />
+    <input type="hidden" name="seriesName" value={candidate.series?.name ?? ''} />
+    <input type="hidden" name="seriesNumber" value={candidate.series?.number != null ? formatSeriesNumber(candidate.series.number) : ''} />
     <input type="hidden" name="coverUrl" value={candidate.coverUrl ?? ''} />
     <input type="hidden" name="details" value={JSON.stringify(candidate.details)} />
   </>
@@ -1329,6 +1360,12 @@ const CandidateSummary: FC<{ candidate: Candidate }> = ({ candidate }) => (
       {' · via '}
       {candidate.provider}
     </small>
+    {candidate.series ? (
+      <small class="muted candidate-series">
+        {candidate.series.name}
+        {candidate.series.number !== null ? <span class="mono"> #{formatSeriesNumber(candidate.series.number)}</span> : null}
+      </small>
+    ) : null}
   </>
 );
 
