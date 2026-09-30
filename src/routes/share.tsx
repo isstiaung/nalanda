@@ -2,9 +2,10 @@
 // toPublicItem() (src/lib/share.ts). See ARCH.md §9 and CLAUDE.md privacy invariants.
 import { Hono, type Context } from 'hono';
 import type { Child, FC, PropsWithChildren } from 'hono/jsx';
-import { getItem, getShareByToken, getSiteSettings, listItems, namedReviews, playCount, tagsForItems } from '../db/queries';
+import { getItem, getSeries, getShareByToken, getSiteSettings, listItems, namedReviews, playCount, tagsForItems } from '../db/queries';
 import type { AppEnv } from '../env';
 import { timesPlayed } from '../lib/plays';
+import { formatSeriesNumber } from '../lib/series';
 import { itemMatchesShare, shareFilters, toPublicItem, type PublicItem } from '../lib/share';
 import { BggCredit, fromBgg } from '../views/attribution';
 import { DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, stars } from '../views/components';
@@ -186,8 +187,12 @@ share.get('/:token/items/:id', async (c) => {
   const tags = tagMap.get(id) ?? [];
   if (!item || !itemMatchesShare(view, item, tags)) return c.notFound(); // token only unlocks its own view
   // §16 #45: each member's rating and review, by display name, only while an admin has names on for share pages
-  const reviews = settings.namesOnShares ? await namedReviews(c.env.DB, item.id) : undefined;
-  const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews, plays });
+  // §16 #52: its series name and number are public catalogue data, like the publisher — never the gaps or "next up"
+  const [reviews, series] = await Promise.all([
+    settings.namesOnShares ? namedReviews(c.env.DB, item.id) : undefined,
+    item.seriesId !== null ? getSeries(c.env.DB, item.seriesId) : null,
+  ]);
+  const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews, plays, series });
 
   return renderShare(
     c,
@@ -216,6 +221,15 @@ share.get('/:token/items/:id', async (c) => {
         <dl class="props">
           <dt>Type</dt>
           <dd>{MEDIA_LABEL[pub.mediaType]}</dd>
+          {pub.series ? (
+            <>
+              <dt>Series</dt>
+              <dd>
+                {pub.series.name}
+                {pub.series.number !== null ? <span class="mono">#{formatSeriesNumber(pub.series.number)}</span> : null}
+              </dd>
+            </>
+          ) : null}
           {pub.progress ? (
             <>
               <dt>Reading</dt>
