@@ -621,7 +621,7 @@ export const PlaysSection: FC<{ item: Item; count: number; plays: PlayLine[]; to
       ) : (
         <p class="reading-summary muted">Not played yet.</p>
       )}
-      {error ? <p class="error">{error}</p> : null}
+      {error ? <p class="error" role="alert">{error}</p> : null}
       {isPlayable(item.mediaType) ? (
         // pressing Played sends today's date, already in the field; picking another logs that day instead
         <form method="post" action={`${base}/plays`} class="inline-form play-form" hx-post={`${base}/plays`} hx-target="#plays" hx-swap="outerHTML" hx-disabled-elt="find button">

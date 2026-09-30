@@ -530,7 +530,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   z-index: 20;
   min-width: 170px;
   max-width: calc(100vw - 2rem);
-  padding: 0.55rem 0.7rem;
+  padding: 0.55rem 0.7rem 0.8rem; /* the last checkbox, too, keeps 24px clear of what's below the menu */
   display: grid;
   gap: 0.8rem; /* each checkbox keeps 24px clear of the next: they are touch targets (WCAG 2.5.8) */
   background: var(--surface);
@@ -979,7 +979,9 @@ form.search-by-reader select { width: auto; margin: 0; max-width: 100%; }
 .data-table :is(th, td).col-pick { width: 1%; padding-left: 0.6rem; padding-right: 0; }
 .data-table .col-pick + :is(th, td) { padding-left: 0.45rem; }
 .col-pick input { margin: 0; width: 15px; height: 15px; vertical-align: middle; }
-.data-table tbody tr:has(.bulk-pick:checked) { background: var(--accent-tint); }
+/* 60% of the tint, as a hovered row keeps half (muted text holds 4.5:1), and a firmer rule than hover's */
+.data-table tbody tr:has(.bulk-pick:checked) { background: color-mix(in srgb, var(--accent-tint) 60%, transparent); }
+.data-table tbody tr:has(.bulk-pick:checked) > td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 
 .pick-cell { position: relative; min-width: 0; }
 /* a 30px target over the cover's corner, so a thumb can hit it on a phone */

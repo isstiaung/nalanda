@@ -61,7 +61,7 @@ const GoalsPage: FC<PageProps> = ({ whose, self, admin, people, list, today, sha
       ) : null}
       <article class="panel form-card" id="goal-form">
         <p class="eyebrow">{self ? 'Your goal' : `${whose.username}’s goal`}</p>
-        {error ? <p class="error">{error}</p> : null}
+        {error ? <p class="error" role="alert">{error}</p> : null}
         <form method="post" action={`/goals${query}`} class="goal-form">
           <input type="hidden" name="userId" value={String(whose.id)} />
           <label>
