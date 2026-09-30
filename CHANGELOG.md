@@ -11,6 +11,7 @@ Each release has an **Upgrading** section. Read it for every version between you
 ## [Unreleased]
 
 ### Added
+- **"Lent before" on an item's page**: every past loan of it, newest first, with who borrowed it, when it went out and came back, and for how many days. Loans to connected households are listed too, as "household (their member)". The latest 20 show, and older ones are counted. It appears only once something has been lent and returned, and only inside the app: share pages and connected households never see loans or borrowers. Nothing to do when upgrading — it reads the loans you already have.
 - **Read next on the Overview.** A card suggests one book you haven't finished and aren't reading now, picked at random from any book in the catalog, owned or not ("Not owned" shows when you don't own it). What other members have read doesn't matter: it goes by your own reads. **Another** picks a different book in place, and **Start reading** starts your own read and takes you to the book's page. When you've finished or are reading every book, the card says so; a catalog without books doesn't show it.
 
 ## [1.3.0] - 2026-09-29

@@ -573,6 +573,14 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 
 .circulation { border: 1px solid var(--line); border-left: 3px solid var(--stamp); border-radius: var(--radius); padding: 0.8rem 1rem; margin-top: 1.4rem; background: var(--surface); }
 .circulation.free { border-left-color: var(--line-strong); }
+/* "Lent before": the item's returned loans as a ruled ledger list — borrower, then the span and its length in
+   mono. Each line wraps rather than scrolls, so a long household name never widens the page. */
+.loan-history { list-style: none; padding: 0; margin: 0; font-size: 13px; border-top: 1px solid var(--line); }
+.loan-history > li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.8rem; padding: 0.4rem 0; border-bottom: 1px solid var(--line); }
+.loan-history > li > strong { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; font-weight: 600; }
+.loan-history > li > .mono { font-size: 12px; white-space: nowrap; }
+.loan-history > li > .mono:last-child { min-width: 4.5rem; text-align: right; }
+.loan-history-more { font-size: 12px; margin: 0.4rem 0 0; }
 
 .actions { display: flex; gap: 0.5rem; align-items: center; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 
