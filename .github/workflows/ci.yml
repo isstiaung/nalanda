@@ -32,13 +32,11 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          # Node 24 ships npm 11, which writes package-lock.json (locally and for Dependabot).
+          # Node 22's npm 10 rejects its optional-dependency layout ("Missing @esbuild/… from
+          # lock file"), and upgrading npm on the runner could hang on the registry.
+          node-version: 24
           cache: npm
-
-      # package-lock.json is written by npm 11 (both locally and by Dependabot), and
-      # npm 10 — which is what Node 22 ships — rejects its optional-dependency layout
-      # with "Missing @esbuild/… from lock file". Match the lockfile's authoring npm.
-      - run: npm install -g npm@11
 
       # postinstall vendors htmx, the ZXing WASM and the fonts into public/vendor/
       - run: npm ci
@@ -63,10 +61,8 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
-
-      - run: npm install -g npm@11
 
       - run: npm ci
 
