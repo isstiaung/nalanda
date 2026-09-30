@@ -1,6 +1,7 @@
 // All D1 access lives here (plus src/lib/covers.ts for R2) — ARCH.md §13.
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
+import { newSessionKey } from '../lib/auth';
 import {
   currentOrderSql,
   displayOrderSql,
@@ -43,7 +44,8 @@ export async function createUser(
   d1: D1Database,
   values: { username: string; passwordHash: string; role: 'admin' | 'member'; mustChangePassword: boolean },
 ): Promise<User> {
-  const [u] = await db(d1).insert(s.users).values(values).returning();
+  // a key of its own, in the insert (§16 #56): its id may have been someone's before
+  const [u] = await db(d1).insert(s.users).values({ ...values, sessionKey: newSessionKey() }).returning();
   if (!u) throw new Error('failed to create user');
   return u;
 }
@@ -52,25 +54,43 @@ export async function createUser(
  * First-run setup: the admin and the household's starter shelves, in one batch (ARCH.md §16 #39) — or nothing, once
  * anyone exists. Every statement carries the same guard, no user yet, decided inside it; the shelves come first, so
  * nothing in the batch touches users before the admin's insert. The batch is one transaction, so every statement sees
- * the same answer: two setups racing make one admin and one set of shelves. The admin's id, or null when setup was
- * already done.
+ * the same answer: two setups racing make one admin and one set of shelves. The admin's id and session key (§16 #56,
+ * set in the same insert), or null when setup was already done.
  */
 export async function createFirstAdmin(
   d1: D1Database,
   values: { username: string; passwordHash: string },
   shelves: readonly string[],
-): Promise<number | null> {
+): Promise<{ id: number; sessionKey: string } | null> {
   const noUserYet = 'WHERE NOT EXISTS (SELECT 1 FROM users)';
   const results = await d1.batch([
     ...shelves.map((name) => d1.prepare(`INSERT INTO libraries (name) SELECT ?1 ${noUserYet}`).bind(name)),
     d1
       .prepare(
-        `INSERT INTO users (username, password_hash, role, must_change_password)
-         SELECT ?1, ?2, 'admin', 0 ${noUserYet} RETURNING id`,
+        `INSERT INTO users (username, password_hash, role, must_change_password, session_key)
+         SELECT ?1, ?2, 'admin', 0, ?3 ${noUserYet} RETURNING id, session_key AS sessionKey`,
       )
-      .bind(values.username, values.passwordHash),
+      .bind(values.username, values.passwordHash, newSessionKey()),
   ]);
-  return (results.at(-1)?.results[0] as { id: number } | undefined)?.id ?? null;
+  return (results.at(-1)?.results[0] as { id: number; sessionKey: string } | undefined) ?? null;
+}
+
+/**
+ * An account with no usable session key (§16 #56) — a row inserted by hand, or restored from a backup taken before
+ * migration 0029, keeps the column's '' — gets a fresh one when its password signs in, so it can hold a session at
+ * all. Only what isSessionKey() refuses is replaced (the same test, in SQL): of two logins racing, the second keeps the
+ * first's. The account's id and key, or null if it's gone.
+ */
+export async function ensureSessionKey(d1: D1Database, id: number): Promise<{ id: number; sessionKey: string } | null> {
+  const unusable = `length(session_key) NOT BETWEEN 22 AND 64 OR session_key GLOB '*[^A-Za-z0-9_-]*'`;
+  const row = await d1
+    .prepare(
+      `UPDATE users SET session_key = CASE WHEN ${unusable} THEN ?2 ELSE session_key END
+       WHERE id = ?1 RETURNING id, session_key AS sessionKey`,
+    )
+    .bind(id, newSessionKey())
+    .first<{ id: number; sessionKey: string }>();
+  return row ?? null;
 }
 
 export async function listUsers(d1: D1Database): Promise<User[]> {

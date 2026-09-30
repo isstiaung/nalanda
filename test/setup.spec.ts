@@ -6,7 +6,15 @@ import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:
 import { describe, expect, it } from 'vitest';
 import { createFirstAdmin, createUser } from '../src/db/queries';
 import type { Bindings } from '../src/env';
-import { b64url, createSessionToken, hashPassword, SESSION_COOKIE, verifySessionToken } from '../src/lib/auth';
+import {
+  b64url,
+  createSessionToken,
+  hashPassword,
+  newSessionKey,
+  SESSION_COOKIE,
+  verifySessionToken,
+  type AccountRef,
+} from '../src/lib/auth';
 import app from '../src/index';
 
 const ORIGIN = 'http://nalanda.test';
@@ -71,10 +79,12 @@ async function expectExplained(res: Response) {
   return html;
 }
 
-/** A session token signed with any key, blank ones included — what someone would forge. */
-async function signedWith(key: string, userId: number): Promise<string> {
+/** A session token signed with any key, blank ones included — what someone would forge, naming the account's real key. */
+async function signedWith(key: string, user: AccountRef): Promise<string> {
   const enc = new TextEncoder();
-  const payload = b64url.encode(enc.encode(JSON.stringify({ u: userId, e: Math.floor(Date.now() / 1000) + 3600 })));
+  const payload = b64url.encode(
+    enc.encode(JSON.stringify({ u: user.id, k: user.sessionKey, e: Math.floor(Date.now() / 1000) + 3600 })),
+  );
   const hmac = await crypto.subtle.importKey('raw', enc.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   return `${payload}.${b64url.encode(await crypto.subtle.sign('HMAC', hmac, enc.encode(payload)))}`;
 }
@@ -83,8 +93,8 @@ async function signedWith(key: string, userId: number): Promise<string> {
  * The token that would pass if the blank secret were used: one signed with it. An empty or missing secret can't
  * key an HMAC at all, so there a token signed with the real test secret stands in.
  */
-async function tokenUnder(secret: string | undefined, userId: number): Promise<string> {
-  return secret ? signedWith(secret, userId) : createSessionToken(env.SESSION_SECRET, userId, Math.floor(Date.now() / 1000));
+async function tokenUnder(secret: string | undefined, user: AccountRef): Promise<string> {
+  return secret ? signedWith(secret, user) : createSessionToken(env.SESSION_SECRET, user, Math.floor(Date.now() / 1000));
 }
 
 function without(secret: string | undefined): Bindings {
@@ -163,7 +173,7 @@ describe.each([
 
   it('protected pages treat everyone as signed out — no 500 — and lead to the explanation', async () => {
     const ann = await createUser(env.DB, { username: 'ann', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-    const cookie = `${SESSION_COOKIE}=${await tokenUnder(secret, ann.id)}`;
+    const cookie = `${SESSION_COOKIE}=${await tokenUnder(secret, ann)}`;
 
     for (const path of ['/', '/loans', '/settings/users']) {
       for (const c of [undefined, cookie]) {
@@ -191,9 +201,10 @@ describe.each([
   });
 
   it('never verifies a session cookie, nor signs one', async () => {
-    const token = await tokenUnder(secret, 1);
+    const someone = { id: 1, sessionKey: newSessionKey() };
+    const token = await tokenUnder(secret, someone);
     expect(await verifySessionToken(secret, token, Math.floor(Date.now() / 1000))).toBeNull();
-    await expect(createSessionToken(secret as string, 1, 1_800_000_000)).rejects.toThrow();
+    await expect(createSessionToken(secret as string, someone, 1_800_000_000)).rejects.toThrow();
   });
 });
 
@@ -202,7 +213,7 @@ describe('a whitespace-only SESSION_SECRET', () => {
     const blank = ' \t\n ';
     const ann = await createUser(env.DB, { username: 'ann', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
 
-    const res = await send('/settings/users', without(blank), { cookie: `${SESSION_COOKIE}=${await signedWith(blank, ann.id)}` });
+    const res = await send('/settings/users', without(blank), { cookie: `${SESSION_COOKIE}=${await signedWith(blank, ann)}` });
 
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('/login');

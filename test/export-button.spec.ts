@@ -64,7 +64,7 @@ afterEach(() => {
 
 async function signedIn() {
   const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-  return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000))}`;
+  return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;
 }
 
 function viaApp(cookie: string, bindings: (n: number) => Bindings = () => env as Bindings) {

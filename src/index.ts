@@ -4,7 +4,7 @@ import { secureHeaders } from 'hono/secure-headers';
 import { countUsers, getShareByToken, getUserById } from './db/queries';
 import type { AppEnv } from './env';
 import federationRoutes from './federation/routes';
-import { SESSION_COOKIE, verifySessionToken } from './lib/auth';
+import { SESSION_COOKIE, sessionMatches, verifySessionToken } from './lib/auth';
 import { serveCover } from './lib/covers';
 import accountRoutes from './routes/account';
 import addRoutes from './routes/add';
@@ -93,8 +93,11 @@ app.use(async (c, next) => {
   // a file that isn't there, asked for by a tag, not a person: a plain 404 whoever asks, and no session lookup
   if (MISSING_ASSET.test(c.req.path)) return c.text('Not found', 404);
   const token = getCookie(c, SESSION_COOKIE);
-  const userId = await verifySessionToken(c.env.SESSION_SECRET, token, Math.floor(Date.now() / 1000));
-  const user = userId ? await getUserById(c.env.DB, userId) : null; // row check = instant revocation
+  const session = await verifySessionToken(c.env.SESSION_SECRET, token, Math.floor(Date.now() / 1000));
+  // The row check is instant revocation, and its key is who the cookie was made for: an id can be reused, a key
+  // can't (§16 #56), so a removed member's cookie signs in nobody — not whoever is given their id next.
+  const row = session ? await getUserById(c.env.DB, session.userId) : null;
+  const user = row && sessionMatches(session, row) ? row : null;
   if (!user) {
     if ((await countUsers(c.env.DB)) === 0) return c.redirect('/setup');
     return c.redirect('/login');
@@ -104,6 +107,7 @@ app.use(async (c, next) => {
     username: user.username,
     role: user.role,
     mustChangePassword: user.mustChangePassword,
+    sessionKey: user.sessionKey,
   });
   if (user.mustChangePassword && !c.req.path.startsWith('/account')) return c.redirect('/account');
   await next();

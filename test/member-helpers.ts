@@ -10,7 +10,7 @@ export type Member = { id: number; name: string; cookie: string; admin: boolean 
 
 export async function member(name: string, role: 'admin' | 'member' = 'member'): Promise<Member> {
   const user = await createUser(env.DB, { username: name, passwordHash: 'pbkdf2$1$x$y', role, mustChangePassword: false });
-  const token = await createSessionToken(env.SESSION_SECRET, user.id, Math.floor(Date.now() / 1000));
+  const token = await createSessionToken(env.SESSION_SECRET, user, Math.floor(Date.now() / 1000));
   return { id: user.id, name, cookie: `${SESSION_COOKIE}=${token}`, admin: role === 'admin' };
 }
 

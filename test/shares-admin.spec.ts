@@ -4,6 +4,7 @@ import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:
 import { describe, expect, it } from 'vitest';
 import { createItem, createLibrary, createShare, createUser, listTagShares, setItemTags } from '../src/db/queries';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
+import { sessionTokenFor } from './session-helpers';
 import { newShareToken } from '../src/lib/share';
 import app from '../src/index';
 import { budgeted } from '../src/federation/budget';
@@ -18,7 +19,7 @@ async function seedUser(role: 'admin' | 'member') {
 }
 
 async function getShares(userId: number): Promise<Response> {
-  const token = await createSessionToken(env.SESSION_SECRET, userId, Math.floor(Date.now() / 1000));
+  const token = await sessionTokenFor(userId);
   const ctx = createExecutionContext();
   const res = await app.fetch(
     new Request('http://nalanda.test/shares', { headers: { cookie: `${SESSION_COOKIE}=${token}` } }),
@@ -70,7 +71,7 @@ describe('/shares', () => {
 async function request(path: string, userId?: number, form?: Record<string, string>): Promise<Response> {
   const headers: Record<string, string> = {};
   if (userId !== undefined) {
-    const token = await createSessionToken(env.SESSION_SECRET, userId, Math.floor(Date.now() / 1000));
+    const token = await sessionTokenFor(userId);
     headers.cookie = `${SESSION_COOKIE}=${token}`;
   }
   const init: RequestInit = { headers, redirect: 'manual' };
@@ -131,7 +132,7 @@ describe('the Shared links page with many links', () => {
 
     // 60 links on a budget of 8: the page renders only if the counts are one call, not sixty
     const budget = { left: 8 };
-    const token = await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000));
+    const token = await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000));
     const ctx = createExecutionContext();
     const res = await app.fetch(new Request('http://nalanda.test/shares', { headers: { cookie: `${SESSION_COOKIE}=${token}` } }), { ...env, DB: budgeted(env.DB, budget) }, ctx);
     await waitOnExecutionContext(ctx);

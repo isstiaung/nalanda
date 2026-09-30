@@ -88,7 +88,7 @@ export async function sessionCookie(role: 'admin' | 'member'): Promise<string> {
     role,
     mustChangePassword: false,
   });
-  return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, user.id, Math.floor(Date.now() / 1000))}`;
+  return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, user, Math.floor(Date.now() / 1000))}`;
 }
 
 /** Requests to A, running with these bindings — pass `env` itself for an instance without a federation key. */

@@ -8,7 +8,7 @@ import app from '../src/index';
 
 async function admin() {
   const u = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-  return { id: u.id, cookie: `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, u.id, Math.floor(Date.now() / 1000))}` };
+  return { id: u.id, cookie: `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, u, Math.floor(Date.now() / 1000))}` };
 }
 
 async function send(path: string, cookie: string, init: { method?: string; form?: Record<string, string>; json?: unknown; headers?: Record<string, string> } = {}) {

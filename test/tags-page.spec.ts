@@ -3,11 +3,12 @@
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { createItem, createLibrary, createUser, PAGE_SIZE, setItemTags } from '../src/db/queries';
-import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
+import { SESSION_COOKIE } from '../src/lib/auth';
+import { sessionTokenFor } from './session-helpers';
 import app from '../src/index';
 
 async function get(path: string, userId: number): Promise<Response> {
-  const token = await createSessionToken(env.SESSION_SECRET, userId, Math.floor(Date.now() / 1000));
+  const token = await sessionTokenFor(userId);
   const ctx = createExecutionContext();
   const res = await app.fetch(new Request(`http://nalanda.test${path}`, { headers: { cookie: `${SESSION_COOKIE}=${token}` } }), env, ctx);
   await waitOnExecutionContext(ctx);

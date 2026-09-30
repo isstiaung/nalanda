@@ -9,7 +9,7 @@ import app from '../src/index';
 
 async function setup(copies: number) {
   const u = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-  const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, u.id, Math.floor(Date.now() / 1000))}`;
+  const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, u, Math.floor(Date.now() / 1000))}`;
   const shelf = await createLibrary(env.DB, 'Main');
   const item = await createItem(env.DB, { libraryId: shelf.id, title: 'Wingspan', copies, details: '{}' });
   return { cookie, item };

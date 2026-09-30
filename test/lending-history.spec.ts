@@ -19,7 +19,7 @@ import { answerOutbound, connectPeer, instanceA, json, makeKeys, makePeer, sessi
 
 async function adminCookie(): Promise<string> {
   const u = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-  return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, u.id, Math.floor(Date.now() / 1000))}`;
+  return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, u, Math.floor(Date.now() / 1000))}`;
 }
 
 async function get(path: string, cookie?: string, bindings: Bindings = env): Promise<Response> {

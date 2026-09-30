@@ -123,7 +123,7 @@ async function newUser(role: 'admin' | 'member') {
 
 async function sessionCookie(role: 'admin' | 'member'): Promise<string> {
   const user = await newUser(role);
-  return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, user.id, Math.floor(Date.now() / 1000))}`;
+  return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, user, Math.floor(Date.now() / 1000))}`;
 }
 
 const get = (path: string, cookie?: string, bindings?: Bindings) =>

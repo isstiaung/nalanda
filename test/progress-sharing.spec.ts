@@ -13,7 +13,8 @@ import {
   updateSiteSettings,
 } from '../src/db/queries';
 import { toConnectionItem } from '../src/federation/items';
-import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
+import { SESSION_COOKIE } from '../src/lib/auth';
+import { sessionTokenFor } from './session-helpers';
 import { newShareToken, toPublicItem } from '../src/lib/share';
 import app from '../src/index';
 
@@ -87,7 +88,7 @@ describe('site settings', () => {
 async function request(path: string, init: { userId?: number; body?: Record<string, string> } = {}) {
   const headers: Record<string, string> = { origin: 'http://nalanda.test' };
   if (init.userId) {
-    const token = await createSessionToken(env.SESSION_SECRET, init.userId, Math.floor(Date.now() / 1000));
+    const token = await sessionTokenFor(init.userId);
     headers.cookie = `${SESSION_COOKIE}=${token}`;
   }
   if (init.body) headers['content-type'] = 'application/x-www-form-urlencoded';
