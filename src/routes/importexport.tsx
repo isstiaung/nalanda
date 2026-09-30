@@ -11,14 +11,8 @@ import {
   mergeImportItems,
   nextBackfillable,
   pageItems,
-  playsForIdRange,
-  progressForIdRange,
-  readsForIdRange,
-  reviewsForIdRange,
-  seriesForIds,
-  tagsForIdRange,
+  exportCellsForIdRange,
   updateItem,
-  wantsAndLinksForIdRange,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { storeCover } from '../lib/covers';
@@ -336,9 +330,9 @@ export const EXPORT_LOANS = 1000;
 
 /**
  * Items after `afterId` as CSV lines, with their tags, reads, reviews, loans, reading logs, plays, series, wants and
- * purchase links (§16 #53, the last two in one batch): nine queries. With
- * `loanLimit`, a page ends before it would carry more loans than that, and an item with more of its own goes out
- * alone, for a tenth query. `more` says another page may follow.
+ * purchase links: two D1 calls, the items and one batch for everything beside them (§16 #53). With `loanLimit`, a page
+ * ends before it would carry more loans than that, and an item with more of its own goes out alone, for a third call.
+ * `more` says another page may follow.
  */
 async function exportRows(
   d1: D1Database,
@@ -352,20 +346,12 @@ async function exportRows(
   if (!items.length) return { csv: '', count: 0, lastId: afterId, more: false };
   let more = items.length === limit;
   const [from, to] = [items[0]!.id, items.at(-1)!.id];
-  const [tagMap, progressMap, readMap, reviewMap, loansRead, playMap, seriesMap, wantsAndLinks] = await Promise.all([
-    tagsForIdRange(d1, from, to, scope),
-    progressForIdRange(d1, from, to, scope),
-    readsForIdRange(d1, from, to, scope),
-    reviewsForIdRange(d1, from, to, scope),
-    loansForIdRange(d1, from, to, scope, loanLimit === undefined ? undefined : loanLimit + 1),
-    playsForIdRange(d1, from, to, scope),
-    seriesForIds(d1, items.map((i) => i.seriesId)),
-    wantsAndLinksForIdRange(d1, from, to, scope), // one batch: both cells in one call
-  ]);
-  let loanMap = loansRead.loans;
-  if (loansRead.cutAt !== null) {
+  // one batch for every cell beside the items (§16 #37, #53), its loans held to the page's limit as before (§16 #57)
+  const cells = await exportCellsForIdRange(d1, from, to, scope, loanLimit === undefined ? undefined : loanLimit + 1);
+  let loanMap = cells.loans;
+  if (cells.loanCutAt !== null) {
     // more loans than a page carries: the item they stopped at may be missing some, so the page ends before it
-    const cutAt = loansRead.cutAt;
+    const cutAt = cells.loanCutAt;
     const first = items[0]!;
     items = items.filter((item) => item.id < cutAt);
     if (!items.length) {
@@ -380,15 +366,15 @@ async function exportRows(
     csv += itemToCsvLine(
       item,
       libNames.get(item.libraryId) ?? '',
-      tagMap.get(item.id) ?? [],
-      progressMap.get(item.id) ?? [],
-      readMap.get(item.id) ?? [],
-      reviewMap.get(item.id) ?? [],
+      cells.tags.get(item.id) ?? [],
+      cells.progress.get(item.id) ?? [],
+      cells.reads.get(item.id) ?? [],
+      cells.reviews.get(item.id) ?? [],
       loanMap.get(item.id) ?? [],
-      playMap.get(item.id) ?? [],
-      item.seriesId !== null ? (seriesMap.get(item.seriesId) ?? null) : null,
-      wantsAndLinks.wants.get(item.id) ?? [],
-      wantsAndLinks.links.get(item.id) ?? [],
+      cells.plays.get(item.id) ?? [],
+      item.seriesId !== null ? (cells.series.get(item.seriesId) ?? null) : null,
+      cells.wants.get(item.id) ?? [],
+      cells.links.get(item.id) ?? [],
     );
   }
   return { csv, count: items.length, lastId: items.at(-1)!.id, more };
@@ -425,8 +411,9 @@ importexport.get('/export.csv', async (c) => {
 
   // Without a cursor, the whole export in one streamed response: what the link does without JavaScript, and
   // what a script fetching /export.csv gets. Its CPU grows with the catalog, so a large one can be cut off by
-  // the free plan's 10 ms limit, and the download fails rather than completing. Six queries a page
-  // (items, tags, reads, reviews, loans, reading progress, plays, series) against the 50 budgeted per invocation. One page per pull, so a slow
+  // the free plan's 10 ms limit, and the download fails rather than completing. Two D1 calls a page (the items, then
+  // one batch for tags, reads, reviews, loans, reading progress, plays, series, wants and purchase links) against the
+  // 50 budgeted per invocation. One page per pull, so a slow
   // download holds one page in memory rather than all of them. The response is already a 200 by the time a
   // page is read, so a failure must error the stream — ending it normally hands over a file that just stops,
   // with nothing to say it is incomplete.

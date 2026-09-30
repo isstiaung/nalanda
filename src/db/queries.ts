@@ -1228,16 +1228,27 @@ export async function loansForIdRange(
   libraryId?: number,
   limit?: number,
 ): Promise<{ loans: Map<number, LoanDraft[]>; cutAt: number | null }> {
+  const rows = (await loansRangeStatement(d1, fromId, toId, libraryId, limit).all<LoanDraft & { itemId: number }>()).results;
+  return groupLoans(rows, limit);
+}
+
+/** loansForIdRange's statement — shared with exportCellsForIdRange, so the page cap can't drift between them. */
+function loansRangeStatement(d1: D1Database, fromId: number, toId: number, libraryId?: number, limit?: number): D1PreparedStatement {
   const scoped = libraryId ? 'AND l.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : '';
-  const stmt = d1.prepare(
-    `SELECT l.item_id AS itemId, l.borrower, l.loaned_on AS loanedOn, l.due_on AS dueOn, l.returned_on AS returnedOn,
-            l.contact, l.note
-     FROM loans l
-     WHERE l.item_id BETWEEN ?1 AND ?2 ${scoped}
-     ORDER BY l.item_id, l.id
-     LIMIT ?4`,
-  );
-  const rows = (await stmt.bind(fromId, toId, libraryId ?? null, limit ?? -1).all<LoanDraft & { itemId: number }>()).results;
+  return d1
+    .prepare(
+      `SELECT l.item_id AS itemId, l.borrower, l.loaned_on AS loanedOn, l.due_on AS dueOn, l.returned_on AS returnedOn,
+              l.contact, l.note
+       FROM loans l
+       WHERE l.item_id BETWEEN ?1 AND ?2 ${scoped}
+       ORDER BY l.item_id, l.id
+       LIMIT ?4`,
+    )
+    .bind(fromId, toId, libraryId ?? null, limit ?? -1);
+}
+
+/** Loan rows by item, and where a `limit` cut them off: the item the last row read belongs to, which may be missing some. */
+function groupLoans(rows: Array<LoanDraft & { itemId: number }>, limit?: number): { loans: Map<number, LoanDraft[]>; cutAt: number | null } {
   const loans = new Map<number, LoanDraft[]>();
   for (const { itemId, ...loan } of rows) {
     const list = loans.get(itemId);
@@ -1784,19 +1795,20 @@ export async function moveRead(d1: D1Database, itemId: number, readId: number, t
  * (null for a member removed since) — the export's pages are contiguous in id order, so one query covers a page
  * (see tagsForIdRange).
  */
+/** readsForIdRange's statement, shared with exportCellsForIdRange so the two can't drift. */
+const readsRangeSql = (scoped: string) =>
+  `SELECT r.item_id AS itemId, r.id, r.status, r.began_on AS beganOn, r.ended_on AS endedOn, u.username AS reader
+   FROM reads r LEFT JOIN users u ON u.id = r.reader_id
+   WHERE r.item_id BETWEEN ?1 AND ?2 ${scoped}
+   ORDER BY r.item_id, ${displayOrderSql('r')}`;
+
 export async function readsForIdRange(
   d1: D1Database,
   fromId: number,
   toId: number,
   libraryId?: number,
 ): Promise<Map<number, Array<ReadRow & { reader: string | null }>>> {
-  const scoped = libraryId ? 'AND r.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : '';
-  const stmt = d1.prepare(
-    `SELECT r.item_id AS itemId, r.id, r.status, r.began_on AS beganOn, r.ended_on AS endedOn, u.username AS reader
-     FROM reads r LEFT JOIN users u ON u.id = r.reader_id
-     WHERE r.item_id BETWEEN ?1 AND ?2 ${scoped}
-     ORDER BY r.item_id, ${displayOrderSql('r')}`,
-  );
+  const stmt = d1.prepare(readsRangeSql(libraryId ? 'AND r.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : ''));
   const rows = (
     await (libraryId ? stmt.bind(fromId, toId, libraryId) : stmt.bind(fromId, toId)).all<ReadRow & { itemId: number; reader: string | null }>()
   ).results;
@@ -2015,19 +2027,20 @@ export async function moveReview(d1: D1Database, itemId: number, reviewId: numbe
 }
 
 /** Reviews for every item whose id lies in [fromId, toId], oldest first, with each writer's username — as readsForIdRange. */
+/** reviewsForIdRange's statement, shared with exportCellsForIdRange. */
+const reviewsRangeSql = (scoped: string) =>
+  `SELECT v.item_id AS itemId, u.username AS by, v.rating, v.review, v.reviewed_at AS reviewedAt, v.rated_at AS ratedAt
+   FROM reviews v LEFT JOIN users u ON u.id = v.user_id
+   WHERE v.item_id BETWEEN ?1 AND ?2 ${scoped}
+   ORDER BY v.item_id, v.id`;
+
 export async function reviewsForIdRange(
   d1: D1Database,
   fromId: number,
   toId: number,
   libraryId?: number,
 ): Promise<Map<number, Array<ReviewDraft & { by: string | null }>>> {
-  const scoped = libraryId ? 'AND v.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : '';
-  const stmt = d1.prepare(
-    `SELECT v.item_id AS itemId, u.username AS by, v.rating, v.review, v.reviewed_at AS reviewedAt, v.rated_at AS ratedAt
-     FROM reviews v LEFT JOIN users u ON u.id = v.user_id
-     WHERE v.item_id BETWEEN ?1 AND ?2 ${scoped}
-     ORDER BY v.item_id, v.id`,
-  );
+  const stmt = d1.prepare(reviewsRangeSql(libraryId ? 'AND v.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : ''));
   const rows = (
     await (libraryId ? stmt.bind(fromId, toId, libraryId) : stmt.bind(fromId, toId)).all<ReviewDraft & { itemId: number; by: string | null }>()
   ).results;
@@ -2272,40 +2285,81 @@ export async function existingForWant(
   return row?.id ?? null;
 }
 
+export type ExportCells = {
+  tags: Map<number, string[]>;
+  progress: Map<number, ProgressEntry[]>;
+  reads: Map<number, Array<ReadRow & { reader: string | null }>>;
+  reviews: Map<number, Array<ReviewDraft & { by: string | null }>>;
+  loans: Map<number, LoanDraft[]>;
+  // with a loan limit: the item the loans stopped at, which may be missing some (loansForIdRange's cutAt, §16 #57)
+  loanCutAt: number | null;
+  plays: Map<number, CellPlay[]>;
+  series: Map<number, Series>; // every series an item in the range belongs to, by id (§16 #52)
+  wants: Map<number, Array<{ by: string; at: string }>>; // each want's member by username (§16 #53)
+  links: Map<number, LinkDraft[]>;
+};
+
 /**
- * Wants (each with its member's username) and purchase links for every item whose id lies in [fromId, toId], oldest
- * first — the export's two cells, in one D1 call (a batch), over readsForIdRange's range.
+ * Everything an export page writes beside its items, for every item whose id lies in [fromId, toId] — tags, the reading
+ * log, reads and reviews with their people, loans (§16 #57), plays (§16 #54), series (§16 #52), wants and purchase
+ * links (§16 #53) — in ONE D1 call, a batch of nine statements, where it took eight calls before want lists and would
+ * have taken nine with them. A page is then two calls with its items (three for an item with more loans than a page
+ * carries, which goes out alone), so the streamed export stays well inside the 50-call design budget (§16 #37). Each
+ * statement is the one its single-purpose twin runs — loans with the same `limit`, so a page ends where it did —
+ * rows from other shelves skipped in SQL for a scoped export, ordered as they order them; a test holds the two paths
+ * to the same answer. Series are those of the items in the range: the page is exactly the items of its scope in it.
  */
-export async function wantsAndLinksForIdRange(
+export async function exportCellsForIdRange(
   d1: D1Database,
   fromId: number,
   toId: number,
   libraryId?: number,
-): Promise<{ wants: Map<number, Array<{ by: string; at: string }>>; links: Map<number, LinkDraft[]> }> {
+  loanLimit?: number,
+): Promise<ExportCells> {
   const scoped = (col: string) => (libraryId ? `AND ${col} IN (SELECT id FROM items WHERE library_id = ?3)` : '');
-  const bind = (stmt: D1PreparedStatement) => (libraryId ? stmt.bind(fromId, toId, libraryId) : stmt.bind(fromId, toId));
-  const [w, l] = await d1.batch([
+  const bind = (sql: string) => (libraryId ? d1.prepare(sql).bind(fromId, toId, libraryId) : d1.prepare(sql).bind(fromId, toId));
+  const results = await d1.batch([
     bind(
-      d1.prepare(
-        `SELECT w.item_id AS itemId, u.username AS by, w.created_at AS at FROM wants w JOIN users u ON u.id = w.user_id
-         WHERE w.item_id BETWEEN ?1 AND ?2 ${scoped('w.item_id')} ORDER BY w.item_id, w.created_at, u.id`,
-      ),
+      `SELECT it.item_id AS itemId, t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id
+       WHERE it.item_id BETWEEN ?1 AND ?2 ${scoped('it.item_id')}`,
     ),
     bind(
-      d1.prepare(
-        `SELECT item_id AS itemId, label, url FROM purchase_links WHERE item_id BETWEEN ?1 AND ?2 ${scoped('item_id')} ORDER BY item_id, id`,
-      ),
+      `SELECT item_id AS itemId, id, page, at, added_by AS addedBy, read_id AS readId FROM reading_progress
+       WHERE item_id BETWEEN ?1 AND ?2 ${scoped('item_id')} ORDER BY at, id`,
     ),
+    bind(readsRangeSql(scoped('r.item_id'))),
+    bind(reviewsRangeSql(scoped('v.item_id'))),
+    loansRangeStatement(d1, fromId, toId, libraryId, loanLimit),
+    bind(playsRangeSql(scoped('p.item_id'))),
+    bind(
+      `SELECT s.id, s.name, s.key, s.total, s.created_at AS createdAt FROM series s
+       WHERE s.id IN (SELECT series_id FROM items WHERE id BETWEEN ?1 AND ?2 ${libraryId ? 'AND library_id = ?3' : ''})`,
+    ),
+    bind(
+      `SELECT w.item_id AS itemId, u.username AS by, w.created_at AS at FROM wants w JOIN users u ON u.id = w.user_id
+       WHERE w.item_id BETWEEN ?1 AND ?2 ${scoped('w.item_id')} ORDER BY w.item_id, w.created_at, u.id`,
+    ),
+    bind(`SELECT item_id AS itemId, label, url FROM purchase_links WHERE item_id BETWEEN ?1 AND ?2 ${scoped('item_id')} ORDER BY item_id, id`),
   ]);
-  const wants = new Map<number, Array<{ by: string; at: string }>>();
-  for (const { itemId, ...want } of (w?.results ?? []) as Array<{ itemId: number; by: string; at: string }>) {
-    wants.set(itemId, [...(wants.get(itemId) ?? []), want]);
-  }
-  const links = new Map<number, LinkDraft[]>();
-  for (const { itemId, ...link } of (l?.results ?? []) as Array<{ itemId: number; label: string; url: string }>) {
-    links.set(itemId, [...(links.get(itemId) ?? []), link]);
-  }
-  return { wants, links };
+  const rowsOf = <T,>(i: number) => (results[i]?.results ?? []) as Array<T & { itemId: number }>;
+  const group = <T, U>(rows: Array<T & { itemId: number }>, pick: (r: T & { itemId: number }) => U) => {
+    const out = new Map<number, U[]>();
+    for (const r of rows) out.set(r.itemId, [...(out.get(r.itemId) ?? []), pick(r)]);
+    return out;
+  };
+  const loans = groupLoans(rowsOf<LoanDraft>(4), loanLimit);
+  return {
+    tags: group(rowsOf<{ name: string }>(0), (r) => r.name),
+    progress: group(rowsOf<ProgressEntry>(1), (r) => ({ id: r.id, page: r.page, at: r.at, addedBy: r.addedBy, readId: r.readId })),
+    reads: group(rowsOf<ReadRow & { reader: string | null }>(2), (r) => ({ id: r.id, status: r.status, beganOn: r.beganOn, endedOn: r.endedOn, reader: r.reader })),
+    reviews: group(rowsOf<ReviewDraft & { by: string | null }>(3), ({ itemId: _i, ...review }) => review),
+    loans: loans.loans,
+    loanCutAt: loans.cutAt,
+    plays: group(rowsOf<{ playedOn: string; by: string | null }>(5), (r) => ({ playedOn: r.playedOn, by: r.by })),
+    series: new Map(((results[6]?.results ?? []) as Series[]).map((r) => [r.id, r])),
+    wants: group(rowsOf<{ by: string; at: string }>(7), (r) => ({ by: r.by, at: r.at })),
+    links: group(rowsOf<LinkDraft>(8), (r) => ({ label: r.label, url: r.url })),
+  };
 }
 
 // ---------- reading progress ----------
@@ -2502,19 +2556,20 @@ export async function deletePlay(d1: D1Database, itemId: number, playId: number,
 }
 
 /** Plays for every item whose id lies in [fromId, toId], oldest first, with who logged each by username — as readsForIdRange. */
+/** playsForIdRange's statement, shared with exportCellsForIdRange. */
+const playsRangeSql = (scoped: string) =>
+  `SELECT p.item_id AS itemId, p.played_on AS playedOn, u.username AS by
+   FROM plays p LEFT JOIN users u ON u.id = p.logged_by
+   WHERE p.item_id BETWEEN ?1 AND ?2 ${scoped}
+   ORDER BY p.item_id, p.played_on, p.id`;
+
 export async function playsForIdRange(
   d1: D1Database,
   fromId: number,
   toId: number,
   libraryId?: number,
 ): Promise<Map<number, CellPlay[]>> {
-  const scoped = libraryId ? 'AND p.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : '';
-  const stmt = d1.prepare(
-    `SELECT p.item_id AS itemId, p.played_on AS playedOn, u.username AS by
-     FROM plays p LEFT JOIN users u ON u.id = p.logged_by
-     WHERE p.item_id BETWEEN ?1 AND ?2 ${scoped}
-     ORDER BY p.item_id, p.played_on, p.id`,
-  );
+  const stmt = d1.prepare(playsRangeSql(libraryId ? 'AND p.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : ''));
   const rows = (
     await (libraryId ? stmt.bind(fromId, toId, libraryId) : stmt.bind(fromId, toId)).all<{ itemId: number; playedOn: string; by: string | null }>()
   ).results;
