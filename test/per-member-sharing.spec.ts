@@ -20,7 +20,7 @@ import { clearSharedViewsCache } from '../src/federation/routes';
 import { itemMatchesShare, newShareToken, shareFilters } from '../src/lib/share';
 import { clearSharePageCache } from '../src/routes/share';
 import { connectPeer, instanceA, makeKeys, makePeer, setUpA, type Peer } from './federation-helpers';
-import { as, book, html, member, rows, summaryOf, type Member } from './member-helpers';
+import { as, book, html, member, rows, summaryOf, type Member, upgradedSwitches } from './member-helpers';
 
 async function shelfOfFour() {
   const asha = await member('asha', 'admin');
@@ -153,6 +153,7 @@ async function reviewedTwice() {
 }
 
 describe('share pages show the household, never a person', () => {
+  beforeEach(upgradedSwitches); // names off, as an upgraded instance has them (§16 #49)
   it('show the average rating, the latest review, and everyone’s finishes — with no names', async () => {
     const { item } = await reviewedTwice();
     expect(await summaryOf(item.id)).toMatchObject({ rating: 7, review: 'His words about the ice.', readCount: 2 });
@@ -188,6 +189,7 @@ describe('share pages show the household, never a person', () => {
 });
 
 describe('connections see the household, never a person', () => {
+  beforeEach(upgradedSwitches); // names off, as an upgraded instance has them (§16 #49)
   let a: ReturnType<typeof instanceA>;
   let peer: Peer;
   beforeEach(async () => {

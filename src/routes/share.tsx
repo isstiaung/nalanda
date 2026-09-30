@@ -177,22 +177,23 @@ share.get('/:token/items/:id', async (c) => {
   // outside this view", so a link's holder could time which ids exist. A non-numeric id looks up 0, which never does.
   const raw = Number(c.req.param('id'));
   const id = Number.isSafeInteger(raw) && raw > 0 ? raw : 0;
-  const [item, tagMap, plays, settings] = await Promise.all([
+  // Members' reviews are fetched here too, whatever the switch says, so a hit does no more work than a miss with names
+  // on — the default for a new instance since §16 #49 — and are used only once the item is known to be in the view.
+  const [item, tagMap, plays, settings, named] = await Promise.all([
     getItem(c.env.DB, id),
     tagsForItems(c.env.DB, [id]),
     // counted for every id, played or not, so a hit and a miss still do the same work; the whitelist keeps it for games
     // and records only (§16 #54)
     playCount(c.env.DB, id),
     getSiteSettings(c.env.DB),
+    namedReviews(c.env.DB, id),
   ]);
   const tags = tagMap.get(id) ?? [];
   if (!item || !itemMatchesShare(view, item, tags)) return c.notFound(); // token only unlocks its own view
   // §16 #45: each member's rating and review, by display name, only while an admin has names on for share pages
   // §16 #52: its series name and number are public catalogue data, like the publisher — never the gaps or "next up"
-  const [reviews, series] = await Promise.all([
-    settings.namesOnShares ? namedReviews(c.env.DB, item.id) : undefined,
-    item.seriesId !== null ? getSeries(c.env.DB, item.seriesId) : null,
-  ]);
+  const series = item.seriesId !== null ? await getSeries(c.env.DB, item.seriesId) : null;
+  const reviews = settings.namesOnShares ? named : undefined;
   const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews, plays, series });
 
   return renderShare(

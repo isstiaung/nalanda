@@ -78,7 +78,7 @@ npm run db:migrate:remote
 
 # 2. data, in FK-safe order — the order `npm run backup` prints, TABLES in scripts/backup.mjs
 #    (the files set defer_foreign_keys themselves; a table with no rows is an empty file)
-for t in users libraries shares site_settings series items reads reading_progress reviews plays tags item_tags loans \
+for t in users libraries shares site_settings series items reads reading_progress reviews plays reading_goals tags item_tags loans \
          federation_settings connection_invites connections connection_views activity_log member_activity \
          feed_subscriptions remote_activities comments outbox borrow_requests connection_loans \
          borrowed_items notifications; do
@@ -105,6 +105,13 @@ no cookie signs it in.
 A backup from before series (the series migration, ARCH.md §16 #52) simply has no `series.sql`: skip it.
 That migration changes no data, so such a backup restores straight into the latest schema, every
 item in no series.
+
+**A backup from before reading goals (before migration 0036) restores at its own level too, then
+the rest** — a 1.4.0 backup at 0029, then 0030–0036 (ARCH.md §16 #49). 0036 writes down the sharing
+switches an instance with members was running on — names off, goals off — and a new instance starts
+with them on. Migrated straight to the latest on an empty database, 0036 finds no members, writes nothing, and a backup whose `site_settings.sql` is
+empty (it never saved a switch) comes back with names and goals switched on — publishing names that
+were off. Restored at its own level and then migrated, it keeps what it had.
 
 The search index repopulates automatically as the items insert (trigger-driven). Cover
 keys ride along in the data: if the R2 bucket is intact, images work immediately; if the

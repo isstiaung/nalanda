@@ -47,6 +47,9 @@ manuscripts.
   Discogs: labels, catalogue number, country, year, format (colour vinyl, 180 g, 2×LP) and the
   tracklist, folded on its page; **Refresh from Discogs** fills the blanks for records already on
   your shelves, one request per click, and never changes what you've typed.
+- **Reading goals**: each member sets how many books they mean to finish in a year, and the
+  Overview shows their count and pace. Connected households can hear when a goal is set, passes
+  halfway and is reached, signed with the member's display name, if the household chooses.
 - **Loans**: track who borrowed what, with due dates and history — each item's page lists who has had it before, and for how long.
 - **Play log for games, listening log for records**: press **Played** on a board game or a
   record — today, or any day you pick — and its page keeps count ("Played 12 times · last on

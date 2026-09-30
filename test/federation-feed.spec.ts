@@ -38,6 +38,7 @@ import {
   type Keys,
   type Peer,
 } from './federation-helpers';
+import { upgradedSwitches } from './member-helpers';
 
 let keysA: Keys;
 let a: ReturnType<typeof instanceA>;
@@ -47,6 +48,7 @@ beforeEach(async () => {
   keysA = await makeKeys();
   a = instanceA({ ...env, FEDERATION_PRIVATE_KEY: keysA.secret } as Bindings);
   clearSharedViewsCache(); // module state outlives the per-test database reset
+  await upgradedSwitches(); // the household's stream, names off — as an upgraded instance has it (§16 #49)
 });
 
 afterEach(() => {

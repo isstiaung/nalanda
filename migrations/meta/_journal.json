@@ -246,6 +246,20 @@
       "when": 1790751551388,
       "tag": "0034_vinyl-condition",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1790752403896,
+      "tag": "0035_reading-goals",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1790752441707,
+      "tag": "0036_goal-activity",
+      "breakpoints": true
     }
   ]
 }

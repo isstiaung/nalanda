@@ -4,6 +4,7 @@ import type { Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_GRADES, MEDIA_TYPES, SLEEVE_GRADES } from '../db/schema';
 import { GRADE_NAME, isRecord } from '../lib/condition';
 import { splitPressing, trackCount, type Track } from '../lib/pressing';
+import { goalPace, goalPercent, paceLabel, pacePercent } from '../lib/goals';
 import { progressPercent } from '../lib/progress';
 import { isPlayable, playDate } from '../lib/plays';
 import { latestReadDate, ordinal, summarizeReads, todayUtc, type ReadDraft, type ReadRow } from '../lib/reads';
@@ -1071,6 +1072,32 @@ export const ItemTable: FC<{
     </table>
   </div>
 );
+
+/**
+ * A reading goal where it stands (§16 #49): "14 of 24", its pace — on track, N behind, reached — and a bar with a tick
+ * where linear pace stands today. Counts are the registrar's voice, so monospace; the pace is a pill.
+ */
+export const GoalMeter: FC<{ count: number; target: number; year: number; today: string }> = ({ count, target, year, today }) => {
+  const pace = goalPace(count, target, year, today);
+  const tick = pace.state === 'reached' ? null : pacePercent(year, today);
+  const pill = pace.state === 'reached' ? 'pill reached' : pace.state === 'on_track' ? 'pill done' : pace.state === 'behind' ? 'pill behind' : 'pill';
+  return (
+    <div class="goal-meter">
+      <p class="goal-line">
+        <span class="goal-count">
+          {count} of {target}
+        </span>{' '}
+        <span class="muted mono">{target === 1 ? 'book' : 'books'}</span> <span class={pill}>{paceLabel(pace)}</span>
+      </p>
+      <div class="goal-track" role="img" aria-label={`${count} of ${target} books read in ${year}, ${paceLabel(pace)}`}>
+        <div class="progress-track">
+          <div class="progress-fill" style={`width:${goalPercent(count, target)}%`} />
+        </div>
+        {tick !== null ? <span class="goal-pace" style={`left:${tick}%`} title="Where an even pace would be today" /> : null}
+      </div>
+    </div>
+  );
+};
 
 export const Stat: FC<{ n: number | string; label: string; warn?: boolean; detail?: string }> = ({
   n,

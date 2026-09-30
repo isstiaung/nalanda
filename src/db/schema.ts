@@ -199,8 +199,10 @@ export const federationSettings = sqliteTable('federation_settings', {
 });
 
 /**
- * Household-wide switches, in a single row (id 1). A missing row means every default, so a fresh
- * instance needs no setup step — and every default is the private choice.
+ * Household-wide switches, in a single row (id 1). A missing row means every default (SITE_DEFAULTS in
+ * src/db/queries.ts), so a new instance needs no setup step. Since reading goals a new instance starts with names and goals
+ * on (§16 #49); migration 0036 gave every instance that already had members a row pinning what it had. The column
+ * defaults below are what an ALTER TABLE gives existing rows — off — not what a new instance starts with.
  */
 export const siteSettings = sqliteTable('site_settings', {
   id: integer('id').primaryKey(),
@@ -212,6 +214,9 @@ export const siteSettings = sqliteTable('site_settings', {
   namesOnShares: integer('names_on_shares', { mode: 'boolean' }).notNull().default(false),
   // Connections get one feed entry per person, with their display name, and everyone's review on an item page (§16 #45).
   namesToConnections: integer('names_to_connections', { mode: 'boolean' }).notNull().default(false),
+  // Members' reading goals — set, halfway, reached — reach connections as per-person entries (§16 #49). Takes effect
+  // only while namesToConnections is on: a goal entry is always signed, never "A member".
+  goalsToConnections: integer('goals_to_connections', { mode: 'boolean' }).notNull().default(false),
   updatedAt: text('updated_at').notNull().default(now),
 });
 
@@ -360,6 +365,27 @@ export const reviews = sqliteTable(
 );
 
 /**
+ * A member's reading goal (§16 #49): N books in a year, one per member per year. What counts is worked out when asked,
+ * never stored — every finished read of a book by that member with its end date in that year, re-reads included — so a
+ * read added, moved, corrected or deleted changes the count at once. A member's goals go with them when they're removed.
+ */
+export const readingGoals = sqliteTable(
+  'reading_goals',
+  {
+    // AUTOINCREMENT: a goal's id is in its routes and feed entries point at it, so it never names another one
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    year: integer('year').notNull(),
+    target: integer('target').notNull(), // books, 1–MAX_GOAL_TARGET
+    createdAt: text('created_at').notNull().default(now),
+    updatedAt: text('updated_at').notNull().default(now),
+  },
+  (t) => [uniqueIndex('reading_goals_user_year').on(t.userId, t.year)],
+);
+
+/**
  * One row per "I'm on page N" update, oldest to newest — the reading log Goodreads calls progress
  * updates. items.progress_page holds the latest for cheap reads; this table is the history, and
  * deleting a row recomputes it.
@@ -416,6 +442,18 @@ export const ACTIVITY_KINDS = ['reviewed', 'rated', 'finished', 'progress', 'sta
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 /**
+ * A member's reading goal as news (§16 #49): set (or its target changed), halfway, reached. Per person only, and the
+ * only entries with no item — so a household on 1.3.0 or older, whose parser knows none of these kinds and needs an
+ * item on every entry, skips them and keeps the rest of the page.
+ */
+export const GOAL_KINDS = ['goal_set', 'goal_halfway', 'goal_reached'] as const;
+export type GoalKind = (typeof GOAL_KINDS)[number];
+/** Every kind a feed entry can be: about an item, or about a member's goal. */
+export const FEED_KINDS = [...ACTIVITY_KINDS, ...GOAL_KINDS] as const;
+export type FeedKind = (typeof FEED_KINDS)[number];
+export const isGoalKind = (k: unknown): k is GoalKind => (GOAL_KINDS as readonly unknown[]).includes(k);
+
+/**
  * Written only by triggers (migration 0007 on `items`, 0015 on `reading_progress`), and only while a
  * connection view exists. One row per item and kind: a repeat replaces the row under a new id, so the
  * id doubles as the feed cursor and a replaced id tells a connection its stored copy is out of date.
@@ -446,29 +484,37 @@ export const activityLog = sqliteTable(
 
 /**
  * Each member's own activity, for the per-person feed connections get while names are switched on (§16 #45). Written
- * only by triggers (migration 0027) on reads, reviews and reading_progress, and only while a connection view exists —
- * always, whatever the switch says: the switch decides at serve time which stream a connection pulls. Who did it is
- * never stored here; it is the reader of `read_id`, the writer of `review_id`, or the reader of `progress_id`'s read,
- * resolved when served, so moving a read or removing a member changes every later pull. One row per read and kind,
- * and per review and kind, replaced on a repeat, as activity_log does per item; progress accumulates. Served with ids
- * offset by MEMBER_ACTIVITY_BASE, so the two streams never share a cursor.
+ * only by triggers (migrations 0027, 0036) on reads, reviews and reading_progress, and by a goal's own write, and only
+ * while a connection view exists — always, whatever the switches say: they decide at serve time which stream a
+ * connection pulls, and whether goals are in it. Who did it is never stored here; it is the reader of `read_id`, the
+ * writer of `review_id`, the reader of `progress_id`'s read, or the member whose goal `goal_id` is, resolved when
+ * served, so moving a read or removing a member changes every later pull. One row per read and kind, per review and
+ * kind, and per goal and kind, replaced on a repeat, as activity_log does per item; progress accumulates. Served with
+ * ids offset by MEMBER_ACTIVITY_BASE, so the two streams never share a cursor.
+ *
+ * Goal entries (§16 #49): `goal_set` has no item; a milestone keeps the finished read that crossed the line
+ * (`read_id`, `item_id`), so it goes only to views that hold that book, and goes when that read does. `goal_target` and
+ * `goal_count` are the goal's target and count when the entry was recorded — what it said then, never recomputed.
  */
 export const memberActivity = sqliteTable(
   'member_activity',
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
-    itemId: integer('item_id')
-      .notNull()
-      .references(() => items.id, { onDelete: 'cascade' }),
-    kind: text('kind', { enum: ACTIVITY_KINDS }).notNull(),
+    // NULL only on a `goal_set` entry: a goal is about a person, not a book (migration 0036 made it nullable)
+    itemId: integer('item_id').references(() => items.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: FEED_KINDS }).notNull(),
     at: text('at').notNull().default(now),
-    readId: integer('read_id').references(() => reads.id, { onDelete: 'cascade' }), // started, finished
+    readId: integer('read_id').references(() => reads.id, { onDelete: 'cascade' }), // started, finished; a milestone's finish
     reviewId: integer('review_id').references(() => reviews.id, { onDelete: 'cascade' }), // rated, reviewed
     progressId: integer('progress_id').references(() => readingProgress.id, { onDelete: 'cascade' }), // progress
+    goalId: integer('goal_id').references(() => readingGoals.id, { onDelete: 'cascade' }), // goal_set, goal_halfway, goal_reached
+    goalTarget: integer('goal_target'),
+    goalCount: integer('goal_count'),
   },
   (t) => [
     uniqueIndex('member_activity_read_kind').on(t.kind, t.readId).where(sql`${t.readId} IS NOT NULL`),
     uniqueIndex('member_activity_review_kind').on(t.kind, t.reviewId).where(sql`${t.reviewId} IS NOT NULL`),
+    uniqueIndex('member_activity_goal_kind').on(t.goalId, t.kind).where(sql`${t.goalId} IS NOT NULL`),
     index('idx_member_activity_at').on(t.at),
     index('idx_member_activity_item').on(t.itemId),
     index('idx_member_activity_progress').on(t.progressId),
@@ -518,11 +564,11 @@ export const remoteActivities = sqliteTable(
       .notNull()
       .references(() => feedSubscriptions.id, { onDelete: 'cascade' }),
     remoteId: integer('remote_id').notNull(), // their activity_log id
-    itemRemoteId: integer('item_remote_id').notNull(), // their items id
-    itemStamp: text('item_stamp').notNull().default(''), // phase 3: which of their books that id meant
-    kind: text('kind', { enum: ACTIVITY_KINDS }).notNull(),
+    itemRemoteId: integer('item_remote_id').notNull(), // their items id; 0 on a goal entry, which has no item (§16 #49)
+    itemStamp: text('item_stamp').notNull().default(''), // phase 3: which of their books that id meant; '' on a goal entry
+    kind: text('kind', { enum: FEED_KINDS }).notNull(),
     publishedAt: text('published_at').notNull(),
-    item: text('item').notNull(), // the validated FeedItem, as JSON
+    item: text('item').notNull(), // the validated FeedItem as JSON — or, on a goal entry, the validated FeedGoal
     bytes: integer('bytes').notNull(),
     receivedAt: text('received_at').notNull().default(now),
   },
@@ -707,6 +753,7 @@ export type ReadingProgress = typeof readingProgress.$inferSelect;
 export type Read = typeof reads.$inferSelect;
 export type Review = typeof reviews.$inferSelect;
 export type Play = typeof plays.$inferSelect;
+export type ReadingGoal = typeof readingGoals.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type RemoteActivity = typeof remoteActivities.$inferSelect;
 export type Comment = typeof comments.$inferSelect;

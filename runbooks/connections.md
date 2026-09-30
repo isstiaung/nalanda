@@ -73,7 +73,7 @@ you do.
 - For the books in a view they see the title, creators, cover, rating, review, when you last
   finished it, and how many times you have. Never notes, where it lives, loans, borrowers, how many copies you
   have, or the dates of your other reads.
-- **Names are off by default.** **Show names to connected households** (in this section) sends one
+- **Names: on for a new instance, as they were for an upgraded one** (§16 #49). **Show names to connected households** (in this section) sends one
   feed entry per person, signed with each member's display name — "Priya finished", "Ravi rated",
   "Priya started" — and lists everyone's rating and review on a book's page (ARCH.md §16 #45).
   Members without a display name stay unnamed; usernames and read dates never leave — a start or
@@ -84,6 +84,13 @@ you do.
   their display name while this is on, and "A member" while it's off. Households on older
   versions get the entries without names, shown as the household's — two people finishing one
   book show as one entry.
+- **Reading goals** (**Share reading goals**, just below; on for a new instance, off for an upgraded
+  one) add entries when a member sets a goal, passes halfway and reaches it — "Priya reached their
+  2026 goal", with the target and the count — only while names are shown too (the switch is greyed
+  out until then), and only for members with a display name. Never which books or when they were
+  read. A goal goes to every view that can hold books; a milestone only to views holding the book
+  whose finish reached it. Off withdraws them at each connection's next check. Households on 1.3.0
+  or older skip these entries and read the rest of your feed as before (ARCH.md §16 #49).
 - **With names off, they see your household, never a person** (ARCH.md §16 #43). The rating is the average of
   everyone's ratings here, the review the one written last, with no name on it; "when you last
   finished it" is the latest finish by anyone, and "how many times" counts everyone's. Which of

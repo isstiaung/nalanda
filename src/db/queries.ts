@@ -119,10 +119,10 @@ export async function setDisplayName(d1: D1Database, id: number, displayName: st
 export async function outwardName(d1: D1Database, userId: number): Promise<string> {
   const row = await d1
     .prepare(
-      `SELECT u.display_name AS name, coalesce((SELECT names_to_connections FROM site_settings WHERE id = 1), 0) AS on_
+      `SELECT u.display_name AS name, coalesce((SELECT names_to_connections FROM site_settings WHERE id = 1), ?2) AS on_
        FROM users u WHERE u.id = ?1`,
     )
-    .bind(userId)
+    .bind(userId, SITE_DEFAULTS.namesToConnections ? 1 : 0)
     .first<{ name: string | null; on_: number }>();
   return row?.on_ && row.name ? row.name : 'A member';
 }
@@ -154,23 +154,28 @@ export async function listPeople(d1: D1Database): Promise<Array<{ id: number; us
   return db(d1).select({ id: s.users.id, username: s.users.username }).from(s.users).orderBy(asc(s.users.username), asc(s.users.id));
 }
 
+/** Every column of a member_activity row but its id: what re-keying copies, so an entry keeps all it said (§16 #49). */
+const MEMBER_ACTIVITY_COLUMNS = 'item_id, kind, at, read_id, review_id, progress_id, goal_id, goal_target, goal_count';
+
 /**
  * A member's per-person feed entries (§16 #45) given new ids — the same entries, dated as before — so a connection
  * holding the old ones learns from the removal check that they're gone and pulls the new ones: a rename, or a member
  * removed (then unnamed), reaches what connections already hold, not only what they pull next. INSERT OR REPLACE re-keys a read's or a review's entries in place (their unique
- * index); a page's entries are copied, then the older copy goes.
+ * index); a page's entries are copied, then the older copy goes. Their goal entries too (§16 #49): a goal is only ever
+ * shared under a display name, so a name set, changed or cleared re-keys them — withdrawn, then pulled again or not.
  */
 function rekeyMemberActivity(d1: D1Database, userId: number, newName?: string | null): D1PreparedStatement[] {
   // with a new name: only when it differs from the one stored — nothing to re-key for a form saved unchanged
   const guard = newName === undefined ? '1' : '(SELECT display_name FROM users WHERE id = ?1) IS NOT ?2';
   const theirs = `(read_id IN (SELECT id FROM reads WHERE reader_id = ?1)
     OR review_id IN (SELECT id FROM reviews WHERE user_id = ?1)
-    OR progress_id IN (SELECT p.id FROM reading_progress p JOIN reads r ON r.id = p.read_id WHERE r.reader_id = ?1))`;
+    OR progress_id IN (SELECT p.id FROM reading_progress p JOIN reads r ON r.id = p.read_id WHERE r.reader_id = ?1)
+    OR goal_id IN (SELECT id FROM reading_goals WHERE user_id = ?1))`;
   return [
     d1
       .prepare(
-        `INSERT OR REPLACE INTO member_activity (item_id, kind, at, read_id, review_id, progress_id)
-         SELECT item_id, kind, at, read_id, review_id, progress_id FROM member_activity WHERE ${theirs} AND ${guard} ORDER BY id`,
+        `INSERT OR REPLACE INTO member_activity (${MEMBER_ACTIVITY_COLUMNS})
+         SELECT ${MEMBER_ACTIVITY_COLUMNS} FROM member_activity WHERE ${theirs} AND ${guard} ORDER BY id`,
       )
       .bind(...(newName === undefined ? [userId] : [userId, newName])),
     d1
@@ -187,25 +192,26 @@ function rekeyMemberActivity(d1: D1Database, userId: number, newName?: string | 
  * another member: a connection holding them under the old name learns from the removal check that they're gone and
  * pulls them again under the new one. Only that read or review — the rest of both members' entries still say who did
  * them. Goes straight after the move's UPDATE in its batch: `changes()` is that statement's, so a move refused (or to
- * the member it already belongs to) re-keys nothing. A read's pages go with it: copied, then the older copy goes.
+ * the member it already belongs to) re-keys nothing. A read's pages go with it: copied, then the older copy goes. A
+ * goal milestone the read crossed stays as it is: it is the goal's member's news, and signed with their name (§16 #49).
  */
 function rekeyMoved(d1: D1Database, moved: { readId: number } | { reviewId: number }): D1PreparedStatement[] {
   if ('reviewId' in moved) {
     return [
       d1
         .prepare(
-          `INSERT OR REPLACE INTO member_activity (item_id, kind, at, read_id, review_id, progress_id)
-           SELECT item_id, kind, at, read_id, review_id, progress_id FROM member_activity WHERE review_id = ?1 AND changes() > 0 ORDER BY id`,
+          `INSERT OR REPLACE INTO member_activity (${MEMBER_ACTIVITY_COLUMNS})
+           SELECT ${MEMBER_ACTIVITY_COLUMNS} FROM member_activity WHERE review_id = ?1 AND goal_id IS NULL AND changes() > 0 ORDER BY id`,
         )
         .bind(moved.reviewId),
     ];
   }
-  const its = `(read_id = ?1 OR progress_id IN (SELECT id FROM reading_progress WHERE read_id = ?1))`;
+  const its = `(read_id = ?1 OR progress_id IN (SELECT id FROM reading_progress WHERE read_id = ?1)) AND goal_id IS NULL`;
   return [
     d1
       .prepare(
-        `INSERT OR REPLACE INTO member_activity (item_id, kind, at, read_id, review_id, progress_id)
-         SELECT item_id, kind, at, read_id, review_id, progress_id FROM member_activity WHERE ${its} AND changes() > 0 ORDER BY id`,
+        `INSERT OR REPLACE INTO member_activity (${MEMBER_ACTIVITY_COLUMNS})
+         SELECT ${MEMBER_ACTIVITY_COLUMNS} FROM member_activity WHERE ${its} AND changes() > 0 ORDER BY id`,
       )
       .bind(moved.readId),
     d1
@@ -1330,10 +1336,23 @@ export type SiteSettings = {
   progressToConnections: boolean;
   namesOnShares: boolean; // §16 #45 — members' display names, ratings and reviews on share pages
   namesToConnections: boolean; // §16 #45 — per-person feed entries and reviews, with display names, to connections
+  goalsToConnections: boolean; // §16 #49 — members' reading goals as per-person entries; only while namesToConnections
 };
-const SITE_DEFAULTS: SiteSettings = { progressOnShares: false, progressToConnections: true, namesOnShares: false, namesToConnections: false };
+/**
+ * What a new instance starts with (§16 #49): names on share pages and to connections, and goals to connections, on;
+ * progress on share pages off, and progress to connections on. An instance that had members before reading goals never uses
+ * these: migration 0036 pinned its row to what it had — every switch as it was, goals off — so upgrading changes
+ * nothing it shows anyone.
+ */
+const SITE_DEFAULTS: SiteSettings = {
+  progressOnShares: false,
+  progressToConnections: true,
+  namesOnShares: true,
+  namesToConnections: true,
+  goalsToConnections: true,
+};
 
-/** One row, id 1. Absent means defaults, so a fresh instance needs no setup step. */
+/** One row, id 1. Absent means defaults — only ever on a new instance — so it needs no setup step. */
 export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
   const [row] = await db(d1).select().from(s.siteSettings).where(eq(s.siteSettings.id, 1));
   return row
@@ -1342,8 +1361,34 @@ export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
         progressToConnections: row.progressToConnections,
         namesOnShares: row.namesOnShares,
         namesToConnections: row.namesToConnections,
+        goalsToConnections: row.goalsToConnections,
       }
     : { ...SITE_DEFAULTS };
+}
+
+/**
+ * Switches goals to connections on or off (§16 #49), and — only when that changes it — gives every goal entry a new
+ * id, in the same batch. Off, the removal check withdraws them at each connection's next check; on again, the new ids
+ * sit past every connection's cursor, so they are pulled again rather than waiting behind it forever.
+ */
+export async function setGoalsToConnections(d1: D1Database, on: boolean): Promise<void> {
+  const d = SITE_DEFAULTS;
+  await d1.batch([
+    d1
+      .prepare(
+        `INSERT OR REPLACE INTO member_activity (${MEMBER_ACTIVITY_COLUMNS})
+         SELECT ${MEMBER_ACTIVITY_COLUMNS} FROM member_activity
+         WHERE goal_id IS NOT NULL AND coalesce((SELECT goals_to_connections FROM site_settings WHERE id = 1), ?2) IS NOT ?1 ORDER BY id`,
+      )
+      .bind(on ? 1 : 0, d.goalsToConnections ? 1 : 0),
+    d1
+      .prepare(
+        `INSERT INTO site_settings (id, progress_on_shares, progress_to_connections, names_on_shares, names_to_connections, goals_to_connections)
+         VALUES (1, ?2, ?3, ?4, ?5, ?1)
+         ON CONFLICT (id) DO UPDATE SET goals_to_connections = ?1, updated_at = datetime('now')`,
+      )
+      .bind(on ? 1 : 0, d.progressOnShares ? 1 : 0, d.progressToConnections ? 1 : 0, d.namesOnShares ? 1 : 0, d.namesToConnections ? 1 : 0),
+  ]);
 }
 
 export async function updateSiteSettings(d1: D1Database, patch: Partial<SiteSettings>): Promise<void> {
@@ -2174,6 +2219,96 @@ function playInsertStatements(d1: D1Database, plays: PersonPlay[], person: numbe
       )
       .bind(json),
   ];
+}
+
+// ---------- reading goals (ARCH.md §16 #49) ----------
+
+/**
+ * How many books the member of goal row `g` has finished in its year: each finished read of a book (not a record or a
+ * game) by them with its end date in that year — re-reads included, an undated finish not. Worked out when asked, so a
+ * read added, corrected, moved or deleted counts at once. Migration 0036's milestone triggers carry the same
+ * expression, and a test holds the two together.
+ */
+export const goalCountSql = (g: string) => `(SELECT count(*) FROM reads r JOIN items i ON i.id = r.item_id
+  WHERE r.reader_id = ${g}.user_id AND r.status = 'completed' AND i.media_type = 'book'
+    AND CAST(substr(r.ended_on, 1, 4) AS INTEGER) = ${g}.year)`;
+
+export type GoalProgress = { id: number; userId: number; year: number; target: number; count: number };
+
+const GOAL_COLUMNS = `g.id, g.user_id AS userId, g.year, g.target, ${goalCountSql('g')} AS count`;
+
+/** A member's goals, newest year first, each with where it stands. */
+export async function goalsOf(d1: D1Database, userId: number): Promise<GoalProgress[]> {
+  const { results } = await d1
+    .prepare(`SELECT ${GOAL_COLUMNS} FROM reading_goals g WHERE g.user_id = ?1 ORDER BY g.year DESC`)
+    .bind(userId)
+    .all<GoalProgress>();
+  return results;
+}
+
+/** A member's goal for one year, with where it stands — the Overview's one call — or null. */
+export async function goalOf(d1: D1Database, userId: number, year: number): Promise<GoalProgress | null> {
+  return d1
+    .prepare(`SELECT ${GOAL_COLUMNS} FROM reading_goals g WHERE g.user_id = ?1 AND g.year = ?2`)
+    .bind(userId, year)
+    .first<GoalProgress>();
+}
+
+/** One goal, or null — what a route checks the actor against before it says why a change was refused. */
+export async function getGoal(d1: D1Database, id: number): Promise<GoalProgress | null> {
+  return d1.prepare(`SELECT ${GOAL_COLUMNS} FROM reading_goals g WHERE g.id = ?1`).bind(id).first<GoalProgress>();
+}
+
+/**
+ * Sets `userId`'s goal for `year` to `target` books — a new goal, or a new target for the one there. Members set their
+ * own, admins anyone's: checked here as well as in the route (§16 #43's Actor rule), so a hand-made request changes
+ * nothing. A target saved unchanged changes nothing either. True when the goal now stands at that target.
+ *
+ * For connections (§16 #49), in the same batch (§16 #39): a new goal or a new target is news as it happens — a
+ * `goal_set` entry with the target and the count now, re-keyed if there was one, so a connection holding the old one
+ * withdraws it and pulls the new — recorded only while a connection view exists, like every per-person entry. The
+ * old target's milestones go: "reached" a goal that now asks for more isn't true. The entry goes out only while
+ * goals and names go to connections and the member has a display name (memberStillShows); recorded regardless.
+ */
+export async function setGoal(d1: D1Database, userId: number, year: number, target: number, by: Actor): Promise<boolean> {
+  const results = await d1.batch([
+    d1
+      .prepare(
+        `INSERT INTO reading_goals (user_id, year, target)
+         SELECT ?1, ?2, ?3 WHERE ${allowed('?1', '?4', '?5')} AND EXISTS (SELECT 1 FROM users WHERE id = ?1)
+         ON CONFLICT (user_id, year) DO UPDATE SET target = excluded.target, updated_at = datetime('now')
+           WHERE reading_goals.target <> excluded.target`,
+      )
+      .bind(userId, year, target, ...actorBinds(by)),
+    // straight after the goal's write: `changes()` is that statement's — no entry for a goal refused or unchanged
+    d1
+      .prepare(
+        `INSERT OR REPLACE INTO member_activity (kind, at, goal_id, goal_target, goal_count)
+         SELECT 'goal_set', datetime('now'), g.id, g.target, ${goalCountSql('g')}
+         FROM reading_goals g WHERE g.user_id = ?1 AND g.year = ?2 AND changes() > 0 AND EXISTS (SELECT 1 FROM connection_views)`,
+      )
+      .bind(userId, year),
+    d1
+      .prepare(
+        `DELETE FROM member_activity WHERE kind IN ('goal_halfway', 'goal_reached')
+           AND goal_id IN (SELECT id FROM reading_goals WHERE user_id = ?1 AND year = ?2 AND target IS NOT member_activity.goal_target)
+           AND ${allowed('?1', '?3', '?4')}`,
+      )
+      .bind(userId, year, ...actorBinds(by)),
+    d1
+      .prepare(`SELECT 1 AS ok FROM reading_goals WHERE user_id = ?1 AND year = ?2 AND target = ?3 AND ${allowed('?1', '?4', '?5')}`)
+      .bind(userId, year, target, ...actorBinds(by)),
+  ]);
+  return (results.at(-1)?.results.length ?? 0) > 0;
+}
+
+/** Deletes a goal, by its member or an admin. True when it went. */
+export async function deleteGoal(d1: D1Database, id: number, by: Actor): Promise<boolean> {
+  const result = await d1
+    .prepare(`DELETE FROM reading_goals WHERE id = ?1 AND ${allowed('user_id', '?2', '?3')}`)
+    .bind(id, ...actorBinds(by))
+    .run();
+  return result.meta.changes > 0;
 }
 
 // ---------- cover backfill ----------

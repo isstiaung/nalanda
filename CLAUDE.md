@@ -69,7 +69,8 @@ shape from this file.
 - Workers runtime is not Node: no `fs`/`net`/native modules — fetch, WebCrypto, and Web
   Streams only. No `nodejs_compat` flag.
 - Data portability: every user-visible field must round-trip through `/export.csv`. A new
-  column isn't done until export (and import mapping) covers it.
+  column isn't done until export (and import mapping) covers it. Reading goals are the exception:
+  they're about people, not items; backups carry them (ARCH.md §16 #49).
 
 ## Privacy invariants (share links)
 - `/share/:token` pages render a **field whitelist** via `toPublicItem()` in
@@ -93,12 +94,15 @@ shape from this file.
   latest page anyone reading it recorded; `toPublicItem(item, { progress })` omits the key
   otherwise. Share pages get `noindex`.
 - **Names outside the app** (ARCH.md §16 #45) are a member's optional **display name**, never a
-  username, and only while an admin has switched them on — two `site_settings` switches, both
-  off by default. `names_on_shares`: a shared book's page adds `reviews` (each member's rating and
-  review, signed with their display name or "A member"), still with no reads, no read dates and no
-  "who read it". `names_to_connections`: the feed serves one entry per person with `by` (a display
-  name), including kind `started`, and an item page adds `reviews`. Resolve names when serving,
-  never when recording — `member_activity` rows point at a read, review or page, never a person.
+  username, and only while an admin has switched them on — two `site_settings` switches. A new
+  instance starts with both on (§16 #49: the code's `SITE_DEFAULTS`, used only while there's no
+  row); migration 0036 pinned every instance that already had members to what it had, so an upgrade
+  never flips one. Tests about names off say so (`upgradedSwitches()` in test/member-helpers.ts).
+  `names_on_shares`: a shared book's page adds `reviews` (each member's rating and review, signed
+  with their display name or "A member"), still with no reads, no read dates and no "who read it".
+  `names_to_connections`: the feed serves one entry per person with `by` (a display name),
+  including kind `started`, and an item page adds `reviews`. Resolve names when serving,
+  never when recording — `member_activity` rows point at a read, review, page or goal, never a person.
   **With both off, every served byte stays as before**: no `reviews` or `by` key at all, the
   household's `activity_log` stream and ids untouched; tests compare with and without display
   names. Named feed entries go out with ids past `MEMBER_ACTIVITY_BASE`; one stream is valid at a
@@ -109,6 +113,20 @@ shape from this file.
   so peers' held copies are withdrawn. Comments and borrow requests are
   signed with `outwardName()` — the display name while names go to connections, else "A member",
   never the username. Names other instances send are strings from another instance (below).
+- **Reading goals** (ARCH.md §16 #49) never reach a share page. To connections they are per-person
+  entries — `goal_set`, `goal_halfway`, `goal_reached`, each `{ by, year, target, count }` and **no
+  `item`** — served only while `names_to_connections` *and* `goals_to_connections` are on (the second
+  greyed out on Connections while the first is off), and only for a member with a display name: never
+  "A member". Their `member_activity` rows point at the goal (`goal_id`), never a person; a milestone
+  also keeps the finish that crossed the line (`read_id`, `item_id`), so it goes only to views holding
+  that book and goes when that read does, and a set goes to views that can hold books. Recorded only
+  as they happen — the goal's own write in `setGoal()`'s batch, or migration 0036's triggers on a
+  finish today or yesterday outside an import — never backfilled, and never dated by a read. A changed
+  target re-keys the set and withdraws the old milestones; a deleted goal takes its entries; rename,
+  removal and the switch re-key them (`rekeyMemberActivity()`, `setGoalsToConnections()`). What counts
+  is `goalCountSql()` — a member's finished reads of books ending in the year — and the triggers
+  carry it word for word. The goal kinds are the only item-less ones: `parseFeedEntry()` still needs an
+  item on every other kind, and 1.3.0's parser (test/fixtures/items-v1.3.0.ts) skips goal entries.
 - The shelf's **"Read by" filter** (`ReaderFilter` in `src/db/queries.ts`) is never publishable:
   it is deliberately not part of `ItemFilters`, so `shareFilters()`, `itemMatchesShare()` and
   connection views have no room for it, and the publish form carries no field for it. Keep it
@@ -201,7 +219,8 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    ARCH.md §16 #54), series.ts (series names and numbers, the gaps, each member's next up;
                    its queries are in db/queries.ts, its pages in routes/series.tsx, ARCH.md §16 #52),
                    condition.ts (a record's grades and their fixed scale), pressing.ts (what an add
-                   and "Refresh from Discogs" may write into a record's details, and reading it back)
+                   and "Refresh from Discogs" may write into a record's details, and reading it back),
+                   goals.ts (a reading goal's pace and limits; what counts is goalCountSql in queries.ts)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments and borrowing (comments.ts,

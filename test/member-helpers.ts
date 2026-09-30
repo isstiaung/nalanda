@@ -1,12 +1,20 @@
 // Shared by the per-member specs (ARCH.md §16 #43): a household of named people, each signed in, and requests made
 // as one of them.
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
-import { createItem, createLibrary, createUser } from '../src/db/queries';
+import { createItem, createLibrary, createUser, updateSiteSettings } from '../src/db/queries';
 import type { Item, NewItem } from '../src/db/schema';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
 import app from '../src/index';
 
 export type Member = { id: number; name: string; cookie: string; admin: boolean; sessionKey: string };
+
+/**
+ * The switches as an instance upgraded from before reading goals has them: names and goals off, the old defaults,
+ * which migration 0036 pins for every instance that already had members (§16 #49). A new instance starts with them on, so a test about
+ * names off — or the household's unnamed stream — says so with this.
+ */
+export const upgradedSwitches = () =>
+  updateSiteSettings(env.DB, { namesOnShares: false, namesToConnections: false, goalsToConnections: false });
 
 export async function member(name: string, role: 'admin' | 'member' = 'member'): Promise<Member> {
   const user = await createUser(env.DB, { username: name, passwordHash: 'pbkdf2$1$x$y', role, mustChangePassword: false });

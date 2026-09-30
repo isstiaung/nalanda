@@ -15,6 +15,7 @@ import commentsRoutes from './routes/comments';
 import connectionsRoutes from './routes/connections';
 import dashboardRoutes from './routes/dashboard';
 import feedRoutes from './routes/feed';
+import goalRoutes from './routes/goals';
 import importExportRoutes from './routes/importexport';
 import itemRoutes from './routes/items';
 import libraryRoutes from './routes/libraries';
@@ -115,6 +116,7 @@ app.use(async (c, next) => {
 });
 
 app.route('/', dashboardRoutes);
+app.route('/', goalRoutes);
 app.route('/', libraryRoutes);
 app.route('/', shareAdminRoutes);
 app.route('/', itemRoutes);

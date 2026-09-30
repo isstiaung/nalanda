@@ -25,6 +25,12 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **Pressing details from Discogs.** A record added from a Discogs result now keeps its labels, catalogue numbers, country, year, format (such as `2×Vinyl, LP, Album, 180 Gram, Red Translucent`) and tracklist, and a scanned record keeps its barcode. The record's page lists the pressing, with the tracklist folded under it. Share pages show the pressing and the tracklist; connected households see the pressing fields, not the tracklist.
 - **Refresh from Discogs** on a record's page fills pressing details for records already in your catalog. It uses the record's Discogs release id, or else its barcode, and makes one Discogs request per click. It fills only what's blank and never changes a value that's there, including anything you typed yourself. A record found by barcode gets its tracklist on the next click.
 
+- **Reading goals.** Each member can set a goal of N books for this year or next on the new **Reading goals** page (linked from the Overview); an admin can set anyone's. Every book you finish with an end date in that year counts, re-reads included; records, board games and undated finishes don't. The Overview shows your goal as "14 of 24" with a bar and your pace: on track, "3 behind", or reached. Pace is an even spread through the year. Goals stay out of `/export.csv`: they're about people, not items, and backups carry them.
+- **Goals for connected households**, under a new switch, **Connections → Share reading goals**. With names shown to connections too, their feed gets an entry when a member sets a goal, passes halfway and reaches it ("Priya reached their 2026 goal"), with the target and the count. Only for members with a display name, recorded only as it happens, and never which books or when they were read. A line crossed by an imported or back-dated book is announced with the next book finished. The switch is greyed out while names are off. Your Feed shows connected households' goals the same way.
+
+### Changed
+- **New instances start with names and goals on.** On a new install, **Names on share pages**, **Show names to connected households** and **Share reading goals** are all on until an admin turns them off. Existing instances keep what they have (see Upgrading).
+
 ### Fixed
 - **A loan's due date is kept only when it's a real date.** The item page's Lend form stored whatever it was sent, which the export couldn't carry; anything else now means no due date, as it already did when lending to a connected household. Due dates already stored as free text ("next week") still export and import unchanged.
 
@@ -40,6 +46,11 @@ Each release has an **Upgrading** section. Read it for every version between you
 - Migration `0034_vinyl-condition` runs when you deploy. It adds two empty columns to items for a record's media and sleeve grades, and changes no existing data.
 - **No new secrets.** Pressing details and **Refresh from Discogs** use the `DISCOGS_TOKEN` you may already have. Without it, a record's page says to set one.
 - **Connections** are unaffected. Plays, loans, locations, series and a record's grades aren't sent to connected households on any version. A record's pressing fields travel in its details, as its label and catalogue number always did, so households on older versions see them as before; the tracklist isn't sent.
+- **Back up first** (`npm run backup`). Migrations `0035_reading-goals` and `0036_goal-activity` run when you deploy. 0036 rebuilds the per-person activity table so a goal entry can have no book, keeping every entry and its id. Your books, reads, reviews and everything else are untouched.
+- **Your sharing settings don't change.** The new defaults are for new instances only. If your instance already has members, 0036 writes down the settings you have been running on: names stay off unless an admin turned them on, and **Share reading goals** starts off. Nothing anyone outside sees changes until an admin switches something on.
+- **Backups:** `npm run backup` now also exports `reading_goals`. To restore a backup from before this version, restore it at its own migration level and apply 0035–0036 afterwards, as [runbooks/backup-and-restore.md](runbooks/backup-and-restore.md) says; migrated to the latest first, an instance restored from a backup that never saved a switch would start with names and goals on.
+- **Reading goals aren't in `/export.csv`**, by design: a goal is a person's, not an item's. Backups carry them.
+- **Connections:** households on 1.3.0 or older keep working with yours. The protocol is still version 1. They skip goal entries without error, see the rest of your feed as before, and never ask for those entries again. Goals from households on this version show on your Feed.
 
 ## [1.4.0] - 2026-09-30
 
