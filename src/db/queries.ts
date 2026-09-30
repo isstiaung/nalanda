@@ -450,7 +450,7 @@ export const PAGE_SIZE = 60;
 
 export type ItemFilters = {
   mediaTypes?: MediaType[]; // any-of; empty/omitted = all types
-  statuses?: ItemStatus[]; // any-of; empty/omitted = any status
+  statuses?: ItemStatus[]; // any-of; empty/omitted = any status; In progress includes a re-read (statusWhere, §16 #64)
   owned?: boolean; // true = copies > 0, false = copies = 0 (reading-log entries)
   q?: string; // title/creators/location substring, case-insensitive — the signed-in shelf's only, never a view's
   tag?: string; // only items carrying this tag (tags are stored lowercase)
@@ -477,13 +477,23 @@ function readerFilterWhere(r: ReaderFilter): SQL {
   return r.mode === 'unfinished' ? sql`NOT ${exists}` : exists;
 }
 
+/**
+ * A Status filter as SQL — the twin of matchesStatus() (§16 #64): any of `statuses`, and with In progress among them a
+ * book being read again too, which keeps its Completed status. Shelves, share links and connection views filter by it.
+ */
+export function statusWhere(statuses: readonly ItemStatus[]): SQL | undefined {
+  if (!statuses.length) return undefined;
+  const any = inArray(s.items.status, [...statuses]);
+  return statuses.includes('in_progress') ? or(any, eq(s.items.rereading, true)) : any;
+}
+
 /** The WHERE behind both listItems and countMatchingItems — one definition, so a
  *  count can never disagree with the list it is counting. */
 function itemFilterWhere(libraryId: number | null, f: ItemFilters, reader?: ReaderFilter): SQL | undefined {
   const conds: SQL[] = [];
   if (libraryId !== null) conds.push(eq(s.items.libraryId, libraryId));
   if (f.mediaTypes?.length) conds.push(inArray(s.items.mediaType, f.mediaTypes));
-  if (f.statuses?.length) conds.push(inArray(s.items.status, f.statuses));
+  if (f.statuses?.length) conds.push(statusWhere(f.statuses)!);
   if (f.owned !== undefined) conds.push(f.owned ? gt(s.items.copies, 0) : eq(s.items.copies, 0));
   if (f.tag) {
     conds.push(

@@ -413,7 +413,7 @@ describe('Refresh from Discogs', () => {
     const shown = await page(asha, `/items/${lp.id}?discogs=%3Cb%3Ehi-there%3C%2Fb%3E&f=%3Cscript%3Ealert(1),constructor,label`);
     expect(shown).not.toContain('hi-there');
     expect(shown).not.toContain('alert(1)');
-    expect(shown).not.toContain('class="notice"'); // an unknown code shows no notice at all
+    expect(shown).toContain('<output id="discogs-status" class="notice refresh-status" aria-live="polite"></output>'); // an unknown code shows no notice at all
     const filled = await page(asha, `/items/${lp.id}?discogs=filled&f=%3Cscript%3Ealert(1),constructor,__proto__,label`);
     expect(filled).toContain('Filled from Discogs: label.');
     expect(filled).not.toContain('alert(1)');

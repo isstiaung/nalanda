@@ -15,6 +15,9 @@
 // state: a local run is as offline as CI's. The one step that needs the internet is looking up a book on the Add
 // page (Open Library, keyless): when that finds nothing, the report says which states went unaudited (a warning
 // annotation on GitHub Actions), and A11Y_REQUIRE_LOOKUP=1 turns that into a failure.
+// The Refresh from Discogs / BGG buttons render only with a provider token, so they get a second scratch server of
+// their own on :8819 (A11Y_PORT + 2), with a placeholder token and one record and one game, whose refreshes the
+// browser answers itself — nothing reaches Discogs or BGG (refreshInPlace(), below).
 //
 // A11Y_USE_DEV_VARS=1 lets .dev.vars load after all — your BGG or Discogs tokens, for lookups CI can't do.
 // A11Y_CPU_THROTTLE=4 (or 6) slows the browser that much, with network latency, to reproduce a slow CI runner.
@@ -38,6 +41,9 @@ const PORT = Number(process.env.A11Y_PORT ?? 8817);
 const COVER_PORT = PORT + 1;
 const INSPECTOR_PORT = PORT + 1000;
 const BASE = `http://127.0.0.1:${PORT}`;
+// a second, small instance for the Refresh buttons alone (refreshInPlace(), below), with dummy provider tokens
+const REFRESH_PORT = PORT + 2;
+const REFRESH_BASE = `http://127.0.0.1:${REFRESH_PORT}`;
 const ONLY = process.argv.find((a) => a.startsWith('--only='))?.slice(7);
 const KEEP = process.argv.includes('--keep');
 const USERNAME = 'librarian'; // seed-demo.mjs's admin
@@ -95,13 +101,25 @@ async function axe(page, where, variant, off = []) {
     window.scrollTo(0, 0);
     for (const el of document.querySelectorAll('.data-table')) el.scrollLeft = 0;
   });
+  // A select's chevron (--chevron in app.css) is a background image, and axe won't judge text over any background
+  // image: every select would land in "needs review" unjudged. The chevron sits in padding kept clear of the text,
+  // so axe runs with it off and judges a select's text as it does an input's. (The chevron itself is --ink-2 on
+  // --surface, past the 3:1 a control's graphics need in both themes.)
   const results = await page.evaluate(
-    ({ tags, extra, off }) =>
-      window.axe.run(document, {
-        runOnly: { type: 'tag', values: tags },
-        rules: Object.fromEntries([...extra.map((id) => [id, { enabled: true }]), ...off.map((id) => [id, { enabled: false }])]),
-        resultTypes: ['violations', 'incomplete'],
-      }),
+    async ({ tags, extra, off }) => {
+      const style = document.createElement('style');
+      style.textContent = 'select { background-image: none !important; }';
+      document.head.append(style);
+      try {
+        return await window.axe.run(document, {
+          runOnly: { type: 'tag', values: tags },
+          rules: Object.fromEntries([...extra.map((id) => [id, { enabled: true }]), ...off.map((id) => [id, { enabled: false }])]),
+          resultTypes: ['violations', 'incomplete'],
+        });
+      } finally {
+        style.remove();
+      }
+    },
     { tags: TAGS, extra: EXPERIMENTAL, off },
   );
   record(where, variant, results);
@@ -164,6 +182,7 @@ for (const key of ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_API_KEY', 'CLOUDFLARE_EMA
 mkdirSync(LOCAL_ENV.XDG_CONFIG_HOME, { recursive: true });
 // A11Y_USE_DEV_VARS=1 lets a developer's .dev.vars load (their BGG or Discogs tokens, for lookups CI can't do).
 let server = null;
+let refreshServer = null;
 let coverServer = null;
 let browser = null;
 
@@ -185,45 +204,57 @@ async function federationKey() {
   return JSON.stringify({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, d: jwk.d });
 }
 
-async function startServer() {
-  await run(WRANGLER, ['d1', 'migrations', 'apply', 'nalanda', '--local', '--persist-to', stateDir]);
+/**
+ * Starts a `wrangler dev` and waits for it to answer. The main instance takes the defaults. `dummyTokens` starts the
+ * Refresh buttons' own instance instead: its Discogs and BGG tokens are a placeholder, so the buttons render, and
+ * nothing else is on it — the main instance's Add-page lookups (a held non-ISBN barcode goes to Discogs when a token
+ * is set) never run against a token, and the only requests that could use one, the refreshes, are answered by the
+ * browser (page.route) or reach the Worker only when there is no id to look up.
+ */
+async function startServer({ port = PORT, dir = stateDir, dummyTokens = false } = {}) {
+  const base = `http://127.0.0.1:${port}`;
+  mkdirSync(dir, { recursive: true });
+  await run(WRANGLER, ['d1', 'migrations', 'apply', 'nalanda', '--local', '--persist-to', dir]);
   const secret = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, '0')).join('');
   // The Worker's secrets, from a file in the scratch state rather than .dev.vars: given --env-file, wrangler doesn't
   // read .dev.vars at all — and it must not, since a .dev.vars value outranks a --var one, so a developer's real
   // provider tokens would otherwise be sent to BGG and Discogs from the audit. The tokens are there, empty: off.
   // Connections switched on (a throwaway key), so Feed, Notifications, Borrowed and Connections render.
-  const useDevVars = process.env.A11Y_USE_DEV_VARS === '1';
-  const envFile = join(stateDir, 'a11y.env');
+  const useDevVars = process.env.A11Y_USE_DEV_VARS === '1' && !dummyTokens;
+  const envFile = join(dir, 'a11y.env');
   writeFileSync(
     envFile,
     [
       `SESSION_SECRET=${secret}`,
       `FEDERATION_PRIVATE_KEY='${await federationKey()}'`,
-      ...(useDevVars ? [] : ['DISCOGS_TOKEN=', 'BGG_TOKEN=', 'GOOGLE_BOOKS_KEY=', 'HOME_SHARE_TOKEN=']),
+      ...(useDevVars ? [] : ['GOOGLE_BOOKS_KEY=', 'HOME_SHARE_TOKEN=']),
+      ...(useDevVars ? [] : dummyTokens ? ['DISCOGS_TOKEN=a11y-placeholder', 'BGG_TOKEN=a11y-placeholder'] : ['DISCOGS_TOKEN=', 'BGG_TOKEN=']),
     ].join('\n') + '\n',
   );
   let log = '';
-  server = spawn(
+  const child = spawn(
     WRANGLER,
     [
       'dev',
       '--local', // no remote bindings, whatever the config ever says
       '--ip', '127.0.0.1',
-      '--port', String(PORT),
-      '--inspector-port', String(INSPECTOR_PORT),
-      '--persist-to', stateDir,
+      '--port', String(port),
+      '--inspector-port', String(port + 1000),
+      '--persist-to', dir,
       '--show-interactive-dev-session=false',
       ...(useDevVars ? ['--env-file', '.dev.vars', '--env-file', envFile] : ['--env-file', envFile]),
     ],
     { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', env: LOCAL_ENV },
   );
-  server.stdout.on('data', (d) => (log += d));
-  server.stderr.on('data', (d) => (log += d));
+  if (dummyTokens) refreshServer = child;
+  else server = child;
+  child.stdout.on('data', (d) => (log += d));
+  child.stderr.on('data', (d) => (log += d));
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
-    if (server.exitCode !== null) throw new Error(`wrangler dev exited ${server.exitCode}\n${log}`);
+    if (child.exitCode !== null) throw new Error(`wrangler dev exited ${child.exitCode}\n${log}`);
     try {
-      const res = await fetch(`${BASE}/setup`, { redirect: 'manual' });
+      const res = await fetch(`${base}/setup`, { redirect: 'manual' });
       if (res.status < 500) {
         // which file the Worker's variables came from — never .dev.vars unless A11Y_USE_DEV_VARS=1
         for (const line of log.split('\n').filter((l) => /Using (secrets|vars|environment variables) defined in/i.test(l))) console.log(`a11y: wrangler: ${line.trim()}`);
@@ -234,7 +265,7 @@ async function startServer() {
     }
     await new Promise((r) => setTimeout(r, 500));
   }
-  throw new Error(`wrangler dev did not answer on ${BASE} within 2 minutes\n${log}`);
+  throw new Error(`wrangler dev did not answer on ${base} within 2 minutes\n${log}`);
 }
 
 // A real PNG, noisy enough to be over the 500 bytes storeCover() insists on, served for the Worker to fetch.
@@ -297,10 +328,11 @@ function startCoverServer() {
 async function cleanup() {
   await browser?.close().catch(() => {});
   coverServer?.close();
-  if (server && server.exitCode === null) {
+  for (const child of [server, refreshServer]) {
+    if (!child || child.exitCode !== null) continue;
     try {
-      if (process.platform === 'win32') server.kill();
-      else process.kill(-server.pid, 'SIGTERM'); // wrangler's workerd children too
+      if (process.platform === 'win32') child.kill();
+      else process.kill(-child.pid, 'SIGTERM'); // wrangler's workerd children too
     } catch {
       /* already gone */
     }
@@ -538,11 +570,11 @@ async function shareItemPages(context, tokens) {
   return out;
 }
 
-async function open(page, path, expected = 200) {
-  const res = await page.goto(`${BASE}${path}`, { waitUntil: 'load' });
+async function open(page, path, expected = 200, base = BASE) {
+  const res = await page.goto(`${base}${path}`, { waitUntil: 'load' });
   const status = res?.status() ?? 0;
   const landed = new URL(page.url()).pathname;
-  const wanted = new URL(`${BASE}${path}`).pathname;
+  const wanted = new URL(`${base}${path}`).pathname;
   if (status !== expected || landed !== wanted) {
     throw new Error(`${path}: expected ${expected} at ${wanted}, got ${status} at ${landed}`);
   }
@@ -1042,6 +1074,182 @@ async function interactions(context, ids, variant) {
   });
 }
 
+// ── Refresh from Discogs / Refresh from BGG, in place (ARCH.md §16 #55, #60) ─────────────────────────────────────
+//
+// The buttons render only with a provider token, and the main instance has none (its Add-page lookups would use
+// one: a held non-ISBN barcode goes to Discogs). So they get an instance of their own, with a placeholder token
+// and nothing on it but one record and one game, and nothing there reaches Discogs or BGG: the browser answers
+// each refresh itself (page.route) — the handler's answer in its shape, a 500, a dropped connection — except the
+// one that goes through to the Worker after the item's id was removed, which the handler answers without asking
+// anyone ("nosource", "noid"). Checked each time: what the live region says while waiting and after, that the
+// button is disabled while it waits and has focus again after (from the keyboard, and after a mouse double-click
+// whose second click lands on the disabled button), and axe on the page after the swap.
+
+const REFRESH_KINDS = [
+  {
+    name: 'Refresh from Discogs',
+    what: 'discogs',
+    button: '#discogs-refresh-button',
+    status: 'discogs-status',
+    target: '#pressing-body',
+    busy: 'Asking Discogs…',
+    details: { discogs_id: 1, label: 'Audit Records', catno: 'AUD 001' },
+    fields: { mediaType: 'vinyl', title: 'The Refresh Record', creators: 'The Audit Band' },
+    filled: 'Filled from Discogs: country, year, format, publisher, published.',
+    // what the handler sends for a fill (test/refresh-in-place.spec.ts holds the real one to this shape)
+    answer: (sentence) =>
+      '<div id="pressing-body"><dl class="details-list"><dt>Label</dt><dd>Audit Records</dd><dt>Catalog #</dt><dd>AUD 001</dd>' +
+      '<dt>Country</dt><dd>UK</dd><dt>Year</dt><dd>1971</dd><dt>Format</dt><dd>Vinyl, LP, Album</dd></dl></div>' +
+      '<div id="pressing-more" hx-swap-oob="true"></div>' +
+      '<div id="item-filled" class="props-group" hx-swap-oob="true"><dt>Published</dt><dd>1971</dd><dt>Publisher</dt><dd>Audit Records</dd></div>' +
+      `<output id="discogs-status" hx-swap-oob="innerHTML">${sentence}</output>`,
+    swapped: 'Vinyl, LP, Album',
+    unfound: 'Nothing to look it up by: add its barcode, or its Discogs release id as discogs_id in details.',
+  },
+  {
+    name: 'Refresh from BGG',
+    what: 'bgg',
+    button: '#bgg-refresh-button',
+    status: 'bgg-status',
+    target: '#game-details',
+    busy: 'Asking BGG…',
+    details: { bgg_id: 266192, players_min: 1 },
+    fields: { mediaType: 'boardgame', title: 'The Refresh Game', creators: 'A. Designer' },
+    filled: 'Filled from BoardGameGeek: max players, min playtime, max playtime, weight, length.',
+    answer: (sentence) =>
+      '<div id="game-details"><dl class="details-list"><dt>BGG ID</dt><dd>266192</dd><dt>Min players</dt><dd>1</dd>' +
+      '<dt>Max players</dt><dd>5</dd><dt>Min playtime</dt><dd>40</dd><dt>Max playtime</dt><dd>70</dd><dt>Weight (1–5)</dt><dd>2.44</dd></dl></div>' +
+      '<div id="item-filled" class="props-group" hx-swap-oob="true"><dt>Length</dt><dd class="mono">70 min play time</dd></div>' +
+      `<output id="bgg-status" hx-swap-oob="innerHTML">${sentence}</output>`,
+    swapped: '2.44',
+    unfound: 'Nothing to look it up by: add its BoardGameGeek id as bgg_id in details.',
+  },
+];
+const REFRESH_FAILED = 'Something went wrong — try again.';
+
+async function refreshInPlace(variants) {
+  console.log(`a11y: the Refresh buttons, on a scratch server of their own at ${REFRESH_BASE}`);
+  await startServer({ port: REFRESH_PORT, dir: join(stateDir, 'refresh'), dummyTokens: true });
+  const context = await browser.newContext();
+  const form = (fields) => ({ form: fields, maxRedirects: 0 });
+  await context.request.post(`${REFRESH_BASE}/setup`, form({ username: 'refresher', password: 'refresh-password', confirm: 'refresh-password' }));
+  const made = await context.request.post(`${REFRESH_BASE}/libraries`, form({ name: 'Refresh' }));
+  const shelf = made.headers().location?.match(/\/libraries\/(\d+)/)?.[1];
+  if (!shelf) throw new Error('the Refresh instance: could not make a shelf (setup failed?)');
+  const itemFields = (kind, details) => ({ libraryId: shelf, copies: '1', status: 'not_started', ...kind.fields, details: JSON.stringify(details) });
+  for (const kind of REFRESH_KINDS) {
+    const res = await context.request.post(`${REFRESH_BASE}/items`, form(itemFields(kind, kind.details)));
+    kind.id = Number(res.headers().location?.match(/\/items\/(\d+)/)?.[1]);
+    if (!kind.id) throw new Error(`the Refresh instance: adding "${kind.fields.title}" did not land on its page`);
+  }
+
+  for (const variant of variants) {
+    await withVariant(context, variant, async (page) => {
+      for (const kind of REFRESH_KINDS) {
+        const where = (state) => `${kind.name} → ${state}`;
+        const url = `**/items/${kind.id}/${kind.what}`;
+        const button = page.locator(kind.button);
+        const saying = (text, timeout = 10_000) =>
+          page.waitForFunction(({ id, text }) => document.getElementById(id)?.textContent === text, { id: kind.status, text }, { timeout, polling: 25 });
+        const focusBack = async (state) => {
+          await page.waitForFunction((sel) => !document.querySelector(sel)?.disabled, kind.button, { timeout: 5000 });
+          const at = await page.evaluate(() => {
+            const a = document.activeElement;
+            return a ? `${a.tagName.toLowerCase()}${a.id ? `#${a.id}` : ''}` : 'nothing';
+          });
+          if (at !== `button${kind.button}`) failures.push(`keyboard · ${where(state)} [${variant.name}]: focus on ${at}, not back on the button`);
+        };
+        // answers the next refresh with `reply` once the returned function is called, so the wait can be checked
+        const answerWith = async (reply) => {
+          let open;
+          const gate = new Promise((r) => (open = r));
+          await page.unroute(url);
+          await page.route(url, async (route) => {
+            await gate;
+            await reply(route);
+          });
+          return () => open();
+        };
+        const step = async (state, fn) => {
+          try {
+            await fn();
+          } catch (err) {
+            failures.push(`interaction · ${where(state)} [${variant.name}]: ${err.message.split('\n')[0]}`);
+          }
+        };
+
+        await step('the page', async () => {
+          await open(page, `/items/${kind.id}`, 200, REFRESH_BASE);
+          await axe(page, `Item with ${kind.name}`, variant.name);
+        });
+
+        // from the keyboard: "Asking…" and a disabled button while it waits, then the answer, swapped in place
+        await step('filled, from the keyboard', async () => {
+          const go = await answerWith((route) => route.fulfill({ status: 200, contentType: 'text/html; charset=UTF-8', body: kind.answer(kind.filled) }));
+          await button.focus();
+          await page.keyboard.press('Enter');
+          await saying(kind.busy);
+          if (!(await button.isDisabled())) failures.push(`interaction · ${where('waiting')} [${variant.name}]: the button can be pressed again while it waits`);
+          go();
+          await saying(kind.filled);
+          if (!(await page.locator(kind.target).innerText()).includes(kind.swapped)) throw new Error(`${kind.target} was not swapped`);
+          await focusBack('filled, from the keyboard');
+          await axe(page, where('filled, in place'), variant.name);
+        });
+
+        // a mouse double-click: the second click lands on the disabled button, and the browser moves focus to <main>
+        await step('filled, after a double-click', async () => {
+          const go = await answerWith((route) => route.fulfill({ status: 200, contentType: 'text/html; charset=UTF-8', body: kind.answer(kind.filled) }));
+          await page.evaluate((id) => (document.getElementById(id).textContent = ''), kind.status);
+          await button.dblclick();
+          await saying(kind.busy);
+          go();
+          await saying(kind.filled);
+          await focusBack('filled, after a double-click');
+        });
+
+        // no connection: nothing to swap, and a fixed sentence rather than "Asking…" left standing
+        await step('no connection', async () => {
+          const go = await answerWith((route) => route.abort('connectionreset'));
+          await button.focus();
+          await page.keyboard.press('Enter');
+          await saying(kind.busy);
+          go();
+          await saying(REFRESH_FAILED);
+          await focusBack('no connection');
+          await axe(page, where('no connection'), variant.name);
+        });
+
+        // the Worker itself, after the id it looks up by was removed meanwhile: its own answer, without asking anyone
+        await step('the Worker’s answer', async () => {
+          await context.request.post(`${REFRESH_BASE}/items/${kind.id}`, form(itemFields(kind, {})));
+          await page.unroute(url);
+          await page.route(url, (route) => route.continue());
+          await button.focus();
+          await page.keyboard.press('Enter');
+          await saying(kind.unfound);
+          await focusBack('the Worker’s answer');
+          await axe(page, where('nothing to look it up by, from the Worker'), variant.name);
+          await context.request.post(`${REFRESH_BASE}/items/${kind.id}`, form(itemFields(kind, kind.details)));
+        });
+
+        // a server error: htmx swaps nothing on a 500, so the same fixed sentence
+        await step('a server error', async () => {
+          const go = await answerWith((route) => route.fulfill({ status: 500, contentType: 'text/plain', body: 'Something went wrong.' }));
+          await button.focus();
+          await page.keyboard.press('Enter');
+          await saying(kind.busy);
+          go();
+          await saying(REFRESH_FAILED);
+          await focusBack('a server error');
+        });
+        await page.unroute(url);
+      }
+    });
+  }
+  await context.close();
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -1264,6 +1472,13 @@ async function main() {
       }
     });
     if (chosen('htmx')) await interactions(admin, ids, variant);
+  }
+  if (chosen('Refresh')) {
+    try {
+      await refreshInPlace(VARIANTS);
+    } catch (err) {
+      failures.push(`interaction · the Refresh buttons: ${err.message.split('\n')[0]}`);
+    }
   }
 
   // ── the report ──

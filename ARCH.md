@@ -323,7 +323,8 @@ request per click, by the stored release id or else the barcode, filling blanks 
 **Manual add/edit**: plain form, all media types, works from day one.
 
 **Reading again**: a finished book's page offers "Read again", which opens a new read; the
-book stays Completed, marked re-reading, until Finish or "Stop re-reading" closes it. Every
+book stays Completed, marked re-reading, until Finish or "Stop re-reading" closes it — and is
+listed under In progress too while it's read (§16 #64). Every
 read is listed on the book's page, correctable and deletable (§16 #41). Each is its reader's:
 the buttons act on the signed-in person's own reads, another member can start their first read
 of a book someone else finished, and everyone's reading shows under their name (§16 #43).
@@ -460,7 +461,8 @@ portable, and makes share routes trivially public. CF Access remains available l
   `GET /share/:token` (listing) and `GET /share/:token/items/:id` (item) render
   read-only pages with **no login**. The item route re-checks the item against the
   view's filters (`itemMatchesShare`) so a token can't be walked outside its scope by
-  id. (`libraries.share_token` is legacy — migrated into `shares` by 0004.)
+  id. A captured In progress also holds a book being read again (§16 #64), as the shelf's
+  filter does. (`libraries.share_token` is legacy — migrated into `shares` by 0004.)
 - **Field whitelist, not blacklist**: share pages render only title, creators, cover,
   publisher/label, published date, description, media details, tags, rating, review, and
   a derived boolean `inCollection` (`copies > 0`) so reading-log entries (`copies = 0`)
@@ -567,7 +569,8 @@ POST /items/:id/plays          "Played": a play today or on the date given (game
 GET  /items/:id/plays          every play, 100 a page · POST /items/:id/plays/:play/delete (its
                                logger, or an admin; ?back=plays returns to that page)
 POST /items/:id/bgg            "Refresh from BGG": one `thing` request by details.bgg_id, fills blanks
-                               only (board games; redirects back with ?bgg=<code>; §16 #60)
+                               only (board games; with HX-Request → the details in place, else
+                               redirects back with ?bgg=<code>; §16 #60)
 GET  /play                     "What should we play tonight?": ?players=&time=&weight=, and ?pick=1
                                (&not=<id>) for one; with HX-Request → the results alone (§16 #60)
 GET  /add                      add flow: scan | search | manual
@@ -841,7 +844,14 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     and share footer (system Devanagari fonts, graceful fallback). Logo, PWA icons,
     manifest, and theme-color metas follow the new palette. The faintest ink, `--ink-3`,
     was deepened to `#746b58` (light) and `#8f846d` (dark) so the 10–11px mono labels it
-    carries clear 4.5:1 on paper.
+    carries clear 4.5:1 on paper. *Amended after 1.6.0:* every control — input, select,
+    button, a filter menu's summary, the Table/Covers toggle — shares one size, `--control-h`
+    (32px tall) and `--control-text` (13px), with its one line of text in `line-height: normal`,
+    centred, so a row of controls sets its words on one level line (Chromium rounds each
+    control's baseline on its own, and differing heights, sizes or line-heights put them a
+    pixel apart). Every dropdown shares one chevron, `--chevron`. Pills, tags and the filter
+    count trim their line box to cap height (`text-box`) and centre their capitals. The owner
+    chose 32px and 13px over 30px and 12.5px.
 17. **Mark: Ratnodadhi in brick.** The logo is Nalanda's nine-storey library tower
     ("Ocean of Jewels") as it stood — red-brick storeys on palm-leaf buff, turmeric
     jewel at the summit, lampblack plinth. Chosen over an indigo-ground version (the
@@ -1247,6 +1257,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     and reviews per member. One consequence predates reads and stays: `completed_on` is the last finish, so
     deleting the latest finish, or adding a past finish newer than the current one, moves it, and
     0021's trigger announces a "finished" dated by the new date — dated honestly, but announced.
+    *Amended by #64 (2026-09-30):* the filters changed — a book being read again stays Completed
+    in the column, but every Status filter (shelf, share link, connection view) lists it under In
+    progress too, so it no longer stays out of In progress views; its status pill says "Re-reading".
 
 **2026-09-28 — versions and releases:**
 42. **Nalanda is released as SemVer versions, starting at 1.0.0, with notes written for whoever
@@ -1282,7 +1295,7 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       `completed_on` is the latest finish by anyone, `read_count` everyone's finishes, and
       `rereading` an open read, by anyone, of a book finished before, by anyone — so a member's
       first read of a book someone else finished shows as re-reading, and nothing moves between
-      views while it's read;
+      views while it's read (until #64, which lists it under In progress too);
     - **progress_page** is the latest page recorded in any open read (with none open, the deciding
       read's last page, as before) — what "progress on share pages" shows;
     - **rating** is the average of everyone's ratings, rounded to the 1–10 scale, and **review** the
@@ -1703,10 +1716,14 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       is every finished read of a book — not a record or a game — by that member with its end date in
       that year, re-reads included; an undated finish is in no year. The count is never stored:
       `goalCountSql()` works it out when asked, so a read added, corrected, moved or deleted counts at
-      once. The Overview shows the signed-in member's goal for this year — "14 of 24", a pace pill (on
-      track, "3 behind", reached) and a bar with a tick where an even pace stands today. Pace is linear:
-      by the end of day d of a D-day year, d/D of the target, rounded down, so a goal is on track until
-      it is a whole book behind. A goal can be set for this year or next (`/goals`); earlier ones stay,
+      once. The Overview shows the signed-in member's goal for this year — "14 of 24", a pace pill ("on
+      pace", "3 behind pace", "2 ahead of pace", reached) and a bar with a tick where a year-long pace
+      stands today, explained in words under the bar ("Pace runs from 1 January: the mark is where a
+      year-long pace is today") since the bar is hidden from assistive tech. Pace is linear from
+      1 January, whenever the goal was set: by the end of day d of a D-day year, d/D of the target,
+      rounded down, so a goal is on pace until it is a whole book behind or past. (1.6.0 said "on track"
+      and "3 behind"; a goal set on 30 September read "7 behind" with nothing saying behind what — the
+      owner kept the 1 January pace and had it named instead.) A goal can be set for this year or next (`/goals`); earlier ones stay,
       to look back on or delete. Members set their own, admins anyone's — checked in the route (403 with
       a reason) and in the statement (`allowed()`), as #43 does for reads. A member's goals go with them
       when they are removed.
@@ -1831,7 +1848,7 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     (a target changed mid-year: "2 of 4" says halfway) isn't news again.
 
     **Chosen without asking, overrulable:** a goal can be set for this year or next only; pace counts
-    the server's UTC day and is "on track" until a whole book behind; "halfway" is half the target
+    the server's UTC day and is "on pace" until a whole book behind or ahead; "halfway" is half the target
     rounded up, and a finish that reaches the target is only "reached"; a milestone stays
     while its finish does, even if the count later dips; a goal goes to every view that can hold books
     and a milestone only to views holding its book; goal entries are recorded for unnamed members too
@@ -2258,6 +2275,29 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       while Discogs was asked wins and the page says to refresh again. A click is the
       session check, one read and one write (3 D1 calls). Discogs' 429 ("busy"), 404, 401
       and timeouts come back as a notice by code, never as text from the URL.
+      **Amended (after 1.6.0): it updates in place, with the redirect as the no-script
+      fallback.** With `HX-Request` the handler answers 200 whatever the result (htmx swaps
+      nothing on an error status): the pressing section's content (`#pressing-body`), and out
+      of band the rest of the details with Discogs' credit when that's where it goes
+      (`#pressing-more`) and the published, publisher and length rows (`#item-filled`, a
+      `display: contents` group in the props list) — everything on the page a fill can change —
+      rendered from the row it read plus the fill it wrote, so still 3 D1 calls filled and 2
+      otherwise, against 3 + 11 for the redirect and the page reload it replaces. The fixed
+      sentence goes out of band into `#discogs-status`, an `<output>` that stays on the page
+      beside the button, so a screen reader hears it; the page the no-script redirect lands on
+      shows its sentence there too. The button is disabled while the request is out
+      (`hx-disabled-elt`) and is never swapped; public/app.js says "Asking Discogs…" in the
+      region meanwhile, gives focus back to the button once the answer is in (Chromium drops
+      focus from a disabled button to `<body>`), and says a fixed "Something went wrong — try
+      again." on a request that ends with nothing to swap (`htmx:responseError`, `sendError`,
+      `sendAbort`, `timeout`) — for these forms only (`data-refresh-status`). Focus goes back
+      to the button unless it is still inside the form or the person has since focused
+      something themselves: a second click on the disabled button leaves it on `<main>`
+      (`tabindex="-1"`), which doesn't count. A "changed" answer (the guarded write lost the
+      race) reads the record again, on that rare path only (4 D1 calls), so the swapped regions
+      show the edit that won rather than the row the click first read. `npm run a11y` drives
+      both buttons in a browser (§18).
+      Without htmx: the same redirect as before.
     - **CPU.** Parsing is one pass over Discogs' JSON with caps on every string; tests keep
       a record's page, with a 400-line tracklist, at the same D1 calls as a book's.
     - **Credit (amended by #63).** Wherever this pressing shows, Discogs' terms want "Data
@@ -2779,7 +2819,13 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     timeout, or a 200 that isn't an `<items>` answer (an error message, an HTML page) "unavailable"; an answer without that id "not found" — each a fixed
     sentence chosen by a code in the redirect (`?bgg=<code>`), never text from the URL or from BGG. A
     game's page never calls BGG, and tests replay BGG's XML from `test/fixtures/bgg.ts`, written in the
-    shape BGG's API2 returns.
+    shape BGG's API2 returns. **Amended (after 1.6.0): it updates in place, as #55's refresh does, with
+    the redirect as the no-script fallback.** With `HX-Request`: a 200 whatever the result, holding the
+    details list (`#game-details`), the length row out of band (`#item-filled`) and the sentence out of
+    band into `#bgg-status`, the section's persistent `<output>`; 3 D1 calls filled, 2 otherwise, and 4 for
+    "changed", which reads the game again to show the edit that won (as #55's does). The
+    button is disabled while BGG is asked, which with the five-second pacing keeps a double click from
+    spending the isolate's one request on nothing, and app.js says "Asking BGG…" meanwhile.
 
     **Chosen without asking, overrulable:** the band edges at 2 and 3; time as the longer end, with
     Length as the last resort; only games with a copy not on loan, and not-owned games (`copies = 0`)
@@ -2901,6 +2947,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       in review in Reading, Recommended in Sharing & connections, beside Feed and Notifications.
       "What should we play tonight" has no sidebar link: #60 links it from the Overview and a
       shelf's header instead.
+    - A page with no link of its own marks the one it's reached from (`navPath()` in
+      `src/views/layout.tsx`): a connected household's pages (`/households/…`) open Lending and mark
+      **Borrowed**, where households are browsed from; its feed settings (`/connections/:id/feed`),
+      reached from Connections, mark **Connections** (1.6.1).
 
     **Markup.** Each section is a native `<details class="nav-section" data-nav="…">` whose first
     child is its `<summary>`: it opens and closes with no script, from the keyboard (Enter and
@@ -3046,6 +3096,88 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     **Chosen without asking, overrulable:** the notice in the app on every credited page rather
     than only in the docs; crediting connections' records; the Add page's per-result credits;
     leaving want lists and listings uncredited; a record with only an id uncredited.
+
+**2026-09-30 — a re-read counts as In progress:**
+64. **A book being re-read counts as In progress, in every status filter, and still as Completed.**
+    The owner reported three books being read, one of them a re-read, and only two under Status =
+    In progress: #41 kept a re-read Completed "so nothing moves between status-filtered views", and
+    #43 carried that to a member's first read of a book someone else had finished. **The owner
+    decided: "Yes, everywhere"** — In progress lists every book someone is reading now, on a
+    shelf (with or without its search box; /search has no status filter), in share links and in
+    connection views, and a re-read still
+    also counts as Completed, because someone finished it. Share pages already treated a re-read
+    as being read now for progress (#41, `toPublicItem(item, { progress })`); the filters now
+    agree with them. What was decided:
+    - **The rule is the filter's, not the column's.** `items.status` keeps #41's meaning — the last
+      finish decides it — and no migration, trigger or stored value changes. `matchesStatus()`
+      (src/lib/reads.ts) says an item matches In progress when `status = 'in_progress'` or
+      `rereading = 1`, and any other status by the column; `statusWhere()` (src/db/queries.ts) is
+      its SQL twin. Ticking both In progress and Completed lists a re-read once.
+    - **Where it means "being read now".** Every place a Status filter or a view's captured status
+      decides what's inside: `itemFilterWhere` (so `listItems` — the shelf, its item count,
+      `shelfPage` — and `countMatchingItems[Many]`, the Shared links page's counts);
+      `shareFilters()`/`itemMatchesShare()`; a connection view's `inView()` (feed, removal
+      check, `countItemsInView`, `describeViews`' size and volume) and `itemMatchesView()` (the
+      item route, `itemIsShared`); and the raw-SQL view tests `sharedItem`, `sharedReviewedItem`
+      and `HOLDING_VIEW` (comments, borrowing, recommendations). `toPublicItem`'s "reading now"
+      for progress uses `matchesStatus()` too. Tests hold the twins together for every status.
+    - **Where it stays the column.** `refreshReadState()` and `summarizeReads()`, the edit form's
+      status, the activity triggers (a finish is recorded when `status`/`completed_on` change,
+      #40), `stillShows`' "a finish needs a Completed book", the export's `status`, and the
+      "Read by" filter, which reads `reads` directly (#43). No figure counts items by status:
+      the Overview, Year in review (#59) and series pages count reads.
+    - **The status pill says "Re-reading" in place of "Completed"** — the shelf table and the
+      item page (`StatusPills`) — so a re-read in an In progress list doesn't look finished;
+      shelf cards already carried the pill alone. It is not public: `toPublicItem()` and
+      `toConnectionItem()` have no status or `rereading` key, and none was added. What a
+      published In progress view says about a re-read — that someone in the household is reading
+      it now — is what it has always said about a first read, and was already inferable: from
+      its page on a share page with progress switched on (#41), and from a progress entry's
+      `readCount` in a connection's Feed, which says "re-reading".
+    - **A view filtered to In progress carries only reading that is still going on**
+      (`readingInView()` in src/db/federation.ts, in both streams, for the feed, a new follower's
+      first page, the removal check and the volume figures). Before, a book was in such a view only
+      while nobody had finished it, so a finish took the book, and every entry about it, out. Now a
+      book stays in while anyone is reading it, so the view keeps the rule per read:
+      - **no finish, nor a goal milestone** (#49), which is one. A book finished before enters the
+        view when a re-read starts, and its earlier finish — recorded while the book was outside,
+        under an id past a follower's cursor — would have reached followers as news that day, and
+        opened a new follower's first page. So would a member's milestone: Asha finishes X and
+        reaches her goal, Ravi starts his first read of X, and X is in the view with the milestone
+        as its entry. On the backup of 2026-09-30 the household's one In progress connection view
+        (books, one shelf) goes from 2 books to 4, and one of the two re-reads has such a finish
+        in the log;
+      - **a start or a page only while its read is open.** Two people reading one book: Asha
+        re-reading X, Ravi on his first read; when Ravi finishes (or stops), X stays in the view
+        because Asha is still reading it, but his `started` entry and his pages — per-person or,
+        with names off, the household's progress entries — are withdrawn at the next removal check
+        and left off new followers' pages. Asha's stay until her read closes. That is what a first
+        read always got: its finish took the book, and so its start and pages, out of the view. A
+        page with no read (from before reads, #41) stays with its book.
+    - **Entering or leaving a view is silent.** Starting a re-read records nothing in the
+      household's stream (#41), and one `started` entry, as ever, in the per-person stream (#45);
+      its pages are progress entries. Finishing it records a finish (completed_on moves, #41), which
+      the view doesn't carry, and its start and pages are withdrawn as its read closes, whether the
+      book then leaves the view (the last reader) or stays (someone else still reading). Stopping
+      it likewise. A Completed view is untouched. An entry of a kind the view does carry, recorded
+      while the book was outside — a rating, a review — arrives when it enters, dated when it
+      happened (#40), as it does for any book entering any view (a first read started after
+      rating it, an Owned toggle, a move between shelves); left as it is.
+    - **Sorted by date completed**, an In progress share link or view lists its re-reads first,
+      by their last finish: that shows the order of past finishes, never their dates. Accepted —
+      a view filtered to Completed shows far more.
+    - **Older peers.** A connected household reads our views' lists and feed from us, so one on
+      1.6.0 sees our In progress views include re-reads with nothing to update; its own In progress
+      views keep the old meaning until it upgrades. Nothing new goes over the wire.
+    - **Cost.** An OR in the same statement, and the per-read rule is subqueries inside the feed's
+      own statements: no D1 call. Tests pin the shelf page for every status, and a feed pull plus a
+      removal check on an In progress view at a Completed view's calls.
+
+    **Chosen without asking, overrulable:** the pill replaces "Completed" rather than sitting
+    beside it (as #41 had it); an In progress view carries no finishes or milestones, and a
+    reader's start and pages only while their read is open; a rating or review recorded while a
+    book was outside a view still arrives when it enters.
+
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
 The honest comparison, since it was asked:
@@ -3113,7 +3245,13 @@ pages have no repeated navigation to skip); keyboard focus survives an htmx swap
   from the keyboard and audits what comes back, failing one that drops focus to `<body>`; submits the
   refused and one-time forms (a temporary password, an invitation link, a bulk delete's
   confirmation, a bulk action's notice); loads the Add page with scans held offline, and
-  `/offline.html`; opens the phone menu; and
+  `/offline.html`; opens the phone menu; drives the Refresh from Discogs and Refresh from BGG buttons
+  (#55, #60) on a second scratch server (:8819) with placeholder provider tokens — the main one keeps
+  none, since a token would send its Add-page lookups to Discogs — where the browser answers each
+  refresh itself (a fill in the handler's shape, a dropped connection, a 500) or lets it reach a Worker
+  with no id to look up, so nothing reaches Discogs or BGG, checking "Asking…" and the disabled button
+  while it waits, the sentence after, focus back on the button (from the keyboard and after a mouse
+  double-click), and axe after the swap; and
   walks the keyboard: the first Tab is the skip link, following it lands in `<main>`, every stop
   shows a focus indicator that draws something (an outline not clipped away, a ring that isn't a
   faint tint, or a border that changes), every visible control is reached, and the tab order comes

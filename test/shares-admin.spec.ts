@@ -63,7 +63,7 @@ describe('/shares', () => {
     expect(html).toContain(share.token);
     // two of the three items are completed — the filtered view exposes only those
     const row = html.slice(html.indexOf('Finished only'));
-    expect(row).toMatch(/<td class="num">2<\/td>/);
+    expect(row).toMatch(/<td class="num" data-label="Items">2<\/td>/);
   });
 });
 
@@ -119,7 +119,40 @@ describe('tag links', () => {
     expect((await request(`/share/${link!.token}/items/${other.id}`)).status).toBe(404); // scope holds by id too
 
     const sharesPage = await (await request('/shares', admin.id)).text();
-    expect(sharesPage.slice(sharesPage.indexOf('>Reviewed<'))).toMatch(/<td class="num">2<\/td>/);
+    expect(sharesPage.slice(sharesPage.indexOf('>Reviewed<'))).toMatch(/<td class="num" data-label="Items">2<\/td>/);
+  });
+});
+
+describe('what the public pages and the Shared links page call a link', () => {
+  const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+
+  it('says the item total is counted per link — an item two links show counts twice — and only when there are two', async () => {
+    const admin = await seedUser('admin');
+    const shelf = await createLibrary(env.DB, 'Main');
+    for (const title of ['One', 'Two']) await createItem(env.DB, { libraryId: shelf.id, title, status: 'completed' });
+    await createShare(env.DB, { token: newShareToken(), name: 'Whole shelf', libraryId: shelf.id });
+    const one = text(await (await getShares(admin.id)).text());
+    expect(one).toContain('1 LINK · 2 ITEMS PUBLIC');
+    expect(one).not.toContain('COUNTED PER LINK');
+
+    // the same two books through a second link: 4 in the sum, still 2 items
+    await createShare(env.DB, { token: newShareToken(), name: 'Finished', libraryId: shelf.id, status: 'completed' });
+    expect(text(await (await getShares(admin.id)).text())).toContain('2 LINKS · 4 ITEMS PUBLIC, COUNTED PER LINK');
+  });
+
+  it("heads a tag link's public pages \"shared tag\", and a shelf link's still \"shared shelf\"", async () => {
+    const shelf = await createLibrary(env.DB, 'Main');
+    const book = await createItem(env.DB, { libraryId: shelf.id, title: 'Tagged book' });
+    await setItemTags(env.DB, book.id, ['favourites']);
+    const tagLink = await createShare(env.DB, { token: newShareToken(), name: 'Favourites', libraryId: null, tag: 'favourites' });
+    const shelfLink = await createShare(env.DB, { token: newShareToken(), name: 'Main shelf', libraryId: shelf.id });
+
+    for (const path of [`/share/${tagLink.token}`, `/share/${tagLink.token}/items/${book.id}`]) {
+      expect(await (await request(path)).text(), path).toContain('<div class="share-mark">Nalanda · shared tag</div>');
+    }
+    for (const path of [`/share/${shelfLink.token}`, `/share/${shelfLink.token}/items/${book.id}`]) {
+      expect(await (await request(path)).text(), path).toContain('<div class="share-mark">Nalanda · shared shelf</div>');
+    }
   });
 });
 

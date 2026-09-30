@@ -52,9 +52,9 @@ import type { AppEnv } from '../env';
 import { scanQueueOwner } from '../lib/auth';
 import { isRecord, parseGrade } from '../lib/condition';
 import { deleteCover, storeCover } from '../lib/covers';
-import { bggIdOf, fillGame } from '../lib/games';
+import { bggIdOf, fillGame, type GameFill } from '../lib/games';
 import { isPlayable, MAX_PLAYS_PER_ITEM, playDateProblem } from '../lib/plays';
-import { fillPressing, recordBarcode, releaseIdOf } from '../lib/pressing';
+import { fillPressing, recordBarcode, releaseIdOf, type Filled } from '../lib/pressing';
 import { checkPurchaseLink, MAX_LINKS_PER_ITEM } from '../lib/links';
 import { isCurrencyCode, isStoredPrice, parseMoney } from '../lib/money';
 import { MAX_PROGRESS_PAGE } from '../lib/progress';
@@ -79,10 +79,12 @@ import {
   type PriceFieldProps,
   ItemStatusPills,
   LendingHistory,
+  LENGTH_UNIT,
   MEDIA_LABEL,
   AllPlays,
   Pagination,
   PlaysSection,
+  PressingSwap,
   ReadingSection,
   RecordDetails,
   ReadsByPerson,
@@ -331,15 +333,6 @@ const formItem = (existing: Item | null, v: ParsedForm['values']): Item =>
  */
 const rereadLocked = (item: Item) => item.mediaType === 'book' && item.rereading;
 
-const LENGTH_UNIT: Partial<Record<MediaType, string>> = {
-  book: 'pages',
-  boardgame: 'min play time',
-  vinyl: 'tracks',
-  movie: 'min',
-  music: 'tracks',
-  videogame: 'hours',
-};
-
 items.post('/items', async (c) => {
   const body = await c.req.parseBody();
   // The Add page's review list posts here with htmx and gets the entry back, added; everything else is redirected.
@@ -477,40 +470,88 @@ const FILLED_LABEL: Record<string, string> = {
   length: 'length',
 };
 
-function discogsNotice(c: Context<AppEnv>, details: Record<string, unknown>): string | null {
-  const code = c.req.query('discogs');
-  if (!code) return null;
+/**
+ * The sentence for a refresh's code: only the fixed ones above, and only the field names it knows. `filled` is what
+ * was written, `byBarcode` whether the release was found by a barcode search, `details` the record's as they stand.
+ */
+function discogsSentence(code: string, filled: string[], byBarcode: boolean, details: Record<string, unknown>): string | null {
   // found by barcode: a search result has no tracklist, but the release id it stored fetches one next time — a
   // promise only while there is a usable id to fetch it by (a hand-typed discogs_id that isn't one keeps the barcode)
   const more =
-    c.req.query('via') === 'barcode' && !Array.isArray(details['tracklist']) && releaseIdOf(details)
-      ? ' Found by barcode — refresh again for the tracklist.'
-      : '';
+    byBarcode && !Array.isArray(details['tracklist']) && releaseIdOf(details) ? ' Found by barcode — refresh again for the tracklist.' : '';
   if (code === 'filled') {
-    const fields = (c.req.query('f') ?? '').split(',').filter((f) => Object.hasOwn(FILLED_LABEL, f)).map((f) => FILLED_LABEL[f]);
+    const fields = filled.filter((f) => Object.hasOwn(FILLED_LABEL, f)).map((f) => FILLED_LABEL[f]);
     return `Filled from Discogs: ${fields.length ? fields.join(', ') : 'nothing new'}.${more}`;
   }
   const notice = Object.hasOwn(DISCOGS_NOTICE, code) ? DISCOGS_NOTICE[code]! : null;
   return notice ? notice + (code === 'nothing' ? more : '') : null;
 }
 
-/** The Refresh button, or why there isn't one. */
+/** The sentence for the code the no-script redirect carries, on the page it lands on. Never text from the URL. */
+function discogsNotice(c: Context<AppEnv>, details: Record<string, unknown>): string | null {
+  const code = c.req.query('discogs');
+  if (!code) return null;
+  return discogsSentence(code, (c.req.query('f') ?? '').split(','), c.req.query('via') === 'barcode', details);
+}
+
+/**
+ * Where a refresh's result is said: a live region (an <output>, role "status") that stays on the page while the
+ * section beside it is swapped, so htmx fills it out of band and a screen reader hears it — one inserted with its
+ * words already in isn't reliably read. The no-script redirect's page shows its sentence here too.
+ */
+const RefreshStatus = ({ id, notice }: { id: string; notice: string | null }) => (
+  <output id={id} class="notice refresh-status" aria-live="polite">
+    {notice}
+  </output>
+);
+
+/**
+ * A Refresh button's form. With htmx it swaps `target` in place (§16 #55, #60), its button disabled until the answer
+ * is in — one click, one request — and public/app.js says "Asking …" (`busy`) in the live region while it waits, and a
+ * fixed sentence there if the request fails. Without script it posts and the handler redirects back.
+ */
+function RefreshForm({ action, target, status, busy, cls, label, hint }: { action: string; target: string; status: string; busy: string; cls: string; label: string; hint: string }) {
+  return (
+    <form
+      method="post"
+      action={action}
+      class={`inline-form ${cls}`}
+      hx-post={action}
+      hx-target={`#${target}`}
+      hx-swap="outerHTML"
+      hx-disabled-elt="find button"
+      data-refresh-status={status}
+      data-refresh-busy={busy}
+    >
+      {/* keeps its id: nothing replaces it, and focus stays on it */}
+      <button type="submit" class="btn" id={`${cls}-button`}>
+        {label}
+      </button>
+      <small class="muted">{hint}</small>
+    </form>
+  );
+}
+
+/** The Refresh button, or why there isn't one — and where its result is said. */
 function DiscogsRefresh({ item, token, notice }: { item: Item; token: boolean; notice: string | null }) {
   const lookup = !!releaseIdOf(parseDetails(item.details)) || !!recordBarcode(item);
   return (
     <>
-      {notice ? <p class="notice">{notice}</p> : null}
+      <RefreshStatus id="discogs-status" notice={notice} />
       {!token ? (
         notice ? null : <p class="muted discogs-note">Set the DISCOGS_TOKEN secret to fill pressing details from Discogs.</p>
       ) : !lookup ? (
         notice ? null : <p class="muted discogs-note">Add its barcode, or its Discogs release id, to fill these from Discogs.</p>
       ) : (
-        <form method="post" action={`/items/${item.id}/discogs`} class="inline-form discogs-refresh">
-          <button type="submit" class="btn">
-            Refresh from Discogs
-          </button>
-          <small class="muted">Fills what’s blank — never changes what’s here.</small>
-        </form>
+        <RefreshForm
+          action={`/items/${item.id}/discogs`}
+          target="pressing-body"
+          status="discogs-status"
+          busy="Asking Discogs…"
+          cls="discogs-refresh"
+          label="Refresh from Discogs"
+          hint="Fills what’s blank — never changes what’s here."
+        />
       )}
     </>
   );
@@ -537,36 +578,82 @@ const BGG_FILLED_LABEL: Record<string, string> = {
   length: 'length',
 };
 
-function bggNotice(c: Context<AppEnv>): string | null {
-  const code = c.req.query('bgg');
-  if (!code) return null;
+/** The sentence for a refresh's code: only the fixed ones above, and only the field names it knows. */
+function bggSentence(code: string, filled: string[]): string | null {
   if (code === 'filled') {
-    const fields = (c.req.query('f') ?? '').split(',').filter((f) => Object.hasOwn(BGG_FILLED_LABEL, f)).map((f) => BGG_FILLED_LABEL[f]);
+    const fields = filled.filter((f) => Object.hasOwn(BGG_FILLED_LABEL, f)).map((f) => BGG_FILLED_LABEL[f]);
     return `Filled from BoardGameGeek: ${fields.length ? fields.join(', ') : 'nothing new'}.`;
   }
   return Object.hasOwn(BGG_NOTICE, code) ? BGG_NOTICE[code]! : null;
 }
 
-/** A board game's details, with the Refresh button — or why there isn't one — below them. */
+/** The sentence for the code the no-script redirect carries, on the page it lands on. Never text from the URL. */
+function bggNotice(c: Context<AppEnv>): string | null {
+  const code = c.req.query('bgg');
+  if (!code) return null;
+  return bggSentence(code, (c.req.query('f') ?? '').split(','));
+}
+
+/** A board game's details list: what "Refresh from BGG" swaps in place. */
+const GameDetailsList = ({ details }: { details: Record<string, unknown> }) => (
+  <div id="game-details">{Object.keys(details).length ? <DetailsList details={details} /> : <p class="muted">No details yet.</p>}</div>
+);
+
+/** A board game's details, with the Refresh button — or why there isn't one — below them, and where its result is said. */
 function GameDetails({ item, details, token, notice }: { item: Item; details: Record<string, unknown>; token: boolean; notice: string | null }) {
   const lookup = !!bggIdOf(details);
   return (
     <div class="detail-section" id="details">
       <p class="eyebrow">Details</p>
-      {Object.keys(details).length ? <DetailsList details={details} /> : <p class="muted">No details yet.</p>}
-      {notice ? <p class="notice">{notice}</p> : null}
+      <GameDetailsList details={details} />
+      <RefreshStatus id="bgg-status" notice={notice} />
       {!token ? (
         notice ? null : <p class="muted bgg-note">Set the BGG_TOKEN secret to fill game details from BoardGameGeek.</p>
       ) : !lookup ? (
         notice ? null : <p class="muted bgg-note">Add its BoardGameGeek id as bgg_id in details to fill these from BoardGameGeek.</p>
       ) : (
-        <form method="post" action={`/items/${item.id}/bgg`} class="inline-form bgg-refresh">
-          <button type="submit" class="btn">
-            Refresh from BGG
-          </button>
-          <small class="muted">Fills players, playing time and weight where blank — never changes what’s here.</small>
-        </form>
+        <RefreshForm
+          action={`/items/${item.id}/bgg`}
+          target="game-details"
+          status="bgg-status"
+          busy="Asking BGG…"
+          cls="bgg-refresh"
+          label="Refresh from BGG"
+          hint="Fills players, playing time and weight where blank — never changes what’s here."
+        />
       )}
+    </div>
+  );
+}
+
+/**
+ * Published, publisher and length: the item page's props that "Refresh from Discogs" and "Refresh from BGG" can fill,
+ * grouped under one id so a refresh's answer swaps them out of band (`oob`). `.props-group` is `display: contents`,
+ * so the rows stay in the list's grid; a <div> is a valid way to group a <dl>'s rows.
+ */
+function FilledProps({ item, oob }: { item: Pick<Item, 'mediaType' | 'published' | 'publisher' | 'length'>; oob?: boolean }) {
+  return (
+    <div id="item-filled" class="props-group" hx-swap-oob={oob ? 'true' : undefined}>
+      {item.published ? (
+        <>
+          <dt>Published</dt>
+          <dd>{item.published}</dd>
+        </>
+      ) : null}
+      {item.publisher ? (
+        <>
+          <dt>Publisher</dt>
+          <dd>{item.publisher}</dd>
+        </>
+      ) : null}
+      {item.length ? (
+        <>
+          <dt>Length</dt>
+          <dd class="mono">
+            {item.length} {LENGTH_UNIT[item.mediaType] ?? ''}
+          </dd>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -694,26 +781,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
               </dd>
             </>
           ) : null}
-          {item.published ? (
-            <>
-              <dt>Published</dt>
-              <dd>{item.published}</dd>
-            </>
-          ) : null}
-          {item.publisher ? (
-            <>
-              <dt>Publisher</dt>
-              <dd>{item.publisher}</dd>
-            </>
-          ) : null}
-          {item.length ? (
-            <>
-              <dt>Length</dt>
-              <dd class="mono">
-                {item.length} {LENGTH_UNIT[item.mediaType] ?? ''}
-              </dd>
-            </>
-          ) : null}
+          <FilledProps item={item} />
           {item.isbn13 ? (
             <>
               <dt>ISBN-13</dt>
@@ -759,6 +827,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
         {record ? (
           <RecordDetails
             details={details}
+            inPlace
             after={<DiscogsRefresh item={item} token={!!c.env.DISCOGS_TOKEN} notice={discogsNotice(c, details)} />}
           />
         ) : item.mediaType === 'boardgame' ? (
@@ -1271,25 +1340,50 @@ items.post('/items/:id/plays/:playId/delete', async (c) => {
 /**
  * "Refresh from Discogs" (§16 #55): one Discogs request per click — the release by its stored id, else a barcode
  * search — then the blanks it can fill, written only if nothing changed meanwhile. It never overwrites a value:
- * fillPressing() says exactly which fields it may write. Answers with a redirect back to the pressing section.
+ * fillPressing() says exactly which fields it may write. With htmx it answers 200 whatever the result — htmx swaps
+ * nothing on an error status — with the pressing section's content, what else a fill changes (the rest of the details,
+ * published, publisher, length) out of band, and the result's fixed sentence into the section's live region: no read
+ * beyond the record's own, since a fill's values are what it wrote — except after losing the race ("changed"), the
+ * rare path, which reads the record again to show the edit that won. Without htmx, a redirect back to the section.
  */
 items.post('/items/:id/discogs', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
   if (!isRecord(item.mediaType)) return c.text('Pressing details are for records.', 400);
-  const back = (query: string) => c.redirect(`/items/${id}?${query}#pressing`);
-  if (!c.env.DISCOGS_TOKEN) return back('discogs=notoken');
+  const htmx = !!c.req.header('HX-Request');
+  const answer = (code: string, fill?: Filled, byBarcode = false, current: Item = item) => {
+    if (!htmx) {
+      const f = fill ? `&f=${fill.filled.join(',')}` : '';
+      return c.redirect(`/items/${id}?discogs=${code}${f}${byBarcode ? '&via=barcode' : ''}#pressing`);
+    }
+    const shown = fill ? { ...item, details: fill.details, publisher: fill.publisher, published: fill.published, length: fill.length } : current;
+    const details = parseDetails(shown.details);
+    return c.html(
+      <>
+        <PressingSwap details={details} />
+        <FilledProps item={shown} oob />
+        <output id="discogs-status" hx-swap-oob="innerHTML">
+          {discogsSentence(code, fill?.filled ?? [], byBarcode, details)}
+        </output>
+      </>,
+    );
+  };
+  if (!c.env.DISCOGS_TOKEN) return answer('notoken');
   const releaseId = releaseIdOf(parseDetails(item.details));
   const barcode = recordBarcode(item);
-  if (!releaseId && !barcode) return back('discogs=nosource');
+  if (!releaseId && !barcode) return answer('nosource');
   const found = await discogsPressing(c.env, releaseId ? { releaseId } : { barcode: barcode! });
-  if (!found.ok) return back(`discogs=${found.failure}`);
-  const via = found.via === 'barcode' ? '&via=barcode' : '';
+  if (!found.ok) return answer(found.failure);
+  const byBarcode = found.via === 'barcode';
   const fill = fillPressing(item, found.pressing, 'gaps');
-  if (!fill.filled.length) return back(`discogs=nothing${via}`);
-  if (!(await applyPressingFill(c.env.DB, id, item, fill))) return back('discogs=changed');
-  return back(`discogs=filled&f=${fill.filled.join(',')}${via}`);
+  if (!fill.filled.length) return answer('nothing', undefined, byBarcode);
+  if (!(await applyPressingFill(c.env.DB, id, item, fill))) {
+    // someone saved it meanwhile: in place, show what they saved (one more read, on this rare path only)
+    const now = htmx ? await getItem(c.env.DB, id) : item;
+    return now ? answer('changed', undefined, false, now) : c.notFound();
+  }
+  return answer('filled', fill, byBarcode);
 });
 
 // ---------- want lists and purchase links (ARCH.md §16 #53) ----------
@@ -1363,23 +1457,44 @@ items.post('/items/:id/links/:linkId/delete', async (c) => {
 /**
  * "Refresh from BGG" (§16 #60): one BGG request per click — the game by its stored bgg_id — then the blanks it can
  * fill, written only if nothing changed meanwhile. It never overwrites a value: fillGame() says exactly which fields it
- * may write. Never called on a page load. Answers with a redirect back to the details section.
+ * may write. Never called on a page load. With htmx it answers 200 whatever the result — htmx swaps nothing on an
+ * error status — with the details list, the length out of band, and the result's fixed sentence into the section's
+ * live region: no read beyond the game's own, since a fill's values are what it wrote — except after losing the race
+ * ("changed"), the rare path, which reads the game again to show the edit that won. Without htmx, a redirect back to
+ * the details section.
  */
 items.post('/items/:id/bgg', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
   if (item.mediaType !== 'boardgame') return c.text('BoardGameGeek details are for board games.', 400);
-  const back = (query: string) => c.redirect(`/items/${id}?${query}#details`);
-  if (!c.env.BGG_TOKEN) return back('bgg=notoken');
+  const htmx = !!c.req.header('HX-Request');
+  const answer = (code: string, fill?: GameFill, current: Item = item) => {
+    if (!htmx) return c.redirect(`/items/${id}?bgg=${code}${fill ? `&f=${fill.filled.join(',')}` : ''}#details`);
+    const shown = fill ? { ...item, details: fill.details, length: fill.length } : current;
+    return c.html(
+      <>
+        <GameDetailsList details={parseDetails(shown.details)} />
+        <FilledProps item={shown} oob />
+        <output id="bgg-status" hx-swap-oob="innerHTML">
+          {bggSentence(code, fill?.filled ?? [])}
+        </output>
+      </>,
+    );
+  };
+  if (!c.env.BGG_TOKEN) return answer('notoken');
   const bggId = bggIdOf(parseDetails(item.details));
-  if (!bggId) return back('bgg=noid');
+  if (!bggId) return answer('noid');
   const found = await bggRefresh(c.env, bggId);
-  if (!found.ok) return back(`bgg=${found.failure}`);
+  if (!found.ok) return answer(found.failure);
   const fill = fillGame(item, found.game);
-  if (!fill.filled.length) return back('bgg=nothing');
-  if (!(await applyGameFill(c.env.DB, id, item, fill))) return back('bgg=changed');
-  return back(`bgg=filled&f=${fill.filled.join(',')}`);
+  if (!fill.filled.length) return answer('nothing');
+  if (!(await applyGameFill(c.env.DB, id, item, fill))) {
+    // someone saved it meanwhile: in place, show what they saved (one more read, on this rare path only)
+    const now = htmx ? await getItem(c.env.DB, id) : item;
+    return now ? answer('changed', undefined, now) : c.notFound();
+  }
+  return answer('filled', fill);
 });
 
 items.post('/items/:id/mark-owned', async (c) => {

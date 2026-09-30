@@ -55,6 +55,8 @@ shares.get('/shares', async (c) => {
           <span class="sub">
             {views.length} {views.length === 1 ? 'LINK' : 'LINKS'} · {exposed}{' '}
             {exposed === 1 ? 'ITEM' : 'ITEMS'} PUBLIC
+            {/* a sum of each link's count: an item two links show is counted twice */}
+            {views.length > 1 ? ', COUNTED PER LINK' : ''}
           </span>
         </div>
       </div>
@@ -69,7 +71,7 @@ shares.get('/shares', async (c) => {
         </p>
       ) : (
         <>
-          <div class="data-table">
+          <div class="data-table cards">
             <table>
               <thead>
                 <tr>
@@ -91,7 +93,7 @@ shares.get('/shares', async (c) => {
                         {origin}/share/{v.token}
                       </a>
                     </td>
-                    <td class="hide-sm">
+                    <td class="hide-sm" data-label="Shelf">
                       {v.wantUserId !== null ? (
                         <a href={`/wants?member=${v.wantUserId}`}>Want list</a>
                       ) : v.libraryId === null ? (
@@ -100,11 +102,15 @@ shares.get('/shares', async (c) => {
                         <a href={`/libraries/${v.libraryId}`}>{shelfName.get(v.libraryId) ?? '—'}</a>
                       )}
                     </td>
-                    <td>
+                    <td data-label="Scope">
                       <span class="pill">{shareScopeLabel(v, v.wantUserId !== null ? username.get(v.wantUserId) : undefined)}</span>
                     </td>
-                    <td class="num">{counts[i] ?? 0}</td>
-                    <td class="date hide-sm">{ledgerDate(v.createdAt)}</td>
+                    <td class="num" data-label="Items">
+                      {counts[i] ?? 0}
+                    </td>
+                    <td class="date hide-sm" data-label="Published">
+                      {ledgerDate(v.createdAt)}
+                    </td>
                     <td class="actions-cell">
                       {/* onclick, not onsubmit: two buttons in one form, each with its own warning */}
                       <form method="post" action={`/shares/${v.id}`} class="inline-form">
@@ -142,41 +148,42 @@ shares.get('/shares', async (c) => {
         </>
       )}
 
-      <section style="margin-top:2rem">
+      <section class="settings-section">
         <p class="eyebrow">Reading progress on share pages</p>
-        <form method="post" action="/shares/settings" class="inline-form">
+        <form method="post" action="/shares/settings" class="switch-form">
           <input type="hidden" name="setting" value="progress" />
           <label>
             <input type="checkbox" name="progressOnShares" value="on" checked={settings.progressOnShares} /> Show how far
             through a book you are
           </label>
+          <p class="muted">
+            Off by default. When on, a book being read now — marked <em>In progress</em>, or finished before and being
+            read again — shows its current page and a progress bar on its share page; finished and unstarted books never
+            do. This applies to public share links only. A page someone already loaded can take up to an hour to catch
+            up.
+          </p>
           <button type="submit">Save</button>
         </form>
-        <p class="muted">
-          Off by default. When on, a book being read now — marked <em>In progress</em>, or finished before and being
-          read again — shows its current page and a progress bar on its share page; finished and unstarted books never
-          do. This applies to public share links only. A page someone
-          already loaded can take up to an hour to catch up.
-        </p>
       </section>
 
       <section class="settings-section" id="names-on-shares">
         <p class="eyebrow">Names on share pages</p>
-        <form method="post" action="/shares/settings" class="inline-form">
+        <form method="post" action="/shares/settings" class="switch-form">
           <input type="hidden" name="setting" value="names" />
           <label>
             <input type="checkbox" name="namesOnShares" value="on" checked={settings.namesOnShares} /> Show each member's rating
             and review, with their display name
           </label>
+          <p class="muted">
+            Off, a shared book shows the household's average rating and its latest review, unsigned. On, it also lists
+            everyone's rating and review, each signed with the member's <strong>display name</strong> — set on their
+            Account page, or by an admin under <a href="/settings/users">Members</a>. A member without one appears as “A
+            member”. Login usernames never appear, and nor does who read what or when: reading history stays “Read N
+            times”. Turning it off hides names from every page served after; a page someone already loaded can take up to
+            an hour to catch up.
+          </p>
           <button type="submit">Save</button>
         </form>
-        <p class="muted">
-          Off, a shared book shows the household's average rating and its latest review, unsigned.
-          On, it also lists everyone's rating and review, each signed with the member's <strong>display name</strong> —
-          set on their Account page, or here under Members. A member without one appears as “A member”. Login usernames never
-          appear, and nor does who read what or when: reading history stays "Read N times". Turning it off hides names
-          from every page served after; a page someone already loaded can take up to an hour to catch up.
-        </p>
       </section>
     </>,
   );

@@ -102,8 +102,8 @@ describe('the Reading section', () => {
     expect(html).toContain('Re-reading, since');
     expect(html).toContain('name="page"');
     expect(html).toContain('Stop re-reading');
-    // the status above the section, swapped out of band
-    expect(html).toMatch(/<span id="item-status"[^>]*hx-swap-oob="true"[^>]*>.*Completed.*Re-reading/s);
+    // the status above the section, swapped out of band: "Re-reading" stands in for Completed (§16 #64)
+    expect(html).toMatch(/<span id="item-status"[^>]*hx-swap-oob="true"[^>]*><span class="pill rereading">Re-reading<\/span><\/span>/);
     expect(await getItem(env.DB, item.id)).toMatchObject({ status: 'completed', rereading: true, completedOn: '2019-03-20' });
   });
 
@@ -216,7 +216,7 @@ describe('after a saved change', () => {
 });
 
 describe('the re-reading marker', () => {
-  it('shows beside the status on the item page, the shelf table and covers, and search results', async () => {
+  it('shows in place of the status on the item page, the shelf table and covers, and search results', async () => {
     const item = await finished();
     const quiet = await (await request(`/libraries/${item.libraryId}`)).text();
     expect(quiet).not.toContain('pill rereading'); // negative control: not before the re-read opens
@@ -238,13 +238,15 @@ describe('the re-reading marker', () => {
     expect(html).toContain('×2');
   });
 
-  it('leaves the book where status filters put it', async () => {
+  it('lists the book under In progress while it is read again, and still under Completed (§16 #64)', async () => {
     const item = await finished();
+    const before = await (await request(`/libraries/${item.libraryId}?status=in_progress`)).text();
+    expect(before).not.toContain('The Dispossessed'); // negative control: finished, and not being read
     await startRead(env.DB, item.id, '2026-09-01', await user());
     const completed = await (await request(`/libraries/${item.libraryId}?status=completed`)).text();
     const inProgress = await (await request(`/libraries/${item.libraryId}?status=in_progress`)).text();
     expect(completed).toContain('The Dispossessed');
-    expect(inProgress).not.toContain('The Dispossessed');
+    expect(inProgress).toContain('The Dispossessed');
   });
 });
 

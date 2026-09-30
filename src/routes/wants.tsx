@@ -111,7 +111,7 @@ wants.get('/wants', async (c) => {
         <section class="gift-lists" id="gift-lists">
           <p class="eyebrow">Gift lists</p>
           {shares.length ? (
-            <div class="data-table">
+            <div class="data-table cards">
               <table>
                 <tbody>
                   {shares.map((v) => (

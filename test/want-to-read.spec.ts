@@ -581,7 +581,11 @@ describe('itemMatchesShare and shareFilters', () => {
       await book(asha, { libraryId: other.id, title: 'c', mediaType: 'vinyl' }),
       await book(asha, { libraryId: other.id, title: 'd', copies: 0, mediaType: 'vinyl' }),
       await book(asha, { libraryId: shelf.id, title: 'e' }),
+      // finished, and being read again: Completed, and In progress too (§16 #64)
+      await book(asha, { libraryId: shelf.id, title: 'f', status: 'completed', completedOn: '2021-01-01' }),
+      await book(asha, { libraryId: shelf.id, title: 'g', status: 'in_progress', beganOn: '2026-09-01' }),
     ];
+    await startRead(env.DB, items[5]!.id, '2026-09-20', ravi.id);
     await setItemTags(env.DB, items[0]!.id, ['gift']);
     await setItemTags(env.DB, items[2]!.id, ['gift']);
     for (const i of [items[0]!, items[2]!, items[3]!]) await setWant(env.DB, i.id, ravi.id, true);
@@ -595,6 +599,8 @@ describe('itemMatchesShare and shareFilters', () => {
       { ...base, libraryId: other.id, owned: false },
       { ...base, tag: 'gift' },
       { ...base, libraryId: shelf.id, status: 'completed' as const },
+      { ...base, libraryId: shelf.id, status: 'in_progress' as const },
+      { ...base, status: 'in_progress' as const, wantUserId: null, tag: null },
     ]) {
       views.push(await createShare(env.DB, { ...v, token: newShareToken() }));
     }
@@ -604,12 +610,16 @@ describe('itemMatchesShare and shareFilters', () => {
       for (const item of items) {
         const tags = (await rows<{ name: string }>('SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = ?1', item.id)).map((t) => t.name);
         const wanters = (await rows<{ id: number }>('SELECT user_id AS id FROM wants WHERE item_id = ?1', item.id)).map((w) => w.id);
-        const fresh = (await rows<Item>('SELECT id, library_id AS libraryId, media_type AS mediaType, status, copies FROM items WHERE id = ?1', item.id))[0]!;
+        const fresh = (await rows<Item>('SELECT id, library_id AS libraryId, media_type AS mediaType, status, rereading, copies FROM items WHERE id = ?1', item.id))[0]!;
         if (itemMatchesShare(view, { ...item, ...fresh }, tags, wanters)) admitted.push(item.id);
       }
       expect(admitted.sort(), JSON.stringify(view)).toEqual(listed);
       expect(await countMatchingItems(env.DB, view.libraryId, shareFilters(view))).toBe(listed.length);
     }
+    // a re-read is in both status views: Completed, and In progress beside the book being read for the first time
+    const titlesOf = async (view: Share) => (await listItems(env.DB, view.libraryId, shareFilters(view))).items.map((i) => i.title).sort();
+    expect(await titlesOf(views[5]!)).toEqual(['a', 'f']);
+    expect(await titlesOf(views[6]!)).toEqual(['f', 'g']);
     // the gift lists are exactly each member's wants
     expect((await listItems(env.DB, null, shareFilters(views[0]!))).items.map((i) => i.title).sort()).toEqual(['a', 'c', 'd']);
     expect((await listItems(env.DB, null, shareFilters(views[1]!))).items.map((i) => i.title).sort()).toEqual(['b', 'd']);
