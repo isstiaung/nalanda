@@ -228,7 +228,9 @@ npm run lint               # eslint-plugin-jsx-a11y (strict) over src/**/*.tsx, 
 npm run a11y               # axe-core (WCAG 2.2 A/AA) on every page in Chromium, light + dark,
                            # 1280 + 390 wide, htmx swaps and a keyboard walk; its own wrangler
                            # dev on 127.0.0.1:8817 with temp --persist-to state (never 8787 or
-                           # your dev DB); `npx playwright install chromium` once (ARCH.md §18)
+                           # your dev DB), and one on :8819 for the Refresh buttons (placeholder
+                           # provider tokens, refreshes answered by the browser, never Discogs or
+                           # BGG); `npx playwright install chromium` once (ARCH.md §18)
 npm run db:generate        # drizzle-kit generate — schema.ts → migrations/*.sql
 npm run db:migrate         # wrangler d1 migrations apply nalanda --local
 npm run db:migrate:remote  # same, against production (via wrangler:remote)

@@ -8,6 +8,11 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [Unreleased]
+
+### Changed
+- **Refresh from Discogs and Refresh from BGG update the page in place.** A click no longer reloads the whole page and jumps to the section: the pressing (or the game's details) changes where it is, along with the publisher, published year and length above it when the refresh filled them, and the result's message appears right above the button, the same sentence as before, and is read out by screen readers. While Discogs or BoardGameGeek is being asked, the button is greyed out and the message says "Asking Discogs…" or "Asking BGG…", so a second click can't slip through. If the request fails outright, it says "Something went wrong — try again." instead of doing nothing. With JavaScript off, the buttons work as before. No migration and no new secret: nothing to do when upgrading.
+
 ## [1.6.0] - 2026-09-30
 
 Year in review, game night, recommendations between connected households, what you paid for things, a sidebar in sections, an accessibility audit in CI, and Discogs' credit beside a record's pressing.

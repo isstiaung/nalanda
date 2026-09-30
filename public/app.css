@@ -620,6 +620,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 }
 .props dd { margin: 0; padding: 0.45rem 0; border-bottom: 1px solid var(--line); font-size: 13px; display: flex; align-items: center; flex-wrap: wrap; gap: 0.35rem; }
 .props dd.mono, .props dd .mono { font-family: var(--mono); font-size: 12px; }
+/* rows grouped under one id, so a refresh can swap them (§16 #55, #60): the group adds no box, its rows stay in the grid */
+.props-group { display: contents; }
 
 .detail-section { margin-top: 1.4rem; }
 .detail-section .eyebrow { margin-bottom: 0.35rem; }
@@ -1173,7 +1175,10 @@ details.tracklist summary .mono { font-weight: 400; font-size: 11px; }
 .tracks > li.track-heading { display: block; font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-3); padding-top: 0.7rem; }
 .discogs-refresh, .discogs-note, .bgg-refresh, .bgg-note { margin: 0.8rem 0 0; }
 .discogs-refresh small, .discogs-note, .bgg-refresh small, .bgg-note { font-size: 12px; }
-#pressing .notice { margin: 0.8rem 0 0; }
+/* a refresh's result, in a live region that is on the page from the start (so what htmx puts in it is announced):
+   empty, it takes no room; "Asking Discogs…" while the request is out, then the answer's sentence */
+.refresh-status { margin: 0.8rem 0 0; }
+.refresh-status:empty { padding: 0; border: 0; margin: 0; }
 
 /* ── reading goals (ARCH.md §16 #49) ──────────────────────────────────────────
    A goal is a count against a year: the figures in the registrar's mono, the bar the
