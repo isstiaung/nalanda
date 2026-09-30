@@ -2901,6 +2901,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       in review in Reading, Recommended in Sharing & connections, beside Feed and Notifications.
       "What should we play tonight" has no sidebar link: #60 links it from the Overview and a
       shelf's header instead.
+    - A page with no link of its own marks the one it's reached from (`navPath()` in
+      `src/views/layout.tsx`): a connected household's pages (`/households/…`) and its feed settings
+      (`/connections/:id/feed`) open Lending and mark **Borrowed**, where households are browsed from
+      (1.6.1).
 
     **Markup.** Each section is a native `<details class="nav-section" data-nav="…">` whose first
     child is its `<summary>`: it opens and closes with no script, from the keyboard (Enter and

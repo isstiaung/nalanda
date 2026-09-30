@@ -949,7 +949,7 @@ const ConnectionFeedPage: FC<
           </div>
         )}
       </section>
-      <p>
+      <p class="back-link">
         <a href="/connections">← Connections</a>
       </p>
     </>
