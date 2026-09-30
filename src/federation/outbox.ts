@@ -12,6 +12,7 @@ import {
   dropRefused,
   dueOutboxes,
   enqueueOutbox,
+  knownRecommendations,
   markDelivered,
   pruneTombstones,
   recordOutboxPull,
@@ -112,21 +113,27 @@ export function parseOutboxPage(value: unknown): OutboxPage | null {
   return { more: v.more, messages };
 }
 
-/** Which of a page's messages were already applied — through a push, or an earlier pull. At most three queries. */
+/**
+ * Which of a page's messages were already applied — through a push, or an earlier pull. At most four queries, one per
+ * kind of message the page holds.
+ */
 async function appliedAlready(db: D1Database, messages: DirectedMessage[]): Promise<(m: DirectedMessage) => boolean> {
   const commentIds: string[] = [];
   const requestIds: string[] = [];
   const returnIds: string[] = [];
+  const recommendationIds: string[] = [];
   for (const m of messages) {
     if (m.type === 'CommentCreate') commentIds.push(m.id);
     else if (m.type === 'CommentDelete') commentIds.push(m.comment);
     else if (m.type === 'BorrowRequest') requestIds.push(m.id);
     else if (m.type === 'Returned') returnIds.push(m.request);
+    else if (m.type === 'Recommend') recommendationIds.push(m.id);
     else requestIds.push(m.request);
   }
   const comments = await commentStates(db, commentIds);
   const requests = await requestStatuses(db, requestIds);
   const returned = await returnedRequests(db, returnIds);
+  const recommended = await knownRecommendations(db, recommendationIds);
   return (m) => {
     switch (m.type) {
       case 'CommentCreate':
@@ -146,6 +153,8 @@ async function appliedAlready(db: D1Database, messages: DirectedMessage[]): Prom
       }
       case 'Returned':
         return returned.has(m.request);
+      case 'Recommend':
+        return recommended.has(m.id);
     }
   };
 }

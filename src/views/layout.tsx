@@ -127,7 +127,6 @@ function navGroups(user: SessionUser, libraries: NavLibrary[], federation: boole
     {
       id: 'library',
       label: 'Library',
-      // "What should we play tonight" (feat/play-tonight) goes here, after Series, once its route is on main.
       links: only({ href: '/tags', label: 'Tags' }, { href: '/series', label: 'Series' }),
     },
     {
@@ -138,8 +137,11 @@ function navGroups(user: SessionUser, libraries: NavLibrary[], federation: boole
     {
       id: 'reading',
       label: 'Reading',
-      // "Year in review" (/year-in-review) goes here, after Reading goals, once its route is on main.
-      links: only({ href: '/wants', label: 'Want list' }, { href: '/goals', label: 'Reading goals' }),
+      links: only(
+        { href: '/wants', label: 'Want list' },
+        { href: '/goals', label: 'Reading goals' },
+        { href: '/year-in-review', label: 'Year in review' },
+      ),
     },
     {
       id: 'lending',
@@ -153,6 +155,7 @@ function navGroups(user: SessionUser, libraries: NavLibrary[], federation: boole
         admin && { href: '/shares', label: 'Shared links' },
         federation && { href: '/feed', label: 'Feed', unread: unread.feed },
         federation && { href: '/notifications', label: 'Notifications', unread: unread.notifications },
+        federation && { href: '/recommendations', label: 'Recommended' },
         federation && admin && { href: '/connections', label: 'Connections' },
       ),
     },

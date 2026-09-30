@@ -177,6 +177,12 @@
       append(`Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
       if (data.importer) append(`Reads, ratings and reviews in this file become yours (${data.importer}).`);
     }
+    // purchase prices (ARCH.md §16 #61): kept in the app, never on a share page; a price with no currency of its own is
+    // the household's, so without one set a libib price stays in the item's details instead
+    if (data.prices) append(`Purchase prices in the first ${sampled} rows: ${data.prices}${data.currency ? ` (any without a currency of their own are in ${data.currency})` : ''}.`);
+    if (data.pricesLeft) append(data.currency
+      ? `${data.pricesLeft} ${data.pricesLeft === 1 ? 'price' : 'prices'} couldn’t be read as ${data.currency} and will stay in the item’s details, never shown on share pages.`
+      : `${data.pricesLeft} ${data.pricesLeft === 1 ? 'price stays' : 'prices stay'} in the item’s details, never shown on share pages: no household currency is set. An admin sets it under Members, before importing, to bring them in as purchase prices.`);
     for (const s of data.sample) {
       append(`  · [${s.mediaType}] ${s.title}${s.creators ? ` — ${s.creators}` : ''}${s.tags.length ? ` (${s.tags.join(', ')})` : ''}`);
     }

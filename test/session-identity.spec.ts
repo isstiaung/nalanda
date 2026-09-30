@@ -215,7 +215,8 @@ describe('the cost of a signed-in request', () => {
       expect(res.status, path).toBe(200);
       measured[path] = 1000 - budget.left;
     }
-    expect(measured).toEqual({ '/account': 4, '/': 11, '/loans': 5, '/settings/users': 4, '/tags': 4 }); // '/': read next and the reading goal (§16 #46, #49)
+    // '/': read next, the reading goal and the shelves' paid totals (§16 #46, #49, #61); '/settings/users': the household currency (§16 #61)
+    expect(measured).toEqual({ '/account': 4, '/': 12, '/loans': 5, '/settings/users': 5, '/tags': 4 });
   });
 });
 

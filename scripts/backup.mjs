@@ -50,6 +50,7 @@ export const TABLES = [
   'borrow_requests',
   'connection_loans', // after loans and borrow_requests
   'borrowed_items',
+  'recommendations', // after connections, items and users, which it references (§16 #58)
   'notifications',
 ];
 

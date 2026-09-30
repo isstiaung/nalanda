@@ -3,7 +3,7 @@
 import { and, asc, count, desc, eq, gt, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { SQLiteAsyncDialect } from 'drizzle-orm/sqlite-core';
-import { listItems } from './queries';
+import { listItems, wantStatement } from './queries';
 import * as s from './schema';
 import { ADMIN_NOTIFICATIONS } from './schema';
 import {
@@ -12,7 +12,10 @@ import {
   MAX_FEED_REVIEW_CHARS,
   MAX_STORED_ENTRIES_PER_CONNECTION,
   OUTBOX_PULL_MINUTES,
+  MAX_OPEN_RECOMMENDATIONS_PER_CONNECTION,
+  MAX_RECOMMENDATIONS_PER_DAY,
   OUTBOX_RETENTION_DAYS,
+  RECOMMENDATIONS_KEPT_DAYS,
   VOLUME_WINDOW_DAYS,
 } from '../federation/config';
 import type {
@@ -34,6 +37,8 @@ import type {
   Notification,
   NotificationKind,
   OutboxRow,
+  Recommendation,
+  RecommendationStatus,
 } from './schema';
 
 const db = (d1: D1Database) => drizzle(d1);
@@ -1543,11 +1548,17 @@ export async function dropOutbox(d1: D1Database, activityId: string): Promise<vo
 export async function dropRefused(d1: D1Database, message: { id: string; type: string }): Promise<void> {
   const dbi = db(d1);
   const drop = dbi.delete(s.outbox).where(eq(s.outbox.activityId, message.id));
-  if (message.type !== 'BorrowRequest') {
-    await drop;
+  if (message.type === 'BorrowRequest') {
+    await dbi.batch([declineOwn(dbi, message.id), drop]);
     return;
   }
-  await dbi.batch([declineOwn(dbi, message.id), drop]);
+  // a recommendation of ours they turned away shows as refused here, not as sent (§16 #58) — in the same batch, for
+  // the reason a borrow request is declined in one: the outbox row is what would bring it back
+  if (message.type === 'Recommend') {
+    await dbi.batch([refuseOwnRecommendation(dbi, message.id), drop]);
+    return;
+  }
+  await drop;
 }
 
 export type PendingPush = OutboxRow & { connection: Connection };
@@ -1990,7 +2001,7 @@ export async function deleteBorrowed(d1: D1Database, id: number): Promise<void> 
  */
 export async function federationExport(d1: D1Database): Promise<Record<string, unknown>> {
   const dbi = db(d1);
-  const [settings, connectionRows, views, following, commentRows, requests, lent, borrowed] = await Promise.all([
+  const [settings, connectionRows, views, following, commentRows, requests, lent, borrowed, recommended] = await Promise.all([
     getFederationSettings(d1),
     dbi
       .select({
@@ -2060,6 +2071,22 @@ export async function federationExport(d1: D1Database): Promise<Record<string, u
         returnedOn: s.borrowedItems.returnedOn,
       })
       .from(s.borrowedItems),
+    // §16 #58: both ways, as comments and borrowing are — never in /export.csv, which is this household's items
+    dbi
+      .select({
+        connectionId: s.recommendations.connectionId,
+        incoming: s.recommendations.incoming,
+        ourItemId: s.recommendations.ourItemId,
+        theirItemId: s.recommendations.theirItemId,
+        mediaType: s.recommendations.mediaType,
+        title: s.recommendations.title,
+        creators: s.recommendations.creators,
+        recommender: s.recommendations.recommender,
+        note: s.recommendations.note,
+        status: s.recommendations.status,
+        createdAt: s.recommendations.createdAt,
+      })
+      .from(s.recommendations),
   ]);
   return {
     exportedAt: new Date().toISOString(),
@@ -2071,6 +2098,7 @@ export async function federationExport(d1: D1Database): Promise<Record<string, u
     borrowRequests: requests,
     lentToConnections: lent,
     borrowedFromConnections: borrowed,
+    recommendations: recommended,
   };
 }
 
@@ -2191,4 +2219,279 @@ export async function theirItemTitle(d1: D1Database, connectionId: number, itemR
     .bind(connectionId, itemRemoteId, stamp)
     .first<{ title: string | null }>();
   return row?.title ?? null;
+}
+
+// ---------- recommendations (§16 #58) ----------
+
+/**
+ * The lowest connection view that holds the item with id `?1`, or NULL when none does — the SQL twin of
+ * itemMatchesView(), as sharedItem() spells it. A recommendation names one, for the receiver's link to the item.
+ */
+const HOLDING_VIEW = `(SELECT min(v.id) FROM items i JOIN connection_views v
+    ON (v.library_id IS NULL OR v.library_id = i.library_id)
+   AND (v.media_type IS NULL OR v.media_type = i.media_type)
+   AND (v.status IS NULL OR v.status = i.status)
+   AND (v.owned IS NULL OR v.owned = (i.copies > 0))
+  WHERE i.id = ?1)`;
+
+export type RecommendTarget = { id: number; householdName: string; lastStatus: RecommendationStatus | null; lastAt: string | null };
+
+/**
+ * For an item's page, in one query: the households it could be recommended to — every active connection — each with
+ * our latest recommendation of this item to them, and whether a connection view holds the item at all. With no
+ * households there is no answer about the view, and the page shows no section. The item page runs the statement in
+ * its reading log's batch (itemPageLog), so the section costs no D1 call of its own.
+ */
+export async function recommendTargets(d1: D1Database, itemId: number): Promise<{ shared: boolean; households: RecommendTarget[] }> {
+  return recommendTargetsOf(await recommendTargetsStatement(d1, itemId).all());
+}
+
+export function recommendTargetsStatement(d1: D1Database, itemId: number): D1PreparedStatement {
+  const latest = (column: string) =>
+    `(SELECT r.${column} FROM recommendations r WHERE r.connection_id = c.id AND r.incoming = 0 AND r.our_item_id = ?1 ORDER BY r.id DESC LIMIT 1)`;
+  return d1
+    .prepare(
+      `SELECT c.id AS id, c.household_name AS householdName, ${latest('status')} AS lastStatus, ${latest('created_at')} AS lastAt,
+              ${HOLDING_VIEW} AS viewId
+       FROM connections c WHERE c.status = 'active' ORDER BY c.household_name, c.id`,
+    )
+    .bind(itemId);
+}
+
+export function recommendTargetsOf(result: D1Result | undefined): { shared: boolean; households: RecommendTarget[] } {
+  const rows = (result?.results ?? []) as Array<RecommendTarget & { viewId: number | null }>;
+  return {
+    shared: rows[0]?.viewId != null,
+    households: rows.map(({ id, householdName, lastStatus, lastAt }) => ({ id, householdName, lastStatus, lastAt })),
+  };
+}
+
+/** One of our items with the lowest connection view that holds it — null when none does, or there's no such item. */
+export async function recommendableItem(d1: D1Database, itemId: number): Promise<{ item: Item; viewId: number } | null> {
+  const row = await d1.prepare(`SELECT ${HOLDING_VIEW} AS viewId`).bind(itemId).first<{ viewId: number | null }>();
+  if (!row || row.viewId === null) return null;
+  const [item] = await db(d1).select().from(s.items).where(eq(s.items.id, itemId));
+  return item ? { item, viewId: row.viewId } : null;
+}
+
+export type NewOutgoingRecommendation = {
+  activityId: string;
+  connectionId: number;
+  ourItemId: number;
+  senderId: number;
+  mediaType: MediaType;
+  title: string;
+  creators: string | null;
+  published: string | null;
+  coverKey: string | null;
+  identifiers: string;
+  recommender: string;
+  note: string | null;
+};
+
+/**
+ * A recommendation of ours, stored and queued for its connection in one batch (§16 #39) — only while the item is still
+ * here and none of it to them is on record as sent, decided inside the batch, so a double submit sends one. Returns its
+ * id, or null when nothing was sent.
+ */
+export async function recommendToConnection(d1: D1Database, values: NewOutgoingRecommendation, message: { id: string }): Promise<number | null> {
+  const sendable = sql`EXISTS (SELECT 1 FROM items WHERE id = ${values.ourItemId})
+    AND NOT EXISTS (SELECT 1 FROM recommendations WHERE connection_id = ${values.connectionId} AND incoming = 0
+                    AND our_item_id = ${values.ourItemId} AND status = 'open')`;
+  const insert = sql`INSERT INTO recommendations (activity_id, connection_id, incoming, our_item_id, sender_id, media_type, title,
+      creators, published, cover_key, identifiers, recommender, note)
+    SELECT ${values.activityId}, ${values.connectionId}, 0, ${values.ourItemId}, ${values.senderId}, ${values.mediaType},
+      ${values.title}, ${values.creators}, ${values.published}, ${values.coverKey}, ${values.identifiers}, ${values.recommender}, ${values.note}
+    WHERE ${queued(message)}
+    RETURNING id`;
+  const results = await queueWith(d1, values.connectionId, message, [statement(d1, insert)], sendable);
+  const row = results?.[0]?.results[0] as { id: number } | undefined;
+  return row?.id ?? null;
+}
+
+/** Recommendations of ours sent to a connection since midnight UTC, whatever became of them. */
+export async function recommendedToday(d1: D1Database, connectionId: number): Promise<number> {
+  const row = await d1
+    .prepare(`SELECT count(*) AS n FROM recommendations WHERE connection_id = ?1 AND incoming = 0 AND created_at >= date('now')`)
+    .bind(connectionId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/** Marks a recommendation of ours refused, from open only. */
+const refuseOwnRecommendation = (dbi: ReturnType<typeof db>, activityId: string) =>
+  dbi
+    .update(s.recommendations)
+    .set({ status: 'refused', handledAt: sql`(datetime('now'))` })
+    .where(and(eq(s.recommendations.activityId, activityId), eq(s.recommendations.incoming, false), eq(s.recommendations.status, 'open')));
+
+export type NewIncomingRecommendation = {
+  activityId: string;
+  connectionId: number;
+  theirItemId: number;
+  theirItemStamp: string;
+  theirViewId: number;
+  mediaType: MediaType;
+  title: string;
+  creators: string | null;
+  published: string | null;
+  coverKey: string | null;
+  identifiers: string;
+  recommender: string;
+  note: string | null;
+};
+
+export type Intake = 'received' | 'already received' | 'too many waiting' | 'too many today';
+
+/**
+ * A recommendation from a connection, taken once: idempotent by activity id, and only while that connection has fewer
+ * than MAX_OPEN_RECOMMENDATIONS_PER_CONNECTION waiting here and has had fewer than MAX_RECOMMENDATIONS_PER_DAY taken
+ * today. The row and its notification are one batch on that same condition, so a repeat — pushed again, or pulled
+ * from their outbox — neither stores nor notifies twice (§16 #36, #39). Handled ones older than
+ * RECOMMENDATIONS_KEPT_DAYS are pruned in the same batch.
+ */
+export async function takeRecommendation(d1: D1Database, values: NewIncomingRecommendation, notice: NewNotification): Promise<Intake> {
+  const openFrom = sql`(SELECT count(*) FROM recommendations WHERE connection_id = ${values.connectionId} AND incoming = 1 AND status = 'open')`;
+  const todayFrom = sql`(SELECT count(*) FROM recommendations WHERE connection_id = ${values.connectionId} AND incoming = 1
+    AND created_at >= date('now'))`;
+  const seen = sql`EXISTS (SELECT 1 FROM recommendations WHERE activity_id = ${values.activityId})`;
+  const known = await statement(d1, sql`SELECT ${seen} AS seen, ${openFrom} AS open, ${todayFrom} AS today`).first<{
+    seen: number;
+    open: number;
+    today: number;
+  }>();
+  if (known?.seen) return 'already received';
+  if ((known?.open ?? 0) >= MAX_OPEN_RECOMMENDATIONS_PER_CONNECTION) return 'too many waiting';
+  if ((known?.today ?? 0) >= MAX_RECOMMENDATIONS_PER_DAY) return 'too many today';
+
+  // decided again inside the batch, so two copies of one message arriving together make one row and one notice
+  const room = sql`NOT ${seen} AND ${openFrom} < ${MAX_OPEN_RECOMMENDATIONS_PER_CONNECTION} AND ${todayFrom} < ${MAX_RECOMMENDATIONS_PER_DAY}`;
+  const insert = sql`INSERT INTO recommendations (activity_id, connection_id, incoming, their_item_id, their_item_stamp, their_view_id,
+      media_type, title, creators, published, cover_key, identifiers, recommender, note)
+    SELECT ${values.activityId}, ${values.connectionId}, 1, ${values.theirItemId}, ${values.theirItemStamp}, ${values.theirViewId},
+      ${values.mediaType}, ${values.title}, ${values.creators}, ${values.published}, ${values.coverKey}, ${values.identifiers},
+      ${values.recommender}, ${values.note}
+    WHERE ${room}
+    ON CONFLICT (activity_id) DO NOTHING
+    RETURNING id`;
+  const prune = sql`DELETE FROM recommendations WHERE incoming = 1 AND status IN ('dismissed', 'wanted')
+    AND handled_at < datetime('now', ${`-${RECOMMENDATIONS_KEPT_DAYS} days`})`;
+  const results = await d1.batch([notifyIfStatement(d1, notice, room), statement(d1, insert), statement(d1, prune)]);
+  if (results[1]?.results.length) return 'received';
+  // nothing inserted: either a copy of this message landed first, or another recommendation took the last place
+  // meanwhile — which must be refused, not answered "already received", or the sender would count it delivered
+  const now = await statement(d1, sql`SELECT ${seen} AS seen, ${todayFrom} AS today`).first<{ seen: number; today: number }>();
+  if (now?.seen) return 'already received';
+  return (now?.today ?? 0) >= MAX_RECOMMENDATIONS_PER_DAY ? 'too many today' : 'too many waiting';
+}
+
+/** Which of these activity ids are recommendations already taken here — for an outbox pull. One query, none for none. */
+export async function knownRecommendations(d1: D1Database, activityIds: string[]): Promise<Set<string>> {
+  if (!activityIds.length) return new Set();
+  const rows = await db(d1)
+    .select({ activityId: s.recommendations.activityId })
+    .from(s.recommendations)
+    .where(sql`${s.recommendations.activityId} IN (SELECT value FROM json_each(${JSON.stringify(activityIds)}))`);
+  return new Set(rows.map((r) => r.activityId));
+}
+
+export type ReceivedRecommendation = Recommendation & { householdName: string; baseUrl: string };
+
+/** Recommendations from active connections still waiting for an answer here, newest first. */
+export async function openRecommendations(d1: D1Database, limit: number): Promise<ReceivedRecommendation[]> {
+  const rows = await db(d1)
+    .select({ rec: s.recommendations, householdName: s.connections.householdName, baseUrl: s.connections.baseUrl })
+    .from(s.recommendations)
+    .innerJoin(s.connections, eq(s.recommendations.connectionId, s.connections.id))
+    .where(and(eq(s.recommendations.incoming, true), eq(s.recommendations.status, 'open'), eq(s.connections.status, 'active')))
+    .orderBy(desc(s.recommendations.id))
+    .limit(limit);
+  return rows.map((r) => ({ ...r.rec, householdName: r.householdName, baseUrl: r.baseUrl }));
+}
+
+export type SentRecommendation = Recommendation & { householdName: string; senderName: string | null };
+
+/** Recommendations this household sent, newest first, with who here sent each — a username, shown only inside the app. */
+export async function sentRecommendations(d1: D1Database, limit: number): Promise<SentRecommendation[]> {
+  const rows = await db(d1)
+    .select({ rec: s.recommendations, householdName: s.connections.householdName, senderName: s.users.username })
+    .from(s.recommendations)
+    .innerJoin(s.connections, eq(s.recommendations.connectionId, s.connections.id))
+    .leftJoin(s.users, eq(s.recommendations.senderId, s.users.id))
+    .where(eq(s.recommendations.incoming, false))
+    .orderBy(desc(s.recommendations.id))
+    .limit(limit);
+  return rows.map((r) => ({ ...r.rec, householdName: r.householdName, senderName: r.senderName }));
+}
+
+export async function getRecommendation(d1: D1Database, id: number): Promise<Recommendation | null> {
+  const [row] = await db(d1).select().from(s.recommendations).where(eq(s.recommendations.id, id));
+  return row ?? null;
+}
+
+/**
+ * This household's dismissal of one of theirs — only from open, so a second click or a race changes nothing. Kept here
+ * only: the sender is never told. True when it moved.
+ */
+export async function dismissRecommendation(d1: D1Database, id: number, userId: number): Promise<boolean> {
+  const rows = await db(d1)
+    .update(s.recommendations)
+    .set({ status: 'dismissed', handledBy: userId, handledAt: sql`(datetime('now'))` })
+    .where(and(eq(s.recommendations.id, id), eq(s.recommendations.incoming, true), eq(s.recommendations.status, 'open')))
+    .returning({ id: s.recommendations.id });
+  return rows.length === 1;
+}
+
+/**
+ * The first statements of a batch that takes one of theirs onto `userId`'s want list: the move from open to wanted,
+ * then a guard. The guard runs straight after the move, so `changes()` is the move's; a move that changed nothing — a
+ * second click, or another member's answer first — makes the guard insert a NULL where the table allows none, which
+ * fails the whole batch (a D1 batch is one transaction), so nothing after it is written: no second item, no second want.
+ * `itemId`: the item it goes onto, when that is known before the batch.
+ */
+export function claimRecommendation(d1: D1Database, id: number, userId: number, itemId: number | null): D1PreparedStatement[] {
+  return [
+    d1
+      .prepare(
+        `UPDATE recommendations SET status = 'wanted', handled_by = ?2, handled_at = datetime('now'), wanted_item_id = ?3
+         WHERE id = ?1 AND incoming = 1 AND status = 'open'`,
+      )
+      .bind(id, userId, itemId),
+    d1.prepare(
+      `INSERT INTO recommendations (activity_id, connection_id, incoming, media_type, title, recommender)
+       SELECT NULL, 0, 1, 'other', '', '' WHERE changes() = 0`,
+    ),
+  ];
+}
+
+/** The last statement of that batch when it made the item: the recommendation remembers it (the newest item). */
+export function linkWantedItem(d1: D1Database, id: number): D1PreparedStatement {
+  return d1.prepare('UPDATE recommendations SET wanted_item_id = (SELECT max(id) FROM items) WHERE id = ?1').bind(id);
+}
+
+/** One of theirs onto `userId`'s want list as an item already here, claimed in the same batch. False when the claim failed. */
+export async function wantRecommendedAs(d1: D1Database, id: number, userId: number, itemId: number): Promise<boolean> {
+  try {
+    await d1.batch([...claimRecommendation(d1, id, userId, itemId), wantStatement(d1, itemId, userId)]);
+    return true;
+  } catch (err) {
+    if ((await getRecommendation(d1, id))?.status !== 'open') return false;
+    throw err;
+  }
+}
+
+/**
+ * The item here that the same item of theirs — that household, that id and stamp — went onto a want list as before, if
+ * it is still here. A book carries no public identifier (ISBN-13 isn't in toConnectionItem()), so this is what keeps a
+ * book recommended twice from becoming two items. One query.
+ */
+export async function wantedBefore(d1: D1Database, rec: Pick<Recommendation, 'connectionId' | 'theirItemId' | 'theirItemStamp'>): Promise<number | null> {
+  const row = await d1
+    .prepare(
+      `SELECT wanted_item_id AS id FROM recommendations WHERE connection_id = ?1 AND incoming = 1 AND their_item_id = ?2
+         AND their_item_stamp = ?3 AND wanted_item_id IS NOT NULL ORDER BY id DESC LIMIT 1`,
+    )
+    .bind(rec.connectionId, rec.theirItemId, rec.theirItemStamp)
+    .first<{ id: number }>();
+  return row?.id ?? null;
 }

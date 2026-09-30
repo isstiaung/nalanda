@@ -1,6 +1,7 @@
 // The public-field whitelist for share pages. This is a whitelist on purpose:
 // new item columns stay private until explicitly added here (ARCH.md §9).
 import { checkPurchaseLink } from './links';
+import { withoutMoney } from './money';
 import { isPlayable } from './plays';
 import { progressPercent } from './progress';
 import type { ItemFilters } from '../db/queries';
@@ -163,7 +164,8 @@ export function toPublicItem(
     review: item.review,
     inCollection: item.copies > 0,
     ...(opts.wanted === true && item.copies === 0 ? { wanted: true as const } : {}),
-    details: parseDetails(item.details),
+    // never money (§16 #61): a libib file's `price` lands in details, and details are otherwise published whole
+    details: withoutMoney(parseDetails(item.details)),
     ...(item.readCount >= 2 ? { readCount: item.readCount } : {}),
     // a game's or record's plays, counted; the key only when there are some, and never on a book, which has reads
     ...(opts.plays !== undefined && opts.plays > 0 && isPlayable(item.mediaType) ? { playCount: opts.plays } : {}),

@@ -31,6 +31,7 @@ import { isGoalKind, type ActivityKind, type Connection, type NotificationKind }
 import type { AppEnv } from '../env';
 import { page } from '../views/layout';
 import {
+  ACCEPTS,
   DESCRIPTOR_PATH,
   FEED_PAGE_SIZE,
   FEED_READ_WINDOW_MS,
@@ -75,6 +76,8 @@ federation.get(DESCRIPTOR_PATH, async (c) => {
     name: settings.householdName,
     url: settings.baseUrl,
     publicKey: identity.publicJwk,
+    // §16 #58: what this inbox takes beyond version 1 — a household checks before sending one
+    accepts: [...ACCEPTS],
   };
   return c.json(descriptor, 200, { 'cache-control': 'public, max-age=300' });
 });

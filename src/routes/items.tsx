@@ -4,6 +4,7 @@ import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import {
   activeLoansForItem,
   addPastRead,
+  applyGameFill,
   applyPressingFill,
   addPurchaseLink,
   deletePurchaseLink,
@@ -26,6 +27,7 @@ import {
   getRead,
   getSeries,
   getReview,
+  getSiteSettings,
   listLibraries,
   listPeople,
   logPlay,
@@ -50,15 +52,17 @@ import type { AppEnv } from '../env';
 import { scanQueueOwner } from '../lib/auth';
 import { isRecord, parseGrade } from '../lib/condition';
 import { deleteCover, storeCover } from '../lib/covers';
+import { bggIdOf, fillGame } from '../lib/games';
 import { isPlayable, MAX_PLAYS_PER_ITEM, playDateProblem } from '../lib/plays';
 import { fillPressing, recordBarcode, releaseIdOf } from '../lib/pressing';
 import { checkPurchaseLink, MAX_LINKS_PER_ITEM } from '../lib/links';
+import { isCurrencyCode, isStoredPrice, parseMoney } from '../lib/money';
 import { MAX_PROGRESS_PAGE } from '../lib/progress';
 import { isReadStatus, readDateProblem, summarizeReads, todayUtc, type ReadDraft } from '../lib/reads';
 import { reviewText } from '../lib/reviews';
 import { cleanSeriesName, formatSeriesNumber, parseSeriesNumber, type SeriesDraft } from '../lib/series';
 import { parseDetails } from '../lib/share';
-import { discogsPressing } from '../metadata';
+import { bggRefresh, discogsPressing } from '../metadata';
 import {
   accNo,
   BuySection,
@@ -70,6 +74,8 @@ import {
   ItemForm,
   MarkNotOwnedButton,
   MarkOwnedButton,
+  Money,
+  type PriceFieldProps,
   ItemStatusPills,
   LendingHistory,
   MEDIA_LABEL,
@@ -90,6 +96,7 @@ import {
 import { page } from '../views/layout';
 import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
+import { recommendOnItemPage } from './recommendations';
 import { SeriesSection } from '../views/series';
 
 const items = new Hono<AppEnv>();
@@ -198,6 +205,41 @@ function formGrades(body: Record<string, string | File>, mediaType: MediaType): 
   }
   return { grades, problem };
 }
+
+/**
+ * The form's purchase price (§16 #61), or nothing to change when the form didn't send the field — one opened before
+ * prices existed, or one shown while no currency was set. Blank clears it. The amount is in the currency the form sent,
+ * which may only be the household's, or the one the item's price is already in (entered before the household changed
+ * currency): the form offers nothing else, and a request that sends another is refused rather than stored.
+ */
+function formPrice(
+  body: Record<string, string | File>,
+  household: string | null,
+  existing: Item | null,
+): { values: Pick<NewItem, 'purchasePrice' | 'purchaseCurrency'> | null; sent?: { amount: string; currency: string }; problem: string | null } {
+  if (!('purchasePrice' in body)) return { values: null, problem: null };
+  const amount = typeof body['purchasePrice'] === 'string' ? body['purchasePrice'].trim() : '';
+  const sentCurrency = typeof body['purchaseCurrency'] === 'string' ? body['purchaseCurrency'].trim() : '';
+  const own = isStoredPrice(existing?.purchasePrice, existing?.purchaseCurrency) ? existing!.purchaseCurrency : null;
+  const allowed = [own, household].filter((c): c is string => !!c && isCurrencyCode(c));
+  const currency = sentCurrency ? (allowed.includes(sentCurrency) ? sentCurrency : null) : (household ?? own ?? null);
+  const sent = { amount, currency: currency ?? sentCurrency };
+  if (!amount) return { values: { purchasePrice: null, purchaseCurrency: null }, sent, problem: null };
+  if (!currency || !isCurrencyCode(currency)) {
+    return { values: null, sent, problem: household ? `Enter the price in ${household}.` : 'Set the household currency first: prices are entered in it.' };
+  }
+  const parsed = parseMoney(amount, currency);
+  if (!parsed.ok) return { values: null, sent, problem: parsed.problem };
+  return { values: { purchasePrice: parsed.minor, purchaseCurrency: parsed.minor === null ? null : currency }, sent, problem: null };
+}
+
+/** The price field's props, for a form shown to `c`'s user. */
+const priceField = (c: Context<AppEnv>, household: string | null, price?: ReturnType<typeof formPrice>): PriceFieldProps => ({
+  household,
+  admin: c.get('user').role === 'admin',
+  ...(price?.sent ? { sent: price.sent } : {}),
+  error: price?.problem ?? null,
+});
 
 /** A rating from a form: half-stars 1–10, or none. */
 const formRating = (raw: unknown): number | null => {
@@ -333,10 +375,20 @@ items.post('/items', async (c) => {
     parsed.values.copies = 0;
   }
 
-  const problem = formProblem(formReadProblem(null, readFields(parsed.values)), parsed);
+  // a price is read only from a form that has the field: a scan's or a search result's add costs no extra call
+  const household = 'purchasePrice' in body ? (await getSiteSettings(c.env.DB)).currency : null;
+  const price = formPrice(body, household, null);
+  if (price.values) Object.assign(parsed.values, price.values);
+  const problem = formProblem(formReadProblem(null, readFields(parsed.values)), parsed) ?? price.problem;
   if (problem && htmx) return c.text(problem, 400);
   if (problem) {
-    const [libs, people, names] = await Promise.all([listLibraries(c.env.DB), listPeople(c.env.DB), seriesNames(c.env.DB)]);
+    const [libs, people, names, currency] = await Promise.all([
+      listLibraries(c.env.DB),
+      listPeople(c.env.DB),
+      seriesNames(c.env.DB),
+      // read above only when the form had a price field; the form shown back always has one
+      'purchasePrice' in body ? household : getSiteSettings(c.env.DB).then((st) => st.currency),
+    ]);
     c.status(400);
     return page(
       c,
@@ -356,6 +408,7 @@ items.post('/items', async (c) => {
           perMember={people.length > 1}
           series={parsed.seriesSent}
           seriesNames={names}
+          money={priceField(c, currency, price)}
         />
       </>,
     );
@@ -461,6 +514,61 @@ function DiscogsRefresh({ item, token, notice }: { item: Item; token: boolean; n
   );
 }
 
+/** What "Refresh from BGG" came back with (§16 #60), by the code its redirect carries. Never text from the URL or BGG. */
+const BGG_NOTICE: Record<string, string> = {
+  nothing: 'BoardGameGeek had nothing to add: players, playing time and weight are already filled in here.',
+  not_found: 'BoardGameGeek has no game with this bgg_id.',
+  busy: 'BoardGameGeek is busy — it asks apps to wait a few seconds between requests. Try again shortly.',
+  refused: 'BoardGameGeek refused the BGG_TOKEN — it may have been revoked or mistyped.',
+  unavailable: 'BoardGameGeek didn’t answer. Try again in a moment.',
+  changed: 'This game was saved by someone else while BoardGameGeek was asked, so nothing was written. Refresh again.',
+  noid: 'Nothing to look it up by: add its BoardGameGeek id as bgg_id in details.',
+  notoken: 'Set the BGG_TOKEN secret to fill game details from BoardGameGeek.',
+};
+
+const BGG_FILLED_LABEL: Record<string, string> = {
+  players_min: 'min players',
+  players_max: 'max players',
+  playtime_min: 'min playtime',
+  playtime_max: 'max playtime',
+  weight: 'weight',
+  length: 'length',
+};
+
+function bggNotice(c: Context<AppEnv>): string | null {
+  const code = c.req.query('bgg');
+  if (!code) return null;
+  if (code === 'filled') {
+    const fields = (c.req.query('f') ?? '').split(',').filter((f) => Object.hasOwn(BGG_FILLED_LABEL, f)).map((f) => BGG_FILLED_LABEL[f]);
+    return `Filled from BoardGameGeek: ${fields.length ? fields.join(', ') : 'nothing new'}.`;
+  }
+  return Object.hasOwn(BGG_NOTICE, code) ? BGG_NOTICE[code]! : null;
+}
+
+/** A board game's details, with the Refresh button — or why there isn't one — below them. */
+function GameDetails({ item, details, token, notice }: { item: Item; details: Record<string, unknown>; token: boolean; notice: string | null }) {
+  const lookup = !!bggIdOf(details);
+  return (
+    <div class="detail-section" id="details">
+      <p class="eyebrow">Details</p>
+      {Object.keys(details).length ? <DetailsList details={details} /> : <p class="muted">No details yet.</p>}
+      {notice ? <p class="notice">{notice}</p> : null}
+      {!token ? (
+        notice ? null : <p class="muted bgg-note">Set the BGG_TOKEN secret to fill game details from BoardGameGeek.</p>
+      ) : !lookup ? (
+        notice ? null : <p class="muted bgg-note">Add its BoardGameGeek id as bgg_id in details to fill these from BoardGameGeek.</p>
+      ) : (
+        <form method="post" action={`/items/${item.id}/bgg`} class="inline-form bgg-refresh">
+          <button type="submit" class="btn">
+            Refresh from BGG
+          </button>
+          <small class="muted">Fills players, playing time and weight where blank — never changes what’s here.</small>
+        </form>
+      )}
+    </div>
+  );
+}
+
 /**
  * The item page. `reviewError` says why a change to a review from this page was refused; `link` why a purchase link
  * was, with what was sent, so the form shows it again.
@@ -469,13 +577,15 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
   const viewer = viewerOf(c);
+  // "Recommend to…" (§16 #58): its queries ride in the reading log's batch — no call of their own
+  const recommend = await recommendOnItemPage(c, item);
   const [lib, tags, loans, people, log, lent, plays, inSeries] = await Promise.all([
     getLibrary(c.env.DB, item.libraryId),
     tagsForItem(c.env.DB, id),
     activeLoansForItem(c.env.DB, id),
     listPeople(c.env.DB),
-    // with its want list and purchase links, in the same call (§16 #53)
-    itemPageLog(c.env.DB, id),
+    // with its want list and purchase links, in the same call (§16 #53), and Recommend to…'s (§16 #58)
+    itemPageLog(c.env.DB, id, recommend.statements),
     pastLoansForItem(c.env.DB, id),
     playLog(c.env.DB, id),
     // its series, with the viewer's own reading of every volume (§16 #52): one call, only for an item in one
@@ -492,6 +602,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const details = parseDetails(item.details);
   const record = isRecord(item.mediaType);
   const discussion = await itemComments(c, item); // null unless connections are enabled and someone commented
+  const recommending = recommend.render(log.extra); // null unless connections are enabled and one is active (§16 #58)
 
   return page(
     c,
@@ -538,6 +649,15 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
             <>
               <dt>Location</dt>
               <dd>{item.location}</dd>
+            </>
+          ) : null}
+          {/* what was paid (§16 #61): this page only — money is never on share pages or to connections */}
+          {isStoredPrice(item.purchasePrice, item.purchaseCurrency) ? (
+            <>
+              <dt>Paid</dt>
+              <dd>
+                <Money minor={item.purchasePrice!} currency={item.purchaseCurrency} />
+              </dd>
             </>
           ) : null}
           {/* the copy's own condition (§16 #55): this page only — never on share pages or to connections */}
@@ -634,6 +754,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
             details={details}
             after={<DiscogsRefresh item={item} token={!!c.env.DISCOGS_TOKEN} notice={discogsNotice(c, details)} />}
           />
+        ) : item.mediaType === 'boardgame' ? (
+          <GameDetails item={item} details={details} token={!!c.env.BGG_TOKEN} notice={bggNotice(c)} />
         ) : Object.keys(details).length ? (
           <div class="detail-section">
             <p class="eyebrow">Details</p>
@@ -718,6 +840,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
 
         <LendingHistory loans={lent.loans} total={lent.total} />
 
+        {recommending}
+
         <div class="actions">
           <a href={`/items/${item.id}/edit`} role="button">
             Edit
@@ -744,13 +868,14 @@ items.get('/items/:id/edit', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
-  const [libs, tags, log, people, names, current] = await Promise.all([
+  const [libs, tags, log, people, names, current, settings] = await Promise.all([
     listLibraries(c.env.DB),
     tagsForItem(c.env.DB, id),
     readingLog(c.env.DB, id),
     listPeople(c.env.DB),
     seriesNames(c.env.DB),
     item.seriesId !== null ? getSeries(c.env.DB, item.seriesId) : null,
+    getSiteSettings(c.env.DB), // the household's currency, for the price field (§16 #61)
   ]);
   return page(
     c,
@@ -771,6 +896,7 @@ items.get('/items/:id/edit', async (c) => {
         perMember={people.length > 1}
         series={current ? { name: current.name, number: item.seriesNumber !== null ? formatSeriesNumber(item.seriesNumber) : '' } : null}
         seriesNames={names}
+        money={priceField(c, settings.currency)}
       />
     </>,
   );
@@ -1220,6 +1346,28 @@ items.post('/items/:id/links/:linkId/delete', async (c) => {
   return linksResponse(c, id);
 });
 
+/**
+ * "Refresh from BGG" (§16 #60): one BGG request per click — the game by its stored bgg_id — then the blanks it can
+ * fill, written only if nothing changed meanwhile. It never overwrites a value: fillGame() says exactly which fields it
+ * may write. Never called on a page load. Answers with a redirect back to the details section.
+ */
+items.post('/items/:id/bgg', async (c) => {
+  const id = Number(c.req.param('id'));
+  const item = await getItem(c.env.DB, id);
+  if (!item) return c.notFound();
+  if (item.mediaType !== 'boardgame') return c.text('BoardGameGeek details are for board games.', 400);
+  const back = (query: string) => c.redirect(`/items/${id}?${query}#details`);
+  if (!c.env.BGG_TOKEN) return back('bgg=notoken');
+  const bggId = bggIdOf(parseDetails(item.details));
+  if (!bggId) return back('bgg=noid');
+  const found = await bggRefresh(c.env, bggId);
+  if (!found.ok) return back(`bgg=${found.failure}`);
+  const fill = fillGame(item, found.game);
+  if (!fill.filled.length) return back('bgg=nothing');
+  if (!(await applyGameFill(c.env.DB, id, item, fill))) return back('bgg=changed');
+  return back(`bgg=filled&f=${fill.filled.join(',')}`);
+});
+
 items.post('/items/:id/mark-owned', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
@@ -1247,8 +1395,15 @@ items.post('/items/:id', async (c) => {
   const body = await c.req.parseBody();
   const parsed = parseItemForm(body);
   if (!parsed) return c.text('Title and shelf are required.', 400);
-  const [lib, log, people] = await Promise.all([getLibrary(c.env.DB, parsed.values.libraryId), readingLog(c.env.DB, id), listPeople(c.env.DB)]);
+  const [lib, log, people, settings] = await Promise.all([
+    getLibrary(c.env.DB, parsed.values.libraryId),
+    readingLog(c.env.DB, id),
+    listPeople(c.env.DB),
+    getSiteSettings(c.env.DB), // the household's currency (§16 #61)
+  ]);
   if (!lib) return c.text('No such shelf.', 400);
+  const price = formPrice(body, settings.currency, existing);
+  if (price.values) Object.assign(parsed.values, price.values);
   const user = c.get('user');
   // the form's reading, rating and review are the editor's own (§16 #43)
   const mine = personalItem(existing, log, user.id);
@@ -1263,7 +1418,7 @@ items.post('/items/:id', async (c) => {
         : null
       : formReadProblem(mine, sent),
     parsed,
-  );
+  ) ?? price.problem;
   if (problem) {
     const [libs, names] = await Promise.all([listLibraries(c.env.DB), seriesNames(c.env.DB)]);
     c.status(400);
@@ -1289,6 +1444,7 @@ items.post('/items/:id', async (c) => {
           perMember={people.length > 1}
           series={parsed.seriesSent}
           seriesNames={names}
+          money={priceField(c, settings.currency, price)}
         />
       </>,
     );

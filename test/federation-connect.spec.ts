@@ -198,6 +198,7 @@ describe('identity and setup', () => {
       name: A.name,
       url: A.url,
       publicKey: keysA.publicJwk,
+      accepts: ['Recommend'], // §16 #58: additive — an older household's isDescriptor ignores it
     });
     expect(JSON.stringify(body)).not.toContain('"d"');
   });
