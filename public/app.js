@@ -1,4 +1,64 @@
-// Small vanilla helpers: add-page tabs, mobile sidebar, and table column choices.
+// Small vanilla helpers: add-page tabs, mobile sidebar, and table column choices — and, first, the installed app's
+// service worker and whose offline scans this device holds.
+
+// ── the offline scan queue belongs to whoever is signed in here (ARCH.md §16 #48) ──
+// Top level, not DOMContentLoaded: this runs before the Add page's review list reads the queue (deferred scripts run
+// in order, and IndexedDB serves a delete before any open queued after it).
+(() => {
+  const OWNER_KEY = 'nalanda:scan-owner';
+  const dropQueue = () =>
+    new Promise((resolve) => {
+      try {
+        const req = indexedDB.deleteDatabase('nalanda-scans');
+        req.onsuccess = req.onerror = req.onblocked = () => resolve();
+      } catch {
+        resolve();
+      }
+    });
+
+  // A signed-in page names its account's stamp. A different stamp from the one this device remembers means someone
+  // else signed in: their predecessor's held scans go, unseen, before anything can show them.
+  const stamp = document.body?.dataset.scanOwner;
+  if (stamp) {
+    let known;
+    try {
+      known = localStorage.getItem(OWNER_KEY);
+    } catch {
+      known = undefined; // storage disabled: nothing can be held for anyone (scan-queue.js refuses without a stamp)
+    }
+    if (known !== stamp) {
+      dropQueue();
+      try {
+        localStorage.setItem(OWNER_KEY, stamp);
+      } catch {
+        // stays unowned, so nothing is held
+      }
+    }
+  }
+
+  // Logging out empties the queue and forgets the stamp before the form goes: the next person to sign in on this
+  // device starts with nothing held. Bounded, so a stuck IndexedDB can't keep anyone signed in.
+  document.querySelectorAll('form[action="/auth/logout"]').forEach((form) => {
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      try {
+        localStorage.removeItem(OWNER_KEY);
+      } catch {
+        // nothing stored, nothing to forget
+      }
+      Promise.race([dropQueue(), new Promise((resolve) => setTimeout(resolve, 1500))]).then(() => form.submit());
+    });
+  });
+
+  // The service worker keeps the offline page and the scanner, never a page or an API answer (public/sw.js).
+  // updateViaCache 'none': the browser checks sw.js itself on every visit, so a deploy's worker is never missed.
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' }).catch(() => {
+      // no worker (private mode, an old browser): everything works, just not offline
+    });
+  }
+})();
+
 document.addEventListener('DOMContentLoaded', () => {
   const tabs = document.querySelectorAll('.tab[data-tab]');
   tabs.forEach((tab) => {

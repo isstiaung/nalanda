@@ -11,14 +11,14 @@ import { shareNotFound } from './share';
 const FILE_LIKE = /\.[a-z0-9]{1,5}$/i;
 
 /**
- * Where this app's own files live: at the root (/app.css, /covers.js, /robots.txt…) or under /vendor/, /icons/ and
+ * Where this app's own files live: at the root (/app.css, /covers.js, /robots.txt, /sw.js, /offline.html…) or under /vendor/, /icons/ and
  * /bgg/ (BoardGameGeek's logo, which signed-out share pages load).
  * A request here that reaches the Worker is for a file that doesn't exist — the files that do are served before
  * the Worker runs — so the session middleware answers it with a plain 404, signed in or not, rather than sending a
  * <script> tag to the login page. Only these places, never a page path: a tag named "node.js" is /tags/node.js.
  */
 export const MISSING_ASSET =
-  /^\/(?:vendor\/|icons\/|bgg\/|[^/]+\.(?:js|mjs|css|map|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|otf|wasm|webmanifest|txt)$)/i;
+  /^\/(?:vendor\/|icons\/|bgg\/|[^/]+\.(?:js|mjs|css|map|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|otf|wasm|webmanifest|txt|html)$)/i;
 
 export async function notFound(c: Context<AppEnv>): Promise<Response> {
   const path = c.req.path;

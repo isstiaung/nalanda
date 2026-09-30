@@ -5,6 +5,7 @@ import { listLibraries } from '../db/queries';
 import type { AppEnv, SessionUser } from '../env';
 import { unreadCounts } from '../db/federation';
 import { loadIdentity } from '../federation/keys';
+import { scanQueueOwner } from '../lib/auth';
 
 type NavLibrary = Library & { itemCount: number };
 
@@ -151,12 +152,14 @@ export const Layout: FC<
     libraries?: NavLibrary[];
     federation?: boolean;
     unread?: Unread;
+    /** whose offline scans this device may hold — see scanQueueOwner(); app.js reads it */
+    scanOwner?: string;
   }>
-> = ({ title, user, path = '/', libraries = [], federation = false, unread = NONE_UNREAD, children }) => (
+> = ({ title, user, path = '/', libraries = [], federation = false, unread = NONE_UNREAD, scanOwner, children }) => (
   <html lang="en">
     <Head title={title} />
     {user ? (
-      <body>
+      <body data-scan-owner={scanOwner}>
         <div class="app">
           <Sidebar user={user} path={path} libraries={libraries} federation={federation} unread={unread} />
           <div>
@@ -203,5 +206,9 @@ export async function page(c: Context<AppEnv>, title: string, body: Child) {
   const federation = !!user && !!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY));
   // One query, and only on an instance with connections: everything notified is about a connection.
   const unread = federation && user ? await unreadCounts(c.env.DB, user.id) : NONE_UNREAD;
-  return c.html(`<!doctype html>${Layout({ title, user, path, libraries, federation, unread, children: body })}`);
+  // signed in means the session secret is set: the cookie was verified with it
+  const scanOwner = user && c.env.SESSION_SECRET ? await scanQueueOwner(c.env.SESSION_SECRET, user.id) : undefined;
+  return c.html(
+    `<!doctype html>${Layout({ title, user, path, libraries, federation, unread, scanOwner, children: body })}`,
+  );
 }

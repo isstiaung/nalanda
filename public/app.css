@@ -604,6 +604,17 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 #tab-search .inline-form input[type='search'] { flex: 1 1 16rem; }
 .candidate-save select { width: auto; margin: 0; height: 30px; font-size: 12.5px; }
 
+/* scans held on the device while offline, waiting on the Add page (ARCH.md §16 #48) — candidate cards under a notice */
+.scan-review { margin-bottom: 1.75rem; }
+.scan-review-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.25rem; margin: 0; }
+.scan-review-head p { margin: 0.2rem 0 0; }
+.scan-review-head select { width: auto; max-width: 100%; margin: 0; height: 30px; font-size: 12.5px; }
+/* a long shelf name wraps inside the button rather than pushing it off a phone */
+.scan-review-head button { white-space: normal; height: auto; min-height: 30px; padding-top: 0.3rem; padding-bottom: 0.3rem; line-height: 1.2; text-align: center; }
+.review-scan { display: block; text-transform: uppercase; color: var(--ink-3); margin-bottom: 0.3rem; overflow-wrap: anywhere; }
+.review-entry[data-added] { margin: 0.75rem 0; }
+.review-trouble { margin: 0.65rem 0 0; }
+
 /* ── auth (login / setup / account) ───────────────────────────────────────── */
 
 .auth-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 1.5rem; background: var(--paper); }
@@ -625,10 +636,11 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   border-top: 1px solid var(--line);
 }
 
-.share-shell { max-width: 1020px; margin: 0 auto; padding: 2rem 2rem 3rem; } /* the app's 2rem desktop gutter */
-.share-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--line); padding-bottom: 0.9rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
-.share-head h1 { margin: 0; }
-.share-mark { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-3); }
+.share-shell, .offline-shell { max-width: 1020px; margin: 0 auto; padding: 2rem 2rem 3rem; } /* the app's 2rem desktop gutter */
+.offline-shell { max-width: 640px; } /* the installed app's stand-in for a page it can't load offline: public/offline.html */
+.share-head, .offline-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; border-bottom: 1px solid var(--line); padding-bottom: 0.9rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+.share-head h1, .offline-head h1 { margin: 0; }
+.share-mark, .offline-mark { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--ink-3); }
 .share-footer { margin-top: 3rem; border-top: 1px solid var(--line); padding-top: 1rem; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em; color: var(--ink-3); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.5rem; }
 
 /* "Powered by BGG" — BoardGameGeek's own mark, owed beside its data (ARCH.md §16 #44). Shown as BGG ships it,
@@ -681,7 +693,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   .mobile-bar .mobile-unread { margin-left: auto; text-decoration: none; }
   .content { padding: 1.1rem 1rem 3rem; }
   /* one phone gutter everywhere: public share pages and the login card sit on the same 16px line as the app */
-  .share-shell { padding: 1.25rem 1rem 3rem; }
+  .share-shell, .offline-shell { padding: 1.25rem 1rem 3rem; }
   .auth-shell { padding: 1rem; }
   .item-detail { grid-template-columns: 1fr; }
   .item-detail-cover { position: static; max-width: 190px; }

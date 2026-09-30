@@ -1,12 +1,18 @@
 // Barcode scanning, entirely on-device: native BarcodeDetector where available
 // (Chrome/Android), lazy-loaded ZXing-WASM everywhere else (iOS Safari, Firefox).
 // Requires HTTPS (or localhost) for camera access.
+//
+// With no signal it keeps going (ARCH.md §16 #48): a barcode found offline — or whose lookup never reached the
+// server — is held on the device by scan-queue.js, and the camera stays on for the next one. The offline page
+// (offline.html, <body data-scan-mode="hold">) only ever holds; the Add page looks up while it can.
 (() => {
   const video = document.getElementById('scanner-video');
   const startBtn = document.getElementById('scanner-start');
   const stopBtn = document.getElementById('scanner-stop');
   const status = document.getElementById('scanner-status');
   if (!video || !startBtn) return;
+  const holdOnly = document.body.dataset.scanMode === 'hold';
+  const queue = window.nalandaScanQueue;
 
   let stream = null;
   let timer = null;
@@ -58,7 +64,47 @@
     return results[0]?.text ?? null;
   }
 
+  const offline = () => holdOnly || !navigator.onLine || !window.htmx;
+
+  // what a hold says; the offline page and the Add page both show the count
+  const HOLD_WHY = {
+    already: (code) => `${code} is already held — it's on the list once.`,
+    full: () => `The device already holds ${queue.LIMIT} scans. Review them on Add items before scanning more.`,
+    nobody: () => 'Nobody is signed in on this device, so scans can’t be held. Sign in once you have signal.',
+    unsupported: () => 'This browser can’t hold scans offline. Try again with signal.',
+    invalid: (code) => `${code} doesn’t look like a barcode.`,
+  };
+
+  async function hold(code) {
+    if (!queue) {
+      say('This page can’t hold scans offline. Try again with signal.');
+      return;
+    }
+    let outcome;
+    try {
+      outcome = await queue.hold(code);
+    } catch {
+      say('Couldn’t hold that scan on this device.');
+      return;
+    }
+    const waiting = outcome.count ? ` ${outcome.count} waiting to review.` : '';
+    say(outcome.held ? `Held ${code} on this device.${waiting}` : `${HOLD_WHY[outcome.why]?.(code) ?? 'Not held.'}${waiting}`);
+    document.dispatchEvent(new CustomEvent('nalanda:held', { detail: outcome }));
+  }
+  // for the typed-barcode box on the offline page, which has no camera to go through
+  window.nalandaHoldScan = hold;
+
+  const seen = new Set(); // this page's offline finds: the barcode still in frame isn't held again every 350 ms
+
   function found(code) {
+    if (offline()) {
+      // offline, the camera keeps going for the next barcode
+      if (seen.has(code)) return;
+      seen.add(code);
+      if (navigator.vibrate) navigator.vibrate(80);
+      hold(code);
+      return;
+    }
     stop();
     if (navigator.vibrate) navigator.vibrate(80);
     say(`Found ${code} — looking it up…`);
@@ -67,6 +113,14 @@
       swap: 'innerHTML',
     });
   }
+
+  // A lookup that never reached the server — signal gone mid-scan, or the typed box — holds its barcode instead.
+  document.addEventListener('htmx:sendError', (e) => {
+    const path = e.detail?.pathInfo?.finalRequestPath ?? '';
+    if (!path.startsWith('/add/results')) return;
+    const code = new URL(path, location.origin).searchParams.get('barcode')?.trim();
+    if (code) hold(code);
+  });
 
   async function start() {
     const request = navigator.mediaDevices.getUserMedia({
@@ -92,7 +146,7 @@
     await video.play();
     startBtn.hidden = true;
     stopBtn.hidden = false;
-    say('Point at a barcode…');
+    say(offline() ? 'Offline — point at a barcode; each one is held on this device.' : 'Point at a barcode…');
     timer = setInterval(async () => {
       try {
         const code = await detectFrame();

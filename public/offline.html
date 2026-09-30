@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#f6f2e7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#171310" media="(prefers-color-scheme: dark)" />
+    <title>Offline · Nalanda</title>
+    <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/app.css" />
+    <!--
+      The installed app's stand-in for any page it can't load without a signal (public/sw.js, ARCH.md §16 #48).
+      A static file: nothing about the household or whoever is signed in is on it, so the service worker can keep
+      it. It only scans — each barcode is held on the device (scan-queue.js) for the Add page to review once online.
+    -->
+    <script src="/scan-queue.js" defer></script>
+    <script src="/scanner.js" defer></script>
+  </head>
+  <body data-scan-mode="hold">
+    <main class="offline-shell">
+      <div class="offline-head">
+        <div>
+          <div class="brand-rule"></div>
+          <div class="offline-mark">Nalanda · offline</div>
+          <h1>No signal</h1>
+        </div>
+      </div>
+
+      <p class="muted">
+        Nothing from your library is kept on this device, so it can't be shown until you're back online. Barcodes can
+        still be scanned: each one is held here — the barcode and when you scanned it, nothing else — and once you're
+        online, <strong>Add items</strong> lists them for you to add to a shelf or drop.
+      </p>
+
+      <p id="offline-nobody" class="notice" hidden>
+        Nobody is signed in on this device, so scans can't be held. Sign in once you have signal, then scan.
+      </p>
+
+      <section id="offline-scan">
+        <video id="scanner-video" playsinline muted></video>
+        <div class="inline-form">
+          <button type="button" id="scanner-start">Start camera</button>
+          <button type="button" id="scanner-stop" class="btn" hidden>Stop</button>
+        </div>
+        <p id="scanner-status" class="muted" aria-live="polite"></p>
+        <form id="offline-type" class="inline-form">
+          <input name="barcode" placeholder="…or type the barcode digits" inputmode="numeric" autocomplete="off" />
+          <button type="submit">Hold</button>
+        </form>
+      </section>
+
+      <div class="offline-held">
+        <p class="eyebrow"><span id="offline-count" class="mono">0</span> held on this device</p>
+        <p id="offline-online" class="notice" hidden>
+          You're back online. <a href="/add">Review them on Add items →</a>
+        </p>
+        <p><a href="/add" class="btn">Try Add items again</a></p>
+      </div>
+
+      <footer class="share-footer">
+        <span>Nalanda · <span lang="sa">नालन्दा</span></span>
+      </footer>
+    </main>
+    <script>
+      // Wires the page to the queue: the count, the typed box, and a way back once the signal returns. Deferred
+      // scripts have run by DOMContentLoaded, so the queue and the scanner are both there.
+      document.addEventListener('DOMContentLoaded', function () {
+        var queue = window.nalandaScanQueue;
+        var countEl = document.getElementById('offline-count');
+        var showCount = function () {
+          if (queue) queue.count().then(function (n) { countEl.textContent = String(n); }, function () {});
+        };
+        if (!queue || !queue.owner()) {
+          document.getElementById('offline-nobody').hidden = false;
+          document.getElementById('offline-scan').hidden = true;
+        }
+        showCount();
+        document.addEventListener('nalanda:held', showCount);
+        document.getElementById('offline-type').addEventListener('submit', function (e) {
+          e.preventDefault();
+          var input = e.target.elements.barcode;
+          if (window.nalandaHoldScan && input.value.trim()) {
+            window.nalandaHoldScan(input.value.trim());
+            input.value = '';
+          }
+        });
+        var online = function () { document.getElementById('offline-online').hidden = !navigator.onLine; };
+        window.addEventListener('online', online);
+        window.addEventListener('offline', online);
+      });
+    </script>
+  </body>
+</html>

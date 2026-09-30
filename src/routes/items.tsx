@@ -33,6 +33,7 @@ import {
   type ReviewEntry,
 } from '../db/queries';
 import type { AppEnv } from '../env';
+import { scanQueueOwner } from '../lib/auth';
 import { deleteCover, storeCover } from '../lib/covers';
 import { MAX_PROGRESS_PAGE } from '../lib/progress';
 import { isReadStatus, readDateProblem, summarizeReads, todayUtc, type ReadDraft } from '../lib/reads';
@@ -52,6 +53,7 @@ import {
   MEDIA_LABEL,
   ReadingSection,
   ReadsByPerson,
+  ReviewAdded,
   ReviewsSection,
   stars,
   type Person,
@@ -216,6 +218,14 @@ const LENGTH_UNIT: Partial<Record<MediaType, string>> = {
 
 items.post('/items', async (c) => {
   const body = await c.req.parseBody();
+  // The Add page's review list posts here with htmx and gets the entry back, added; everything else is redirected.
+  const htmx = !!c.req.header('HX-Request');
+  // A scan held offline carries the stamp of whoever its review list was shown to (ARCH.md §16 #48). Someone else
+  // signed in since, in this tab or another, can't add it as theirs.
+  const heldFor = body['scanOwner'];
+  if (heldFor !== undefined && heldFor !== (await scanQueueOwner(c.env.SESSION_SECRET ?? '', c.get('user').id))) {
+    return c.text('That scan was held for whoever was signed in before. Nothing was added — reload Add items.', 409);
+  }
   const parsed = parseItemForm(body);
   if (!parsed) return c.text('Title and shelf are required.', 400);
   const lib = await getLibrary(c.env.DB, parsed.values.libraryId);
@@ -227,6 +237,7 @@ items.post('/items', async (c) => {
   if (logOnly) parsed.values.copies = 0;
 
   const problem = formReadProblem(null, readFields(parsed.values));
+  if (problem && htmx) return c.text(problem, 400);
   if (problem) {
     const [libs, people] = await Promise.all([listLibraries(c.env.DB), listPeople(c.env.DB)]);
     c.status(400);
@@ -260,6 +271,7 @@ items.post('/items', async (c) => {
     c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // nothing points at it
     throw err;
   }
+  if (htmx && !logOnly) return c.html(<ReviewAdded id={id} title={parsed.values.title} shelf={lib.name} />);
   return c.redirect(logOnly ? `/items/${id}/edit` : `/items/${id}`);
 });
 
