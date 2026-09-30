@@ -321,6 +321,25 @@ describe('the Feed page', () => {
     expect(html).toContain('width:62%'); // the bar shows the latest
   });
 
+  it("shows one entry's date once — the card's — and every entry's date when there are several", async () => {
+    const card = (html: string) => html.replace(/\s+/g, ' ').match(/<article class="feed-card">.*?<\/article>/)![0];
+    const logDates = (html: string) => [...card(html).matchAll(/<li>.*?<\/li>/g)].map((li) => li[0].match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? null);
+
+    await storeEntries(env.DB, subscriptionId, [stored(1, 'progress', 1, { progress: { page: 36, percent: 12 } })]);
+    let html = await (await a.get('/feed', await sessionCookie('member'))).text();
+    const day = sqlAgo(1).slice(0, 10);
+    expect(card(html)).toContain(`<span class="feed-date">${day}</span>`);
+    expect(card(html).match(new RegExp(day, 'g'))).toHaveLength(1); // not repeated beside p. 36
+    expect(logDates(html)).toEqual([null]);
+
+    await storeEntries(env.DB, subscriptionId, [
+      stored(2, 'progress', 2 * 24 * 60, { progress: { page: 10, percent: 3 } }),
+      stored(3, 'progress', 3 * 24 * 60, { progress: { page: 5, percent: 2 } }),
+    ]);
+    html = await (await a.get('/feed', await sessionCookie('member'))).text();
+    expect(logDates(html)).toEqual([day, sqlAgo(2 * 24 * 60).slice(0, 10), sqlAgo(3 * 24 * 60).slice(0, 10)]);
+  });
+
   it('says finished once the book is, and keeps the timeline as the record', async () => {
     await storeEntries(env.DB, subscriptionId, [
       stored(1, 'progress', 600, { progress: { page: 150, percent: 50 } }),

@@ -10,6 +10,7 @@ import type { Notification } from '../db/schema';
 import type { AppEnv } from '../env';
 import { loadIdentity } from '../federation/keys';
 import { page } from '../views/layout';
+import { ledgerDateTime } from '../lib/dates';
 
 const notificationsRoutes = new Hono<AppEnv>();
 
@@ -105,7 +106,7 @@ notificationsRoutes.get('/notifications', async (c) => {
                 {n.id > readUpTo ? <span class="sr-only">New: </span> : null}
                 <Sentence n={n} />
               </a>
-              <span class="mono muted">{n.at.slice(0, 16)}</span>
+              <span class="mono muted">{ledgerDateTime(n.at)}</span>
             </li>
           ))}
         </ol>

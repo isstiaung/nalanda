@@ -126,6 +126,10 @@ export function formatMoney(minor: number | bigint | string, currency: string): 
   }
 }
 
+const COUNT = new Intl.NumberFormat('en', { maximumFractionDigits: 0 });
+/** A count for people, grouped as prices are ("1,681", "30,200") — the same Intl 'en' grouping formatMoney uses. */
+export const formatCount = (n: number): string => COUNT.format(n);
+
 /**
  * A price from an import's cells (§16 #61): the amount, and the currency the file gives — or the household's, when
  * the file gives none. A currency that isn't one, an amount that doesn't parse, or a price with no currency to be

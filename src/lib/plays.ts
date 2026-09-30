@@ -24,15 +24,6 @@ export function playDateProblem(on: string): string | null {
   return null;
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-/** "14 Sep" in `today`'s year, "14 Sep 2025" in any other — a play log reads by the day, and this year is implied. */
-export function playDate(on: string, today: string): string {
-  const [y, m, d] = on.split('-');
-  const day = `${Number(d)} ${MONTHS[Number(m) - 1] ?? m}`;
-  return y === today.slice(0, 4) ? day : `${day} ${y}`;
-}
-
 /** "once", then "N times". */
 export const timesPlayed = (n: number): string => (n === 1 ? 'once' : `${n} times`);
 

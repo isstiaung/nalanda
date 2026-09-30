@@ -18,6 +18,8 @@ import {
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { deleteCover } from '../lib/covers';
+import { formatCount } from '../lib/money';
+import { isPlayable } from '../lib/plays';
 import { shareVisibility, shareVisibilityLabel } from '../lib/share';
 import {
   ColumnsMenu,
@@ -158,6 +160,12 @@ libraries.get('/libraries/:id', async (c) => {
     shelfTotals(c.env.DB, id),
   ]);
   const shelfTotal = totals.shelves.get(id);
+  // Status is reading status: a shelf — or a view of it — holding only games and records (they take plays) leaves the
+  // filter out, unless one is already applied, so it can still be cleared
+  const typesHere = (shelfTotal?.byType ?? []).filter((t) => t.count > 0).map((t) => t.mediaType);
+  const showStatus = statuses.length > 0 || (mediaTypes.length ? mediaTypes : typesHere).some((t) => !isPlayable(t));
+  // everything on the shelf, whatever the filters: what deleting it takes with it
+  const shelfCount = shelves.find((l) => l.id === id)?.itemCount ?? total;
 
   const makeHref = (p: number, v = view) => {
     const params = new URLSearchParams();
@@ -184,7 +192,7 @@ libraries.get('/libraries/:id', async (c) => {
         <div>
           <h1>{lib.name}</h1>
           <span class="sub">
-            {total} {total === 1 ? 'ITEM' : 'ITEMS'}
+            {formatCount(total)} {total === 1 ? 'ITEM' : 'ITEMS'}
             {shares.length ? ` · ${shareVisibilityLabel(shareVisibility(shares)).toUpperCase()}` : ''}
           </span>
         </div>
@@ -216,12 +224,14 @@ libraries.get('/libraries/:id', async (c) => {
             aria-label="Filter by title, author or location"
           />
           <FilterMenu label="Type" name="type" options={MEDIA_TYPES.map((t) => [t, MEDIA_LABEL[t]] as const)} selected={mediaTypes} />
-          <FilterMenu
-            label="Status"
-            name="status"
-            options={ITEM_STATUSES.map((st) => [st, STATUS_LABEL[st]] as const)}
-            selected={statuses}
-          />
+          {showStatus ? (
+            <FilterMenu
+              label="Status"
+              name="status"
+              options={ITEM_STATUSES.map((st) => [st, STATUS_LABEL[st]] as const)}
+              selected={statuses}
+            />
+          ) : null}
           <FilterMenu
             label="Holding"
             name="owned"
@@ -231,7 +241,8 @@ libraries.get('/libraries/:id', async (c) => {
             ]}
             selected={ownedSel}
           />
-          {people.length > 1 || reader ? <ReadByMenu value={readBy} me={user.id} people={people} /> : null}
+          {/* "Read by" is reading too: not for a view of games and records only, unless it is already applied */}
+          {(people.length > 1 && showStatus) || reader ? <ReadByMenu value={readBy} me={user.id} people={people} /> : null}
           <select name="sort" aria-label="Sort">
             <option value="added" selected={sort === 'added'}>
               Newest first
@@ -249,22 +260,24 @@ libraries.get('/libraries/:id', async (c) => {
           <button type="submit" class="btn">
             Apply
           </button>
-          <span class="spacer"></span>
-          {/* Display-only, and only meaningful in the table: its checkboxes carry no
-              `name`, so they never join this GET form. "shelf" is omitted — a single
-              shelf's table has no Shelf column to hide. */}
-          {view === 'table' ? (
-            <ColumnsMenu
-              available={['type', 'year', 'completed', 'rating', 'status', 'holding', 'tags', 'acc']}
-            />
-          ) : null}
-          <span class="view-toggle">
-            <a href={makeHref(1, 'table')} class={view === 'table' ? 'active' : undefined}>
-              Table
-            </a>
-            <a href={makeHref(1, 'grid')} class={view === 'grid' ? 'active' : undefined}>
-              Covers
-            </a>
+          {/* Columns and the view toggle stay together at the row's end, and wrap as one */}
+          <span class="toolbar-end">
+            {/* Display-only, and only meaningful in the table: its checkboxes carry no
+                `name`, so they never join this GET form. "shelf" is omitted — a single
+                shelf's table has no Shelf column to hide. */}
+            {view === 'table' ? (
+              <ColumnsMenu
+                available={['type', 'year', 'completed', 'rating', 'status', 'holding', 'tags', 'acc']}
+              />
+            ) : null}
+            <span class="view-toggle">
+              <a href={makeHref(1, 'table')} class={view === 'table' ? 'active' : undefined}>
+                Table
+              </a>
+              <a href={makeHref(1, 'grid')} class={view === 'grid' ? 'active' : undefined}>
+                Covers
+              </a>
+            </span>
           </span>
         </form>
       )}
@@ -323,7 +336,7 @@ libraries.get('/libraries/:id', async (c) => {
               {statuses.length === 1 ? <input type="hidden" name="status" value={statuses[0]} /> : null}
               {owned !== undefined ? <input type="hidden" name="owned" value={owned ? '1' : '0'} /> : null}
               <input type="hidden" name="sort" value={sort} />
-              <input name="name" placeholder="Link name (shown as the public page title)" aria-label="Link name" required />
+              <input name="name" class="share-name" placeholder="Link name (shown as the public page title)" aria-label="Link name" required />
               <button type="submit">Publish current view</button>
             </form>
             <small class="muted">
@@ -350,7 +363,11 @@ libraries.get('/libraries/:id', async (c) => {
         <form
           method="post"
           action={`/libraries/${id}/delete`}
-          data-confirm={`Delete “${lib.name}” and all ${total} items in it? This cannot be undone.`}
+          data-confirm={
+            shelfCount
+              ? `Delete “${lib.name}” and ${shelfCount === 1 ? 'the 1 item' : `all ${shelfCount} items`} in it? This cannot be undone.`
+              : `Delete the empty shelf “${lib.name}”?`
+          }
         >
           <button type="submit" class="btn-danger">
             Delete shelf

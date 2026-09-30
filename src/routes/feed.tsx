@@ -28,6 +28,7 @@ import { loadIdentity } from '../federation/keys';
 import { MEDIA_ICON, stars } from '../views/components';
 import { page } from '../views/layout';
 import { CommentForm, CommentView } from './comments';
+import { ledgerDate } from '../lib/dates';
 
 const feed = new Hono<AppEnv>();
 
@@ -226,7 +227,7 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] | nul
       <div class="feed-body">
         <p class="eyebrow">
           {showHousehold ? `${card.householdName} · ` : ''}
-          {card.published.slice(0, 10)}
+          <span class="feed-date">{ledgerDate(card.published)}</span>
         </p>
         <p class="feed-line">
           {/* a name from another household: escaped text, like everything else here */}
@@ -256,7 +257,10 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] | nul
                 <li>
                   <span class="mono">{p.percent !== null ? `${p.percent}%` : '—'}</span>
                   <span class="mono">p. {p.page}</span>
-                  <span class="mono muted">{p.published.slice(0, 10)}</span>
+                  {/* one entry, on the day the card already names above: its date once is enough */}
+                  {timeline.length === 1 && p.published.slice(0, 10) === card.published.slice(0, 10) ? null : (
+                    <span class="mono muted">{ledgerDate(p.published)}</span>
+                  )}
                 </li>
               ))}
               {timeline.length > PROGRESS_SHOWN ? (
@@ -316,7 +320,7 @@ const GoalFeedCard: FC<{ card: GoalCard; showHousehold: boolean }> = ({ card, sh
       <div class="feed-body">
         <p class="eyebrow">
           {showHousehold ? `${card.householdName} · ` : ''}
-          {card.published.slice(0, 10)}
+          <span class="feed-date">{ledgerDate(card.published)}</span>
         </p>
         <p class="feed-line">
           <span class="feed-by">{goal.by} </span>
@@ -416,7 +420,7 @@ feed.get('/feed', async (c) => {
               <li>
                 <strong>{r.authorName}</strong> <span class="muted">({r.householdName})</span> on{' '}
                 <a href={`/items/${r.itemId}#comments`}>{r.itemTitle}</a>{' '}
-                <small class="muted mono">{r.createdAt.slice(0, 10)}</small>
+                <small class="muted mono">{ledgerDate(r.createdAt)}</small>
               </li>
             ))}
           </ul>
@@ -464,7 +468,7 @@ feed.get('/feed', async (c) => {
                         ? 'entries'
                         : 'items'}{' '}
                     ·{' '}
-                    {run[0]!.published.slice(0, 10)}
+                    {ledgerDate(run[0]!.published)}
                   </span>
                 </summary>
                 <div class="feed">

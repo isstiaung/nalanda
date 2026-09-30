@@ -5,15 +5,16 @@ import { ITEM_STATUSES, MEDIA_GRADES, MEDIA_TYPES, SLEEVE_GRADES } from '../db/s
 import { GRADE_NAME, isRecord } from '../lib/condition';
 import { releaseIdOf, splitPressing, trackCount, type Track } from '../lib/pressing';
 import { goalPace, goalPercent, paceLabel, pacePercent } from '../lib/goals';
-import { currencyDigits, formatMoney, isStoredPrice, minorToDecimal, type CurrencyTotal } from '../lib/money';
+import { currencyDigits, formatCount, formatMoney, isStoredPrice, minorToDecimal, type CurrencyTotal } from '../lib/money';
 import { progressPercent } from '../lib/progress';
 import { linkHost } from '../lib/links';
-import { isPlayable, playDate } from '../lib/plays';
+import { isPlayable } from '../lib/plays';
 import { latestReadDate, ordinal, summarizeReads, todayUtc, type ReadDraft, type ReadRow } from '../lib/reads';
 import { formatSeriesNumber } from '../lib/series';
 import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
 import { DiscogsAttribution, DiscogsCredit, discogsLink, discogsUrl } from './attribution';
+import { ledgerDate, ledgerDateTime } from '../lib/dates';
 
 export const MEDIA_LABEL: Record<MediaType, string> = {
   book: 'Book',
@@ -23,6 +24,16 @@ export const MEDIA_LABEL: Record<MediaType, string> = {
   music: 'Music',
   videogame: 'Video game',
   other: 'Other',
+};
+
+/** What an item's length counts, by type — the item page and share pages say "304 pages", not a bare 304. */
+export const LENGTH_UNIT: Partial<Record<MediaType, string>> = {
+  book: 'pages',
+  boardgame: 'min play time',
+  vinyl: 'tracks',
+  movie: 'min',
+  music: 'tracks',
+  videogame: 'hours',
 };
 
 /** Lowercase count nouns for inline breakdowns: "12 books · 3 board games · 5 vinyl". */
@@ -113,15 +124,17 @@ export const WantedPill: FC = () => <span class="pill wanted">Wanted</span>;
  */
 export const RereadingPill: FC = () => <span class="pill rereading">Re-reading</span>;
 
-/** An item's status as the app shows it: its status pill, or "Re-reading" for a book being read again (§16 #64). */
-export const StatusPills: FC<{ item: Pick<Item, 'status' | 'rereading'> }> = ({ item }) =>
-  item.rereading ? <RereadingPill /> : <StatusPill status={item.status} />;
+/** An item's status as the app shows it: its status pill, or "Re-reading" for a book being read again (§16 #64). A game
+ *  or record (it takes plays, not reads) shows none: reading status means nothing there, though the column keeps its
+ *  value for the export. */
+export const StatusPills: FC<{ item: Pick<Item, 'status' | 'rereading'> & { mediaType?: MediaType } }> = ({ item }) =>
+  item.mediaType && isPlayable(item.mediaType) ? null : item.rereading ? <RereadingPill /> : <StatusPill status={item.status} />;
 
 /**
  * The item page's status, in a span htmx can replace out of band: starting, finishing or stopping a read changes
  * it from inside the Reading section. `oob` renders it for that swap.
  */
-export const ItemStatusPills: FC<{ item: Pick<Item, 'status' | 'rereading'>; oob?: boolean }> = ({ item, oob }) => (
+export const ItemStatusPills: FC<{ item: Pick<Item, 'status' | 'rereading'> & { mediaType?: MediaType }; oob?: boolean }> = ({ item, oob }) => (
   <span id="item-status" class="status-pills" hx-swap-oob={oob ? 'true' : undefined}>
     <StatusPills item={item} />
   </span>
@@ -159,10 +172,10 @@ const PageLog: FC<{ item: Item; entries: ReadingPage[]; removable: boolean }> = 
       {entries.map((e) => (
         <li>
           <span class="mono">p. {e.page}</span>
-          <span class="mono muted">{e.at.slice(0, 10)}</span>
+          <span class="mono muted">{ledgerDate(e.at)}</span>
           {removable ? (
             <form method="post" action={`/items/${item.id}/progress/${e.id}/delete`} {...htmxTo(`/items/${item.id}/progress/${e.id}/delete`)}>
-              <button type="submit" class="progress-delete" aria-label={`Remove page ${e.page}, ${e.at.slice(0, 10)}`}>
+              <button type="submit" class="progress-delete" aria-label={`Remove page ${e.page}, ${ledgerDate(e.at)}`}>
                 Remove
               </button>
             </form>
@@ -536,15 +549,14 @@ export const ReadsByPerson: FC<{ item: Item; reads: ReadingRead[]; viewer: Viewe
 type PlayLine = { id: number; playedOn: string; loggedBy: number | null };
 
 /**
- * Plays as a list, newest first: each date, who logged it (for an admin, once the household has more than one member —
- * the logger is kept for auditing, not shown as anyone's history), and Remove for whoever may: the play's logger, or an
- * admin. `year` drops the year from dates in it, under a year heading; otherwise it shows only outside `today`'s.
- * `htmx` swaps the item page's Plays section on a removal; without it, the form posts and comes back to `back`.
+ * Plays as a list, newest first: each date, in the ledger's form (2026-09-28), who logged it (for an admin, once the
+ * household has more than one member — the logger is kept for auditing, not shown as anyone's history), and Remove for
+ * whoever may: the play's logger, or an admin. `htmx` swaps the item page's Plays section on a removal; without it, the
+ * form posts and comes back to `back`.
  */
-const PlayList: FC<{ item: Item; plays: PlayLine[]; today: string; viewer: Viewer; people: Person[]; back?: string }> = ({
+const PlayList: FC<{ item: Item; plays: PlayLine[]; viewer: Viewer; people: Person[]; back?: string }> = ({
   item,
   plays,
-  today,
   viewer,
   people,
   back,
@@ -554,7 +566,7 @@ const PlayList: FC<{ item: Item; plays: PlayLine[]; today: string; viewer: Viewe
   return (
     <ol class="play-log">
       {plays.map((p) => {
-        const when = playDate(p.playedOn, today);
+        const when = ledgerDate(p.playedOn);
         const action = `${base}/plays/${p.id}/delete${back ? `?back=${encodeURIComponent(back)}` : ''}`;
         return (
           <li>
@@ -609,7 +621,7 @@ export const PlaysSection: FC<{ item: Item; count: number; plays: PlayLine[]; to
           )}{' '}
           · last on{' '}
           <time class="mono" datetime={last.playedOn}>
-            {playDate(last.playedOn, today)}
+            {ledgerDate(last.playedOn)}
           </time>
         </p>
       ) : (
@@ -626,7 +638,7 @@ export const PlaysSection: FC<{ item: Item; count: number; plays: PlayLine[]; to
           </label>
         </form>
       ) : null}
-      {plays.length ? <PlayList item={item} plays={plays} today={today} viewer={viewer} people={people} /> : null}
+      {plays.length ? <PlayList item={item} plays={plays} viewer={viewer} people={people} /> : null}
       {count > plays.length ? (
         <p class="play-more">
           <a href={`${base}/plays`}>All {count} plays</a>
@@ -651,8 +663,7 @@ export const AllPlays: FC<{ item: Item; plays: PlayLine[]; viewer: Viewer; peopl
       {years.map((g) => (
         <div class="detail-section">
           <p class="eyebrow mono">{g.year}</p>
-          {/* a date in its own year's list needs no year */}
-          <PlayList item={item} plays={g.plays} today={`${g.year}-01-01`} viewer={viewer} people={people} back={back} />
+          <PlayList item={item} plays={g.plays} viewer={viewer} people={people} back={back} />
         </div>
       ))}
     </div>
@@ -678,13 +689,22 @@ export const ReviewsSection: FC<{ item: Item; reviews: ReviewLine[]; viewer: Vie
           {reviews.map((r) => {
             const editable = viewer.admin || r.userId === viewer.id;
             const moveTo = viewer.admin ? people.filter((p) => p.id !== r.userId && !reviews.some((o) => o.userId === p.id)) : [];
-            const who = r.userId === viewer.id ? `You · ${personName(people, r.userId)}` : personName(people, r.userId);
+            const mine = r.userId === viewer.id;
             return (
               <li>
                 <p class="review-by">
-                  <span class="reviewer">{who}</span>
+                  {/* as the Reading section names its readers: "You", in the accent, then the username */}
+                  <span class={mine ? 'reviewer reviewer-self' : 'reviewer'}>
+                    {mine ? (
+                      <>
+                        You <span class="muted">· {personName(people, r.userId)}</span>
+                      </>
+                    ) : (
+                      personName(people, r.userId)
+                    )}
+                  </span>
                   {r.rating ? <span class="rating">{stars(r.rating)}</span> : null}
-                  {r.reviewedAt ? <span class="mono muted">{r.reviewedAt.slice(0, 10)}</span> : null}
+                  {r.reviewedAt ? <span class="mono muted">{ledgerDate(r.reviewedAt)}</span> : null}
                 </p>
                 {r.review ? <p class="prewrap">{r.review}</p> : null}
                 {editable ? (
@@ -895,9 +915,15 @@ export const ReadNextCard: FC<{ pick: (Pick<Item, 'id' | 'title' | 'creators' | 
         {pick.creators ? <p class="read-next-by">{pick.creators}</p> : null}
         <p class="read-next-line">
           <small class="acc-no">{accNo(pick.id)}</small>
-          {pick.copies === 0 ? <NotOwnedPill /> : null}
-          {pick.copies === 0 && pick.wanted ? <WantedPill /> : null}
         </p>
+        {/* a book nobody here owns is still a fair pick — but the card says so plainly, not only in a faint pill */}
+        {pick.copies === 0 ? (
+          <p class="read-next-line read-next-unowned">
+            <NotOwnedPill />
+            {pick.wanted ? <WantedPill /> : null}
+            <span>No copy here — borrow or buy one to read it.</span>
+          </p>
+        ) : null}
         <div class="read-actions">
           <form method="post" action={`/items/${pick.id}/reads/start`}>
             <button type="submit">Start reading</button>
@@ -1069,9 +1095,12 @@ export const ItemTable: FC<{
             {libraryNames ? <td class="num hide-sm col-shelf">{libraryNames.get(item.libraryId) ?? ''}</td> : null}
             <td class="num hide-sm col-year">{yearOf(item.published)}</td>
             <td class="date hide-sm col-completed">
-              {item.completedOn ?? <span class="muted">—</span>}
+              {/* a game or record has no reading status, so no finish to date */}
+              {isPlayable(item.mediaType) ? <span class="muted">—</span> : (item.completedOn ?? <span class="muted">—</span>)}
               {/* the last finish, and how many there have been once there's more than one (§16 #41) */}
-              {item.readCount > 1 ? <span class="muted read-count" title={`Finished ${item.readCount} times`}> ×{item.readCount}</span> : null}
+              {item.readCount > 1 && !isPlayable(item.mediaType) ? (
+                <span class="muted read-count" title={`Finished ${item.readCount} times`}> ×{item.readCount}</span>
+              ) : null}
             </td>
             <td class="col-rating">{item.rating ? <span class="rating">{stars(item.rating)}</span> : <span class="muted">—</span>}</td>
             <td class="col-status">
@@ -1107,13 +1136,22 @@ export const ItemTable: FC<{
 );
 
 /**
- * A reading goal where it stands (§16 #49): "14 of 24", its pace — on track, N behind, reached — and a bar with a tick
- * where linear pace stands today. Counts are the registrar's voice, so monospace; the pace is a pill.
+ * A reading goal where it stands (§16 #49): "14 of 24", its pace — on pace, N behind pace, N ahead of pace, reached —
+ * and a bar with a tick where a year-long pace stands today. The bar is hidden from assistive tech, so a line under it
+ * says in words what the tick is and that pace runs from 1 January (a goal set in September starts behind it).
+ * Counts are the registrar's voice, so monospace; the pace is a pill.
  */
 export const GoalMeter: FC<{ count: number; target: number; year: number; today: string }> = ({ count, target, year, today }) => {
   const pace = goalPace(count, target, year, today);
   const tick = pace.state === 'reached' ? null : pacePercent(year, today);
-  const pill = pace.state === 'reached' ? 'pill reached' : pace.state === 'on_track' ? 'pill done' : pace.state === 'behind' ? 'pill behind' : 'pill';
+  const pill =
+    pace.state === 'reached'
+      ? 'pill reached'
+      : pace.state === 'on_track' || pace.state === 'ahead'
+        ? 'pill done'
+        : pace.state === 'behind'
+          ? 'pill behind'
+          : 'pill';
   return (
     <div class="goal-meter">
       <p class="goal-line">
@@ -1122,13 +1160,14 @@ export const GoalMeter: FC<{ count: number; target: number; year: number; today:
         </span>{' '}
         <span class="muted mono">{target === 1 ? 'book' : 'books'}</span> <span class={pill}>{paceLabel(pace)}</span>
       </p>
-      {/* the count and the pace are in words just above */}
+      {/* the count and the pace are in words just above, and the tick in words just below */}
       <div class="goal-track" aria-hidden="true">
         <div class="progress-track">
           <div class="progress-fill" style={`width:${goalPercent(count, target)}%`} />
         </div>
-        {tick !== null ? <span class="goal-pace" style={`left:${tick}%`} title="Where an even pace would be today" /> : null}
+        {tick !== null ? <span class="goal-pace" style={`left:${tick}%`} title="Where a year-long pace is today" /> : null}
       </div>
+      {tick !== null ? <p class="goal-note">Pace runs from 1 January: the mark is where a year-long pace is today.</p> : null}
     </div>
   );
 };
@@ -1140,7 +1179,7 @@ export const Stat: FC<{ n: number | string; label: string; warn?: boolean; detai
   detail,
 }) => (
   <div class="stat">
-    <div class={warn ? 'stat-n warn' : 'stat-n'}>{n}</div>
+    <div class={warn ? 'stat-n warn' : 'stat-n'}>{typeof n === 'number' ? formatCount(n) : n}</div>
     <div class="stat-label">{label}</div>
     {detail ? <div class="stat-detail">{detail}</div> : null}
   </div>
@@ -1185,6 +1224,9 @@ export const ItemForm: FC<{
 }> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverUrl, removeCover, perMember, series, seriesNames, money }) => {
   // a book being read again: status and dates describe its last finish, and the re-read is managed on its page
   const readingLocked = item?.mediaType === 'book' && !!item?.rereading;
+  // a game or record takes plays, not reads: its form shows no status or reading dates (the Add form's type is picked
+  // in the form itself, so only an edit knows)
+  const noReading = !!item && isPlayable(item.mediaType);
   // A book finished before: the form edits that finish, so it offers Completed only — reading it again, or a stop, is
   // done on its page (the route refuses the rest). A book with reads can't be made not started from here either. The
   // status the form was sent with is always offered, so a refused form shows what was chosen.
@@ -1288,18 +1330,28 @@ export const ItemForm: FC<{
         {item?.description ?? ''}
       </textarea>
     </label>
+    {noReading ? (
+      // a game or record has no reading status to show or pick: what it has goes back as it came, untouched
+      <>
+        <input type="hidden" name="status" value={item?.status ?? 'not_started'} />
+        <input type="hidden" name="beganOn" value={item?.beganOn ?? ''} />
+        <input type="hidden" name="completedOn" value={item?.status === 'in_progress' ? '' : (item?.completedOn ?? '')} />
+      </>
+    ) : null}
     <div class="grid">
-      <label>
-        {perMember ? 'Your status' : 'Status'}
-        <select name="status" disabled={readingLocked} {...invalid(error, 'item-form-error')}>
-          {/* only what a read can become from here (`offered`, §16 #41) */}
-          {ITEM_STATUSES.filter(offered).map((st) => (
-            <option value={st} selected={(item?.status ?? 'not_started') === st}>
-              {STATUS_LABEL[st]}
-            </option>
-          ))}
-        </select>
-      </label>
+      {noReading ? null : (
+        <label>
+          {perMember ? 'Your status' : 'Status'}
+          <select name="status" disabled={readingLocked} {...invalid(error, 'item-form-error')}>
+            {/* only what a read can become from here (`offered`, §16 #41) */}
+            {ITEM_STATUSES.filter(offered).map((st) => (
+              <option value={st} selected={(item?.status ?? 'not_started') === st}>
+                {STATUS_LABEL[st]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label>
         {perMember ? 'Your rating' : 'Rating'}
         <RatingSelect value={item?.rating} />
@@ -1309,38 +1361,41 @@ export const ItemForm: FC<{
         <input name="copies" value={item?.copies?.toString() ?? '1'} inputmode="numeric" />
       </label>
     </div>
-    <div class="grid">
-      <label>
-        Began
-        <input type="date" name="beganOn" value={item?.beganOn ?? ''} disabled={readingLocked} {...invalid(error, 'item-form-error')} />
-      </label>
-      <label>
-        Completed
-        {/* an open read has no end: the date shown for a book in progress is always blank */}
-        <input
-          type="date"
-          name="completedOn"
-          value={item?.status === 'in_progress' ? '' : (item?.completedOn ?? '')}
-          disabled={readingLocked}
-          {...invalid(error, 'item-form-error')}
-        />
-      </label>
-    </div>
+    {noReading ? null : (
+      <div class="grid">
+        <label>
+          Began
+          <input type="date" name="beganOn" value={item?.beganOn ?? ''} disabled={readingLocked} {...invalid(error, 'item-form-error')} />
+        </label>
+        <label>
+          Completed
+          {/* an open read has no end: the date shown for a book in progress is always blank */}
+          <input
+            type="date"
+            name="completedOn"
+            value={item?.status === 'in_progress' ? '' : (item?.completedOn ?? '')}
+            disabled={readingLocked}
+            {...invalid(error, 'item-form-error')}
+          />
+        </label>
+      </div>
+    )}
     {finishedBook && !readingLocked ? (
       <p class="muted form-note">
-        Finished before: these are its last finished read's. To read it again, or to record a read you stopped, use the
-        book's page.
+        Finished before: these are the dates of its last finished read. To read it again, or to record a read you
+        stopped, use the book's page.
       </p>
     ) : null}
     {readingLocked ? (
       <p class="muted form-note">
-        Being read again now: these are its last finished read's, kept as they are. Every read — this one too — is
-        started, finished, stopped and corrected on the book's page.
+        Being read again now: these are the dates of its last finished read, kept as they are. Every read — this one
+        too — is started, finished, stopped and corrected on the book's page.
       </p>
     ) : null}
     {perMember ? (
       <p class="muted form-note">
-        Status, dates, rating and review here are yours; everyone's show on the item's page.
+        {noReading ? 'Rating and review here are yours' : 'Status, dates, rating and review here are yours'}; everyone's show on
+        the item's page.
       </p>
     ) : null}
     {isRecord(item?.mediaType) ? <GradeFields media={item?.mediaCondition ?? null} sleeve={item?.sleeveCondition ?? null} /> : null}
@@ -1430,6 +1485,19 @@ const CandidateCover: FC<{ candidate: Candidate }> = ({ candidate }) => (
   </div>
 );
 
+/** A metadata source as people know it — "Open Library", not the provider's id; a merged result names both. */
+const PROVIDER_NAMES: Record<string, string> = {
+  openlibrary: 'Open Library',
+  googlebooks: 'Google Books',
+  bgg: 'BoardGameGeek',
+  discogs: 'Discogs',
+};
+const providerName = (id: string): string =>
+  id
+    .split('+')
+    .map((p) => PROVIDER_NAMES[p] ?? p)
+    .join(' + ');
+
 const CandidateSummary: FC<{ candidate: Candidate }> = ({ candidate }) => (
   <>
     <strong>{candidate.title}</strong>
@@ -1439,7 +1507,7 @@ const CandidateSummary: FC<{ candidate: Candidate }> = ({ candidate }) => (
       {candidate.published ? ` · ${candidate.published}` : ''}
       {candidate.publisher ? ` · ${candidate.publisher}` : ''}
       {' · via '}
-      {candidate.provider}
+      {providerName(candidate.provider)}
     </small>
     {/* §16 #63: Discogs' data carries its credit, linked to the release it came from */}
     {candidate.provider === 'discogs' ? (
@@ -1457,11 +1525,20 @@ const CandidateSummary: FC<{ candidate: Candidate }> = ({ candidate }) => (
 );
 
 /** A lookup result with a one-click "add to shelf" form. */
-export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[] }> = ({ candidate, libraries }) => (
+/** A result the catalog already has (catalogMatches): a pill that opens it, so a second copy is a choice, not a slip. */
+const InCatalogPill: FC<{ id: number | null | undefined }> = ({ id }) =>
+  id ? (
+    <a href={`/items/${id}`} class="pill in-catalog">
+      In your catalog
+    </a>
+  ) : null;
+
+export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[]; inCatalog?: number | null }> = ({ candidate, libraries, inCatalog }) => (
   <article class="candidate">
     <CandidateCover candidate={candidate} />
     <div class="candidate-body">
       <CandidateSummary candidate={candidate} />
+      <InCatalogPill id={inCatalog} />
       <form method="post" action="/items" class="candidate-save">
         <CandidateFields candidate={candidate} />
         <ShelfSelect libraries={libraries} />
@@ -1500,7 +1577,8 @@ export const ReviewEntry: FC<{
   notices: string[];
   libraries: Library[];
   scanOwner: string;
-}> = ({ barcode, scannedAt, candidate, notices, libraries, scanOwner }) => {
+  inCatalog?: number | null;
+}> = ({ barcode, scannedAt, candidate, notices, libraries, scanOwner, inCatalog }) => {
   const drop = (
     <button type="button" class="btn" data-review-drop>
       Drop
@@ -1523,13 +1601,14 @@ export const ReviewEntry: FC<{
           {scannedAt ? (
             <>
               {' · scanned '}
-              <time datetime={scannedAt}>{`${scannedAt.slice(0, 16).replace('T', ' ')} UTC`}</time>
+              <time datetime={scannedAt}>{`${ledgerDateTime(scannedAt)} UTC`}</time>
             </>
           ) : null}
         </small>
         {candidate ? (
           <>
             <CandidateSummary candidate={candidate} />
+            <InCatalogPill id={inCatalog} />
             {libraries.length ? (
               <form method="post" action="/items" class="candidate-save" data-review-add>
                 <CandidateFields candidate={candidate} />
@@ -1594,8 +1673,8 @@ export const DETAIL_LABELS: Record<string, string> = {
   bgg_id: 'BGG ID',
   players_min: 'Min players',
   players_max: 'Max players',
-  playtime_min: 'Min playtime',
-  playtime_max: 'Max playtime',
+  playtime_min: 'Min playtime (minutes)',
+  playtime_max: 'Max playtime (minutes)',
   weight: 'Weight (1–5)', // BGG's complexity rating (§16 #60)
   discogs_id: 'Discogs ID',
   format: 'Format',
@@ -1779,13 +1858,18 @@ export const Money: FC<{ minor: number | string; currency: string }> = ({ minor,
   <span class="money">{formatMoney(minor, currency)}</span>
 );
 
-/** "12 records", "3 board games", "40 items": what a shelf holds, by its one type when it holds only one. */
-export function shelfNoun(byType: Array<{ mediaType: MediaType; count: number }>, n: number): string {
+/** "records", "board game", "items": the word for what a shelf holds, by its one type when it holds only one. */
+export function shelfWord(byType: Array<{ mediaType: MediaType; count: number }>, n: number): string {
   const types = [...new Set(byType.filter((t) => t.count > 0).map((t) => (t.mediaType === 'music' ? 'vinyl' : t.mediaType)))];
   const only = types.length === 1 ? types[0]! : null;
   const plural = only === 'vinyl' ? 'records' : only && only !== 'other' ? MEDIA_PLURAL[only] : 'items';
   const single = only === 'vinyl' ? 'record' : only && only !== 'other' ? MEDIA_LABEL[only].toLowerCase() : 'item';
-  return `${n} ${n === 1 ? single : plural}`;
+  return n === 1 ? single : plural;
+}
+
+/** "12 records", "3 board games", "1,040 items": what a shelf holds, its count grouped. */
+export function shelfNoun(byType: Array<{ mediaType: MediaType; count: number }>, n: number): string {
+  return `${formatCount(n)} ${shelfWord(byType, n)}`;
 }
 
 /**
@@ -1808,12 +1892,15 @@ export const PaidTotals: FC<{ totals: { items: number; byType: Array<{ mediaType
           {i ? <span class="muted"> · </span> : null}
           <span class="money">{formatMoney(t.total, t.currency)}</span>{' '}
           <span class="muted">
-            for {t.count}
+            {/* counts are data: monospace, grouped as the amounts are */}
+            for <span class="mono">{formatCount(t.count)}</span>
             {household && t.currency !== household ? `, in ${t.currency}` : ''}
           </span>
         </>
       ))}{' '}
-      <span class="muted">— of {shelfNoun(totals.byType, totals.items)} on this shelf</span>
+      <span class="muted">
+        — of <span class="mono">{formatCount(totals.items)}</span> {shelfWord(totals.byType, totals.items)} on this shelf
+      </span>
     </p>
   );
 };
@@ -1980,13 +2067,23 @@ export const BuyLinks: FC<{ links: Array<{ label: string; url: string }> }> = ({
  * The item page's want-list bar: the signed-in member's own toggle, and who else in the household wants it. htmx swaps
  * the bar in place; without it the form posts and lands back on the item page.
  */
+/**
+ * Whether "Want to read" has nothing to offer: a book the household owns and has read or is reading — someone finished
+ * it (a re-read too) or has it open now. Its status is the household's summary of everyone's reads (§16 #41).
+ */
+export const wantIsMoot = (item: Pick<Item, 'mediaType' | 'copies' | 'status' | 'rereading'>): boolean =>
+  item.mediaType === 'book' && item.copies > 0 && (item.status === 'completed' || item.status === 'in_progress' || !!item.rereading);
+
 export const WantBar: FC<{
-  item: Pick<Item, 'id' | 'mediaType'>;
+  item: Pick<Item, 'id' | 'mediaType' | 'copies' | 'status' | 'rereading'>;
   wanters: Array<{ id: number; username: string }>;
   viewer: { id: number };
 }> = ({ item, wanters, viewer }) => {
   const mine = wanters.some((w) => w.id === viewer.id);
   const others = wanters.filter((w) => w.id !== viewer.id);
+  // an owned book someone's read or reading: no button to want it — unless it's already on a list, which stays
+  // removable (and says whose); the empty bar keeps its id, so a swap after a removal has a place to land
+  if (wantIsMoot(item) && !wanters.length) return <div class="want-bar" id="want-bar" hidden></div>;
   return (
     <div class="want-bar" id="want-bar">
       <form method="post" action={`/items/${item.id}/want`} hx-post={`/items/${item.id}/want`} hx-target="#want-bar" hx-swap="outerHTML" class="inline">
@@ -2009,6 +2106,9 @@ export const WantBar: FC<{
     </div>
   );
 };
+
+/** "Where to buy" is for something to get: an item nobody owns, or one someone wants. Links stay either way. */
+export const buyIsShown = (item: Pick<Item, 'copies'>, wanters: unknown[]): boolean => item.copies === 0 || wanters.length > 0;
 
 /**
  * The item page's purchase links, with a form to add one and a Remove on each — the household's, so any member may.

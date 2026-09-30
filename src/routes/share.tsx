@@ -30,7 +30,7 @@ import {
   type PublicItem,
 } from '../lib/share';
 import { BggCredit, fromBgg } from '../views/attribution';
-import { BuyLinks, DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, RecordDetails, stars, WantedPill } from '../views/components';
+import { BuyLinks, DetailsList, LENGTH_UNIT, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, RecordDetails, stars, WantedPill } from '../views/components';
 
 const share = new Hono<AppEnv>();
 
@@ -158,6 +158,9 @@ function renderShare(c: Context<AppEnv>, title: string, shelf: string, body: Chi
 // ---------- gift lists: a member's want list, published (ARCH.md §16 #53) ----------
 
 const GIFT_MARK = 'Nalanda · want list';
+/** A tag's link spans every shelf, so its pages don't call themselves a shelf. */
+const TAG_MARK = 'Nalanda · shared tag';
+const shareMark = (view: Share) => (view.tag !== null ? TAG_MARK : undefined);
 
 const GiftCover: FC<{ item: GiftItem }> = ({ item }) =>
   item.coverKey ? (
@@ -266,7 +269,9 @@ async function giftItemPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
           {gift.length ? (
             <>
               <dt>Length</dt>
-              <dd class="mono">{gift.length}</dd>
+              <dd class="mono">
+                {gift.length} {LENGTH_UNIT[gift.mediaType] ?? ''}
+              </dd>
             </>
           ) : null}
         </dl>
@@ -332,7 +337,7 @@ share.get('/:token', async (c) => {
       </div>
       <Pagination page={current} pages={pages} makeHref={(p) => `/share/${token}?page=${p}`} />
     </>,
-    { bgg: publicItems.some(fromBgg) },
+    { bgg: publicItems.some(fromBgg), mark: shareMark(view) },
   );
 });
 
@@ -478,7 +483,9 @@ share.get('/:token/items/:id', async (c) => {
           {pub.length ? (
             <>
               <dt>Length</dt>
-              <dd class="mono">{pub.length}</dd>
+              <dd class="mono">
+                {pub.length} {LENGTH_UNIT[pub.mediaType] ?? ''}
+              </dd>
             </>
           ) : null}
         </dl>
@@ -517,12 +524,12 @@ share.get('/:token/items/:id', async (c) => {
             <p class="prewrap">{pub.review}</p>
           </div>
         ) : null}
-        <p>
+        <p class="back-link">
           <a href={`/share/${token}`}>← back to {view.name}</a>
         </p>
       </div>
     </article>,
-    { bgg: fromBgg(pub) },
+    { bgg: fromBgg(pub), mark: shareMark(view) },
   );
 });
 

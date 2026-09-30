@@ -17,6 +17,8 @@ const notYours = (c: Context<AppEnv>) => c.text('That reading goal is someone el
 type PageProps = {
   whose: { id: number; username: string };
   self: boolean;
+  /** who is signed in: the member picker marks them "(you)", as the want list's does */
+  me: number;
   admin: boolean;
   people: Array<{ id: number; username: string }>;
   list: GoalProgress[];
@@ -29,7 +31,7 @@ type PageProps = {
   target?: string;
 };
 
-const GoalsPage: FC<PageProps> = ({ whose, self, admin, people, list, today, shared, error, year, target }) => {
+const GoalsPage: FC<PageProps> = ({ whose, self, me, admin, people, list, today, shared, error, year, target }) => {
   const years = settableYears(today);
   const chosenYear = year ?? years[0]!;
   const current = list.find((g) => g.year === chosenYear);
@@ -49,7 +51,7 @@ const GoalsPage: FC<PageProps> = ({ whose, self, admin, people, list, today, sha
             <select name="member">
               {people.map((p) => (
                 <option value={String(p.id)} selected={p.id === whose.id}>
-                  {p.username}
+                  {p.id === me ? `${p.username} (you)` : p.username}
                 </option>
               ))}
             </select>
@@ -148,6 +150,7 @@ async function render(c: Context<AppEnv>, memberId: number, extra: Pick<PageProp
     <GoalsPage
       whose={whose}
       self={memberId === user.id}
+      me={user.id}
       admin={admin}
       people={people}
       list={list}

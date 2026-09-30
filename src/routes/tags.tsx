@@ -17,7 +17,9 @@ tags.get('/tags', async (c) => {
       <div class="page-head">
         <div>
           <h1>Tags</h1>
-          <span class="sub">{all.length} TAGS</span>
+          <span class="sub">
+            {all.length} {all.length === 1 ? 'TAG' : 'TAGS'}
+          </span>
         </div>
       </div>
       {all.length ? (
@@ -61,7 +63,7 @@ const TagLinks: FC<{ tag: string; links: Share[]; origin: string }> = ({ tag, li
     ))}
     <form method="post" action="/shares" class="inline-form">
       <input type="hidden" name="tag" value={tag} />
-      <input name="name" placeholder="Link name (shown as the public page title)" aria-label="Link name" required />
+      <input name="name" class="share-name" placeholder="Link name (shown as the public page title)" aria-label="Link name" required />
       <select name="sort" aria-label="Order">
         <option value="title">By title</option>
         <option value="completed">By date finished</option>

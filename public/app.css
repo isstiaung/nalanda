@@ -45,6 +45,9 @@
   --stamp: #b93a1c;
   --stamp-tint: rgba(185, 58, 28, 0.08);
   --shadow: 0 1px 2px rgba(34, 29, 20, 0.06), 0 4px 16px rgba(34, 29, 20, 0.05);
+  /* every dropdown's arrow — a <select>'s and a filter menu's alike: a chevron stroked in --ink-2. A data URI can't
+     read a custom property, so the colour is written out here and again for dark. */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235d564a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
   /* type */
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -53,6 +56,12 @@
 
   --radius: 7px;
   --radius-sm: 5px;
+  /* Every control in a row — input, select, button, a filter menu's summary, the view toggle — is this tall, sets
+     its text at this size, and sets that one line in line-height: normal, centred. Same box, same line box, same
+     font size: the same baseline, so a row of controls reads as one level line. (With line-height 1 on buttons and
+     1.55 on summaries, or 13px fields beside 12.5px buttons, Chromium rounded their baselines a pixel apart.) */
+  --control-h: 32px;
+  --control-text: 13px;
   --sidebar-w: 236px;
 }
 
@@ -76,6 +85,7 @@
     --stamp: #e06a45;
     --stamp-tint: rgba(224, 106, 69, 0.12);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.35);
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23ab9f88' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
 }
 
@@ -265,15 +275,15 @@ section { margin-bottom: 2rem; }
 
 .btn, button, [role='button'] {
   font-family: var(--sans);
-  font-size: 12.5px;
+  font-size: var(--control-text);
   font-weight: 600;
-  line-height: 1;
+  line-height: normal;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
   padding: 0 0.8rem;
-  height: 30px;
+  height: var(--control-h);
   border-radius: var(--radius-sm);
   border: 1px solid var(--line-strong);
   background: var(--surface);
@@ -302,7 +312,7 @@ button.btn:hover { background: var(--surface-2); border-color: var(--line-strong
 .btn-danger, button.btn-danger { background: transparent; border-color: var(--line-strong); color: var(--stamp); }
 .btn-danger:hover { background: var(--stamp-tint); border-color: var(--stamp); color: var(--stamp); }
 
-button.linklike { background: none; border: none; height: auto; padding: 0.32rem 0.45rem; color: var(--ink-2); font-weight: 400; font-size: 13px; justify-content: flex-start; width: 100%; border-radius: var(--radius-sm); }
+button.linklike { background: none; border: none; height: auto; line-height: 1; padding: 0.32rem 0.45rem; color: var(--ink-2); font-weight: 400; font-size: 13px; justify-content: flex-start; width: 100%; border-radius: var(--radius-sm); }
 button.linklike:hover { background: var(--surface-2); color: var(--ink); }
 
 .inline { display: inline; }
@@ -318,18 +328,34 @@ label small { font-weight: 400; color: var(--ink-3); }
 
 input, select, textarea {
   font-family: var(--sans);
-  font-size: 13px;
+  font-size: var(--control-text);
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-sm);
   padding: 0 0.6rem;
-  height: 32px;
+  height: var(--control-h);
+  line-height: normal;
   width: 100%;
   margin-top: 0.3rem;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 textarea { height: auto; padding: 0.5rem 0.6rem; line-height: 1.5; resize: vertical; }
+/* One arrow for every dropdown (the browser's own sits hard against the right edge, far from the text): the
+   --chevron, 0.6rem in from the edge, with the same 0.4rem to the text that a filter menu's summary keeps. */
+select:not([multiple]) {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: calc(1rem + 10px);
+  background-image: var(--chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 10px 6px;
+  text-overflow: ellipsis;
+  /* where a select isn't given a width (filter bars, inline forms), it is as wide as the choice showing, not the
+     longest option; a form's full-width select keeps its width. Browsers without it size to the longest option. */
+  field-sizing: content;
+}
 input::placeholder, textarea::placeholder { color: var(--ink-3); }
 input:focus, select:focus, textarea:focus {
   outline: none;
@@ -339,9 +365,8 @@ input:focus, select:focus, textarea:focus {
 input[type='checkbox'] { width: auto; height: auto; margin: 0 0.4rem 0 0; accent-color: var(--accent); }
 /* input:focus's faint ring is no indicator on a checkbox, whose border doesn't change colour: it gets the outline */
 input[type='checkbox']:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-input[type='date'] { font-family: var(--mono); font-size: 12px; }
+input[type='date'] { font-family: var(--mono); }
 input[inputmode='numeric'] { font-family: var(--mono); }
-input[type='search'] { font-size: 13px; }
 input[type='file'] { height: auto; padding: 0.25rem; }
 input[type='file']::file-selector-button {
   font: 600 12.5px var(--sans);
@@ -454,11 +479,57 @@ p.error { font-size: 12.5px; color: color-mix(in srgb, var(--stamp) 85%, var(--i
 .data-table .actions-cell .inline-form { flex-wrap: nowrap; justify-content: flex-end; }
 /* a share URL is one long unbreakable token; let it fold instead of widening the table */
 .break-anywhere { overflow-wrap: anywhere; }
+/* a due date and its Overdue pill: one line when there's room, the pill under the date on a phone */
+.data-table td.due-cell { white-space: normal; }
+.data-table td.due-cell > span { white-space: nowrap; }
 .data-table + p { margin-top: 0.75rem; }
+
+/* A table of things to act on (.data-table.cards) becomes a stack of cards on a phone, instead of scrolling its
+   buttons off the edge. Still a <table>: the header row stays for screen readers, moved off screen, and each cell
+   shows its column's name from data-label — as alt-less generated content, so it isn't read out a second time.
+   A cell without a data-label is the card's title, full width; the actions cell is the card's foot. */
+@media (max-width: 640px) {
+  .data-table.cards { background: none; border: none; border-radius: 0; overflow: visible; }
+  .data-table.cards::after { content: none; }
+  .data-table.cards table { display: block; }
+  .data-table.cards thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .data-table.cards tbody { display: grid; gap: 0.6rem; }
+  .data-table.cards tr { display: grid; gap: 0.4rem; padding: 0.75rem 0.9rem; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); }
+  .data-table.cards tbody tr:hover { background: var(--surface); }
+  .data-table.cards tbody tr:hover > td:first-child { box-shadow: none; }
+  .data-table.cards td,
+  .data-table.cards td.num,
+  .data-table.cards td.date,
+  .data-table.cards .hide-sm { display: block; position: relative; min-width: 0; width: auto; padding: 0 0 0 6.75rem; border: none; text-align: left; white-space: normal; overflow-wrap: anywhere; }
+  .data-table.cards td[data-label]::before {
+    content: attr(data-label);
+    content: attr(data-label) / '';
+    position: absolute;
+    left: 0;
+    top: 0.2em;
+    width: 6.25rem;
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  .data-table.cards td:not([data-label]) { padding-left: 0; }
+  /* a cell holding a form takes the card's width, its label above it */
+  .data-table.cards td.card-stack { padding-left: 0; }
+  .data-table.cards td.card-stack::before { position: static; display: block; width: auto; margin-bottom: 0.35rem; }
+  .data-table.cards .sub-settings select { max-width: none; }
+  .data-table.cards td:empty { display: none; }
+  .data-table.cards .actions-cell { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: flex-end; align-items: center; margin-top: 0.35rem; padding: 0.65rem 0 0; border-top: 1px solid var(--line); }
+  .data-table.cards .actions-cell .inline-form { flex-direction: row; flex-wrap: wrap; justify-content: flex-end; align-items: center; }
+  .data-table.cards .actions-cell button,
+  .data-table.cards .actions-cell .btn { white-space: nowrap; height: 30px; min-height: 30px; padding: 0 0.75rem; }
+}
 
 /* max-width caps the title column under auto table layout so a long title
    truncates with an ellipsis instead of crowding every other column out */
-.cell-title { display: flex; align-items: center; gap: 0.65rem; min-width: 0; max-width: 420px; }
+.cell-title { display: flex; align-items: center; gap: 0.65rem; min-width: 0; max-width: 20rem; } /* a long title ellipsizes (its link's title says it whole) rather than pushing the table past a 1280px window */
 .cell-title .thumb { flex: none; width: 26px; height: 39px; border-radius: 3px; object-fit: cover; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); }
 .cell-title .thumb-fallback { flex: none; width: 26px; height: 39px; border-radius: 3px; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; justify-content: center; font-size: 13px; }
 .cell-title .t { min-width: 0; }
@@ -550,7 +621,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 /* ── toolbar / filters / view toggle ──────────────────────────────────────── */
 
 .toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
-.toolbar select { width: auto; margin: 0; height: 30px; font-size: 12.5px; }
+.toolbar select { width: auto; margin: 0; }
 
 /* filter dropdowns: a <details> disguised as a select, holding any-of checkboxes.
    Opts out of the global details panel/manuscript-frame treatment — it's a
@@ -564,10 +635,11 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  height: 30px;
+  height: var(--control-h);
+  line-height: normal; /* not the body's 1.55: the same line box as the select beside it */
   padding: 0 0.6rem;
   margin: 0; /* the global details[open] summary rule adds bottom margin */
-  font-size: 12.5px;
+  font-size: var(--control-text);
   font-weight: 400; /* the global summary rule bolds panel titles */
   color: var(--ink);
   background: var(--surface);
@@ -575,7 +647,9 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   border-radius: var(--radius-sm);
 }
 .toolbar .filter summary::-webkit-details-marker { display: none; }
-.toolbar .filter summary::after { content: '▾'; font-size: 9px; color: var(--ink-3); }
+/* the same chevron, gap and right padding as a <select> beside it; it turns over while the menu is open */
+.toolbar .filter summary::after { content: ''; flex: none; width: 10px; height: 6px; background: var(--chevron) no-repeat center / 10px 6px; transition: transform 120ms ease; }
+.toolbar .filter[open] summary::after { transform: rotate(180deg); }
 .toolbar .filter[open] summary { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
 .filter-count {
   font-family: var(--mono);
@@ -586,6 +660,14 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   border-radius: 999px;
   padding: 0.15rem 0.4rem;
 }
+/* A pill's words sit on the cap height's centre, not the line box's: SF Mono's line box puts capitals a pixel high
+   in Chromium (not in Safari). Trimmed to cap height and baseline, and padded by what the trim took, a pill keeps its
+   height and centres its capitals in every engine that trims; one that doesn't keeps the old box. */
+@supports (text-box: trim-both cap alphabetic) {
+  .pill { text-box: trim-both cap alphabetic; padding-block: calc(0.18rem + (1lh - 1cap) / 2); }
+  .tag { text-box: trim-both cap alphabetic; padding-block: calc(0.12rem + (1lh - 1cap) / 2); }
+  .filter-count { text-box: trim-both cap alphabetic; padding-block: calc(0.15rem + (1lh - 1cap) / 2); }
+}
 .filter-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -593,7 +675,9 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   z-index: 20;
   min-width: 170px;
   max-width: calc(100vw - 2rem);
-  padding: 0.55rem 0.7rem 0.8rem; /* the last checkbox, too, keeps 24px clear of what's below the menu */
+  /* the last checkbox, too, keeps 24px clear of what's below the menu; and each keeps 24px clear of whatever the
+     menu half covers beside it — a sliver of a select peeking out at its left edge is a touch target too */
+  padding: 0.55rem 1.1rem 0.8rem;
   display: grid;
   gap: 0.8rem; /* each checkbox keeps 24px clear of the next: they are touch targets (WCAG 2.5.8) */
   background: var(--surface);
@@ -603,11 +687,12 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 }
 .filter-menu label { display: flex; align-items: center; gap: 0.45rem; margin: 0; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
 .filter-menu input[type='checkbox'] { width: auto; height: auto; margin: 0; accent-color: var(--accent); }
-.toolbar input[type='search'] { width: 190px; margin: 0; height: 30px; font-size: 12.5px; }
-.toolbar .spacer { flex: 1; }
+.toolbar input[type='search'] { flex: 1 1 150px; width: auto; max-width: 190px; margin: 0; } /* gives way before the row wraps: a 13px Table/Covers toggle made a 1280 shelf's bar 16px too long for one line */
+/* Columns and the view toggle: pushed to the row's end, and onto the next line together when the row wraps */
+.toolbar-end { margin-left: auto; display: inline-flex; align-items: center; gap: 0.5rem; }
 
-.view-toggle { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow: hidden; }
-.view-toggle a { padding: 0.3rem 0.7rem; font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); background: var(--surface); text-decoration: none; }
+.view-toggle { display: inline-flex; height: var(--control-h); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow: hidden; }
+.view-toggle a { display: inline-flex; align-items: center; line-height: normal; padding: 0 0.7rem; font-family: var(--mono); font-size: var(--control-text); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2); background: var(--surface); text-decoration: none; }
 /* the toggles clip to their rounded frame, so their focus ring is drawn inside */
 .view-toggle a:focus-visible, .tab-bar .tab:focus-visible { outline-offset: -3px; }
 .view-toggle a + a { border-left: 1px solid var(--line-strong); }
@@ -743,17 +828,20 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .candidate-cover img, .candidate-cover .cover-fallback { width: 84px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: var(--radius-sm); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; justify-content: center; font-size: 1.8rem; background: var(--surface-2); }
 .candidate-body strong { font-size: 14px; display: block; } /* its own line, even when no creator line follows */
 .candidate-body small { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.03em; }
+/* a result the catalog already has: a pill on a line of its own, opening that item */
+.candidate-body .in-catalog { display: block; width: fit-content; margin-top: 0.35rem; text-decoration: none; }
+.candidate-body .in-catalog:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
 .candidate-save { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.65rem; }
 #tab-search .inline-form input[type='search'] { flex: 1 1 16rem; }
 /* the typed-barcode field: its label beside it, wrapping under it on a phone */
 #tab-scan .inline-form label { gap: 0.5rem; flex-wrap: wrap; }
-.candidate-save select { width: auto; margin: 0; height: 30px; font-size: 12.5px; }
+.candidate-save select { width: auto; margin: 0; }
 
 /* scans held on the device while offline, waiting on the Add page (ARCH.md §16 #48) — candidate cards under a notice */
 .scan-review { margin-bottom: 1.75rem; }
 .scan-review-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem 1.25rem; margin: 0; }
 .scan-review-head p { margin: 0.2rem 0 0; }
-.scan-review-head select { width: auto; max-width: 100%; margin: 0; height: 30px; font-size: 12.5px; }
+.scan-review-head select { width: auto; max-width: 100%; margin: 0; }
 /* a long shelf name wraps inside the button rather than pushing it off a phone */
 .scan-review-head button { white-space: normal; height: auto; min-height: 30px; padding-top: 0.3rem; padding-bottom: 0.3rem; line-height: 1.2; text-align: center; }
 .review-scan { display: block; text-transform: uppercase; color: var(--ink-3); margin-bottom: 0.3rem; overflow-wrap: anywhere; }
@@ -773,6 +861,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .share-panel { margin-top: 0.9rem; }
 /* an h2 under the page's h1 (headings don't skip levels), set as the small heading it always looked like */
 .share-panel-head { font-size: 12.5px; color: var(--ink-2); }
+/* a publish form's link name: wide enough to read its whole placeholder, and the row's width on a phone */
+.inline-form input.share-name { flex: 0 1 22rem; min-width: 0; }
 .share-row {
   display: flex;
   align-items: center;
@@ -898,6 +988,27 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 /* a section's form, table and notes keep apart, in whatever order they come */
 .fed-section > :not(.eyebrow) + * { margin-top: 0.75rem; }
 
+/* ── members, account ─────────────────────────────────────────────────────── */
+
+/* A household switch — Shared links' progress and names, Connections' progress, names and goals, Members' currency:
+   the control and its label, then what it does, then Save, left-aligned under them, the same at every width. */
+.switch-form { display: grid; justify-items: start; gap: 0.55rem; max-width: 46rem; }
+.switch-form > label { display: flex; align-items: baseline; gap: 0.45rem; margin: 0; font-size: 12.5px; }
+.switch-form > label input[type='checkbox'] { margin: 0; flex: none; transform: translateY(0.1rem); }
+.switch-form > p { margin: 0; }
+.switch-field { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem 0.6rem; max-width: 100%; }
+.switch-field label { margin: 0; }
+.switch-field select { width: auto; max-width: 100%; margin: 0; }
+/* one switch after another (or after a section's intro) keeps the same gap everywhere */
+:is(section, .fed-section) > :not(.eyebrow) + .switch-form { margin-top: 1.4rem; }
+
+/* Members' "Add a member" and "Household currency": clear of what's above, and a form's note clear of its button */
+.settings-section { margin-top: 1.5rem; }
+.settings-section > form + p { margin-top: 0.75rem; }
+/* Account's password and display-name panels: two frames, not one frame touching the next */
+.account-card + .account-card { margin-top: 1rem; }
+.account-card form + .form-note { margin-top: 0.75rem; }
+
 /* ── connections: feed ────────────────────────────────────────────────────── */
 
 .feed { display: grid; gap: 0.75rem; max-width: 46rem; }
@@ -906,6 +1017,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .feed-cover .cover-fallback { font-size: 1.6rem; }
 .feed-body { min-width: 0; }
 .feed-body .eyebrow { margin: 0 0 0.25rem; }
+.feed-date { white-space: nowrap; } /* a date never breaks at its hyphens under a long household name */
 .feed-line { margin: 0 0 0.2rem; line-height: 1.35; overflow-wrap: anywhere; }
 .feed-line small { color: var(--ink-2); }
 .feed-review { margin: 0.45rem 0 0; font-size: 13px; overflow-wrap: anywhere; }
@@ -914,7 +1026,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .feed-burst summary .mono { font-size: 11.5px; font-weight: 400; color: var(--ink-2); }
 .sub-settings { display: flex; flex-wrap: wrap; gap: 0.35rem 0.6rem; align-items: center; }
 .sub-settings label { display: inline-flex; gap: 0.35rem; align-items: center; margin: 0; font-size: 12.5px; }
-.sub-settings select, .sub-settings input[type='number'] { width: auto; margin: 0; height: 30px; }
+.sub-settings select, .sub-settings input[type='number'] { width: auto; margin: 0; }
 .sub-settings input[type='number'] { width: 5.5rem; }
 .view-form select { width: auto; margin: 0; }
 /* a failed pull, under its view's name: its own line, and wide enough not to wrap every two words */
@@ -934,7 +1046,7 @@ details.thread::after { content: none; }
 .comment-meta { margin: 0; font-size: 11.5px; color: var(--ink-2); }
 .comment-meta .inline { display: inline; margin-left: 0.45rem; }
 .comment-meta .mono { white-space: nowrap; }
-button.comment-delete, button.progress-delete { height: auto; padding: 0; border: none; background: none; font-size: 11.5px; font-weight: 400; color: var(--ink-3); text-decoration: underline; text-underline-offset: 2px; }
+button.comment-delete, button.progress-delete { height: auto; line-height: 1; padding: 0; border: none; background: none; font-size: 11.5px; font-weight: 400; color: var(--ink-3); text-decoration: underline; text-underline-offset: 2px; }
 button.comment-delete:hover, button.progress-delete:hover { background: none; color: var(--stamp); }
 .comment .prewrap { margin: 0.15rem 0 0; font-size: 13px; overflow-wrap: anywhere; }
 .comment-form { display: grid; gap: 0.4rem; margin: 0.5rem 0 0.3rem; }
@@ -996,7 +1108,6 @@ details.recommend > summary { font-size: 12.5px; }
 .status-pills { display: inline-flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
 .reading-summary { margin: 0 0 0.4rem; font-size: 13.5px; }
 .read-actions { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; margin: 0.6rem 0 0; }
-.read-actions .inline-form input[type="date"] { font-size: 12px; }
 .read-history-head { margin-top: 1rem; }
 .read-history { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.3rem; font-size: 13px; border-top: 1px solid var(--line); }
 .read-history > li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem 0.8rem; padding: 0.4rem 0 0; }
@@ -1009,7 +1120,8 @@ details.read-edit > summary::-webkit-details-marker { display: none; }
 details.read-edit > summary:hover { color: var(--accent); }
 details.read-edit[open] { flex-basis: 100%; padding: 0.3rem 0 0.5rem; }
 details.read-edit[open] > summary { margin-bottom: 0.45rem; }
-details.read-edit .inline-form + .inline-form { margin-top: 0.4rem; }
+/* each form an edit holds (a review's Save, then Delete, then Move) sits clear of the one above */
+details.read-edit form + form { margin-top: 0.4rem; }
 details.read-add { margin-top: 0.7rem; }
 .form-note { margin: -0.25rem 0 0.75rem; font-size: 12.5px; }
 .read-count { font-size: 11px; }
@@ -1030,6 +1142,7 @@ details.read-add { margin-top: 0.7rem; }
 .member-reviews > li:first-child { border-top: none; padding-top: 0; }
 .review-by { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.7rem; margin: 0 0 0.3rem; font-size: 12.5px; }
 .review-by .reviewer { font-family: var(--mono); font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; overflow-wrap: anywhere; }
+.review-by .reviewer-self { color: var(--accent); }
 .review-by .mono { font-size: 11px; }
 .member-reviews .prewrap { margin: 0 0 0.35rem; overflow-wrap: anywhere; }
 /* a review's own form: rating, text, Save — stacked, since the text wants the width */
@@ -1040,7 +1153,7 @@ details.read-add { margin-top: 0.7rem; }
 .rating-note { font-size: 12px; }
 /* the search box keeps its width beside the Read by select, and wraps under it on a phone */
 form.search-by-reader { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
-form.search-by-reader input[type='search'] { flex: 1 1 16rem; width: auto; margin: 0; }
+form.search-by-reader input[type='search'] { flex: 1 1 17rem; width: auto; margin: 0; } /* past a phone's width with the select beside it, so the select wraps under it, never the button alone */
 form.search-by-reader select { width: auto; margin: 0; max-width: 100%; }
 .toolbar select[name='readBy'] { max-width: 100%; }
 
@@ -1057,6 +1170,9 @@ form.search-by-reader select { width: auto; margin: 0; max-width: 100%; }
 .read-next-by { margin: 0.15rem 0 0; color: var(--ink-2); font-size: 12.5px; overflow-wrap: anywhere; }
 .read-next-line { display: flex; flex-wrap: wrap; gap: 0.15rem 0.5rem; align-items: center; margin: 0.35rem 0 0; }
 .read-next .read-actions { gap: 0.5rem; margin-top: 0.8rem; }
+/* not owned: its own line, in ink rather than muted, with the pill drawn solid so it can't be missed */
+.read-next-unowned { font-size: 12.5px; color: var(--ink); }
+.read-next-unowned .pill.ghost { border-style: solid; border-color: var(--ink-2); color: var(--ink); }
 .read-next-empty { margin: 0; font-size: 13px; }
 @media (max-width: 880px) {
   .read-next { grid-template-columns: 64px minmax(0, 1fr); gap: 0.8rem; }
@@ -1140,7 +1256,7 @@ form.search-by-reader select { width: auto; margin: 0; max-width: 100%; }
 .bulk-status small { font-family: var(--mono); font-size: 10.5px; }
 button.bulk-clear { height: 24px; padding: 0 0.45rem; font-weight: 400; }
 .bulk-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; min-width: 0; }
-.bulk-controls select, .bulk-controls input { width: auto; max-width: 100%; margin: 0; height: 30px; font-size: 12.5px; }
+.bulk-controls select, .bulk-controls input { width: auto; max-width: 100%; margin: 0; }
 .bulk-controls .bulk-tag { width: 11rem; }
 @supports selector(:has(a)) {
   body:not(:has(.bulk-pick:checked)) .bulk-bar { display: none; }
@@ -1169,7 +1285,8 @@ button.bulk-clear { height: 24px; padding: 0 0.45rem; font-weight: 400; }
    is circulation or danger, so no vermilion but Remove's hover, as on a page. */
 .play-form { margin: 0.35rem 0 0; }
 .play-form label { gap: 0.4rem; }
-.play-form input[type="date"] { font-size: 12px; }
+/* the lend form's due date says what it is, as Played's "on" does */
+.lend-form label { gap: 0.4rem; }
 .play-log { list-style: none; margin: 0.7rem 0 0; padding: 0.4rem 0 0; display: grid; gap: 0.25rem; font-size: 13px; border-top: 1px solid var(--line); }
 .play-log li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.8rem; min-width: 0; }
 .play-log li > time { min-width: 6.5rem; font-size: 12px; }
@@ -1203,25 +1320,27 @@ details.tracklist summary .mono { font-weight: 400; font-size: 11px; }
 
 /* ── reading goals (ARCH.md §16 #49) ──────────────────────────────────────────
    A goal is a count against a year: the figures in the registrar's mono, the bar the
-   same ruled trough as reading progress, and a thin ink tick where an even pace would
-   stand today. Indigo when on track or reached; "behind" is a dashed ruled pill —
+   same ruled trough as reading progress, and a thin ink tick where a year-long pace
+   (from 1 January) stands today, said in words in the small note under the bar.
+   Indigo when on pace, ahead or reached; "behind" is a dashed ruled pill —
    falling behind on a book count is no emergency, so no vermilion. */
 .goal { max-width: 40rem; }
 .goal-meter { min-width: 0; }
 .goal-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.3rem 0.55rem; margin: 0; }
 .goal-count { font-family: var(--mono); font-size: 18px; font-weight: 600; letter-spacing: -0.02em; }
-.goal-track { position: relative; }
+.goal-track { position: relative; display: flow-root; } /* flow-root: the bar's top margin stays inside, so the pace tick straddles the bar */
 .goal-track .progress-track { height: 8px; }
 .goal-pace { position: absolute; top: calc(0.4rem - 3px); width: 2px; height: 14px; margin-left: -1px; background: var(--ink-2); border-radius: 1px; pointer-events: none; }
 .pill.reached { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
 .pill.behind { border-style: dashed; }
+.goal-note { margin: -0.3rem 0 0.5rem; font-size: 11.5px; color: var(--ink-3); }
 .goal-edit { font-size: 12.5px; }
 .goal-member { margin-bottom: 1rem; }
 .goal-member select { width: auto; margin: 0 0 0 0.35rem; max-width: 100%; }
 .goal-form { display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem; align-items: flex-end; margin-bottom: 0.9rem; }
 #goal-form { margin-bottom: 1.5rem; }
 .goal-form label { margin: 0; }
-.goal-form select, .goal-form input[type='number'] { width: 7rem; margin: 0.25rem 0 0; }
+.goal-form select, .goal-form input[type='number'] { display: block; width: 7rem; margin: 0.25rem 0 0; }
 .goal-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.2rem; max-width: 40rem; }
 .goal-list > li { display: grid; grid-template-columns: 3.5rem minmax(0, 1fr) auto; gap: 0.3rem 0.9rem; align-items: center; padding: 0.55rem 0; border-top: 1px solid var(--line); }
 .goal-list > li:first-child { border-top: none; }
@@ -1234,16 +1353,17 @@ details.tracklist summary .mono { font-weight: 400; font-size: 11px; }
 .feed-card.feed-goal { grid-template-columns: minmax(0, 1fr); }
 .feed-goal .goal-count { font-size: 14px; }
 .feed-goal .progress-track { margin-bottom: 0.2rem; }
-/* the goals switch waits on the names one: shown, but greyed and inert until names go to connections */
-.switch-off { opacity: 0.5; }
+/* the goals switch waits on the names one: its checkbox and Save shown, but greyed and inert until names go to
+   connections; the note saying why stays at full strength */
+.switch-off > label, .switch-off > button { opacity: 0.5; }
 /* ── want lists and purchase links (ARCH.md §16 #53) ─────────────────────────
    Each member's want list, and the household's pasted "where to buy" links. Existing
    tokens only: the want toggle is the indigo working accent — a wish is work in hand,
    not circulation, so no vermilion — and a purchase link is a quiet outbound row with
    its host in mono, the one part of an address a person checks before clicking. */
 .want-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem; margin: 0.2rem 0 0.4rem; }
-.want-toggle { font-size: 12.5px; }
-.want-toggle > span { font-family: var(--mono); color: var(--accent); }
+/* the + or ✓ takes the button's own ink: in indigo it vanished into the filled button */
+.want-toggle > span { font-family: var(--mono); color: inherit; }
 button.want-toggle.on { background: var(--accent-tint); border-color: var(--accent); color: var(--accent-strong); }
 button.want-toggle.on:hover { background: var(--accent-tint); border-color: var(--accent-strong); color: var(--accent-strong); }
 .want-note { font-size: 12px; overflow-wrap: anywhere; }
@@ -1283,7 +1403,6 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
    registrar's mono; the month bars in the indigo working accent, ratings in turmeric.
    The bars are for the eye only (aria-hidden): a table only screen readers see (.sr-only) carries them. */
 .yr-picker label { margin: 0 0.15rem 0 0; font-size: 12.5px; }
-.yr-picker select { height: 30px; }
 .yr-intro { max-width: 46rem; font-size: 12.5px; }
 .yr-empty { max-width: 40rem; margin-bottom: 2rem; }
 .yr-empty p { margin: 0; }
@@ -1358,6 +1477,8 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
   border-right: none;
   border-radius: var(--radius-sm) 0 0 var(--radius-sm);
 }
+/* the shared rule's background shorthand clears the chevron: put it back */
+.money-input select { padding-right: calc(1rem + 10px); background: var(--chevron) no-repeat right 0.6rem center / 10px 6px, var(--surface-2); }
 .money-input input[aria-invalid='true'] { border-color: var(--stamp); }
 .money-field .form-note { margin: 0.35rem 0 0; }
 .field-error { color: var(--stamp); font-size: 12.5px; margin: 0.35rem 0 0; }

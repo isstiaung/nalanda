@@ -80,6 +80,7 @@ import { clearSharedViewsCache } from '../federation/routes';
 import { hashToken, newInviteToken } from '../federation/tokens';
 import { MEDIA_LABEL, STATUS_LABEL } from '../views/components';
 import { page } from '../views/layout';
+import { ledgerDate, ledgerDateTime } from '../lib/dates';
 
 const connections = new Hono<AppEnv>();
 
@@ -129,7 +130,7 @@ const ConnectionTable: FC<{
     <section class="fed-section" style="margin-top:1.5rem">
       <p class="eyebrow">{title}</p>
       {hint ? <p class="muted">{hint}</p> : null}
-      <div class="data-table">
+      <div class="data-table cards">
         <table>
           <thead>
             <tr>
@@ -145,8 +146,12 @@ const ConnectionTable: FC<{
                 <td>
                   <strong>{row.householdName}</strong>
                 </td>
-                <td class="hide-sm mono break-anywhere">{row.baseUrl}</td>
-                <td class="date hide-sm">{since(row).slice(0, 10)}</td>
+                <td class="hide-sm mono break-anywhere" data-label="Address">
+                  {row.baseUrl}
+                </td>
+                <td class="date hide-sm" data-label="Since">
+                  {ledgerDate(since(row))}
+                </td>
                 <td class="actions-cell">
                   {/* one flex row, so each pair sits the same 0.5rem apart as on /shares and /loans */}
                   <div class="inline-form">{actions(row)}</div>
@@ -185,41 +190,41 @@ const SharedViews: FC<{
         {progressToConnections ? ', and each page you record as you read' : ''} — never notes, loans or how many copies you
         have.
       </p>
-      <form method="post" action="/connections/progress-sharing" class="inline-form">
+      <form method="post" action="/connections/progress-sharing" class="switch-form">
         <label>
           <input type="checkbox" name="progressToConnections" value="on" checked={progressToConnections} /> Share reading
           progress
         </label>
+        <p class="muted">
+          On by default. Each page you record becomes its own entry in their feed. Turning it off stops new entries and
+          withdraws the ones already sent, the next time each connection checks.
+        </p>
         <button type="submit">Save</button>
       </form>
-      <p class="muted">
-        On by default. Each page you record becomes its own entry in their feed. Turning it off stops new entries and
-        withdraws the ones already sent, the next time each connection checks.
-      </p>
-      <form method="post" action="/connections/names-sharing" class="inline-form" id="names-to-connections">
+      <form method="post" action="/connections/names-sharing" class="switch-form" id="names-to-connections">
         <label>
           <input type="checkbox" name="namesToConnections" value="on" checked={namesToConnections} /> Show names to
           connected households
         </label>
-        <button type="submit">Save</button>
-      </form>
-      <p class="muted">
-        Off, they see your household as one — "finished", "rated" — with no names. On, their feed gets an
-        entry per person, signed with each member's <strong>display name</strong> ("Priya finished …", "Ravi rated …",
+        <p class="muted">
+        Off, they see your household as one — “finished”, “rated” — with no names. On, their feed gets an
+        entry per person, signed with each member's <strong>display name</strong> (“Priya finished …”, “Ravi rated …”,
         and when someone starts a book), and a book's page lists everyone's rating and review. Members without a display
         name stay unnamed; login usernames never leave this library, and nor do the dates of anyone's reads. Comments
-        and borrow requests your members send are signed with their display name while this is on, "A member" while
+        and borrow requests your members send are signed with their display name while this is on, “A member” while
         it's off. Turning it on or off swaps what they hold the next time they check: they're asked to delete the
         entries from before and pull the new ones — a household is trusted to, but can keep what it already pulled.
         Households on older versions of Nalanda get the entries without names, as your household's, and skip
-        "started".
-      </p>
+        “started”.
+        </p>
+        <button type="submit">Save</button>
+      </form>
       {/* §16 #49: a goal entry is always signed, so this switch only means anything while names go out — greyed and
           inert until then, and the server serves no goal entry without names whatever it holds */}
       <form
         method="post"
         action="/connections/goals-sharing"
-        class={namesToConnections ? 'inline-form' : 'inline-form switch-off'}
+        class={namesToConnections ? 'switch-form' : 'switch-form switch-off'}
         id="goals-to-connections"
       >
         <label>
@@ -232,24 +237,24 @@ const SharedViews: FC<{
           />{' '}
           Share reading goals
         </label>
-        <button type="submit" disabled={!namesToConnections}>
-          Save
-        </button>
-      </form>
-      <p class="muted">
+        <p class="muted">
         {namesToConnections ? null : (
           <>
             <strong>Takes effect only while names are shown to connected households</strong> — switch that on first.{' '}
           </>
         )}
-        With it on, their feed gets an entry when a member sets a reading goal, passes halfway and reaches it ("Priya
-        reached their 2026 goal"), with the target and the count so far — only for members with a display name, never
+        With it on, their feed gets an entry when a member sets a reading goal, passes halfway and reaches it (“Priya
+        reached their 2026 goal”), with the target and the count so far — only for members with a display name, never
         which books or when they were read. A goal goes to every view that can hold books, and a milestone only to views
         holding the book whose finish reached it. Turning it off withdraws goal entries the next time each connection
         checks. Households on Nalanda 1.3.0 or older skip goal entries and read the rest of your feed as before.
-      </p>
+        </p>
+        <button type="submit" disabled={!namesToConnections}>
+          Save
+        </button>
+      </form>
       {views.length ? (
-        <div class="data-table">
+        <div class="data-table cards">
           <table>
             <thead>
               <tr>
@@ -266,13 +271,15 @@ const SharedViews: FC<{
                   <td>
                     <strong>{v.name}</strong>
                   </td>
-                  <td class="hide-sm">
+                  <td class="hide-sm" data-label="Shelf">
                     {v.libraryId === null ? <span class="muted">All shelves</span> : (shelfName.get(v.libraryId) ?? '—')}
                   </td>
-                  <td>
+                  <td data-label="Scope">
                     <span class="pill">{scopeLabel(v)}</span>
                   </td>
-                  <td class="num">{v.itemCount}</td>
+                  <td class="num" data-label="Items">
+                    {v.itemCount}
+                  </td>
                   <td class="actions-cell">
                     <form method="post" action={`/connections/views/${v.id}/delete`} class="inline">
                       <button class="btn-danger" type="submit">
@@ -388,7 +395,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
             <button type="submit">Create an invitation</button>
           </form>
           {p.invites.length ? (
-            <div class="data-table">
+            <div class="data-table cards">
               <table>
                 <thead>
                   <tr>
@@ -403,14 +410,19 @@ const ConnectionsPage: FC<PageProps> = (p) => {
                     const state = inviteState(invite);
                     return (
                       <tr>
-                        <td class="date">{invite.createdAt.slice(0, 10)}</td>
-                        <td class="date">{invite.expiresAt.slice(0, 10)}</td>
-                        <td>{state}</td>
+                        <td class="date" data-label="Created">
+                          {ledgerDate(invite.createdAt)}
+                        </td>
+                        <td class="date" data-label="Expires">
+                          {ledgerDate(invite.expiresAt)}
+                        </td>
+                        <td data-label="State">{state}</td>
                         <td class="actions-cell">
-                          {state === 'Unused' ? (
+                          {/* an expired one can't be used either way; without this it stayed listed for good */}
+                          {state !== 'Used' ? (
                             <form method="post" action={`/connections/invites/${invite.id}/revoke`} class="inline">
                               <button class="btn" type="submit">
-                                Revoke
+                                {state === 'Unused' ? 'Revoke' : 'Remove'}
                               </button>
                             </form>
                           ) : null}
@@ -476,7 +488,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
             <>
               {usage && usage.entries > 0 ? (
                 <small class="muted">
-                  {usage.entries} stored · {formatBytes(usage.bytes)}
+                  {usage.entries.toLocaleString('en-US')} feed {usage.entries === 1 ? 'entry' : 'entries'} · {formatBytes(usage.bytes)}
                 </small>
               ) : null}
               <a class="btn" href={`/connections/${row.id}/feed`}>
@@ -486,7 +498,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
                 method="post"
                 action={`/connections/${row.id}/disconnect`}
                 class="inline"
-                onsubmit="return confirm('Disconnect from this library? Everything stored from them is deleted, and you would need a new invitation to reconnect.')"
+                data-confirm="Disconnect from this library? Everything stored from them is deleted, and you would need a new invitation to reconnect."
               >
                 <button class="btn-danger" type="submit">
                   Disconnect
@@ -828,7 +840,7 @@ const ConnectionFeedPage: FC<
         {p.subscriptions.length === 0 ? (
           <p class="muted">You don’t follow any of their views yet.</p>
         ) : (
-          <div class="data-table">
+          <div class="data-table cards">
             <table>
               <thead>
                 <tr>
@@ -852,7 +864,7 @@ const ConnectionFeedPage: FC<
                       ) : null}
                       {sub.lastError ? <small class="muted pull-error">{sub.lastError}</small> : null}
                     </td>
-                    <td>
+                    <td class="card-stack" data-label="Settings">
                       <form method="post" action={`${base}/subscriptions/${sub.id}`} class="sub-settings">
                         <SettingsFields interval={sub.intervalMinutes} days={sub.retentionDays} entries={sub.maxEntries} />
                         <button class="btn" type="submit">
@@ -860,12 +872,14 @@ const ConnectionFeedPage: FC<
                         </button>
                       </form>
                     </td>
-                    <td class="num hide-sm">
+                    <td class="num hide-sm" data-label="Stored">
                       {sub.entries}
                       <br />
                       <small class="muted">{formatBytes(sub.bytes)}</small>
                     </td>
-                    <td class="date hide-sm">{sub.lastPulledAt ? sub.lastPulledAt.slice(0, 16) : 'Not yet'}</td>
+                    <td class="date hide-sm" data-label="Last pulled">
+                      {sub.lastPulledAt ? ledgerDateTime(sub.lastPulledAt) : 'Not yet'}
+                    </td>
                     <td class="actions-cell">
                       <div class="inline-form">
                         <form method="post" action={`${base}/subscriptions/${sub.id}/purge`} class="inline">
@@ -900,7 +914,7 @@ const ConnectionFeedPage: FC<
         ) : p.theirViews.length === 0 ? (
           <p class="muted">{p.connection.householdName} isn’t sharing any views yet.</p>
         ) : (
-          <div class="data-table">
+          <div class="data-table cards">
             <table>
               <thead>
                 <tr>
@@ -916,13 +930,15 @@ const ConnectionFeedPage: FC<
                     <td>
                       <strong>{v.name}</strong>
                     </td>
-                    <td class="num">{v.itemCount}</td>
-                    <td class="num hide-sm">
+                    <td class="num" data-label="Items">
+                      {v.itemCount}
+                    </td>
+                    <td class="num hide-sm" data-label="A month">
                       ≈ {perMonth(v.recent, 'activities')} entries
                       <br />
                       <small class="muted">≈ {formatBytes(perMonth(v.recent, 'bytes'))}</small>
                     </td>
-                    <td>
+                    <td class="card-stack" data-label="Follow">
                       {followed.has(v.id) ? (
                         <span class="pill done">Following</span>
                       ) : (
@@ -948,7 +964,7 @@ const ConnectionFeedPage: FC<
           </div>
         )}
       </section>
-      <p>
+      <p class="back-link">
         <a href="/connections">← Connections</a>
       </p>
     </>

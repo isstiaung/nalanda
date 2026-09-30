@@ -551,7 +551,11 @@ describe('names that come from another server', () => {
     const html = await (await get('/connections', await sessionCookie('admin'))).text();
     expect(html).not.toContain('<img src=x');
     expect(html).toContain('&lt;img src=x');
-    for (const handler of html.match(/onsubmit="[^"]*"/g) ?? []) expect(handler).not.toContain('pwned');
+    // Disconnect's prompt is fixed text in data-confirm, and no inline handler on the page is left for a name to reach
+    expect(html).not.toMatch(/\son[a-z]+="/);
+    expect(html).toContain(
+      'data-confirm="Disconnect from this library? Everything stored from them is deleted, and you would need a new invitation to reconnect."',
+    );
   });
 });
 

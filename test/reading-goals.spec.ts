@@ -67,11 +67,11 @@ describe('what counts toward a goal', () => {
 });
 
 describe('pace', () => {
-  it('is linear through the year: on track until a whole book behind', () => {
-    // 2026-07-02 is day 183 of 365: 24 × 183 / 365 = 12.03, so 12 is on track and 9 is three behind
+  it('is linear through the year: on pace until a whole book behind or ahead', () => {
+    // 2026-07-02 is day 183 of 365: 24 × 183 / 365 = 12.03, so 12 is on pace, 9 three behind and 14 two ahead
     expect(goalPace(12, 24, 2026, '2026-07-02')).toEqual({ state: 'on_track' });
     expect(goalPace(9, 24, 2026, '2026-07-02')).toEqual({ state: 'behind', by: 3 });
-    expect(paceLabel(goalPace(9, 24, 2026, '2026-07-02'))).toBe('3 behind');
+    expect(goalPace(14, 24, 2026, '2026-07-02')).toEqual({ state: 'ahead', by: 2 });
     expect(goalPace(0, 24, 2026, '2026-01-01')).toEqual({ state: 'on_track' }); // nobody is behind on 1 January
     expect(goalPace(23, 24, 2026, '2026-12-31')).toEqual({ state: 'behind', by: 1 });
     expect(goalPace(24, 24, 2026, '2026-03-01')).toEqual({ state: 'reached' });
@@ -80,6 +80,16 @@ describe('pace', () => {
     expect(goalPace(12, 24, 2028, '2028-07-02')).toEqual({ state: 'on_track' });
     expect(goalPace(0, 24, 2027, '2026-12-01')).toEqual({ state: 'upcoming' });
     expect(goalPace(3, 24, 2025, '2026-12-01')).toEqual({ state: 'missed' });
+  });
+
+  it('says what a goal is behind or ahead of: a year-long pace', () => {
+    // the owner's case: a goal of 10 set on 30 September, nothing read yet — pace counts from 1 January
+    expect(paceLabel(goalPace(0, 10, 2026, '2026-09-30'))).toBe('7 behind pace');
+    expect(paceLabel(goalPace(12, 24, 2026, '2026-07-02'))).toBe('on pace');
+    expect(paceLabel(goalPace(13, 24, 2026, '2026-07-02'))).toBe('1 ahead of pace');
+    expect(paceLabel(goalPace(24, 24, 2026, '2026-07-02'))).toBe('reached');
+    expect(paceLabel(goalPace(0, 24, 2027, '2026-12-01'))).toBe('not started yet');
+    expect(paceLabel(goalPace(3, 24, 2025, '2026-12-01'))).toBe('year ended');
   });
 
   it('knows halfway in whole books, and what a form may set', () => {
@@ -105,8 +115,10 @@ describe('the Overview', () => {
     const html = (await (await as(asha, '/')).text()).replace(/\s+/g, ' ');
     expect(html).toContain(`Reading goal · ${year()}`);
     expect(html).toContain('<span class="goal-count">1 of 1000</span>');
-    expect(html).toContain(`<span class="pill behind">${paceLabel(behind)}</span>`);
-    expect(html).toContain('class="goal-pace"'); // the tick where an even pace stands today
+    expect(html).toContain(`<span class="pill behind">${behind.state === 'behind' ? behind.by : ''} behind pace</span>`);
+    expect(html).toContain('class="goal-pace"'); // the tick where a year-long pace stands today
+    // the tick is hidden from assistive tech, so words say what it is — and where pace starts
+    expect(html).toContain('<p class="goal-note">Pace runs from 1 January: the mark is where a year-long pace is today.</p>');
 
     // reached
     await setGoal(env.DB, asha.id, year(), 1, actor(asha));
@@ -114,14 +126,19 @@ describe('the Overview', () => {
     expect(reached).toContain('<span class="goal-count">1 of 1</span>');
     expect(reached).toContain('<span class="pill reached">reached</span>');
     expect(reached).not.toContain('class="goal-pace"');
+    expect(reached).not.toContain('goal-note'); // no mark, nothing to explain
 
-    // on track: two books ahead of any pace short of 31 December's
+    // ahead or on pace, in indigo: two books against a pace for three that is short of two until 31 December
     await setGoal(env.DB, asha.id, year(), 2, actor(asha));
     await finish(item.id, asha, todayUtc());
     await setGoal(env.DB, asha.id, year(), 3, actor(asha));
     const onTrack = (await (await as(asha, '/')).text()).replace(/\s+/g, ' ');
+    const pace = goalPace(2, 3, year(), todayUtc());
+    if (!todayUtc().endsWith('-12-31')) expect(['ahead', 'on_track']).toContain(pace.state); // on 31 December pace is 3
     expect(onTrack).toContain('<span class="goal-count">2 of 3</span>');
-    expect(onTrack).toContain(`${paceLabel(goalPace(2, 3, year(), todayUtc()))}</span>`);
+    expect(onTrack).toContain(`${paceLabel(pace)}</span>`);
+    if (pace.state === 'ahead') expect(onTrack).toContain(`<span class="pill done">${pace.by} ahead of pace</span>`);
+    if (pace.state === 'on_track') expect(onTrack).toContain('<span class="pill done">on pace</span>');
 
     // Ravi has none: he is offered one, and sees nothing of Asha's
     const his = (await (await as(ravi, '/')).text()).replace(/\s+/g, ' ');

@@ -127,7 +127,7 @@ describe('row actions', () => {
     expect(html).toMatch(/<button class="btn" type="submit">\s*Save/);
   });
 
-  it('leaves the per-view storage column to wider screens — the page head carries the total', async () => {
+  it('hides the per-view storage column in a wide table, labels it on a phone card, and keeps the total in the head', async () => {
     const { a, connectionId } = await connected();
     await createSubscription(env.DB, {
       connectionId,
@@ -139,7 +139,9 @@ describe('row actions', () => {
     });
     const html = await (await a.get(`/connections/${connectionId}/feed`, await sessionCookie('admin'))).text();
     expect(html).toContain('<th class="hide-sm">Stored</th>');
-    expect(html).toContain('<td class="num hide-sm">');
+    // a phone shows the table as cards (.data-table.cards), where the cell carries its own label
+    expect(html).toContain('<div class="data-table cards">');
+    expect(html).toContain('<td class="num hide-sm" data-label="Stored">');
     expect(html).toMatch(/FEED · 0 ENTRIES · [^<]+ STORED/); // the total stays in the head, on every screen
   });
 });

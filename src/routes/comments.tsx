@@ -23,6 +23,7 @@ import { isStamp, itemStamp } from '../federation/items';
 import { loadIdentity, type Identity } from '../federation/keys';
 import { commentCreate, commentDelete } from '../federation/messages';
 import { pushQueued } from '../federation/outbox';
+import { ledgerDate } from '../lib/dates';
 
 const comments = new Hono<AppEnv>();
 
@@ -46,7 +47,7 @@ export const CommentView: FC<{
     {/* a div, not a p: a form inside a p closes it early, leaving Delete on a line of its own */}
     <div class="comment-meta">
       <strong>{comment.authorName}</strong> · {comment.fromUs ? 'this library' : household} ·{' '}
-      <span class="mono">{comment.createdAt.slice(0, 10)}</span>
+      <span class="mono">{ledgerDate(comment.createdAt)}</span>
       {canDelete ? (
         <form method="post" action={`/comments/${comment.id}/delete`} class="inline">
           <input type="hidden" name="back" value={back} />

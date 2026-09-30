@@ -26,12 +26,15 @@ const Head: FC<{ title: string }> = ({ title }) => (
     <meta name="apple-mobile-web-app-title" content="Nalanda" />
     <link rel="stylesheet" href="/app.css" />
     {/* Before paint, not in app.js (which is deferred): a deferred script would let
-        the full table render first and then visibly drop columns. */}
+        the full table render first and then visibly drop columns. Until someone picks columns on this device,
+        a window under 1400px wide starts without Tags, so the table fits beside the sidebar; Columns shows it
+        again (app.js keeps the same default). */}
     <script
       dangerouslySetInnerHTML={{
         __html:
-          "try{var h=localStorage.getItem('nalanda:hidden-columns');" +
-          "if(h)document.documentElement.setAttribute('data-hide-cols',h);}catch(e){}",
+          "var h=null;try{h=localStorage.getItem('nalanda:hidden-columns');}catch(e){}" +
+          "if(h===null&&window.matchMedia&&matchMedia('(max-width: 1399px)').matches)h='tags';" +
+          "if(h)document.documentElement.setAttribute('data-hide-cols',h);",
       }}
     />
     {/* Confirmation prompts. Their text lives in a data-confirm attribute, never in an inline handler: a name
@@ -297,10 +300,20 @@ export const Layout: FC<
   </html>
 );
 
+/**
+ * The path the sidebar marks for a page with no link of its own: the one it's reached from. A connected household's
+ * pages — its shelves and their items — belong under Lending → Borrowed, where that household is browsed from. (Its
+ * feed settings, reached from Connections, already sit under Connections by their path.)
+ */
+export function navPath(path: string): string {
+  if (/^\/households\/\d+(\/|$)/.test(path)) return '/borrowed';
+  return path;
+}
+
 /** Renders a full page (doctype + app shell). Partials use c.html(<Fragment/>) directly. */
 export async function page(c: Context<AppEnv>, title: string, body: Child) {
   const user = (c.get('user') as SessionUser | undefined) ?? null;
-  const path = new URL(c.req.url).pathname;
+  const path = navPath(new URL(c.req.url).pathname);
   const libraries = user ? await listLibraries(c.env.DB) : [];
   // Feed and Connections exist only on an instance with a federation key; only admins manage connections.
   const federation = !!user && !!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY));

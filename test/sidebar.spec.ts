@@ -9,7 +9,7 @@ import { createLibrary, createUser } from '../src/db/queries';
 import type { Bindings } from '../src/env';
 import { budgeted } from '../src/federation/budget';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
-import { navCookieSections, NAV_SECTIONS } from '../src/views/layout';
+import { navCookieSections, navPath, NAV_SECTIONS } from '../src/views/layout';
 import { answerOutbound, connectPeer, instanceA, json, makeKeys, makePeer, setUpA, sqlAgo } from './federation-helpers';
 
 type Instance = ReturnType<typeof instanceA>;
@@ -124,6 +124,29 @@ describe('open sections', () => {
       expect(bar.aside, path).toContain(`<a href="${link}" class="nav-link active" aria-current="page">`);
       expect(bar.aside.match(/aria-current="page"/g), path).toHaveLength(1);
     }
+  });
+
+  it("files a connected household's pages under Lending → Borrowed, and its feed settings under Connections", async () => {
+    const admin = await person('admin');
+    const peer = await makePeer('The Okafor Household');
+    const connectionId = (await connectPeer(peer)).id;
+    for (const path of [`/households/${connectionId}`, `/households/${connectionId}/views/1`]) {
+      const bar = await sidebar(fed, path, admin.cookie);
+      expect(bar.open, path).toEqual(['lending']);
+      expect(bar.aside, path).toContain('<a href="/borrowed" class="nav-link active" aria-current="page">');
+      expect(bar.aside.match(/aria-current="page"/g), path).toHaveLength(1);
+    }
+    // the feed settings are reached from Connections, and mark it
+    const feed = await sidebar(fed, `/connections/${connectionId}/feed`, admin.cookie);
+    expect(feed.open).toEqual(['sharing']);
+    expect(feed.aside).toContain('<a href="/connections" class="nav-link active" aria-current="page">');
+    expect(feed.aside.match(/aria-current="page"/g)).toHaveLength(1);
+    expect(navPath(`/connections/${connectionId}/feed`)).toBe(`/connections/${connectionId}/feed`);
+    expect(navPath('/households/7/views/2/items/9')).toBe('/borrowed');
+    // only those: Connections itself, a look-alike, and anything else stay as they are
+    expect(navPath('/connections')).toBe('/connections');
+    expect(navPath('/connections/7/feedx')).toBe('/connections/7/feedx');
+    expect(navPath('/householdsx')).toBe('/householdsx');
   });
 
   it('opens a section for a page beneath its link, but not for a look-alike path', async () => {
