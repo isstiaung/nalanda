@@ -97,7 +97,9 @@ CREATE TABLE users (
   role          TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin','member')),
   must_change_password INTEGER NOT NULL DEFAULT 0,   -- set on admin-created accounts
   created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-  display_name  TEXT                    -- optional, what outsiders see when names are on (§16 #45); never a login
+  display_name  TEXT,                   -- optional, what outsiders see when names are on (§16 #45); never a login
+  session_key   TEXT NOT NULL DEFAULT '' -- 128 random bits, set at creation, never changed; a session names it with
+                                        -- the id, which SQLite reuses (§16 #56). '' only for ALTER TABLE
 );
 
 CREATE TABLE libraries (                 -- top-level collections, e.g. "Books", "Vinyl"
@@ -339,9 +341,15 @@ Multi-user, built into the app (no email infrastructure, no paid services):
 - Items record `added_by`, so "who added this" is visible on the detail page.
 - Password hashing: **PBKDF2-SHA256 (100k iterations) via WebCrypto** — native-speed, fits
   the free plan's CPU budget. Never bcrypt/argon2 npm packages (pure-JS, would blow it).
-- Session: HMAC-signed cookie, `HttpOnly`, `Secure`, `SameSite=Lax`, 30-day expiry; per
-  request the middleware also confirms the user row still exists → deleting a user is
-  instant revocation. Without a `SESSION_SECRET` (missing, empty or whitespace) nobody can
+- Session: HMAC-signed cookie, `HttpOnly`, `Secure`, `SameSite=Lax`, 30-day expiry, naming
+  the account's id **and its session key** — 128 random bits set when the account is made
+  (§16 #56). Per request the middleware reads the user row, as it always did, and requires
+  its key to match → deleting a user is instant revocation, and since SQLite reuses the id of
+  the newest removed row, the key is what keeps a removed member's cookie from signing in as
+  the next account made. The key never changes, so it is the account's identity across time:
+  a cookie with no key — every one signed before migration 0029 — signs nobody in, and
+  anything else derived from who someone is and kept across time (an HMAC stamp, say) binds
+  `accountIdentity()` — id and key — never the id alone. Without a `SESSION_SECRET` (missing, empty or whitespace) nobody can
   sign in: `/setup` and login answer 503 with how to set one, before writing anything, and
   no cookie verifies — a blank key would sign cookies anyone could forge.
 - CSRF: `SameSite=Lax` + an Origin-check middleware on all mutating routes.
@@ -1534,6 +1542,63 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     offline page refuses to hold scans when nobody is signed in on the device; "add all" skips
     entries with no match; `/offline.html` rather than `/offline`. The §14 non-goal "offline sync"
     stands: nothing is synced — the phone holds barcodes until a person reviews them.
+
+**2026-09-30 — session identity:**
+56. **A session names an account by its id and a random key, because ids are reused.** `users.id`
+    is `INTEGER PRIMARY KEY` without `AUTOINCREMENT` (migration 0000), so SQLite gives a new row
+    max(id)+1: removing the newest member frees their id for the next account made. The session
+    cookie was `{u, e}` — an id, signed — and the middleware only asked whether a row with that id
+    existed, so a removed member's cookie, good for up to 30 days, signed its holder in as whoever
+    was created next (a reviewer reproduced it: remove b, create c, b's cookie opens `/account` as
+    c). Fixed by giving every account an identity that is never reused:
+    - **`users.session_key`**: 16 random bytes, base64url, set in the statement that makes the
+      account — `createUser()`, and `createFirstAdmin()`'s guarded batch, whose `RETURNING` hands
+      the key to setup's sign-in. Migration 0028 adds the column (`NOT NULL DEFAULT ''`: SQLite
+      allows no random default on a column added to a table with rows) and 0029 fills each
+      existing row with `lower(hex(randomblob(16)))`, 32 hex digits — SQLite has no base64, and
+      hex digits are base64url characters. A key's job is only never to repeat at an id, not to be
+      secret: nothing is believed before its HMAC checks out, and only `SESSION_SECRET` makes one.
+      So `randomblob()`'s PRNG is ample, and the comparison is a plain `===` — the cookie's holder
+      can read the key inside it already, and knowing another account's key forges nothing.
+    - **The cookie is `{u, k, e}`.** `verifySessionToken()` refuses a token without a well-formed
+      `k`; the middleware compares `k` with the row it already reads (`sessionMatches()`), so the
+      check adds **no D1 call** — tests hold five pages to the counts main made before.
+    - **Old cookies are refused, not grandfathered.** Accepting `{u, e}` until it expired would have
+      kept the hole open for 30 days after the fix shipped, for exactly the cookies it exists to
+      stop. Refusing them signs everyone out once, on upgrade — a login each, in a household
+      app — and the release's Upgrading note says so.
+    - **An empty key never signs anyone in**, and createSessionToken() refuses to sign one. A row
+      without a usable key — inserted by hand, or restored from a backup taken before 0029 — gets
+      a fresh key at its next password login (`ensureSessionKey()`), so it degrades to "log in
+      again", never to a shared key.
+    - **The key never changes.** It is who the account is, not a credential: a password change or
+      an admin's reset leaves it, and every session, as it was — as before this change.
+    - **Anything else that remembers a person across time binds the key too.** A per-user value
+      that outlives a request — an HMAC stamp such as the offline scan queue's — is taken over
+      `accountIdentity(user)` (`"<id>:<key>"`; the session's user carries the key), never the id,
+      or the same reuse reopens there. Rows that point at users by id don't carry over: deleteUser()'s
+      batch clears `items.added_by`, `reading_progress.added_by`, `reads.reader_id` and
+      `reviews.user_id`; `ON DELETE SET NULL` clears `connection_invites.created_by`,
+      `comments.author_id` and `borrow_requests.requester_id`; the per-person seen markers
+      (`notifications_seen_id`, `feed_seen_id`) live on the row itself. Share tokens and
+      notifications belong to the household, not to anyone's id.
+
+    **Not done, for the owner to decide: signing out other sessions on a new password.** Replacing
+    the key on a password change would sign out that account's other devices, and on an admin's
+    reset would sign the member out everywhere — a way to revoke one person's sessions short of
+    rotating `SESSION_SECRET` for the household, and a reset is the natural place for it. It was
+    built and then left out, because it would change the key that identity-bound stamps hang
+    from: the offline scan queue's stamp would change under a device that changed its own
+    password, and that device would silently drop its queued scans. Done properly it wants a
+    second, rotating value beside the identity key (a `session_generation` counter the cookie
+    also names, say), in its own migration.
+
+    **Chosen without asking, overrulable:** refusing old cookies over grandfathering them;
+    keeping `AUTOINCREMENT` off `users` — adding it means rebuilding a table half the schema
+    references, and the key makes id reuse harmless for sessions anyway; no unique index on the
+    key, since a session is matched by id *and* key, and a collision at 128 bits is not a risk
+    worth a migration ordering problem (0028 would have to index a column full of `''`); an
+    account without a key gets one at its next password login rather than being locked out.
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

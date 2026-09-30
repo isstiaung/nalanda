@@ -95,7 +95,11 @@ Restored into the latest schema, it would give Completed books no reads. So:
 
 This is the order the 0023 rehearsal used on the backup of 2026-09-28, and the 0025 rehearsal
 too (ARCH.md §16 #43): a backup from before 1.3.0 has no `reviews.sql`, and its reads say nobody's
-name, so it restores at 0023 and 0024–0025 then credit its history to the first admin.
+name, so it restores at 0023 and 0024–0025 then credit its history to the first admin. One
+from before 0029 restores at 0027, and 0028–0029 then give each account its own session key
+(ARCH.md §16 #56); rehearsed on the backup of 2026-09-29. Restored into the latest schema
+instead, its accounts have no key: each gets one at its next password login, and until then
+no cookie signs it in.
 
 The search index repopulates automatically as the items insert (trigger-driven). Cover
 keys ride along in the data: if the R2 bucket is intact, images work immediately; if the

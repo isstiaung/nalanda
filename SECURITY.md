@@ -24,9 +24,14 @@ Knowing what the design already promises makes it clearer what counts as a break
 
 **Authentication.** Passwords are PBKDF2-HMAC-SHA256, 100,000 iterations (workerd's ceiling)
 over a 16-byte random salt, compared in constant time. Sessions are stateless: a
-`userId + expiry` payload signed with HMAC-SHA256 under `SESSION_SECRET`, carried in a
-`SameSite=Lax` cookie with a 30-day TTL, marked `Secure` over https. Login is throttled to
-10 failed attempts per IP per 10 minutes.
+`userId + sessionKey + expiry` payload signed with HMAC-SHA256 under `SESSION_SECRET`, carried
+in a `SameSite=Lax` cookie with a 30-day TTL, marked `Secure` over https. Every request
+re-reads the user row and requires its `session_key` to match the cookie's: user ids are
+reused (SQLite gives a new row max(id)+1), keys are 128 random bits and never are, so a
+removed account's cookie never signs in whoever is later given its id (ARCH.md §16 #56).
+Anything that trusts a user
+id *across time* — a cookie, a stamp, a cached decision — without also binding the key is a
+vulnerability. Login is throttled to 10 failed attempts per IP per 10 minutes.
 
 **CSRF.** `SameSite=Lax` cookies plus an Origin-check middleware on every mutation. All
 mutations are POSTs; a state-changing GET would itself be a bug.

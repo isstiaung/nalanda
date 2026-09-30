@@ -237,6 +237,10 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
   Cookies set `Secure` only on https so local dev login works.
 - Auth model (ARCH.md §8): admin creates member accounts with one-time temp passwords
   (`must_change_password`); roles are just `admin`/`member` — no permission matrix.
+  User ids are reused (no AUTOINCREMENT), so a session names the id **and** `users.session_key`
+  (random, set in the insert, never changed — ARCH.md §16 #56). Every path that
+  inserts a user sets a key; anything else that remembers a person across time (an HMAC
+  stamp, a cache) binds `accountIdentity()`, never the bare id.
 - Never hand-edit drizzle-generated migrations; hand-written SQL goes in `--custom`
   migrations. Migrations are append-only — never edit one that has been applied anywhere.
 - Barcode routing lives in `src/metadata/index.ts`: EAN-13 starting `978`/`979` → book
