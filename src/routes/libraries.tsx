@@ -18,6 +18,7 @@ import {
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { deleteCover } from '../lib/covers';
+import { formatCount } from '../lib/money';
 import { shareVisibility, shareVisibilityLabel } from '../lib/share';
 import {
   ColumnsMenu,
@@ -186,7 +187,7 @@ libraries.get('/libraries/:id', async (c) => {
         <div>
           <h1>{lib.name}</h1>
           <span class="sub">
-            {total} {total === 1 ? 'ITEM' : 'ITEMS'}
+            {formatCount(total)} {total === 1 ? 'ITEM' : 'ITEMS'}
             {shares.length ? ` · ${shareVisibilityLabel(shareVisibility(shares)).toUpperCase()}` : ''}
           </span>
         </div>

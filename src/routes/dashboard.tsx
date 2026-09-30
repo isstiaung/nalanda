@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { activeLoans, goalOf, holdingsByType, listLibraries, listShares, pickNextRead, recentItems, shelfTotals } from '../db/queries';
-import { formatMoney } from '../lib/money';
+import { formatCount, formatMoney } from '../lib/money';
 import type { Share } from '../db/schema';
 import type { AppEnv } from '../env';
 import { todayUtc } from '../lib/reads';
@@ -162,7 +162,7 @@ dashboard.get('/', async (c) => {
                           <strong>{l.name}</strong>
                         </a>
                       </td>
-                      <td class="num">{l.itemCount}</td>
+                      <td class="num">{formatCount(l.itemCount)}</td>
                       <td>
                         <span class={visibility.kind === 'private' ? 'pill' : 'pill shared'}>
                           {shareVisibilityLabel(visibility)}

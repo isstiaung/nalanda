@@ -472,7 +472,7 @@ describe('purchase price: totals per shelf', () => {
 
     const page = await html(asha, `/libraries/${vinyl.id}`);
     expect(page).toContain(
-      '<p class="paid-totals"><span class="eyebrow">Paid</span> <span class="money">₹30,200</span> <span class="muted">for 2</span><span class="muted"> · </span><span class="money">$45</span> <span class="muted">for 1, in USD</span> <span class="muted">— of 4 records on this shelf</span></p>',
+      '<p class="paid-totals"><span class="eyebrow">Paid</span> <span class="money">₹30,200</span> <span class="muted">for <span class="mono">2</span></span><span class="muted"> · </span><span class="money">$45</span> <span class="muted">for <span class="mono">1</span>, in USD</span> <span class="muted">— of <span class="mono">4</span> records on this shelf</span></p>',
     );
     // the Overview: a Paid column, each shelf's currencies side by side
     const overview = await html(asha, '/');
@@ -496,8 +496,8 @@ describe('purchase price: totals per shelf', () => {
       .bind(shelf.id)
       .run();
     const page = await html(asha, `/libraries/${shelf.id}`);
-    expect(page).toContain('<span class="money">₹19,999,999,980.20</span> <span class="muted">for 20</span>');
-    expect(page).toContain('— of 20 books on this shelf');
+    expect(page).toContain('<span class="money">₹19,999,999,980.20</span> <span class="muted">for <span class="mono">20</span></span>');
+    expect(page).toContain('— of <span class="mono">20</span> books on this shelf');
   });
 
   it('costs the shelf page one D1 call, however many items and currencies it holds', async () => {
@@ -680,7 +680,7 @@ describe('purchase price: a row edited by hand', () => {
     await setPrice(odd[3]!.id, 500, 'rupees');
     const page = await as(asha, `/libraries/${shelf.id}`);
     expect(page.status).toBe(200);
-    expect(await page.text()).toContain('<span class="money">₹10</span> <span class="muted">for 1</span>');
+    expect(await page.text()).toContain('<span class="money">₹10</span> <span class="muted">for <span class="mono">1</span></span>');
     // a code shaped like one that Intl doesn't know: out of the totals, as it is out of its own page and the export
     const zzz = await book(asha, { libraryId: shelf.id, title: 'Unknown code' });
     await setPrice(zzz.id, 700, 'ZZZ');
@@ -689,7 +689,7 @@ describe('purchase price: a row edited by hand', () => {
     expect(t.priced).toBe(1);
     const again = await (await as(asha, `/libraries/${shelf.id}`)).text();
     expect(again).not.toContain('ZZZ');
-    expect(again).toContain('<span class="money">₹10</span> <span class="muted">for 1</span> <span class="muted">— of 6 books on this shelf</span>');
+    expect(again).toContain('<span class="money">₹10</span> <span class="muted">for <span class="mono">1</span></span> <span class="muted">— of <span class="mono">6</span> books on this shelf</span>');
     expect(await html(asha, `/items/${zzz.id}`)).not.toContain('<dt>Paid</dt>');
     await env.DB.prepare('DELETE FROM items WHERE id = ?1').bind(zzz.id).run();
     expect((await as(asha, '/')).status).toBe(200);

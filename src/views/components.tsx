@@ -5,7 +5,7 @@ import { ITEM_STATUSES, MEDIA_GRADES, MEDIA_TYPES, SLEEVE_GRADES } from '../db/s
 import { GRADE_NAME, isRecord } from '../lib/condition';
 import { releaseIdOf, splitPressing, trackCount, type Track } from '../lib/pressing';
 import { goalPace, goalPercent, paceLabel, pacePercent } from '../lib/goals';
-import { currencyDigits, formatMoney, isStoredPrice, minorToDecimal, type CurrencyTotal } from '../lib/money';
+import { currencyDigits, formatCount, formatMoney, isStoredPrice, minorToDecimal, type CurrencyTotal } from '../lib/money';
 import { progressPercent } from '../lib/progress';
 import { linkHost } from '../lib/links';
 import { isPlayable, playDate } from '../lib/plays';
@@ -1157,7 +1157,7 @@ export const Stat: FC<{ n: number | string; label: string; warn?: boolean; detai
   detail,
 }) => (
   <div class="stat">
-    <div class={warn ? 'stat-n warn' : 'stat-n'}>{n}</div>
+    <div class={warn ? 'stat-n warn' : 'stat-n'}>{typeof n === 'number' ? formatCount(n) : n}</div>
     <div class="stat-label">{label}</div>
     {detail ? <div class="stat-detail">{detail}</div> : null}
   </div>
@@ -1809,13 +1809,18 @@ export const Money: FC<{ minor: number | string; currency: string }> = ({ minor,
   <span class="money">{formatMoney(minor, currency)}</span>
 );
 
-/** "12 records", "3 board games", "40 items": what a shelf holds, by its one type when it holds only one. */
-export function shelfNoun(byType: Array<{ mediaType: MediaType; count: number }>, n: number): string {
+/** "records", "board game", "items": the word for what a shelf holds, by its one type when it holds only one. */
+export function shelfWord(byType: Array<{ mediaType: MediaType; count: number }>, n: number): string {
   const types = [...new Set(byType.filter((t) => t.count > 0).map((t) => (t.mediaType === 'music' ? 'vinyl' : t.mediaType)))];
   const only = types.length === 1 ? types[0]! : null;
   const plural = only === 'vinyl' ? 'records' : only && only !== 'other' ? MEDIA_PLURAL[only] : 'items';
   const single = only === 'vinyl' ? 'record' : only && only !== 'other' ? MEDIA_LABEL[only].toLowerCase() : 'item';
-  return `${n} ${n === 1 ? single : plural}`;
+  return n === 1 ? single : plural;
+}
+
+/** "12 records", "3 board games", "1,040 items": what a shelf holds, its count grouped. */
+export function shelfNoun(byType: Array<{ mediaType: MediaType; count: number }>, n: number): string {
+  return `${formatCount(n)} ${shelfWord(byType, n)}`;
 }
 
 /**
@@ -1838,12 +1843,15 @@ export const PaidTotals: FC<{ totals: { items: number; byType: Array<{ mediaType
           {i ? <span class="muted"> · </span> : null}
           <span class="money">{formatMoney(t.total, t.currency)}</span>{' '}
           <span class="muted">
-            for {t.count}
+            {/* counts are data: monospace, grouped as the amounts are */}
+            for <span class="mono">{formatCount(t.count)}</span>
             {household && t.currency !== household ? `, in ${t.currency}` : ''}
           </span>
         </>
       ))}{' '}
-      <span class="muted">— of {shelfNoun(totals.byType, totals.items)} on this shelf</span>
+      <span class="muted">
+        — of <span class="mono">{formatCount(totals.items)}</span> {shelfWord(totals.byType, totals.items)} on this shelf
+      </span>
     </p>
   );
 };

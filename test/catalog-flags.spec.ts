@@ -3,6 +3,7 @@
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { createLibrary, createLoan, recentItems, returnLoan, setWant } from '../src/db/queries';
+import { formatCount } from '../src/lib/money';
 import { book, html, member, rows } from './member-helpers';
 
 /** Each recent card on the Overview, by item id: whether it shows the Lent and Wanted pills. */
@@ -131,5 +132,21 @@ describe('Delete shelf', () => {
     const filtered = await html(asha, `/libraries/${shelf.id}?owned=0`);
     expect(filtered).toContain('1 ITEM');
     expect(confirmOf(filtered)).toBe('Delete “Mixed” and all 3 items in it? This cannot be undone.');
+  });
+});
+
+describe('counts', () => {
+  it('group as prices do: 1,681 — the same Intl grouping as formatMoney', () => {
+    expect(formatCount(7)).toBe('7');
+    expect(formatCount(1681)).toBe('1,681');
+    expect(formatCount(1_234_567)).toBe('1,234,567');
+  });
+
+  it('are monospace and grouped on the Overview', async () => {
+    const asha = await member('asha', 'admin');
+    await book(asha);
+    const page = await html(asha, '/');
+    expect(page).toContain('<div class="stat-n">1</div>'); // a stat's figure, in the mono stat style
+    expect(page).toMatch(/<td class="num">1<\/td>/);
   });
 });
