@@ -238,13 +238,15 @@ describe('the re-reading marker', () => {
     expect(html).toContain('×2');
   });
 
-  it('leaves the book where status filters put it', async () => {
+  it('lists the book under In progress while it is read again, and still under Completed (§16 #64)', async () => {
     const item = await finished();
+    const before = await (await request(`/libraries/${item.libraryId}?status=in_progress`)).text();
+    expect(before).not.toContain('The Dispossessed'); // negative control: finished, and not being read
     await startRead(env.DB, item.id, '2026-09-01', await user());
     const completed = await (await request(`/libraries/${item.libraryId}?status=completed`)).text();
     const inProgress = await (await request(`/libraries/${item.libraryId}?status=in_progress`)).text();
     expect(completed).toContain('The Dispossessed');
-    expect(inProgress).not.toContain('The Dispossessed');
+    expect(inProgress).toContain('The Dispossessed');
   });
 });
 

@@ -2,8 +2,9 @@
 // module so queries.ts stays untouched, while src/db/ remains the only code touching D1.
 import { and, asc, count, desc, eq, gt, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
-import { SQLiteAsyncDialect } from 'drizzle-orm/sqlite-core';
-import { listItems, wantStatement } from './queries';
+import { SQLiteAsyncDialect, type SQLiteColumn } from 'drizzle-orm/sqlite-core';
+import { matchesStatus } from '../lib/reads';
+import { listItems, statusWhere, wantStatement } from './queries';
 import * as s from './schema';
 import { ADMIN_NOTIFICATIONS } from './schema';
 import {
@@ -301,14 +302,29 @@ export async function countPush(d1: D1Database, connectionId: number, limit: num
 
 // ---------- connection views: what this household shares (phase 2) ----------
 
-/** Items inside a view. The same meaning as a share's captured filters (src/lib/share.ts). */
+/**
+ * Items inside a view. The same meaning as a share's captured filters (src/lib/share.ts): In progress holds a book
+ * being read again too (§16 #64).
+ */
 function inView(view: ConnectionView): SQL | undefined {
   const conds: SQL[] = [];
   if (view.libraryId !== null) conds.push(eq(s.items.libraryId, view.libraryId));
   if (view.mediaType !== null) conds.push(eq(s.items.mediaType, view.mediaType));
-  if (view.status !== null) conds.push(eq(s.items.status, view.status));
+  if (view.status !== null) conds.push(statusWhere([view.status])!);
   if (view.owned !== null) conds.push(view.owned ? gt(s.items.copies, 0) : eq(s.items.copies, 0));
   return and(...conds);
+}
+
+/**
+ * The entry kinds a view carries besides its items' own tests. A view filtered to In progress carries no finish, nor a
+ * goal milestone, which is one (§16 #64): before a re-read counted as In progress, a finish always took its book out
+ * of such a view, so none was ever served there. Now a book finished before is in the view while it's read again, and
+ * without this its earlier finish — recorded while the book was outside, under an id past the follower's cursor —
+ * would arrive as news the day the re-read started, and a new follower's first page would open on old finishes.
+ * `kind` is the kind column of the stream asked about.
+ */
+function kindsInView(view: ConnectionView, kind: SQL | SQLiteColumn): SQL | undefined {
+  return view.status === 'in_progress' ? sql`${kind} NOT IN ('finished', 'goal_halfway', 'goal_reached')` : undefined;
 }
 
 /**
@@ -508,7 +524,7 @@ export async function activityInView(
     .from(s.activityLog)
     .innerJoin(s.items, eq(s.activityLog.itemId, s.items.id))
     .leftJoin(s.readingProgress, eq(s.activityLog.progressId, s.readingProgress.id))
-    .where(and(gt(s.activityLog.id, from), inView(view), stillShows))
+    .where(and(gt(s.activityLog.id, from), inView(view), kindsInView(view, s.activityLog.kind), stillShows))
     .orderBy(...(from === 0 ? [desc(s.activityLog.at), desc(s.activityLog.id)] : [asc(s.activityLog.id)]))
     .limit(limit);
   return { fromStart: from === 0, rows };
@@ -522,7 +538,12 @@ export async function stillShared(d1: D1Database, view: ConnectionView, ids: num
     .from(s.activityLog)
     .innerJoin(s.items, eq(s.activityLog.itemId, s.items.id))
     .where(
-      and(sql`${s.activityLog.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`, inView(view), stillShows),
+      and(
+        sql`${s.activityLog.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
+        inView(view),
+        kindsInView(view, s.activityLog.kind),
+        stillShows,
+      ),
     );
   return new Set(rows.map((r) => r.id));
 }
@@ -572,7 +593,7 @@ const memberStillShows = (goals: boolean) => sql`(
  * view that can hold books (§16 #49): a goal is about a person, and a view of records only has no room for it.
  */
 function memberInView(view: ConnectionView): SQL {
-  const items = inView(view);
+  const items = and(inView(view), kindsInView(view, s.memberActivity.kind));
   const holdsBooks = view.mediaType === null || view.mediaType === 'book';
   return sql`((${s.memberActivity.itemId} IS NOT NULL${items ? sql` AND ${items}` : sql``})
     OR (${s.memberActivity.itemId} IS NULL AND ${sql.raw(holdsBooks ? '1' : '0')} = 1))`;
@@ -727,7 +748,7 @@ function volumeQuery(dbi: ReturnType<typeof db>, view: ConnectionView, days: num
     })
     .from(s.activityLog)
     .innerJoin(s.items, eq(s.activityLog.itemId, s.items.id))
-    .where(and(sql`${s.activityLog.at} > datetime('now', ${`-${days} days`})`, inView(view), stillShows));
+    .where(and(sql`${s.activityLog.at} > datetime('now', ${`-${days} days`})`, inView(view), kindsInView(view, s.activityLog.kind), stillShows));
 }
 
 // ---------- subscriptions: what this household follows (phase 2) ----------
@@ -1108,7 +1129,7 @@ export async function takeRemovedCount(d1: D1Database): Promise<number> {
 export function itemMatchesView(view: ConnectionView, item: Item): boolean {
   if (view.libraryId !== null && item.libraryId !== view.libraryId) return false;
   if (view.mediaType !== null && item.mediaType !== view.mediaType) return false;
-  if (view.status !== null && item.status !== view.status) return false;
+  if (view.status !== null && !matchesStatus(item, view.status)) return false;
   if (view.owned !== null && item.copies > 0 !== view.owned) return false;
   return true;
 }
@@ -1317,7 +1338,7 @@ export async function sharedReviewedItem(d1: D1Database, itemId: number): Promis
         sql`EXISTS (SELECT 1 FROM connection_views v
                     WHERE (v.library_id IS NULL OR v.library_id = ${s.items.libraryId})
                       AND (v.media_type IS NULL OR v.media_type = ${s.items.mediaType})
-                      AND (v.status IS NULL OR v.status = ${s.items.status})
+                      AND (v.status IS NULL OR v.status = ${s.items.status} OR (v.status = 'in_progress' AND ${s.items.rereading} = 1))
                       AND (v.owned IS NULL OR v.owned = (${s.items.copies} > 0)))`,
       ),
     );
@@ -1765,7 +1786,7 @@ export async function sharedItem(d1: D1Database, itemId: number): Promise<Item |
         sql`EXISTS (SELECT 1 FROM connection_views v
                     WHERE (v.library_id IS NULL OR v.library_id = ${s.items.libraryId})
                       AND (v.media_type IS NULL OR v.media_type = ${s.items.mediaType})
-                      AND (v.status IS NULL OR v.status = ${s.items.status})
+                      AND (v.status IS NULL OR v.status = ${s.items.status} OR (v.status = 'in_progress' AND ${s.items.rereading} = 1))
                       AND (v.owned IS NULL OR v.owned = (${s.items.copies} > 0)))`,
       ),
     );
@@ -2230,7 +2251,7 @@ export async function theirItemTitle(d1: D1Database, connectionId: number, itemR
 const HOLDING_VIEW = `(SELECT min(v.id) FROM items i JOIN connection_views v
     ON (v.library_id IS NULL OR v.library_id = i.library_id)
    AND (v.media_type IS NULL OR v.media_type = i.media_type)
-   AND (v.status IS NULL OR v.status = i.status)
+   AND (v.status IS NULL OR v.status = i.status OR (v.status = 'in_progress' AND i.rereading = 1))
    AND (v.owned IS NULL OR v.owned = (i.copies > 0))
   WHERE i.id = ?1)`;
 
