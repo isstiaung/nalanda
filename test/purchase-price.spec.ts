@@ -97,6 +97,18 @@ describe('money: parsing and formatting', () => {
     expect([currencyDigits('INR'), currencyDigits('USD'), currencyDigits('JPY'), currencyDigits('KWD')]).toEqual([2, 2, 0, 3]);
   });
 
+  it('takes Indian grouping as well as Western — a lakh, ten lakh, a crore — and never a decimal comma', () => {
+    expect(parseMoney('1,00,000', 'INR')).toEqual({ ok: true, minor: 10000000 });
+    expect(parseMoney('10,00,000', 'INR')).toEqual({ ok: true, minor: 100000000 });
+    expect(parseMoney('1,00,00,000', 'INR')).toEqual({ ok: true, minor: 1000000000 });
+    expect(parseMoney('1,00,000.50', 'INR')).toEqual({ ok: true, minor: 10000050 });
+    expect(parseMoney('38,500', 'INR')).toEqual({ ok: true, minor: 3850000 });
+    expect(parseMoney('100000.50', 'INR')).toEqual({ ok: true, minor: 10000050 });
+    expect(parseMoney('1,000,000', 'INR')).toEqual({ ok: true, minor: 100000000 });
+    for (const bad of ['1,0,000', '12,50', '1,00,00', '10,0000', '1,00,000,00', ',100', '100,'])
+      expect(parseMoney(bad, 'INR'), bad).toEqual({ ok: false, problem: 'Enter the price as a number in INR, like 499 or 12.50.' });
+  });
+
   it('refuses a negative, anything not a number, more decimals than the currency has, and too much', () => {
     const problem = (raw: string, currency = 'INR') => {
       const r = parseMoney(raw, currency);

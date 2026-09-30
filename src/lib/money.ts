@@ -55,8 +55,10 @@ export function currencyDigits(code: string): number {
 
 export type MoneyParse = { ok: true; minor: number | null } | { ok: false; problem: string };
 
-// digits, optionally grouped in threes with commas ("38,500"), then an optional decimal part
-const AMOUNT = /^(\d+|\d{1,3}(?:,\d{3})+)(?:\.(\d+))?$/;
+// digits, optionally grouped with commas — in threes ("38,500"), or the Indian way, twos above the last three
+// ("1,00,000", a lakh; "1,00,00,000", a crore) — then an optional decimal part after a point. A comma is never a
+// decimal separator: "12,50" is refused, not read as 12.50 or 1,250.
+const AMOUNT = /^(\d+|\d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})*,\d{3})(?:\.(\d+))?$/;
 
 /**
  * A price as typed — "499", "38,500", "12.50" — in `currency`'s minor units. Blank is no price (`minor: null`).
