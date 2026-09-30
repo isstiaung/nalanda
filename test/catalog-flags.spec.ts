@@ -161,3 +161,43 @@ describe('the item table at 1280px', () => {
     expect(head).toContain("h=localStorage.getItem('nalanda:hidden-columns')");
   });
 });
+
+describe('an item page’s Want and Where to buy', () => {
+  const wantButton = (page: string) => /class="want-toggle[^"]*"/.test(page);
+  const buySection = (page: string) => page.includes('id="buy"');
+
+  it('offers no "Want to read" on an owned book someone has finished or is reading', async () => {
+    const asha = await member('asha', 'admin');
+    const ravi = await member('ravi');
+    const shelf = await createLibrary(env.DB, 'Shelf');
+    const finished = await book(asha, { libraryId: shelf.id, title: 'Finished', status: 'completed' });
+    const reading = await book(asha, { libraryId: shelf.id, title: 'Reading', status: 'in_progress' });
+    const unread = await book(asha, { libraryId: shelf.id, title: 'Unread' });
+    const notOwned = await book(asha, { libraryId: shelf.id, title: 'Read, not owned', status: 'completed', copies: 0 });
+    expect(wantButton(await html(ravi, `/items/${finished.id}`))).toBe(false);
+    expect(wantButton(await html(ravi, `/items/${reading.id}`))).toBe(false);
+    expect(wantButton(await html(ravi, `/items/${unread.id}`))).toBe(true);
+    expect(wantButton(await html(ravi, `/items/${notOwned.id}`))).toBe(true);
+
+    // a want already there stays removable, and says whose
+    await setWant(env.DB, finished.id, ravi.id, true);
+    const withWant = await html(ravi, `/items/${finished.id}`);
+    expect(withWant).toMatch(/class="want-toggle on" aria-pressed="true"/);
+    expect(await html(asha, `/items/${finished.id}`)).toContain('wanted by ravi');
+  });
+
+  it('shows Where to buy only for an item nobody owns or someone wants — its links kept either way', async () => {
+    const asha = await member('asha', 'admin');
+    const shelf = await createLibrary(env.DB, 'Shelf');
+    const owned = await book(asha, { libraryId: shelf.id, title: 'Owned' });
+    const notOwned = await book(asha, { libraryId: shelf.id, title: 'Not owned', copies: 0 });
+    const wanted = await book(asha, { libraryId: shelf.id, title: 'Owned, wanted' });
+    await setWant(env.DB, wanted.id, asha.id, true);
+    await env.DB.prepare("INSERT INTO purchase_links (item_id, label, url) VALUES (?1, 'Shop', 'https://shop.example/x')").bind(owned.id).run();
+
+    expect(buySection(await html(asha, `/items/${owned.id}`))).toBe(false);
+    expect(buySection(await html(asha, `/items/${notOwned.id}`))).toBe(true);
+    expect(buySection(await html(asha, `/items/${wanted.id}`))).toBe(true);
+    expect(await rows('SELECT url FROM purchase_links WHERE item_id = ?1', owned.id)).toEqual([{ url: 'https://shop.example/x' }]);
+  });
+});

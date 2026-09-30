@@ -282,7 +282,7 @@ describe('purchase links', () => {
 
   it('are the household’s: any member adds or removes one, and every one is checked', async () => {
     const { asha, ravi, shelf } = await household();
-    const b = await book(asha, { libraryId: shelf.id, title: 'Piranesi' });
+    const b = await book(asha, { libraryId: shelf.id, title: 'Piranesi', copies: 0 }); // Where to buy shows for what isn't owned
     const add = (who: Member, label: string, url: string, htmx = false) => as(who, `/items/${b.id}/links`, { body: { label, url }, htmx });
 
     expect((await add(ravi, 'Bookshop', 'https://bookshop.example/piranesi')).status).toBe(302);

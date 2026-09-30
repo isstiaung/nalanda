@@ -1963,13 +1963,23 @@ export const BuyLinks: FC<{ links: Array<{ label: string; url: string }> }> = ({
  * The item page's want-list bar: the signed-in member's own toggle, and who else in the household wants it. htmx swaps
  * the bar in place; without it the form posts and lands back on the item page.
  */
+/**
+ * Whether "Want to read" has nothing to offer: a book the household owns and has read or is reading — someone finished
+ * it (a re-read too) or has it open now. Its status is the household's summary of everyone's reads (§16 #41).
+ */
+export const wantIsMoot = (item: Pick<Item, 'mediaType' | 'copies' | 'status' | 'rereading'>): boolean =>
+  item.mediaType === 'book' && item.copies > 0 && (item.status === 'completed' || item.status === 'in_progress' || !!item.rereading);
+
 export const WantBar: FC<{
-  item: Pick<Item, 'id' | 'mediaType'>;
+  item: Pick<Item, 'id' | 'mediaType' | 'copies' | 'status' | 'rereading'>;
   wanters: Array<{ id: number; username: string }>;
   viewer: { id: number };
 }> = ({ item, wanters, viewer }) => {
   const mine = wanters.some((w) => w.id === viewer.id);
   const others = wanters.filter((w) => w.id !== viewer.id);
+  // an owned book someone's read or reading: no button to want it — unless it's already on a list, which stays
+  // removable (and says whose); the empty bar keeps its id, so a swap after a removal has a place to land
+  if (wantIsMoot(item) && !wanters.length) return <div class="want-bar" id="want-bar" hidden></div>;
   return (
     <div class="want-bar" id="want-bar">
       <form method="post" action={`/items/${item.id}/want`} hx-post={`/items/${item.id}/want`} hx-target="#want-bar" hx-swap="outerHTML" class="inline">
@@ -1992,6 +2002,9 @@ export const WantBar: FC<{
     </div>
   );
 };
+
+/** "Where to buy" is for something to get: an item nobody owns, or one someone wants. Links stay either way. */
+export const buyIsShown = (item: Pick<Item, 'copies'>, wanters: unknown[]): boolean => item.copies === 0 || wanters.length > 0;
 
 /**
  * The item page's purchase links, with a form to add one and a Remove on each — the household's, so any member may.

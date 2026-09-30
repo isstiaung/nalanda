@@ -66,6 +66,7 @@ import { bggRefresh, discogsPressing } from '../metadata';
 import {
   accNo,
   BuySection,
+  buyIsShown,
   CopiesPill,
   Cover,
   DetailsList,
@@ -769,7 +770,9 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           <PlaysSection item={item} count={plays.count} plays={plays.plays} today={todayUtc()} viewer={viewer} people={people} />
         ) : null}
 
-        <BuySection itemId={item.id} links={log.want.links} error={link?.error} label={link?.label} url={link?.url} />
+        {buyIsShown(item, log.want.wanters) || link ? (
+          <BuySection itemId={item.id} links={log.want.links} error={link?.error} label={link?.label} url={link?.url} />
+        ) : null}
 
         {grouped ? (
           <>
