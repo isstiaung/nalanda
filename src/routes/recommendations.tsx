@@ -344,7 +344,7 @@ recommendations.get('/recommendations', async (c) => {
                       {shelves.length > 1 ? (
                         <>
                           <label for={`want-shelf-${r.id}`} class="muted">
-                            Shelf<span class="visually-hidden"> for {r.title}</span>
+                            Shelf<span class="sr-only"> for {r.title}</span>
                           </label>
                           <select id={`want-shelf-${r.id}`} name="libraryId">
                             {shelves.map((l) => (
@@ -356,18 +356,18 @@ recommendations.get('/recommendations', async (c) => {
                         <input type="hidden" name="libraryId" value={String(shelves[0]!.id)} />
                       )}
                       <button type="submit">
-                        Add to my want list<span class="visually-hidden">: {r.title}</span>
+                        Add to my want list<span class="sr-only">: {r.title}</span>
                       </button>
                     </form>
                   ) : null}
                   <form method="post" action={`/recommendations/${r.id}/dismiss`} class="inline">
                     <button type="submit" class="btn">
-                      Dismiss<span class="visually-hidden">: {r.title}</span>
+                      Dismiss<span class="sr-only">: {r.title}</span>
                     </button>
                   </form>
                   {r.theirItemId && r.theirViewId ? (
                     <a href={`/households/${r.connectionId}/views/${r.theirViewId}/items/${r.theirItemId}`}>
-                      On their shelf<span class="visually-hidden">: {r.title}</span>
+                      On their shelf<span class="sr-only">: {r.title}</span>
                     </a>
                   ) : null}
                 </div>

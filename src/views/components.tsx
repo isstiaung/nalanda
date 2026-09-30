@@ -3,7 +3,7 @@ import type { PastLoan } from '../db/queries';
 import type { Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_GRADES, MEDIA_TYPES, SLEEVE_GRADES } from '../db/schema';
 import { GRADE_NAME, isRecord } from '../lib/condition';
-import { splitPressing, trackCount, type Track } from '../lib/pressing';
+import { releaseIdOf, splitPressing, trackCount, type Track } from '../lib/pressing';
 import { goalPace, goalPercent, paceLabel, pacePercent } from '../lib/goals';
 import { currencyDigits, formatMoney, isStoredPrice, minorToDecimal, type CurrencyTotal } from '../lib/money';
 import { progressPercent } from '../lib/progress';
@@ -13,6 +13,7 @@ import { latestReadDate, ordinal, summarizeReads, todayUtc, type ReadDraft, type
 import { formatSeriesNumber } from '../lib/series';
 import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
+import { DiscogsAttribution, DiscogsCredit, discogsLink, discogsUrl } from './attribution';
 
 export const MEDIA_LABEL: Record<MediaType, string> = {
   book: 'Book',
@@ -1418,6 +1419,12 @@ const CandidateSummary: FC<{ candidate: Candidate }> = ({ candidate }) => (
       {' · via '}
       {candidate.provider}
     </small>
+    {/* §16 #63: Discogs' data carries its credit, linked to the release it came from */}
+    {candidate.provider === 'discogs' ? (
+      <small class="candidate-credit">
+        <DiscogsCredit href={discogsUrl(releaseIdOf(candidate.details))} />
+      </small>
+    ) : null}
     {candidate.series ? (
       <small class="muted candidate-series">
         {candidate.series.name}
@@ -1835,6 +1842,8 @@ export const Tracklist: FC<{ tracks: Track[] }> = ({ tracks }) => {
  * A record's pressing — label, catalogue number, country, year, format — and its tracklist, then whatever else its
  * details hold, as the plain list every item page has. Used by the item page and the share page alike: pressing
  * details are public catalogue data (§9). `after` sits between the pressing and the rest (the Refresh button).
+ * Discogs' credit (§16 #63) goes right below the pressing it credits — or, for a record whose only Discogs data is
+ * in the plain list (its genres), below that — when `discogsLink()` says the record owes one.
  */
 export const RecordDetails: FC<{ details: Record<string, unknown>; after?: unknown; publicPage?: boolean }> = ({
   details,
@@ -1843,6 +1852,7 @@ export const RecordDetails: FC<{ details: Record<string, unknown>; after?: unkno
 }) => {
   const { pressing, tracklist, rest } = splitPressing(details);
   const empty = !pressing.length && !tracklist.length;
+  const discogs = discogsLink({ mediaType: 'vinyl', details }); // only ever called for a record
   return (
     <>
       {empty && publicPage ? null : (
@@ -1851,6 +1861,7 @@ export const RecordDetails: FC<{ details: Record<string, unknown>; after?: unkno
           {pressing.length ? <DetailsList details={Object.fromEntries(pressing)} /> : null}
           {empty ? <p class="muted">No pressing details yet.</p> : null}
           <Tracklist tracks={tracklist} />
+          {discogs && !empty ? <DiscogsAttribution href={discogs} /> : null}
           {after}
         </div>
       )}
@@ -1860,6 +1871,7 @@ export const RecordDetails: FC<{ details: Record<string, unknown>; after?: unkno
           <DetailsList details={rest} />
         </div>
       ) : null}
+      {discogs && empty ? <DiscogsAttribution href={discogs} /> : null}
     </>
   );
 };

@@ -57,14 +57,29 @@ with this project — if you run an instance, you are the API consumer and those
 between you and them. BoardGameGeek's, for example, require an approved application (its
 token is your `BGG_TOKEN`) and the logo above.
 
-Discogs' [API Terms of Use](https://support.discogs.com/hc/en-us/articles/360009334593-API-Terms-of-Use)
-(last updated 27 May 2025) split its data into CC0 Data — release titles, formats, track listings,
-barcodes, labels — and **Restricted Data**, which includes *"'Marketplace Data' such as … pricing"*.
-They ask any application to show *"This application uses Discogs’ API but is not affiliated with,
-sponsored or endorsed by Discogs. ‘Discogs’ is a trademark of Zink Media, LLC."* (it *"may be included
-in Your terms and conditions or usage documentation"*), and *"Data provided by Discogs."* beside any
-data used from the API, linked to the discogs.com page holding it, without `nofollow`. So, for this
-project: This application uses Discogs’ API but is not affiliated with, sponsored or endorsed by
-Discogs. ‘Discogs’ is a trademark of Zink Media, LLC. The terms also forbid showing their data more
-than six hours older than Discogs' own, which is why Nalanda fetches and stores no marketplace
-prices (ARCH.md §16 #61).
+### Discogs
+
+This application uses Discogs’ API but is not affiliated with, sponsored or endorsed by Discogs. ‘Discogs’ is a trademark of Zink Media, LLC.
+
+That notice is word for word what Discogs'
+[API Terms of Use](https://support.discogs.com/hc/en-us/articles/360009334593-API-Terms-of-Use)
+("Last Updated: May 27th, 2025") ask for, *"prominently on Your application and any other
+public-facing use of Our API and the Content that You create"*; it *"may be included in Your
+terms and conditions or usage documentation"*, which this file and the README are. The same
+terms say: *"You must display the following notice directly next to any data You use from the
+Discogs API: “Data provided by Discogs.” The notice must include a hyperlink to the discogs.com
+page that includes the data. The link back must not use any mechanism that prevents passing
+along search engine ranking credit to that page, such as 'nofollow'."*
+
+So a record whose pressing came from Discogs says **Data provided by Discogs.** right below
+it, linked to the release's page on discogs.com, with the notice under it: on the record's page,
+on a share page showing it, on a connected household's copy, and beside each Discogs result on
+the Add page. Where and why: ARCH.md §16 #63. Nalanda ships no Discogs file or logo; the terms
+ask for none, and Discogs' [Application Name and Description
+Policy](https://support.discogs.com/hc/en-us/articles/360009207054-Application-Name-and-Description-Policy)
+limits how its mark may be used. A fork that drops Discogs drops the credit with it.
+
+The terms split Discogs' data into CC0 Data — release titles, formats, track listings,
+barcodes, labels — and **Restricted Data**, which includes *"'Marketplace Data' such as …
+pricing"*. They also forbid showing their data more than six hours older than Discogs' own,
+which is why Nalanda fetches and stores no marketplace prices (ARCH.md §16 #61).
