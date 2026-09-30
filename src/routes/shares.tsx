@@ -172,8 +172,8 @@ shares.get('/shares', async (c) => {
         <p class="muted">
           Off, a shared book shows the household's average rating and its latest review, unsigned.
           On, it also lists everyone's rating and review, each signed with the member's <strong>display name</strong> —
-          set on their Account page, or here under Members. A member without one appears as “A member”. Login usernames never
-          appear, and nor does who read what or when: reading history stays "Read N times". Turning it off hides names
+          set on their Account page, or by an admin under <a href="/settings/users">Members</a>. A member without one appears as “A member”. Login usernames never
+          appear, and nor does who read what or when: reading history stays “Read N times”. Turning it off hides names
           from every page served after; a page someone already loaded can take up to an hour to catch up.
         </p>
       </section>
