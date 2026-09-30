@@ -3,7 +3,8 @@ import type { PastLoan } from '../db/queries';
 import type { Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import { progressPercent } from '../lib/progress';
-import { ordinal, summarizeReads, todayUtc, type ReadDraft, type ReadRow } from '../lib/reads';
+import { isPlayable, playDate, timesPlayed } from '../lib/plays';
+import { latestReadDate, ordinal, summarizeReads, todayUtc, type ReadDraft, type ReadRow } from '../lib/reads';
 import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
 
@@ -507,6 +508,125 @@ export const ReadsByPerson: FC<{ item: Item; reads: ReadingRead[]; viewer: Viewe
           </div>
         );
       })}
+    </div>
+  );
+};
+
+// ---------- plays (ARCH.md §16 #54) ----------
+
+type PlayLine = { id: number; playedOn: string; loggedBy: number | null };
+
+/**
+ * Plays as a list, newest first: each date, who logged it (for an admin, once the household has more than one member —
+ * the logger is kept for auditing, not shown as anyone's history), and Remove for whoever may: the play's logger, or an
+ * admin. `year` drops the year from dates in it, under a year heading; otherwise it shows only outside `today`'s.
+ * `htmx` swaps the item page's Plays section on a removal; without it, the form posts and comes back to `back`.
+ */
+const PlayList: FC<{ item: Item; plays: PlayLine[]; today: string; viewer: Viewer; people: Person[]; back?: string }> = ({
+  item,
+  plays,
+  today,
+  viewer,
+  people,
+  back,
+}) => {
+  const base = `/items/${item.id}`;
+  const showLogger = viewer.admin && people.length > 1;
+  return (
+    <ol class="play-log">
+      {plays.map((p) => {
+        const when = playDate(p.playedOn, today);
+        const action = `${base}/plays/${p.id}/delete${back ? `?back=${encodeURIComponent(back)}` : ''}`;
+        return (
+          <li>
+            <time class="mono" datetime={p.playedOn}>
+              {when}
+            </time>
+            {showLogger ? <span class="muted play-by">{p.loggedBy === viewer.id ? 'you' : personName(people, p.loggedBy)}</span> : null}
+            {viewer.admin || (p.loggedBy !== null && p.loggedBy === viewer.id) ? (
+              <form method="post" action={action} {...(back ? {} : { 'hx-post': action, 'hx-target': '#plays', 'hx-swap': 'outerHTML' })}>
+                <button type="submit" class="progress-delete" aria-label={`Remove the play of ${when}`}>
+                  Remove
+                </button>
+              </form>
+            ) : null}
+          </li>
+        );
+      })}
+    </ol>
+  );
+};
+
+/**
+ * A board game's play log or a record's listening log (§16 #54): how many times the household has played it and when
+ * last, "Played" — today, or on the date picked beside it — and the most recent plays. A play is the household's, so
+ * there is one count and one list, whoever pressed the button. Swaps itself on every change. An item of another type
+ * that has plays (its type changed since) keeps the list, so they can still be seen and removed, but gets no button.
+ */
+export const PlaysSection: FC<{ item: Item; count: number; plays: PlayLine[]; today: string; viewer: Viewer; people: Person[]; error?: string }> = ({
+  item,
+  count,
+  plays,
+  today,
+  viewer,
+  people,
+  error,
+}) => {
+  const base = `/items/${item.id}`;
+  const last = plays[0];
+  return (
+    <div class="detail-section" id="plays">
+      <p class="eyebrow">{item.mediaType === 'vinyl' ? 'Listening log' : 'Play log'}</p>
+      {count && last ? (
+        <p class="reading-summary">
+          Played <span class="mono">{timesPlayed(count)}</span> · last on{' '}
+          <time class="mono" datetime={last.playedOn}>
+            {playDate(last.playedOn, today)}
+          </time>
+        </p>
+      ) : (
+        <p class="reading-summary muted">Not played yet.</p>
+      )}
+      {error ? <p class="error">{error}</p> : null}
+      {isPlayable(item.mediaType) ? (
+        // pressing Played sends today's date, already in the field; picking another logs that day instead
+        <form method="post" action={`${base}/plays`} class="inline-form play-form" hx-post={`${base}/plays`} hx-target="#plays" hx-swap="outerHTML" hx-disabled-elt="find button">
+          <button type="submit">Played</button>
+          <label>
+            <span class="muted">on</span>
+            <input type="date" name="date" value={today} max={latestReadDate()} aria-label="Played on" class="mono" required />
+          </label>
+        </form>
+      ) : null}
+      {plays.length ? <PlayList item={item} plays={plays} today={today} viewer={viewer} people={people} /> : null}
+      {count > plays.length ? (
+        <p class="play-more">
+          <a href={`${base}/plays`}>All {count} plays</a>
+        </p>
+      ) : null}
+    </div>
+  );
+};
+
+/** Every play of an item, a page at a time, under a heading per year — the plays page, where any play can be removed. */
+export const AllPlays: FC<{ item: Item; plays: PlayLine[]; viewer: Viewer; people: Person[]; page: number }> = ({ item, plays, viewer, people, page }) => {
+  const years: Array<{ year: string; plays: PlayLine[] }> = [];
+  for (const p of plays) {
+    const year = p.playedOn.slice(0, 4);
+    const group = years.at(-1);
+    if (group && group.year === year) group.plays.push(p);
+    else years.push({ year, plays: [p] });
+  }
+  const back = page > 1 ? `plays?page=${page}` : 'plays';
+  return (
+    <div id="plays">
+      {years.map((g) => (
+        <div class="detail-section">
+          <p class="eyebrow mono">{g.year}</p>
+          {/* a date in its own year's list needs no year */}
+          <PlayList item={item} plays={g.plays} today={`${g.year}-01-01`} viewer={viewer} people={people} back={back} />
+        </div>
+      ))}
     </div>
   );
 };
