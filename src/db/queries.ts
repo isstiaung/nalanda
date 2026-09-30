@@ -484,6 +484,38 @@ export async function recentItems(d1: D1Database, limit = 12): Promise<Item[]> {
   return db(d1).select().from(s.items).orderBy(desc(s.items.addedAt), desc(s.items.id)).limit(limit);
 }
 
+/** What the Overview's "Read next" card shows of its pick. */
+export type ReadNextPick = Pick<Item, 'id' | 'title' | 'creators' | 'coverKey' | 'copies' | 'mediaType'>;
+
+/**
+ * A random book for `readerId` to read next, or null when there is none: any book, owned or not, that they haven't
+ * finished and aren't reading now — their own reads only, so someone else's finish or open read doesn't take a book
+ * out, and a read they stopped doesn't either. `notId` (the pick just shown) sorts last, so "Another" never shows it
+ * again while any other book qualifies, and still shows it when it's the only one. One call; the pool is filtered by
+ * the reads index, and `LIMIT 1` keeps SQLite's sort to a single row.
+ */
+export async function pickNextRead(d1: D1Database, readerId: number, notId: number | null = null): Promise<ReadNextPick | null> {
+  const [pick] = await db(d1)
+    .select({
+      id: s.items.id,
+      title: s.items.title,
+      creators: s.items.creators,
+      coverKey: s.items.coverKey,
+      copies: s.items.copies,
+      mediaType: s.items.mediaType,
+    })
+    .from(s.items)
+    .where(
+      and(
+        eq(s.items.mediaType, 'book'),
+        sql`NOT EXISTS (SELECT 1 FROM ${s.reads} WHERE ${s.reads.itemId} = ${s.items.id} AND ${s.reads.readerId} = ${readerId} AND ${s.reads.status} IN ('completed', 'in_progress'))`,
+      ),
+    )
+    .orderBy(...(notId === null ? [] : [sql`${s.items.id} = ${notId}`]), sql`random()`)
+    .limit(1);
+  return pick ?? null;
+}
+
 /** Reading-log entries: cataloged (reviewed, rated) but not physically owned. */
 export async function holdingsByType(
   d1: D1Database,

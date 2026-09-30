@@ -51,6 +51,9 @@ manuscripts.
   and pages, and can be corrected, deleted or added after the fact; a book read more than
   once says "Read N times" on share pages, and connections see "re-reading" and "finished
   again".
+- **What to read next**: the Overview suggests one book you haven't finished and aren't
+  reading, owned or not, whoever else has read it. **Another** draws a different one;
+  **Start reading** starts your read and opens the book.
 - **Own your data**: every field round-trips through CSV export — each read with its reader,
   each member's review — and plain-SQLite backups.
 - **The manuscript ledger**: a hand-written design system grounded in Nalanda's Pala-era
