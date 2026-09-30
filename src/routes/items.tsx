@@ -84,6 +84,7 @@ import {
   type Person,
   type Viewer,
   WantBar,
+  WantedPill,
 } from '../views/components';
 import { page } from '../views/layout';
 import { BggAttribution, fromBgg } from '../views/attribution';
@@ -524,6 +525,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           <dt>Holding</dt>
           <dd>
             <HoldingPill item={item} />
+            {item.copies === 0 && want.wanters.length ? <WantedPill /> : null}
           </dd>
           {/* where it lives (§16 #51) — private, like notes: share pages and connections never carry it */}
           {item.location ? (

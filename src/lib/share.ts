@@ -93,6 +93,10 @@ export type PublicItem = {
   rating: number | null;
   review: string | null;
   inCollection: boolean; // derived from copies > 0 — the count itself stays private
+  // Someone in the household wants it, and the household doesn't have it (§16 #53): a derived boolean, only ever `true`
+  // — absent otherwise — and never whose want. The key is left out unless the caller says so, so pages that don't ask
+  // serialize exactly as before.
+  wanted?: true;
   details: Record<string, unknown>;
   // How many times it has been finished, only from twice on — a re-read says something about a book, where a
   // single read is what a finished book already means (§16 #41). Never the reads themselves, or their dates.
@@ -139,6 +143,8 @@ export function toPublicItem(
     reviews?: Array<{ by: string | null; rating: number | null; review: string | null }>;
     plays?: number;
     series?: { id: number; name: string } | null;
+    // anyone in the household wants it (§16 #53) — shown only while it isn't owned
+    wanted?: boolean;
   } = {},
 ): PublicItem {
   const readingNow = item.status === 'in_progress' || item.rereading;
@@ -156,6 +162,7 @@ export function toPublicItem(
     rating: item.rating,
     review: item.review,
     inCollection: item.copies > 0,
+    ...(opts.wanted === true && item.copies === 0 ? { wanted: true as const } : {}),
     details: parseDetails(item.details),
     ...(item.readCount >= 2 ? { readCount: item.readCount } : {}),
     // a game's or record's plays, counted; the key only when there are some, and never on a book, which has reads

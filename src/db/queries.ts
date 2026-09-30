@@ -2109,6 +2109,30 @@ export async function setWant(d1: D1Database, itemId: number, userId: number, wa
   ).run();
 }
 
+/**
+ * Which of these items the household wants and doesn't have (§16 #53): someone's want list holds it and `copies` is 0 —
+ * the "Wanted" badge beside "Not owned". A set of ids, never whose. One query, the ids as one JSON parameter.
+ */
+export async function wantedAmong(d1: D1Database, itemIds: number[]): Promise<Set<number>> {
+  if (!itemIds.length) return new Set();
+  const rows = await d1.prepare(WANTED_AMONG).bind(JSON.stringify(itemIds)).all<{ id: number }>();
+  return new Set(rows.results.map((r) => r.id));
+}
+const WANTED_AMONG = `SELECT i.id FROM items i WHERE i.id IN (SELECT value FROM json_each(?1)) AND i.copies = 0
+  AND EXISTS (SELECT 1 FROM wants w WHERE w.item_id = i.id)`;
+
+/** A shelf page's badges in one D1 call: which items are out on loan, and which are wanted (wantedAmong). */
+export async function shelfFlags(d1: D1Database, itemIds: number[]): Promise<{ onLoan: Set<number>; wanted: Set<number> }> {
+  if (!itemIds.length) return { onLoan: new Set(), wanted: new Set() };
+  const ids = JSON.stringify(itemIds);
+  const [loans, wanted] = await d1.batch([
+    d1.prepare('SELECT DISTINCT item_id AS id FROM loans WHERE returned_on IS NULL AND item_id IN (SELECT value FROM json_each(?1))').bind(ids),
+    d1.prepare(WANTED_AMONG).bind(ids),
+  ]);
+  const set = (r: D1Result | undefined) => new Set(((r?.results ?? []) as Array<{ id: number }>).map((x) => x.id));
+  return { onLoan: set(loans), wanted: set(wanted) };
+}
+
 /** Who wants an item — ids and usernames, for the item's page inside the app — and its purchase links, oldest first: one D1 call. */
 export async function wantsAndLinks(
   d1: D1Database,

@@ -97,6 +97,9 @@ export const StatusPill: FC<{ status: ItemStatus }> = ({ status }) => (
 /** copies = 0: in the ledger, not on the shelf — a reading-log entry. */
 export const NotOwnedPill: FC = () => <span class="pill ghost">Not owned</span>;
 
+/** Someone in the household wants it, and it isn't owned (§16 #53): beside "Not owned", never saying whose want. */
+export const WantedPill: FC = () => <span class="pill wanted">Wanted</span>;
+
 /**
  * A book finished before and being read again (§16 #41). It keeps its Completed status — nothing moves between
  * views — and this marks the open read wherever status shows.
@@ -841,7 +844,7 @@ export const Cover: FC<{ coverKey: string | null; title: string; mediaType: Medi
     </div>
   );
 
-export const ItemCard: FC<{ item: Item; onLoan?: boolean; href?: string }> = ({ item, onLoan, href }) => (
+export const ItemCard: FC<{ item: Item; onLoan?: boolean; href?: string; wanted?: boolean }> = ({ item, onLoan, href, wanted }) => (
   <a href={href ?? `/items/${item.id}`} class="item-card">
     <div class="item-cover">
       <Cover coverKey={item.coverKey} title={item.title} mediaType={item.mediaType} />
@@ -854,6 +857,7 @@ export const ItemCard: FC<{ item: Item; onLoan?: boolean; href?: string }> = ({ 
         {item.rating ? <span class="rating">{stars(item.rating)}</span> : null}
         {item.rereading ? <RereadingPill /> : null}
         {item.copies === 0 ? <NotOwnedPill /> : null}
+        {item.copies === 0 && wanted ? <WantedPill /> : null}
         {onLoan ? <span class="pill lent">Lent</span> : null}
       </span>
     </div>
@@ -905,14 +909,19 @@ export const ReadNextCard: FC<{ pick: Pick<Item, 'id' | 'title' | 'creators' | '
  * The covers view. `selectable` gives each card a checkbox for bulk edit (§16 #47), beside the card's link rather than
  * inside it — an input inside an <a> is invalid HTML — and a "select all on this page" line above the grid.
  */
-export const ItemGrid: FC<{ items: Item[]; onLoanIds?: Set<number>; selectable?: boolean }> = ({ items, onLoanIds, selectable }) =>
+export const ItemGrid: FC<{ items: Item[]; onLoanIds?: Set<number>; wantedIds?: Set<number>; selectable?: boolean }> = ({
+  items,
+  onLoanIds,
+  wantedIds,
+  selectable,
+}) =>
   selectable ? (
     <>
       <PickAll label />
       <div class="item-grid">
         {items.map((item) => (
           <div class="pick-cell">
-            <ItemCard item={item} onLoan={onLoanIds?.has(item.id)} />
+            <ItemCard item={item} onLoan={onLoanIds?.has(item.id)} wanted={wantedIds?.has(item.id)} />
             <label class="pick">
               <PickBox id={item.id} title={item.title} />
             </label>
@@ -923,7 +932,7 @@ export const ItemGrid: FC<{ items: Item[]; onLoanIds?: Set<number>; selectable?:
   ) : (
     <div class="item-grid">
       {items.map((item) => (
-        <ItemCard item={item} onLoan={onLoanIds?.has(item.id)} />
+        <ItemCard item={item} onLoan={onLoanIds?.has(item.id)} wanted={wantedIds?.has(item.id)} />
       ))}
     </div>
   );
@@ -992,11 +1001,12 @@ export const PickAll: FC<{ label?: boolean }> = ({ label }) =>
 export const ItemTable: FC<{
   items: Item[];
   onLoanIds?: Set<number>;
+  wantedIds?: Set<number>;
   tagsMap?: Map<number, string[]>;
   libraryNames?: Map<number, string>;
   /** A checkbox per row, and select-all in the header, for bulk edit (§16 #47). */
   selectable?: boolean;
-}> = ({ items, onLoanIds, tagsMap, libraryNames, selectable }) => (
+}> = ({ items, onLoanIds, wantedIds, tagsMap, libraryNames, selectable }) => (
   <div class="data-table">
     <table>
       <thead>
@@ -1058,6 +1068,12 @@ export const ItemTable: FC<{
             </td>
             <td class="col-holding">
               <HoldingPill item={item} />
+              {item.copies === 0 && wantedIds?.has(item.id) ? (
+                <>
+                  {' '}
+                  <WantedPill />
+                </>
+              ) : null}
             </td>
             {tagsMap ? (
               <td class="hide-sm col-tags">

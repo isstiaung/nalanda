@@ -12,6 +12,7 @@ import {
   namedReviews,
   playCount,
   shareGuardFacts,
+  wantedAmong,
   wantListOwnerName,
 } from '../db/queries';
 import type { Item, Share } from '../db/schema';
@@ -30,7 +31,7 @@ import {
   type PublicItem,
 } from '../lib/share';
 import { BggCredit, fromBgg } from '../views/attribution';
-import { BuyLinks, DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, RecordDetails, stars } from '../views/components';
+import { BuyLinks, DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, RecordDetails, stars, WantedPill } from '../views/components';
 
 const share = new Hono<AppEnv>();
 
@@ -145,6 +146,7 @@ const PublicCard: FC<{ item: PublicItem; token: string }> = ({ item, token }) =>
         {item.rating ? <span class="rating">{stars(item.rating)}</span> : null}
         {item.readCount ? <small class="mono muted">read {item.readCount}×</small> : null}
         {!item.inCollection ? <NotOwnedPill /> : null}
+        {item.wanted ? <WantedPill /> : null}
       </span>
     </div>
   </a>
@@ -310,7 +312,12 @@ share.get('/:token', async (c) => {
     ...shareFilters(view),
     page: pageNum,
   });
-  const publicItems = items.map((i) => toPublicItem(i));
+  // §16 #53: the "Wanted" badge — someone here wants it and it isn't owned; a boolean, never whose
+  const wanted = await wantedAmong(
+    c.env.DB,
+    items.filter((i) => i.copies === 0).map((i) => i.id),
+  );
+  const publicItems = items.map((i) => toPublicItem(i, { wanted: wanted.has(i.id) }));
 
   return renderShare(
     c,
@@ -358,7 +365,8 @@ share.get('/:token/items/:id', async (c) => {
   // §16 #52: its series name and number are public catalogue data, like the publisher — never the gaps or "next up"
   const series = item.seriesId !== null ? await getSeries(c.env.DB, item.seriesId) : null;
   const reviews = settings.namesOnShares ? named : undefined;
-  const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews, plays, series });
+  // §16 #53: the "Wanted" badge, from the wanters the guard already read — a boolean, never whose
+  const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews, plays, series, wanted: wanters.length > 0 });
 
   return renderShare(
     c,
@@ -423,7 +431,16 @@ share.get('/:token/items/:id', async (c) => {
             <>
               <dt>Holding</dt>
               <dd>
-                <NotOwnedPill /> read, not on these shelves
+                <NotOwnedPill />
+                {/* No status on share pages, so no claim it was read: a Goodreads to-read entry is Not owned too.
+                    Wanted, it's on its way — or hoped to be (§16 #53). */}
+                {pub.wanted ? (
+                  <>
+                    <WantedPill /> wanted, not on these shelves yet
+                  </>
+                ) : (
+                  ' in the catalogue, not on these shelves'
+                )}
               </dd>
             </>
           ) : null}

@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { activeLoanItemIds, listLibraries, listPeople, searchItems } from '../db/queries';
+import { listLibraries, listPeople, searchItems, shelfFlags } from '../db/queries';
 import type { AppEnv } from '../env';
 import { ItemTable } from '../views/components';
 import { BulkBar, BulkNotice } from '../views/bulk';
@@ -16,8 +16,8 @@ search.get('/search', async (c) => {
   const reader = parseReadBy(c.req.query('readBy'), user.id, people);
   const readBy = reader ? (c.req.query('readBy') ?? '') : '';
   const items = q ? await searchItems(c.env.DB, q, 50, reader) : [];
-  const [onLoanIds, libs] = await Promise.all([
-    activeLoanItemIds(c.env.DB, items.map((i) => i.id)),
+  const [{ onLoan: onLoanIds, wanted: wantedIds }, libs] = await Promise.all([
+    shelfFlags(c.env.DB, items.map((i) => i.id)), // loans and the "Wanted" badge (§16 #53), one call
     // the Shelf column, and bulk edit's "Move to shelf" and its notice (§16 #47)
     items.length || c.req.query('bulk') ? listLibraries(c.env.DB) : Promise.resolve([]),
   ]);
@@ -59,7 +59,7 @@ search.get('/search', async (c) => {
       {q ? (
         items.length ? (
           <>
-            <ItemTable items={items} onLoanIds={onLoanIds} libraryNames={libraryNames} selectable />
+            <ItemTable items={items} onLoanIds={onLoanIds} wantedIds={wantedIds} libraryNames={libraryNames} selectable />
             <BulkBar back={back} admin={user.role === 'admin'} libraries={libs} />
           </>
         ) : (

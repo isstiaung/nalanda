@@ -3,7 +3,7 @@ import type { FC } from 'hono/jsx';
 import type { ItemStatus, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import {
-  activeLoanItemIds,
+  shelfFlags,
   createLibrary,
   deleteLibrary,
   getLibrary,
@@ -147,8 +147,8 @@ libraries.get('/libraries/:id', async (c) => {
     reader,
   );
   const ids = items.map((i) => i.id);
-  const [onLoanIds, tagsMap, shelves] = await Promise.all([
-    activeLoanItemIds(c.env.DB, ids),
+  const [{ onLoan: onLoanIds, wanted: wantedIds }, tagsMap, shelves] = await Promise.all([
+    shelfFlags(c.env.DB, ids), // loans and the "Wanted" badge (§16 #53), one call
     view === 'table' ? tagsForItems(c.env.DB, ids) : Promise.resolve(undefined),
     // bulk edit's "Move to shelf", and the shelf a move's notice links to (§16 #47)
     listLibraries(c.env.DB),
@@ -258,9 +258,9 @@ libraries.get('/libraries/:id', async (c) => {
 
       {items.length ? (
         view === 'table' ? (
-          <ItemTable items={items} onLoanIds={onLoanIds} tagsMap={tagsMap} selectable />
+          <ItemTable items={items} onLoanIds={onLoanIds} wantedIds={wantedIds} tagsMap={tagsMap} selectable />
         ) : (
-          <ItemGrid items={items} onLoanIds={onLoanIds} selectable />
+          <ItemGrid items={items} onLoanIds={onLoanIds} wantedIds={wantedIds} selectable />
         )
       ) : total === 0 && !filtered ? (
         <p class="muted">

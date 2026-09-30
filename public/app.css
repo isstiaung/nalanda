@@ -1112,3 +1112,6 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .gift-lists { margin-top: 2rem; max-width: 46rem; }
 .gift-lists .data-table { margin-bottom: 0.75rem; }
 .gift-lists > form { margin-bottom: 0.75rem; }
+/* someone in the household wants it, and it isn't owned (§16 #53): the working accent, dotted — it pairs with the
+   dashed ghost "Not owned" beside it, and is never a name */
+.pill.wanted { border-color: var(--accent); border-style: dotted; color: var(--accent); }

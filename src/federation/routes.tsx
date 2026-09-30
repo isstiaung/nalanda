@@ -26,7 +26,7 @@ import {
   shelfPage,
   stillShared,
 } from '../db/federation';
-import { getItem, getSiteSettings, namedReviews, tagsForItem } from '../db/queries';
+import { getItem, getSiteSettings, namedReviews, tagsForItem, wantedAmong } from '../db/queries';
 import { isGoalKind, type ActivityKind, type Connection, type NotificationKind } from '../db/schema';
 import type { AppEnv } from '../env';
 import { page } from '../views/layout';
@@ -264,8 +264,10 @@ federation.get('/federation/feed', async (c) => {
   let bytes = 0;
   const stamps = new Map<number, string>();
   for (const row of rows) if (row.item && !stamps.has(row.item.id)) stamps.set(row.item.id, await itemStamp(row.item));
+  // §16 #53: which of these the household wants and hasn't got — a boolean on each entry, never whose
+  const wanted = await wantedAmong(c.env.DB, [...new Set(rows.flatMap((r) => (r.item && r.item.copies === 0 ? [r.item.id] : [])))]);
   for (const row of rows.slice(0, FEED_PAGE_SIZE)) {
-    const entry = feedEntryOf(row, stamps);
+    const entry = feedEntryOf(row, stamps, wanted);
     const size = jsonBytes(entry).bytes;
     if (entries.length > 0 && bytes + size > FEED_RESPONSE_BUDGET_BYTES) break;
     entries.push(entry);
@@ -280,14 +282,19 @@ federation.get('/federation/feed', async (c) => {
  * One row of either stream as it goes out. A goal entry (§16 #49) carries `goal` and no item — memberStillShows lets
  * one through only with its goal and its member's display name, so both are there; every other entry is an item's.
  */
-function feedEntryOf(row: SharedActivity | MemberActivity, stamps: Map<number, string>): FeedEntry {
+function feedEntryOf(row: SharedActivity | MemberActivity, stamps: Map<number, string>, wanted: Set<number>): FeedEntry {
   if ('goal' in row && isGoalKind(row.kind) && row.goal) {
     return { id: row.id, kind: row.kind, published: row.at, goal: toFeedGoal(row.by ?? '', row.goal.year, row.goal.target, row.goal.count) };
   }
   const item = row.item!;
   const kind = row.kind as ActivityKind;
   const person = 'by' in row ? row : undefined;
-  return { id: row.id, kind, published: row.at, item: toFeedItem(item, kind, stamps.get(item.id)!, row.progressPage, row.readsBefore, person) };
+  return {
+    id: row.id,
+    kind,
+    published: row.at,
+    item: toFeedItem(item, kind, stamps.get(item.id)!, row.progressPage, row.readsBefore, person, wanted.has(item.id)),
+  };
 }
 
 /**
@@ -363,14 +370,17 @@ federation.get('/federation/shelf', async (c) => {
   const view = await getConnectionView(c.env.DB, viewId);
   if (!view) return c.json({ error: 'no such view' }, 404);
   const shelf = await shelfPage(c.env.DB, view, pageNum);
-  const free = await availability(c.env.DB, shelf.items);
+  const [free, wanted] = await Promise.all([
+    availability(c.env.DB, shelf.items),
+    wantedAmong(c.env.DB, shelf.items.filter((i) => i.copies === 0).map((i) => i.id)),
+  ]);
   const stamps = await Promise.all(shelf.items.map((item) => itemStamp(item)));
   return c.json({
     view: { id: view.id, name: view.name },
     total: shelf.total,
     page: shelf.page,
     pages: shelf.pages,
-    items: shelf.items.map((item, i) => toShelfItem(item, free.get(item.id) ?? false, stamps[i]!)),
+    items: shelf.items.map((item, i) => toShelfItem(item, free.get(item.id) ?? false, stamps[i]!, wanted.has(item.id))),
   });
 });
 
@@ -385,10 +395,15 @@ federation.get('/federation/item', async (c) => {
   if (!viewId || !itemId) return c.json({ error: 'malformed request' }, 400);
   const [view, item] = await Promise.all([getConnectionView(c.env.DB, viewId), getItem(c.env.DB, itemId)]);
   if (!view || !item || !itemMatchesView(view, item)) return c.json({ error: 'no such item' }, 404);
-  const [free, tags, settings] = await Promise.all([availability(c.env.DB, [item]), tagsForItem(c.env.DB, item.id), getSiteSettings(c.env.DB)]);
+  const [free, tags, settings, wanted] = await Promise.all([
+    availability(c.env.DB, [item]),
+    tagsForItem(c.env.DB, item.id),
+    getSiteSettings(c.env.DB),
+    item.copies === 0 ? wantedAmong(c.env.DB, [item.id]) : Promise.resolve(new Set<number>()),
+  ]);
   // §16 #45: everyone's rating and review by display name, only while names are switched on for connections
   const reviews = settings.namesToConnections ? await namedReviews(c.env.DB, item.id) : undefined;
-  return c.json(toItemDetail(item, free.get(item.id) ?? false, tags, await itemStamp(item), reviews));
+  return c.json(toItemDetail(item, free.get(item.id) ?? false, tags, await itemStamp(item), reviews, wanted.has(item.id)));
 });
 
 // ---------- messages from connected instances ----------
