@@ -79,7 +79,7 @@ const NavLink: FC<{ href: string; label: string; path: string; count?: number; u
 }) => {
   const active = exact ? path === href : path === href || path.startsWith(`${href}/`);
   return (
-    <a href={href} class={active ? 'nav-link active' : 'nav-link'}>
+    <a href={href} class={active ? 'nav-link active' : 'nav-link'} aria-current={active ? 'page' : undefined}>
       <span>{label}</span>
       {count !== undefined ? <span class="nav-count">{count}</span> : null}
       {unread ? (
@@ -162,6 +162,10 @@ export const Layout: FC<
     <Head title={title} />
     {user ? (
       <body data-scan-owner={scanOwner}>
+        {/* the first Tab stop on every page: past the sidebar, straight to the page itself */}
+        <a href="#main" class="skip-link">
+          Skip to content
+        </a>
         <div class="app">
           <Sidebar user={user} path={path} libraries={libraries} federation={federation} unread={unread} />
           <div>
@@ -185,7 +189,7 @@ export const Layout: FC<
                 </a>
               ) : null}
             </header>
-            <main class="content">
+            <main class="content" id="main">
               <div class="content-inner">{children}</div>
             </main>
           </div>
