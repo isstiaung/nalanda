@@ -1,6 +1,6 @@
 // A book being read again counts as In progress (ARCH.md §16 #64): the shelf's Status filter, share links and
-// connection views filtered to In progress list a re-read — which still stays under Completed — and a connection
-// view's feed carries no news for a book that only entered or left it.
+// connection views filtered to In progress list a re-read — which still stays under Completed — its status shows as
+// "Re-reading", and a connection view's feed carries no news for a book that only entered or left it.
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -108,6 +108,30 @@ describe('the shelf’s Status filter', () => {
       const listed = titles((await listItems(env.DB, shelf.id, { statuses: [status] })).items);
       expect(listed, status).toEqual(titles(items.filter((i) => matchesStatus(i, status))));
     }
+  });
+
+  it('shows "Re-reading" in place of Completed on a re-read’s row, card and page, and In progress on a first read', async () => {
+    const { ravi, shelf, b } = await household();
+    const table = await html(ravi, `/libraries/${shelf.id}?status=in_progress`);
+    const row = (title: string) => table.slice(table.indexOf(`title="${title}"`), table.indexOf('</tr>', table.indexOf(`title="${title}"`)));
+    for (const t of ['His reread', 'Her reread']) {
+      expect(row(t)).toContain('<td class="col-status"><span class="pill rereading">Re-reading</span>');
+      expect(row(t)).not.toContain('Completed</span>');
+    }
+    for (const t of ['His now', 'Hers now']) expect(row(t)).toContain('<span class="pill progress">In progress</span>');
+    expect(table).not.toContain('pill done">Completed'); // nothing in an In progress list looks finished
+
+    // a finished book, not being read, is still Completed
+    const done = await html(ravi, `/libraries/${shelf.id}?status=completed`);
+    expect(table).not.toContain('title="Finished"');
+    expect(done.slice(done.indexOf('title="Finished"'))).toMatch(/^[^]*?<span class="pill done">Completed<\/span>/);
+
+    expect(await html(ravi, `/libraries/${shelf.id}?status=in_progress&view=grid`)).toContain('<span class="pill rereading">Re-reading</span>');
+    const page = await html(ravi, `/items/${b.hisReread.id}`);
+    expect(page).toContain('<span id="item-status" class="status-pills"><span class="pill rereading">Re-reading</span></span>');
+    expect(await html(ravi, `/items/${b.finished.id}`)).toContain(
+      '<span id="item-status" class="status-pills"><span class="pill done">Completed</span></span>',
+    );
   });
 
   it('goes back to Completed only, once the re-read is finished or stopped', async () => {

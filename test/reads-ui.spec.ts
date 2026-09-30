@@ -102,8 +102,8 @@ describe('the Reading section', () => {
     expect(html).toContain('Re-reading, since');
     expect(html).toContain('name="page"');
     expect(html).toContain('Stop re-reading');
-    // the status above the section, swapped out of band
-    expect(html).toMatch(/<span id="item-status"[^>]*hx-swap-oob="true"[^>]*>.*Completed.*Re-reading/s);
+    // the status above the section, swapped out of band: "Re-reading" stands in for Completed (§16 #64)
+    expect(html).toMatch(/<span id="item-status"[^>]*hx-swap-oob="true"[^>]*><span class="pill rereading">Re-reading<\/span><\/span>/);
     expect(await getItem(env.DB, item.id)).toMatchObject({ status: 'completed', rereading: true, completedOn: '2019-03-20' });
   });
 
@@ -216,7 +216,7 @@ describe('after a saved change', () => {
 });
 
 describe('the re-reading marker', () => {
-  it('shows beside the status on the item page, the shelf table and covers, and search results', async () => {
+  it('shows in place of the status on the item page, the shelf table and covers, and search results', async () => {
     const item = await finished();
     const quiet = await (await request(`/libraries/${item.libraryId}`)).text();
     expect(quiet).not.toContain('pill rereading'); // negative control: not before the re-read opens
