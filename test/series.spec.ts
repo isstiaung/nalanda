@@ -117,6 +117,9 @@ describe('series numbers, names and titles', () => {
     expect(cleanSeriesName('  The‮Expanse \n')).toBe('The Expanse');
     expect(cleanSeriesName('   ')).toBeNull();
     expect(cleanSeriesName('x'.repeat(300))).toHaveLength(200);
+    // as a display name is: the joiner a Persian name needs stays, and the cap never splits a character
+    expect(cleanSeriesName('کتاب‌ها')).toBe('کتاب‌ها');
+    expect(cleanSeriesName(`${'a'.repeat(199)}😀x`)).toBe(`${'a'.repeat(199)}😀`);
   });
 
   it('splits a Goodreads title into its title and series', () => {
@@ -129,6 +132,8 @@ describe('series numbers, names and titles', () => {
     expect(parseTitleSeries('The Dark Tower Boxed Set (The Dark Tower, #1-4)')?.series).toEqual({ name: 'The Dark Tower', number: null });
     expect(parseTitleSeries('Selected Poems (Penguin Classics)')).toBeNull(); // a note, not a numbered series
     expect(parseTitleSeries('Dune')).toBeNull();
+    // a title no book has isn't looked into: the patterns backtrack, and an import row mustn't spend the CPU budget
+    expect(parseTitleSeries(`${' '.repeat(600)}x (S, #1)`)).toBeNull();
   });
 });
 

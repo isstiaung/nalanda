@@ -13,13 +13,20 @@ export const MAX_DISPLAY_NAME = 40;
  * stays unnamed. Not unique: two members may both go by "Sam"; nothing needs to tell them apart by it.
  */
 export function normalizeDisplayName(raw: unknown): string | null {
-  if (typeof raw !== 'string') return null;
+  return typeof raw === 'string' ? cleanVisibleText(raw, MAX_DISPLAY_NAME) : null;
+}
+
+/**
+ * Text typed for others to read — a display name, a series' name (§16 #52) — as normalizeDisplayName() describes it,
+ * cut to `max` characters (code points, so no emoji is split in half). Null when nothing is left.
+ */
+export function cleanVisibleText(raw: string, max: number): string | null {
   const clean = raw
     .normalize('NFC')
     .replace(/(?![\u200C\u200D])[\p{Cc}\p{Cf}\u2028\u2029\u115F\u1160\u3164\uFFA0\u2800]/gu, ' ')
     .replace(/\s+/gu, ' ')
     .trim();
-  const cut = [...clean].slice(0, MAX_DISPLAY_NAME).join('');
+  const cut = [...clean].slice(0, max).join('');
   // a joiner joins only between two characters: at either end of the name or of a word, it's nothing
   const joined = cut.replace(/(?<=^|\s)[\u200C\u200D]+|[\u200C\u200D]+(?=\s|$)/gu, '').trim();
   return joined || null;

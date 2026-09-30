@@ -1,28 +1,25 @@
 // Series (ARCH.md §16 #52): an item's place in one, and what the household's volumes say about the rest — which
 // numbers are missing, and which volume a member reads next. Pure functions: the queries live in src/db/queries.ts.
+import { cleanVisibleText } from './names';
 
 /** Longest series name kept; a longer one is cut here, as every other place names reach the page. */
 export const MAX_SERIES_NAME = 200;
 /** Highest number or total accepted. Past it a number is a typo, and a gap list would be a wall of numbers. */
 export const MAX_SERIES_NUMBER = 9999;
 
+/** Longest title parseTitleSeries() looks into. */
+const MAX_TITLE_PARSED = 500;
+
 /** A series as a form, a provider or a file gives it: a name, and the item's number in it if known. */
 export type SeriesDraft = { name: string; number: number | null; total?: number | null };
 
 /**
- * A series name tidied for storage: control and format characters dropped (no bidi override can reorder the text
- * around it), spaces collapsed, trimmed, capped. Null when nothing is left.
+ * A series name tidied for storage, as a display name is (cleanVisibleText): control and format characters dropped,
+ * so no bidi override can reorder the text around it — but for the joiners Persian and Indic names need — spaces
+ * collapsed, trimmed, capped without splitting a character. Null when nothing is left.
  */
 export function cleanSeriesName(raw: unknown): string | null {
-  if (typeof raw !== 'string') return null;
-  const name = raw
-    .normalize('NFC')
-    .replace(/[\p{Cc}\p{Cf}]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, MAX_SERIES_NAME)
-    .trim();
-  return name || null;
+  return typeof raw === 'string' ? cleanVisibleText(raw, MAX_SERIES_NAME) : null;
 }
 
 /** What makes two names one series: case and spacing don't. Unicode-aware, where SQLite's NOCASE folds ASCII only. */
@@ -61,6 +58,8 @@ export const formatSeriesNumber = (n: number): string => String(n);
  * number. Null when the title carries no such suffix, or nothing would be left of it.
  */
 export function parseTitleSeries(title: string): { title: string; series: SeriesDraft } | null {
+  // no real title is this long, and the patterns below backtrack: an import row can't make them spend its CPU
+  if (title.length > MAX_TITLE_PARSED) return null;
   const m = /^(.*\S)\s*\(([^()]+)\)\s*$/.exec(title);
   if (!m) return null;
   const first = m[2]!.split(';')[0]!;
