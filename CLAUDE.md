@@ -137,6 +137,13 @@ shape from this file.
   review, reviews, read count, progress, tags or details. The title is "A want list", or the
   member's **display name** only while `names_on_shares` is on — never a username.
   Removing a member deletes their wants and their gift lists in `deleteUser()`'s batch.
+- **"Wanted"** is a derived boolean — someone's want list holds the item and `copies = 0` — and the
+  one public key want lists added: `toPublicItem(item, { wanted })` adds `wanted: true` only when
+  asked and only while not owned, and `toConnectionItem(item, { wanted })` passes it to connections
+  (shelf cards, item pages, feed entries) the same way — absent otherwise, so every other item's
+  bytes are unchanged, and older peers drop the unknown key. Never whose want, never a count. It
+  shows wherever "Not owned" does; a peer's `wanted` renders as our own fixed text. A Not owned
+  item's share page never claims it was read (share pages have no status to say so).
 - **Purchase links** are pasted, never generated, the item's (any member adds or removes one),
   and **public only on gift lists** — never on a shelf's share page or to connections
   (`toConnectionItem()` has no field for them). `checkPurchaseLink()` (`src/lib/links.ts`) takes

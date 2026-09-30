@@ -518,6 +518,9 @@ portable, and makes share routes trivially public. CF Access remains available l
   reviews, read count, progress, tags or details. Its title is "A want list", or the member's
   display name only while `names_on_shares` is on — never a username. Ordinary shelf and tag shares
   don't show purchase links.
+- **"Wanted"** (§16 #53): beside "Not owned", share pages show a derived boolean `wanted` — someone in
+  the household wants it and it isn't owned — never whose. `toPublicItem(item, { wanted })` adds the
+  key only when true; it is the only public key the want lists added.
 - **Front door (optional)**: with the `HOME_SHARE_TOKEN` secret set, anonymous `GET /`
   redirects to that share — the deploy's root doubles as the public library page
   (§16 #21). A stale token falls back to the login redirect.
@@ -1992,6 +1995,36 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       person keep the earliest date. Every imported link is checked as a pasted one; a libib or
       Goodreads file never puts either column into details, which share pages render. The preview
       counts wants per name, only when a file has any.
+    - **A "Wanted" badge — the owner's call, after the first build.** A wanted item added from a
+      result lands on a shelf as Not owned, so it shows on that shelf's share links and connection
+      views; the owner chose to keep it there and say why it's there. `wanted` is a derived boolean —
+      someone's want list holds the item and `copies = 0` — never whose, and gone once nobody wants it
+      or the household has a copy. It shows wherever "Not owned" does: shelves, tags and search
+      (`shelfFlags()`, one call with the loans it replaces), the item page, share lists
+      (`wantedAmong()`, one call) and share item pages (from the wanters the route already reads).
+      `toPublicItem(item, { wanted })` gains that one key, `wanted: true`, only when asked and only
+      while not owned, so every other page serializes as before. Connections get it through
+      `toConnectionItem()` on shelf cards, item pages and feed entries, only when true — the protocol
+      stays version 1: an older household's parser keeps the fields it knows and drops it (a test runs
+      the pre-names parser in `test/fixtures/` over it), and this one rejects a malformed value as it
+      does any malformed field, and ignores it beside an owned item. Their Wanted renders here as our
+      own fixed text. A feed entry keeps the badge it was pulled with, as it keeps `inCollection`.
+    - **No claim that it was read.** A Not owned item's share page said "read, not on these shelves",
+      which a wanted book — or a Goodreads to-read entry — never was; share pages carry no status to
+      decide it by, and adding one would widen the whitelist. It now says "wanted, not on these
+      shelves yet" beside the badge, else "in the catalogue, not on these shelves"; a connection's
+      item page likewise ("Wanted, not on their shelves yet" / "In their catalogue, not on their
+      shelves").
+    - **"Want" finds records and games too**, as books by ISBN-13: a record by its barcode (in
+      `isbn13` or `isbn10_upc`) or Discogs release id, a board game by its BGG id (`details.bgg_id`,
+      compared as text) — `existingForWant()`, one query. A record scanned by its barcode now keeps it
+      on the result (`isbn10_upc`), since Discogs' answer doesn't carry it.
+    - **The export reads a page's cells in one call.** Tags, reading log, reads, reviews, wants and
+      links for a page's id range are one batch (`exportCellsForIdRange()`, sharing the reads and
+      reviews SQL with their single-purpose twins; a test holds them to the same rows). A page is two
+      calls — its items and the batch — where it was five before want lists and would have been six;
+      the streamed export of a 2,000-item catalog (one page) measures 5 calls in all, and stays
+      inside the 50-call budget (#37) up to ~22 pages, 44,000 items.
     - **Not built: "bought it".** A marker so two givers don't buy the same thing wasn't asked for; it
       would need a public write, which share links have never had. A possible follow-up.
 

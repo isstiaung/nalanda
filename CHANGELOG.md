@@ -31,10 +31,14 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **Want lists.** Each member has their own. **Want to read** on a book's page (**Want** on a record's or a game's) puts it on yours, and the same button on a scan or search result under **Add items** adds something not yet in your catalog as Not owned, straight onto your list. **Want list** in the sidebar shows yours, newest first, and anyone else's in the household. Finishing a book takes it off your list; stopping one, or someone else finishing it, doesn't.
 - **Where to buy.** Any member can paste shop links onto an item — a label and a web address — or remove them. Only `https://` and `http://` addresses are taken.
 - **Gift lists.** An admin can publish a member's want list as a share link, from their Want list page. It shows exactly what's on the list now — titles, covers and the Where to buy links — and nothing about reading, ratings, notes, loans or copies. It's titled "A want list", or with the member's display name when **Names on share pages** is on. Rotate and remove it like any share; **Shared links** lists it. Shelf share links don't show purchase links.
+- **A "Wanted" badge** beside "Not owned", wherever that shows — shelves, search, tags, a book's page, share links and connected households' views — while someone in the household wants the item and you don't have a copy. It never says who.
+- **"Want" on a record or a game** finds the copy already in your catalog — by barcode or Discogs release, or by BoardGameGeek id — as it does a book by ISBN, instead of adding a second one. A record scanned by its barcode now keeps that barcode.
 - **Export and import carry them.** Two new columns: `wanted_by` (whose want list, and since when) and `purchase_links`. An admin's import gives each want back to the member of that name; a member's import makes every want theirs.
 
 ### Changed
 - **New instances start with names and goals on.** On a new install, **Names on share pages**, **Show names to connected households** and **Share reading goals** are all on until an admin turns them off. Existing instances keep what they have (see Upgrading).
+- **A share page no longer says a Not owned item was read.** It said "read, not on these shelves" even for a book nobody has read, such as a Goodreads to-read entry. It now says "in the catalogue, not on these shelves", or "wanted, not on these shelves yet" when someone wants it. A connected household's book page says the same.
+- **The one-request export** (`/export.csv` without the Export button) reads everything beside each page of items in one database call, so it stays within the free plan's limits for far larger catalogs.
 
 ### Fixed
 - **Development tools only:** undici, which the test runner pulls in, is pinned to 7.29.1 for six advisories (Dependabot). It isn't part of the app that runs on Cloudflare, so nothing changes for a running instance.
@@ -61,7 +65,7 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **If you restore from backups**, the table order now has `wants` and `purchase_links` after `reading_goals` ([runbooks/backup-and-restore.md](runbooks/backup-and-restore.md)).
 - **Removing a member now clears their want list**, and any gift list published of it stops working. Their reads and reviews stay, as before.
 - **No new secrets.**
-- **Connections:** nothing changes for connected households. Want lists and purchase links never go to them.
+- **Connections:** connected households see a book you want and don't own marked "Wanted" — no names. Households on older versions ignore it. Want lists and purchase links never go to them.
 - **An export from this version** has two more columns; an older version's import ignores them.
 
 ## [1.4.0] - 2026-09-30
