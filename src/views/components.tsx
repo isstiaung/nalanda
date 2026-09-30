@@ -3,7 +3,7 @@ import type { PastLoan } from '../db/queries';
 import type { Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import { progressPercent } from '../lib/progress';
-import { isPlayable, playDate, timesPlayed } from '../lib/plays';
+import { isPlayable, playDate } from '../lib/plays';
 import { latestReadDate, ordinal, summarizeReads, todayUtc, type ReadDraft, type ReadRow } from '../lib/reads';
 import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
@@ -579,7 +579,16 @@ export const PlaysSection: FC<{ item: Item; count: number; plays: PlayLine[]; to
       <p class="eyebrow">{item.mediaType === 'vinyl' ? 'Listening log' : 'Play log'}</p>
       {count && last ? (
         <p class="reading-summary">
-          Played <span class="mono">{timesPlayed(count)}</span> · last on{' '}
+          {/* the figure in mono, as every count; the words in the running text */}
+          Played{' '}
+          {count === 1 ? (
+            'once'
+          ) : (
+            <>
+              <span class="mono">{count}</span> times
+            </>
+          )}{' '}
+          · last on{' '}
           <time class="mono" datetime={last.playedOn}>
             {playDate(last.playedOn, today)}
           </time>

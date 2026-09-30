@@ -69,7 +69,7 @@ describe('Played', () => {
     expect(res.status).toBe(200);
     const section = await res.text();
     expect(section).toContain('id="plays"');
-    expect(section).toContain('Played <span class="mono">once</span>');
+    expect(section).toContain('Played once · last on');
     // a hand-made request with no date is today too
     await played(asha, game);
     expect(await playsOf(game.id)).toEqual([
@@ -155,7 +155,7 @@ describe('the play log on the item page', () => {
     await logPlay(env.DB, other.id, '2026-01-01', asha.id); // someone else's plays don't count here
 
     const page = await html(asha, `/items/${game.id}`);
-    expect(page).toContain('Played <span class="mono">7 times</span> · last on <time class="mono" datetime="2025-09-14">14 Sep 2025</time>');
+    expect(page).toContain('Played <span class="mono">7</span> times · last on <time class="mono" datetime="2025-09-14">14 Sep 2025</time>');
     const listed = [...page.matchAll(/<li><time class="mono" datetime="([\d-]+)">/g)].map((m) => m[1]);
     // newest first, the same day twice where it was played twice
     expect(listed).toEqual(['2025-09-14', '2025-09-14', '2025-06-20', '2025-03-01', '2025-02-11']);
@@ -286,7 +286,7 @@ describe('plays belong to the household', () => {
     await played(ravi, game, '2025-04-04');
     await deleteUser(env.DB, ravi.id);
     expect(await playsOf(game.id)).toEqual([{ id: expect.any(Number), playedOn: '2025-04-04', loggedBy: null }]);
-    expect(await html(asha, `/items/${game.id}`)).toContain('Played <span class="mono">once</span>');
+    expect(await html(asha, `/items/${game.id}`)).toContain('Played once · last on');
   });
 
   it('go with their item, and with its shelf', async () => {
@@ -336,7 +336,7 @@ describe('books have reads, not plays', () => {
     await updateItemWithTags(env.DB, record.id, { mediaType: 'book' }, [], undefined, asha.id);
     const page = await html(asha, `/items/${record.id}`);
     expect(page).toContain('id="plays"');
-    expect(page).toContain('Played <span class="mono">once</span>');
+    expect(page).toContain('Played once · last on');
     expect(page).not.toContain('>Played</button>');
     expect(page).toContain('/delete"');
   });
