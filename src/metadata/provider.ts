@@ -20,6 +20,12 @@ export type Candidate = {
   provider: string;
 };
 
+/** How many results one page of a name search shows; "More results" asks for the next page. */
+export const PAGE_SIZE = 8;
+
+/** One page of a name search: its results, best match first, and whether the provider has more after them. */
+export type SearchPage = { candidates: Candidate[]; more: boolean };
+
 export interface MetadataProvider {
   id: string;
   mediaTypes: MediaType[];
@@ -30,6 +36,8 @@ export interface MetadataProvider {
 
 export type LookupResult = {
   candidates: Candidate[];
+  /** A name search with more results after these: the page offers "More results". */
+  more?: boolean;
   /** Human-readable hints, e.g. "Set DISCOGS_TOKEN to enable vinyl lookups." */
   notices: string[];
 };

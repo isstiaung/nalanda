@@ -1467,10 +1467,17 @@ const CandidateFields: FC<{ candidate: Candidate }> = ({ candidate }) => (
   </>
 );
 
-const ShelfSelect: FC<{ libraries: Library[] }> = ({ libraries }) => (
+/** Which shelf a result starts on: the one holding most of its type (shelfForType()), a record's either kind. */
+export type ShelfForType = Partial<Record<MediaType, number>>;
+const startingShelf = (type: MediaType, shelfFor: ShelfForType | undefined): number | undefined =>
+  shelfFor?.[type] ?? (type === 'vinyl' ? shelfFor?.music : type === 'music' ? shelfFor?.vinyl : undefined);
+
+const ShelfSelect: FC<{ libraries: Library[]; selected?: number }> = ({ libraries, selected }) => (
   <select name="libraryId" aria-label="Shelf">
     {libraries.map((l) => (
-      <option value={String(l.id)}>{l.name}</option>
+      <option value={String(l.id)} selected={l.id === selected}>
+        {l.name}
+      </option>
     ))}
   </select>
 );
@@ -1533,7 +1540,12 @@ const InCatalogPill: FC<{ id: number | null | undefined }> = ({ id }) =>
     </a>
   ) : null;
 
-export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[]; inCatalog?: number | null }> = ({ candidate, libraries, inCatalog }) => (
+export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[]; inCatalog?: number | null; shelfFor?: ShelfForType }> = ({
+  candidate,
+  libraries,
+  inCatalog,
+  shelfFor,
+}) => (
   <article class="candidate">
     <CandidateCover candidate={candidate} />
     <div class="candidate-body">
@@ -1541,7 +1553,7 @@ export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[]; inC
       <InCatalogPill id={inCatalog} />
       <form method="post" action="/items" class="candidate-save">
         <CandidateFields candidate={candidate} />
-        <ShelfSelect libraries={libraries} />
+        <ShelfSelect libraries={libraries} selected={startingShelf(candidate.mediaType, shelfFor)} />
         <button type="submit">Add to shelf</button>
         <button type="submit" name="logOnly" value="1" class="btn" title="Catalog as read/reviewed without owning a copy — opens the edit form for your rating and review">
           Log — not owned
@@ -1578,7 +1590,8 @@ export const ReviewEntry: FC<{
   libraries: Library[];
   scanOwner: string;
   inCatalog?: number | null;
-}> = ({ barcode, scannedAt, candidate, notices, libraries, scanOwner, inCatalog }) => {
+  shelfFor?: ShelfForType;
+}> = ({ barcode, scannedAt, candidate, notices, libraries, scanOwner, inCatalog, shelfFor }) => {
   const drop = (
     <button type="button" class="btn" data-review-drop>
       Drop
@@ -1613,7 +1626,7 @@ export const ReviewEntry: FC<{
               <form method="post" action="/items" class="candidate-save" data-review-add>
                 <CandidateFields candidate={candidate} />
                 <input type="hidden" name="scanOwner" value={scanOwner} />
-                <ShelfSelect libraries={libraries} />
+                <ShelfSelect libraries={libraries} selected={startingShelf(candidate.mediaType, shelfFor)} />
                 <button type="submit">Add to shelf</button>
                 {drop}
               </form>

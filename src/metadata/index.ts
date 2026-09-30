@@ -6,7 +6,7 @@ import { discogs } from './discogs';
 import { googleBooks } from './googlebooks';
 import { itunesCoverByIsbn } from './itunes';
 import { caaCoverByBarcode } from './musicbrainz';
-import { olEditionCover, olSearchLean, olWorkDescription, openLibrary } from './openlibrary';
+import { olEditionCover, olSearchLean, olWorkDescription, openLibrary, openLibrarySearchPage } from './openlibrary';
 import { creatorsMatch, titlesMatch, type Candidate, type LookupResult } from './provider';
 
 export type { Candidate, LookupResult } from './provider';
@@ -300,10 +300,12 @@ export async function bggRefresh(env: Bindings, bggId: number): Promise<BggGameR
 
 export type SearchType = 'book' | 'boardgame' | 'vinyl';
 
-export async function searchByName(env: Bindings, q: string, type: SearchType): Promise<LookupResult> {
+export async function searchByName(env: Bindings, q: string, type: SearchType, page = 1): Promise<LookupResult> {
+  // a later page that comes back empty says so plainly, not as though nothing matched at all
+  const none = (first: string) => (page > 1 ? ['No more results.'] : [first]);
   if (type === 'book') {
-    const candidates = await openLibrary.search(q).catch(() => [] as Candidate[]);
-    return { candidates, notices: candidates.length ? [] : ['No books found on Open Library.'] };
+    const found = await openLibrarySearchPage(q, page).catch(() => ({ candidates: [] as Candidate[], more: false }));
+    return { candidates: found.candidates, more: found.more, notices: found.candidates.length ? [] : none('No books found on Open Library.') };
   }
   if (type === 'boardgame') {
     if (!env.BGG_TOKEN) {
@@ -313,10 +315,11 @@ export async function searchByName(env: Bindings, q: string, type: SearchType): 
       };
     }
     try {
-      const candidates = await bgg(env.BGG_TOKEN).search(q);
+      const found = await bgg(env.BGG_TOKEN).searchPage(q, page);
       return {
-        candidates,
-        notices: candidates.length ? [] : ['No board games found on BoardGameGeek.'],
+        candidates: found.candidates,
+        more: found.more,
+        notices: found.candidates.length ? [] : none('No board games found on BoardGameGeek.'),
       };
     } catch (err) {
       const notice =
@@ -331,6 +334,8 @@ export async function searchByName(env: Bindings, q: string, type: SearchType): 
   if (!env.DISCOGS_TOKEN) {
     return { candidates: [], notices: ['Set the DISCOGS_TOKEN secret to enable Discogs vinyl search.'] };
   }
-  const candidates = await discogs(env.DISCOGS_TOKEN).search(q).catch(() => [] as Candidate[]);
-  return { candidates, notices: candidates.length ? [] : ['No vinyl releases found on Discogs.'] };
+  const found = await discogs(env.DISCOGS_TOKEN)
+    .searchPage(q, page)
+    .catch(() => ({ candidates: [] as Candidate[], more: false }));
+  return { candidates: found.candidates, more: found.more, notices: found.candidates.length ? [] : none('No vinyl releases found on Discogs.') };
 }

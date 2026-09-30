@@ -2598,6 +2598,26 @@ function catalogKeys(c: CatalogProbe): { isbn: string | null; barcode: string | 
  * null: the Add page's "In your catalog" pill. The oldest match. One query for the whole list, none when no result has
  * a key to match by.
  */
+/**
+ * Which shelf an Add result of each type starts on: the one already holding most items of that type (ties: the
+ * shelf listed first). Shelves have no type of their own, so the household's own filing says where games and records
+ * go — without it every result, a board game included, started on whichever shelf is listed first. A type the
+ * catalog doesn't hold yet has no entry, and its results start on the first shelf. One query, whatever the results.
+ */
+export async function shelfForType(d1: D1Database): Promise<Partial<Record<MediaType, number>>> {
+  const { results } = await d1
+    .prepare(
+      `SELECT i.media_type AS mediaType, i.library_id AS libraryId, count(*) AS n
+       FROM items i JOIN libraries l ON l.id = i.library_id
+       GROUP BY i.media_type, i.library_id
+       ORDER BY n DESC, l.position, l.id`,
+    )
+    .all<{ mediaType: MediaType; libraryId: number; n: number }>();
+  const shelf: Partial<Record<MediaType, number>> = {};
+  for (const r of results) shelf[r.mediaType] ??= r.libraryId;
+  return shelf;
+}
+
 export async function catalogMatches(d1: D1Database, candidates: CatalogProbe[]): Promise<Array<number | null>> {
   const keys = candidates.map(catalogKeys);
   const list = (k: 'isbn' | 'barcode' | 'discogs' | 'bgg') => JSON.stringify([...new Set(keys.map((x) => x[k]).filter((v): v is string => !!v))]);
