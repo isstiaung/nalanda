@@ -61,6 +61,8 @@ describe('loanDays', () => {
     expect(loanDays('2026-05-05', '2026-05-04')).toBeNull(); // back before it went out
     expect(loanDays('2026-05-05', 'yesterday')).toBeNull();
     expect(loanDays('2026-05-05 10:00:00', '2026-05-06')).toBeNull();
+    expect(loanDays('2026-02-27', '2026-02-30')).toBeNull(); // not a day, rather than 3 days into March
+    expect(loanDays('2026-13-01', '2027-01-02')).toBeNull();
   });
 });
 

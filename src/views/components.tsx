@@ -642,14 +642,19 @@ export const HoldingPill: FC<{ item: Item }> = ({ item }) =>
     <MarkOwnedButton id={item.id} />
   );
 
-const ISO_DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
+/** A plain calendar day as UTC milliseconds, or null — "2026-02-30" too, which Date.UTC would roll into March. */
+function utcDay(value: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!m) return null;
+  const t = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return new Date(t).toISOString().slice(0, 10) === value ? t : null;
+}
 
 /** Whole days from lending to return — 0 for a book back the same day — or null when a date isn't a plain day. */
 export function loanDays(loanedOn: string, returnedOn: string): number | null {
-  const [a, b] = [ISO_DAY.exec(loanedOn), ISO_DAY.exec(returnedOn)];
-  if (!a || !b) return null;
-  const day = (m: RegExpExecArray) => Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  const days = Math.round((day(b) - day(a)) / 86_400_000);
+  const [a, b] = [utcDay(loanedOn), utcDay(returnedOn)];
+  if (a === null || b === null) return null;
+  const days = Math.round((b - a) / 86_400_000);
   return days >= 0 ? days : null;
 }
 
