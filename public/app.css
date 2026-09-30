@@ -796,6 +796,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   /* the item table still scrolls on a phone (Columns trims it), but a long title no longer hides Status */
   .cell-title { max-width: 11rem; }
   .data-table .sub-settings select { max-width: 7.5rem; }
+  /* Members: a display-name box narrow enough that Reset password and Remove stay on the phone's screen */
+  .data-table .display-name-form input { width: 6.5rem; }
   .data-table .sub-settings input[type='number'] { width: 4.25rem; }
   /* columns already hidden on a phone have nothing to toggle */
   #columns-menu label:has(> [data-col='type'], > [data-col='shelf'], > [data-col='year'], > [data-col='completed'], > [data-col='tags'], > [data-col='acc']) { display: none; }

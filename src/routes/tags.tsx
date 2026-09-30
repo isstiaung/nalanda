@@ -44,7 +44,7 @@ const TagLinks: FC<{ tag: string; links: Share[]; origin: string }> = ({ tag, li
         <span>
           <strong>{v.name}</strong> <small class="muted">{shareScopeLabel(v)}</small>
           <br />
-          <a href={`${origin}/share/${v.token}`} class="mono">
+          <a href={`${origin}/share/${v.token}`} class="mono break-anywhere">
             {origin}/share/{v.token}
           </a>
         </span>

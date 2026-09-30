@@ -75,6 +75,23 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // A filter menu drops down from its button's left edge; one near the right of a phone's screen would hang off
+  // it and scroll the whole page sideways, so it lines up with its button's right edge instead.
+  document.addEventListener(
+    'toggle',
+    (e) => {
+      const menu = e.target.matches?.('details.filter[open]') ? e.target.querySelector('.filter-menu') : null;
+      if (!menu) return;
+      menu.style.left = '';
+      menu.style.right = '';
+      if (menu.getBoundingClientRect().right > document.documentElement.clientWidth - 8) {
+        menu.style.left = 'auto';
+        menu.style.right = '0';
+      }
+    },
+    true, // toggle doesn't bubble
+  );
+
   // Filter dropdowns close when clicking anywhere else (incl. opening another one).
   document.addEventListener('click', (e) => {
     document.querySelectorAll('details.filter[open]').forEach((d) => {
