@@ -686,11 +686,20 @@ export const ReviewsSection: FC<{ item: Item; reviews: ReviewLine[]; viewer: Vie
           {reviews.map((r) => {
             const editable = viewer.admin || r.userId === viewer.id;
             const moveTo = viewer.admin ? people.filter((p) => p.id !== r.userId && !reviews.some((o) => o.userId === p.id)) : [];
-            const who = r.userId === viewer.id ? `You · ${personName(people, r.userId)}` : personName(people, r.userId);
+            const mine = r.userId === viewer.id;
             return (
               <li>
                 <p class="review-by">
-                  <span class="reviewer">{who}</span>
+                  {/* as the Reading section names its readers: "You", in the accent, then the username */}
+                  <span class={mine ? 'reviewer reviewer-self' : 'reviewer'}>
+                    {mine ? (
+                      <>
+                        You <span class="muted">· {personName(people, r.userId)}</span>
+                      </>
+                    ) : (
+                      personName(people, r.userId)
+                    )}
+                  </span>
                   {r.rating ? <span class="rating">{stars(r.rating)}</span> : null}
                   {r.reviewedAt ? <span class="mono muted">{r.reviewedAt.slice(0, 10)}</span> : null}
                 </p>
@@ -1336,14 +1345,14 @@ export const ItemForm: FC<{
     </div>
     {finishedBook && !readingLocked ? (
       <p class="muted form-note">
-        Finished before: these are its last finished read's. To read it again, or to record a read you stopped, use the
-        book's page.
+        Finished before: these are the dates of its last finished read. To read it again, or to record a read you
+        stopped, use the book's page.
       </p>
     ) : null}
     {readingLocked ? (
       <p class="muted form-note">
-        Being read again now: these are its last finished read's, kept as they are. Every read — this one too — is
-        started, finished, stopped and corrected on the book's page.
+        Being read again now: these are the dates of its last finished read, kept as they are. Every read — this one
+        too — is started, finished, stopped and corrected on the book's page.
       </p>
     ) : null}
     {perMember ? (
@@ -1602,8 +1611,8 @@ export const DETAIL_LABELS: Record<string, string> = {
   bgg_id: 'BGG ID',
   players_min: 'Min players',
   players_max: 'Max players',
-  playtime_min: 'Min playtime',
-  playtime_max: 'Max playtime',
+  playtime_min: 'Min playtime (minutes)',
+  playtime_max: 'Max playtime (minutes)',
   weight: 'Weight (1–5)', // BGG's complexity rating (§16 #60)
   discogs_id: 'Discogs ID',
   format: 'Format',

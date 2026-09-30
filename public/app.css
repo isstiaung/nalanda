@@ -989,7 +989,8 @@ details.read-edit > summary::-webkit-details-marker { display: none; }
 details.read-edit > summary:hover { color: var(--accent); }
 details.read-edit[open] { flex-basis: 100%; padding: 0.3rem 0 0.5rem; }
 details.read-edit[open] > summary { margin-bottom: 0.45rem; }
-details.read-edit .inline-form + .inline-form { margin-top: 0.4rem; }
+/* each form an edit holds (a review's Save, then Delete, then Move) sits clear of the one above */
+details.read-edit form + form { margin-top: 0.4rem; }
 details.read-add { margin-top: 0.7rem; }
 .form-note { margin: -0.25rem 0 0.75rem; font-size: 12.5px; }
 .read-count { font-size: 11px; }
@@ -1010,6 +1011,7 @@ details.read-add { margin-top: 0.7rem; }
 .member-reviews > li:first-child { border-top: none; padding-top: 0; }
 .review-by { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.7rem; margin: 0 0 0.3rem; font-size: 12.5px; }
 .review-by .reviewer { font-family: var(--mono); font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; overflow-wrap: anywhere; }
+.review-by .reviewer-self { color: var(--accent); }
 .review-by .mono { font-size: 11px; }
 .member-reviews .prewrap { margin: 0 0 0.35rem; overflow-wrap: anywhere; }
 /* a review's own form: rating, text, Save — stacked, since the text wants the width */
