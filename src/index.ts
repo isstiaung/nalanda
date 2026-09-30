@@ -22,6 +22,7 @@ import libraryRoutes from './routes/libraries';
 import loanRoutes from './routes/loans';
 import { MISSING_ASSET, notFound } from './routes/notfound';
 import notificationsRoutes from './routes/notifications';
+import playRoutes from './routes/play';
 import recommendationsRoutes from './routes/recommendations';
 import searchRoutes from './routes/search';
 import settingsRoutes from './routes/settings';
@@ -30,6 +31,7 @@ import shareAdminRoutes from './routes/shares';
 import seriesRoutes from './routes/series';
 import tagRoutes from './routes/tags';
 import wantRoutes from './routes/wants';
+import yearReviewRoutes from './routes/yearreview';
 
 const app = new Hono<AppEnv>();
 
@@ -119,6 +121,8 @@ app.use(async (c, next) => {
 
 app.route('/', dashboardRoutes);
 app.route('/', goalRoutes);
+app.route('/', yearReviewRoutes); // in the app only: never on share pages or to connections (§16 #59)
+app.route('/', playRoutes);
 app.route('/', libraryRoutes);
 app.route('/', shareAdminRoutes);
 app.route('/', itemRoutes);

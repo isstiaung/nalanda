@@ -264,7 +264,9 @@ columns also land here so imports are lossless):
   dedicated "Reviewed in" form field, rendered as outbound links on item and share
   pages (a deliberate lightweight alternative to a posts table — the blog side holds
   the post→books direction).
-- `boardgame`: `{ bgg_id, players_min, players_max, playtime_min, playtime_max, year }`
+- `boardgame`: `{ bgg_id, players_min, players_max, playtime_min, playtime_max, weight, year }` —
+  `weight` is BGG's complexity rating (`averageweight`, 1–5, two decimals), which "What should we play
+  tonight?" filters on with the players and playtimes (§16 #60)
 - `vinyl` (and `music`): `{ discogs_id, label, catno, country, year, format, genres,
   tracklist }` — the pressing, from Discogs (§16 #55). `label` and `catno` hold every label
   and catalogue number, joined; `format` is one line (`2×Vinyl, LP, Album, 180 Gram, Red
@@ -398,8 +400,8 @@ interface MetadataProvider {
   works, which fill a candidate's series; Google Books never names one (its rare `seriesInfo` holds a number
   and an id, and `series/get` refuses API keys), so it contributes nothing there.
 - Providers are called only at add/import time, or when someone asks — "Refresh from
-  Discogs", one request per click (§16 #55) — zero runtime dependency on them for
-  browsing, and no background sync to burn anyone's quota.
+  Discogs" (§16 #55) and "Refresh from BGG" (§16 #60), one request per click — zero runtime
+  dependency on them for browsing, and no background sync to burn anyone's quota.
 - Secrets: `DISCOGS_TOKEN` and `BGG_TOKEN` (recommended — vinyl and board games need them),
   `GOOGLE_BOOKS_KEY` (optional) via `wrangler secret put`.
 - Movies/CDs/video games: schema supports them (manual entry); TMDB/IGDB providers are v1.x
@@ -533,6 +535,7 @@ GET  /login                    POST /auth/login · POST /auth/logout
 GET  /account                  change own password (also the forced first-login flow) · POST /account/display-name
 GET  /goals                    reading goals: your own, or ?member=:id for an admin (§16 #49)
 POST /goals                    set a goal (this year or next) · POST /goals/:id/delete — own, or anyone's for an admin
+GET  /year-in-review           a year's reading, mine beside the household's, and its plays (?year=YYYY; §16 #59)
 
 GET  /                         dashboard: libraries, recent adds, loans out, "Read next"
                                (?not=<id> with HX-Request → the "Read next" card alone; §16 #46)
@@ -554,6 +557,10 @@ POST /items/:id/reviews/:rev   edit · …/delete · …/move (admins)   — own
 POST /items/:id/plays          "Played": a play today or on the date given (games, records; §16 #54)
 GET  /items/:id/plays          every play, 100 a page · POST /items/:id/plays/:play/delete (its
                                logger, or an admin; ?back=plays returns to that page)
+POST /items/:id/bgg            "Refresh from BGG": one `thing` request by details.bgg_id, fills blanks
+                               only (board games; redirects back with ?bgg=<code>; §16 #60)
+GET  /play                     "What should we play tonight?": ?players=&time=&weight=, and ?pick=1
+                               (&not=<id>) for one; with HX-Request → the results alone (§16 #60)
 GET  /add                      add flow: scan | search | manual
 GET  /add/review               ?barcode=…&scanned=… — one scan held offline, looked up (partial; §16 #48)
 GET  /api/lookup               ?barcode=… | ?q=…&type=boardgame → JSON candidates
@@ -2513,6 +2520,207 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     limits of 20 a day and 50 waiting from one household, and 500 characters of note; a recommendation is
     signed at send time, so a later rename doesn't reach one already sent; the list shows 100; the want's
     shelf is chosen on each card (first shelf by default); what the receiver does is never sent back.
+
+**2026-09-30 — year in review:**
+59. **A year in review is one page, in the app only, counted in SQL in one D1 batch: the member's year beside
+    the household's, and the household's plays once.** The owner decided the shape: `/year-in-review`, a
+    labelled year picker, and four groups of figures for the chosen year — books finished (re-reads count)
+    and pages read, with a month-by-month bar chart; most-read authors and most-used tags; the average
+    rating given, the highest-rated books, the longest and shortest book and the fastest read; records spun
+    and games played (from `plays`, #54) with the most played of each. "You" is the member's own reads
+    (`reads.reader_id`) and own ratings; "Household" is everyone's, former members' included (#43). Plays are
+    the household's log, so they show once and the page says so. Never on share pages or to connections.
+
+    **What counts.** A finished read of a book (`status = 'completed'`, `media_type = 'book'`, as a goal's
+    count, #49) counts in the year its `ended_on` falls in, compared as a half-open range of UTC calendar
+    dates (`>= 'Y-01-01' AND < 'Y+1-01-01'`), so the first and last day are in and the next year's first day
+    isn't. A re-read is another finish: it counts again in books, pages and the month chart. Pages are the
+    sum of `items.length` over finishes of books with a length (> 0); the page says how many finishes had
+    none. Lists count **books**, not finishes: a book is its folded title and creators (`work`), so two
+    editions are one book and a re-read doesn't make one book two — authors rank by books, then finishes
+    ("1 book · 3 finishes"); tags by books carrying them. **Authors** come from `creators` split into people
+    (`YEAR_CREATORS`). The separator really used is ", ": Open Library, Google Books and BoardGameGeek join
+    several names with it, and so does the Goodreads import (author, then additional authors), so splitting only
+    on ';' and ' & ' would stop splitting nearly every multi-author book. But a hand-typed or libib-imported
+    catalogue can hold one person written "Last, First", which a plain comma split made two people ("Le Guin"
+    and "Ursula K."; found by nalanda-review). So a string is one person when it has exactly one comma, no ';'
+    or '&', no full stop before the comma, and given names after it — a single word ("Herbert, Frank") or
+    names ending in an initial ("Le Guin, Ursula K.", "Tolkien, J. R. R.") — and not a suffix; it is turned
+    round ("Ursula K. Le Guin") so it meets the same author spelled the usual way. Two full names ("Terry
+    Pratchett, Neil Gaiman") and anything with two commas ("A, B, C") still split; ';' and ' & ' split too
+    ("Pratchett & Gaiman" is two). A lone "Jr."/"Sr." is dropped rather than counted as an author, and
+    "Martin Luther King, Jr." isn't turned round. What the rule gets wrong, knowingly: two surnames alone
+    ("Pratchett, Gaiman") read as one person, and "Mandel, Emily St. John" as two. `work` still folds the
+    creators string as written, so a book held as "Le Guin, Ursula K." and "Ursula K. Le Guin" is two books.
+    **A rating** counts once per reader and book finished that year — the `work`, not the item, so neither a
+    re-read nor a second edition counts it twice, and a reader who rated two editions of one book gave it their
+    average of the two (the per-item grouping counted both; found by nalanda-review) — and only from the reader
+    who finished it, only for the editions they finished — so a rating of a book finished in another year, or
+    by someone who didn't finish it that year, isn't that year's. Former members, one "nobody" to the app's
+    checks (#43), are one reader here too. The household's highest-rated averages a book's per-reader ratings
+    across its readers. Longest and
+    shortest are among the year's books with a length; the fastest read is began → ended counting both days
+    (a book begun and finished the same day took one), among finishes with a start date no later than the end.
+    Plays count per type (`boardgame`, `vinyl` — an item since retyped away from those drops out), a total,
+    how many distinct items, and the three most played. Ties break by the latest finish or play, then title.
+
+    **Cost (#37, #12).** One `d1.batch()` of ten statements — one D1 call — whatever the catalogue holds:
+    months, authors, tags, average rating, highest-rated, longest/shortest, fastest, plays, the undated count
+    and member count, and the picker's years. The seven reading statements share one CTE of the year's finishes,
+    `MATERIALIZED` and joined to a two-row scope table, so each reads `reads` once rather than once per scope;
+    tags join `item_tags` by its primary key (`CROSS JOIN` fixes the order, where SQLite had chosen to scan
+    `item_tags` whole); plays are a range on `idx_plays_played_item`, as #54 foresaw. No index or migration was
+    needed: the year's finishes are a scan of `reads`, which at 1,500 rows is cheap. The page is 4 D1 calls on
+    an empty instance and the same 4 with 2,000 items, 1,500 reads, 600 reviews, ~7,000 tag links and 600 plays
+    (the session's user, the layout's shelves and the batch among them); a test counts both through the
+    budgeted handle, and holds the review itself to one call. Measured there, the batch read about 52,000 rows
+    in total (before materializing, 74,000) and returned 74, so the Worker's CPU is rendering a few dozen rows.
+    D1's free plan allows 5 million rows read a day: at that size, about a hundred views of the page.
+
+    **Undated finishes are left out, and counted beside.** A finish with no end date — Goodreads' read counts
+    become exactly these (#41) — is in no year, so listing it under every year would be wrong and under none
+    would hide why a year looks thin. The page ends with "Finished, date unknown: 1 book of yours, 3 in the
+    household — with no end date, they count in no year" whenever there are any, including on an empty year.
+
+    **Years and edge cases.** The picker offers every year with a dated finish of a book or a play, the current
+    year (UTC), and the one being shown; `?year=` takes 1000–9998, anything else shows this year (9999's range would end at "10000-01-01", which
+    sorts before its own dates). An
+    empty year says so in one panel ("Nothing yet for 2026…" this year, "Nothing for 2010…" before, "hasn't
+    started yet" after) and draws no chart; a year of plays without reading says "No book finished with a date
+    in 2025" and shows the plays; a year without plays says "No records spun" / "No games played"; a member with
+    no finishes sees that in their column beside a household that read.
+
+    **Accessible.** One `h1`, an `h2` per group, an `h3` per column, the picker's `<label for>`; the chart is a
+    `<figure>` labelled by its caption, its CSS bars `aria-hidden`, and beside them a visually hidden table —
+    Month, Books finished, Pages read, a row per month, captioned with whose and which year. The table is hidden
+    by a wrapper `div`: a table sizes to its content whatever width it is given, and on its own it widened a
+    390px page by 36px (found by the screenshot pass). Star ratings are hidden and read as "4.3 out of 5".
+    Bars use the indigo accent, ratings turmeric (`--brass`), every number monospace; the columns stack below
+    720px.
+
+    **Privacy.** The route sits after the session middleware (src/index.ts), so a signed-out visitor, or a
+    connected household's signed request (peers hold no session), gets the login redirect; share pages carry no
+    link to it and `/share/:token/year-in-review` doesn't exist; nothing here passes through `toPublicItem()` or
+    `toConnectionItem()`, and no feed kind or trigger was added. Usernames never appear on it: the columns are
+    "You" and "Household".
+
+    **Chosen without asking, overrulable:** reading figures are books only, as goals are; undated finishes are
+    counted in a note rather than listed; lists rank books (editions and re-reads folded) before finishes; the
+    average rating is over ratings by those who finished the book that year, once per reader and book (two
+    editions rated: their average); a "Last, First" author is recognised by the given-names rule above and
+    turned round, and ';' and ' & ' separate authors as commas do; fastest
+    counts both days; ties go to the latest; top five authors, tags and rated books, top three per play type; a
+    household of one — whose figures are all its own — sees one column, "You", not the same figures twice (a
+    former member's reads make the columns differ, and both show); `/year-in-review` sits in the sidebar's
+    Catalog group; the page doesn't compare with the year before or show the member's goal.
+
+**2026-09-30 — what should we play tonight:**
+60. **"What should we play tonight?" filters the household's board games by players, time and BGG's
+    weight, in SQL over their `details`; the weight joins `details`, and "Refresh from BGG" fills blanks
+    for games already here.** The owner decided the shape: say how many **players**, how much **time**
+    and what **weight** (light, medium or heavy, from BGG's complexity rating); see the games that fit,
+    in random order, with **Pick one for us** for a single random pick; keep BGG's weight for games
+    added from now on; and a **Refresh from BGG** button on a game's page that fills the weight and any
+    missing players or playtime for games already in the catalog, blanks only, on #55's pattern.
+
+    The questions the owner left open, answered:
+    - **Weight bands: light below 2.0, medium from 2.0 to below 3.0, heavy from 3.0** on BGG's 1–5
+      scale (`WEIGHT_BANDS` in `src/lib/games.ts`). The edges are BGG's own poll anchors — 1 "Light",
+      2 "Medium Light", 3 "Medium", 4 "Medium Heavy", 5 "Heavy" — so a band is where a game's average
+      sits between them. Averages cluster between about 1.2 and 4, which three equal-width bands over
+      1–5 would crowd into the bottom two: about 1.3 for Codenames and 1.8 for Ticket to Ride (light:
+      taught in five minutes), about 2.3 for CATAN and Pandemic and 2.4 for Wingspan (medium: the
+      family-weight classics), about 3.3 for Terraforming Mars and 3.9 for Brass (heavy: an evening's
+      commitment). The form labels each band with its numbers.
+    - **Time is conservative: the longer end must fit.** A game's time is the larger of
+      `playtime_max` and `playtime_min` (a range typed backwards still counts its long end, and only a
+      minimum known counts as the whole game), else the Length column (BGG's `playingtime`, which may
+      be all a game typed in by hand has), and it fits when that is at most the minutes you have — an
+      exact fit fits. A 60–120 minute game is not offered for an hour, however short its best case.
+    - **Players:** fits when the count is inside `[players_min, players_max]`, a range typed backwards
+      read the right way round. Only a maximum reads as 1 up to it (`FEWEST_PLAYERS`): "up to 5" says
+      nothing against a table of four. Only a minimum reads as exactly that many — the narrowest
+      reading, since "2" with no maximum may be a two-player game. (Found by nalanda-review: a max-only
+      game first read as exactly its maximum, so "up to 5" never came out for four.)
+    - **Games missing a detail get their own group, "Not enough details",** under what fits, each
+      unknown fact shown as unknown. It is per filter: a game is there only when something you asked
+      about is missing *and* nothing known already rules it out, so a two-player game with no weight
+      never shows up for four. With no filters set, every game fits. The group points at Refresh from
+      BGG as the way to fill it.
+    - **Last played doesn't steer the order.** The owner asked for random order, and a weighting would
+      be a rule nobody could see; each game shows its last play instead ("last played 14 Sep", "not
+      played yet"), read from `idx_plays_item_played` for the rows returned, as #54 planned, so the
+      household can steer itself. "Pick another" never repeats the pick just shown while another fits
+      (`ORDER BY id = <shown>, random()`, as #46 does).
+    - **Where it lives: `/play`, its own page,** linked from the Overview ("Game night", once the
+      collection holds a board game) and from a shelf's header whenever the shelf page shows a board
+      game or is filtered to them — both from data those pages already load, so neither adds a D1
+      call. It covers every shelf: on game night a household's games are one pool. **In the app
+      only:** it sits behind `requireAuth`, no share page or connection links to it, and nothing on it
+      is published. It shows BGG's facts, so it carries the "Powered by BGG" credit (#44).
+    - **What "here" means:** board games in the collection (`copies > 0`) with a copy not out on loan
+      (open loans fewer than copies). A game lent to the neighbours can't be played tonight; one of two
+      copies lent still can.
+    - **The weight is a `details` key, `weight`, so no migration.** It is public catalogue data like the
+      other BGG keys: it round-trips through the CSV's `details` column (a test exports, re-imports and
+      filters the copy), shows on share pages exactly where the other BGG details do — the details
+      list, labelled "Weight (1–5)" — and reaches connections as a plain number through
+      `plainDetails()`, as `players_min` does. The provider reads `statistics > ratings >
+      averageweight` from the `thing` answer the search already asks for with `stats=1`, kept to two
+      decimals as BGG's own pages show it; 0 is BGG's "nobody voted" and, like anything off the 1–5
+      scale, is no weight.
+
+    **In SQL, one call.** `gamesForTonight()` classes every board game in one pass: a CTE reads each
+    number with `json_extract` — a JSON number, or text that is only a number (a libib import keeps
+    every value as text); `json_valid()` guards details that aren't JSON, and zero or junk is no value —
+    then marks each game fits (1), missing a detail (0) or ruled out (NULL) from four bound parameters,
+    NULL meaning "any". The two steps that work out the numbers are `MATERIALIZED`: left to flatten
+    them into the query, SQLite copies each `json_extract` into every place a later step names the
+    value, and one more reference (the max-only player rule) was enough to fail every query with
+    `SQLITE_NOMEM` in the tests, even on ten games. `row_number()` and `count(*)` over `PARTITION BY fit ORDER BY random()` return
+    at most 60 of each group, at random, with the totals, so a big collection costs rows scanned, not
+    rows sent; the page says "Showing 60 of 205". `pickGameForTonight()` is the same CTE with `LIMIT 1`.
+    The page is 4 D1 calls (the session, the sidebar's two, the results) and its htmx answer 2, with or
+    without filters, picking or not, and with 300 more games and 600 plays (tests hold both). Filters
+    come from the URL through `parseGameFilters()`: whole numbers in range and the three band names;
+    anything else is "any".
+
+    **One handler, two renders**, as #46: the filter form is a GET to `/play` that works without
+    JavaScript, and htmx asks the same URL with `HX-Request` for the results alone (`Vary: HX-Request`),
+    swapped into `#play-results`; "Pick one for us" is a second submit button adding `pick=1`. No
+    `hx-push-url`, so #46's caveat about history restores doesn't arise. **Accessible:** every control
+    sits in its `<label>`; the results are announced by a status line (`role="status"
+    aria-live="polite"`) outside the swapped region, filled out of band (`hx-swap-oob="innerHTML"`) so
+    it stays the same live node — a whole list read aloud would drown the count. "Pick another" keeps
+    its id across the swap, so focus returns to it. Checked in headless Brave: the same status node
+    changed to "Picked 7 Wonders, from 11 games that fit." and focus stayed on "Pick another".
+
+    **Refresh from BGG: one request per click, blanks only.** `POST /items/:id/bgg` fetches
+    `thing?id=<bgg_id>&stats=1`, the id from `details.bgg_id` (a number, or digits as text). Without one
+    it asks nothing and says to add it: a title search would be two requests and a guess. It writes only
+    the `details` keys `players_min`, `players_max`, `playtime_min`, `playtime_max` and `weight`, and the
+    `length` column (BGG's playing time), each only while blank (absent, null, empty text; zero is a
+    value) — `fillGame()`. Title, creators, publisher, description, cover, year and `bgg_id` are never
+    touched, and details that don't parse as an object are left alone. The write is guarded on the
+    `details` and `length` it read (`applyGameFill()`), so an edit saved meanwhile wins and the page
+    says to refresh again: 3 D1 calls a click. **Pacing:** BGG asks for about five seconds between
+    requests, so an isolate lets one refresh through every five seconds and answers another click inside
+    that as "busy" without asking BGG (`bggRefresh()` in `src/metadata/index.ts`); BGG's own 429, 500,
+    503 and 202 give the same notice. A 401 is "refused"; a 403 from its edge, any other status, a
+    timeout, or a 200 that isn't an `<items>` answer (an error message, an HTML page) "unavailable"; an answer without that id "not found" — each a fixed
+    sentence chosen by a code in the redirect (`?bgg=<code>`), never text from the URL or from BGG. A
+    game's page never calls BGG, and tests replay BGG's XML from `test/fixtures/bgg.ts`, written in the
+    shape BGG's API2 returns.
+
+    **Chosen without asking, overrulable:** the band edges at 2 and 3; time as the longer end, with
+    Length as the last resort; only games with a copy not on loan, and not-owned games (`copies = 0`)
+    left out; one household-wide page rather than one per shelf; 60 games a group; a number box for
+    players and fixed choices for time (20 minutes to 4 hours; any whole number of minutes up to a day
+    from the URL); the weight kept to two decimals; `length` among what the refresh fills; no refresh
+    without a `bgg_id`; per-isolate pacing of five seconds for refreshes only (search keeps its two
+    back-to-back requests, as before); the links on the Overview and the shelf header rather than the
+    sidebar, which would cost a query on every page. Numbers 58 and 59 are left for decisions in flight
+    on other branches.
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
