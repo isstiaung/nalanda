@@ -78,7 +78,7 @@ export function discogsLink(item: { mediaType: MediaType; details: Record<string
 export const DiscogsCredit: FC<{ href: string }> = ({ href }) => (
   <a href={href} class="discogs-credit" rel="noreferrer">
     Data provided by Discogs.
-    <span class="visually-hidden">{href === discogsUrl(null) ? ' Discogs home page' : ' This release on discogs.com'}</span>
+    <span class="sr-only">{href === discogsUrl(null) ? ' Discogs home page' : ' This release on discogs.com'}</span>
   </a>
 );
 

@@ -23,7 +23,7 @@ const RELEASE = 'https://www.discogs.com/release/7700123';
 /** The whole block, exactly: the credit, linked to the release, and the terms' notice — nothing from the item but its id. */
 const BLOCK =
   `<div class="discogs-attribution"><p><a href="${RELEASE}" class="discogs-credit" rel="noreferrer">Data provided by Discogs.` +
-  `<span class="visually-hidden"> This release on discogs.com</span></a></p><p class="discogs-notice">${DISCOGS_NOTICE}</p></div>`;
+  `<span class="sr-only"> This release on discogs.com</span></a></p><p class="discogs-notice">${DISCOGS_NOTICE}</p></div>`;
 
 /** Pressing as Discogs fills it (§16 #55): a release id and the fields beside it. */
 const PRESSING = {
@@ -177,7 +177,7 @@ describe('a record’s page in the app', () => {
     const lp = await item({ libraryId: shelf.id, details: JSON.stringify({ discogs_id: '7700123" onmouseover="alert(1)', label: 'RCA' }) });
     const page = await html(asha, `/items/${lp.id}`);
     expect(discogsHrefs(page)).toEqual(['https://www.discogs.com/']);
-    expect(page).toContain('<span class="visually-hidden"> Discogs home page</span>');
+    expect(page).toContain('<span class="sr-only"> Discogs home page</span>');
     expect(page).not.toContain('" onmouseover="alert(1)');
   });
 });
