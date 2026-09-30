@@ -246,16 +246,29 @@ document.addEventListener('htmx:afterSettle', (e) => {
 // in a live region that stays on the page, named by the form's data-refresh-status. While the request is out, that
 // region says so ("Asking Discogs…", the form's own fixed words). A request that fails — a 500, or no answer at all —
 // swaps nothing, so without this the button would come back with nothing said: the region gets a fixed sentence,
-// never the answer's body. Scoped to these forms; other htmx buttons are unchanged.
+// never the answer's body. The button is disabled while it waits, and a browser drops focus from a disabled button to
+// <body>: the button pressed gets it back once the answer is in, whatever the answer. Scoped to these forms; other
+// htmx buttons are unchanged.
 (() => {
   const statusOf = (e) => {
     const form = e.detail && e.detail.elt && e.detail.elt.closest ? e.detail.elt.closest('form[data-refresh-status]') : null;
     const status = form ? document.getElementById(form.dataset.refreshStatus) : null;
     return status ? { form, status } : null;
   };
+  let pressed = null; // the button that had focus when its request went out
   document.addEventListener('htmx:beforeRequest', (e) => {
     const found = statusOf(e);
-    if (found && found.form.dataset.refreshBusy) found.status.textContent = found.form.dataset.refreshBusy;
+    if (!found) return;
+    const button = found.form.querySelector('button');
+    pressed = button && document.activeElement === button ? button : null;
+    if (found.form.dataset.refreshBusy) found.status.textContent = found.form.dataset.refreshBusy;
+  });
+  // after htmx has swapped (or not) and re-enabled the button, before the page-wide afterSettle handler above
+  document.addEventListener('htmx:afterRequest', (e) => {
+    if (!statusOf(e)) return;
+    const active = document.activeElement;
+    if (pressed && pressed.isConnected && (!active || active === document.body)) pressed.focus({ preventScroll: true });
+    pressed = null;
   });
   const failed = (e) => {
     const found = statusOf(e);
