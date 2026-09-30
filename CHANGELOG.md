@@ -8,6 +8,21 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [Unreleased]
+
+### Added
+- **An accessibility audit, in CI.** `npm run lint` checks the views against eslint-plugin-jsx-a11y's strict rules, and `npm run a11y` runs axe-core (WCAG 2.2 A and AA) on every page in a real browser, light and dark, desktop and phone width, including the pages htmx changes in place, and walks each page with the keyboard. Both run on every pull request. For contributors only: nothing new is deployed.
+- **A "Skip to content" link** is the first thing Tab reaches on every page, so keyboard users no longer go through the whole sidebar each time.
+
+### Changed
+- **Colour is never the only signal.** An overdue loan on an item's page says "overdue"; the current page in the sidebar and the chosen Scan / Search / Manual button are announced as such; links inside sentences are underlined.
+- **Text contrast meets WCAG AA in both themes**: rating stars on light paper are a shade darker, error text a shade stronger, a hovered table row is a lighter tint, and the lamp-lit theme's small grey labels are a shade lighter.
+- **Every field has a name** screen readers announce, and a refused form's message is read out and tied to the fields it's about. The Add page's barcode box — the way in without a camera — has a visible label.
+- **Filter menus' checkboxes are spaced further apart**, so each is easier to tap.
+
+### Upgrading
+- Contributors: run `npm install`, then `npx playwright install chromium` once before `npm run a11y`.
+
 ## [1.5.0] - 2026-09-30
 
 A lot for games, records and reading: a play and listening log, reading goals (shared with connected households if you like), want lists with shop links and gift-list shares, series with what's missing and what's next, a record's condition and pressing from Discogs, where each thing lives, and loans in the export.
