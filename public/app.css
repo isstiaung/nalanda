@@ -885,7 +885,15 @@ form.search-by-reader select { width: auto; margin: 0; max-width: 100%; }
    Delete it leads to. With :has, CSS alone shows the bar once a box is checked, and
    the tag field or shelf menu only for the actions that use them, JavaScript or not;
    a browser without :has shows all of it, all the time, and it still works. */
-.data-table .col-pick { width: 1%; padding-right: 0.15rem; }
+/* The checkbox column costs the table as little width as it can: no right padding, the Title cell beside it gives
+   up some of its left, and on a wide screen the other cells a little of theirs — together about the column's own
+   width, so a table that just fitted before still fits rather than scrolling inside its frame. A phone keeps its
+   own tighter padding (the responsive rules below). */
+@media (min-width: 881px) {
+  .data-table:has(.col-pick) :is(th, td) { padding-left: 0.62rem; padding-right: 0.62rem; }
+}
+.data-table :is(th, td).col-pick { width: 1%; padding-left: 0.6rem; padding-right: 0; }
+.data-table .col-pick + :is(th, td) { padding-left: 0.45rem; }
 .col-pick input { margin: 0; width: 15px; height: 15px; vertical-align: middle; }
 .data-table tbody tr:has(.bulk-pick:checked) { background: var(--accent-tint); }
 
