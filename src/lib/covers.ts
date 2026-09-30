@@ -25,7 +25,12 @@ export async function storeCover(
       ...(opts.followRedirects === false ? { redirect: 'manual' as const } : {}),
     });
     if (!res.ok) return null;
-    const contentType = (res.headers.get('content-type') ?? 'image/jpeg').split(';')[0]!.trim().toLowerCase();
+    // A metadata provider that sends no type has always been taken as a JPEG, and still is: the guess can only ever be
+    // a raster type, and every cover is served sandboxed (serveCover). Another instance must say what it sends — left
+    // out, the stored type would be ours to guess for bytes it chose, so its cover is refused.
+    const declared = res.headers.get('content-type');
+    if (!declared && opts.followRedirects === false) return null;
+    const contentType = (declared ?? 'image/jpeg').split(';')[0]!.trim().toLowerCase();
     if (!COVER_TYPES.has(contentType)) return null;
     // Buffer instead of streaming: R2 put() needs a known length, covers are ~30-100 KB.
     const body = await res.arrayBuffer();
