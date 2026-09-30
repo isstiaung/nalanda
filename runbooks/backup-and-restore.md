@@ -102,7 +102,7 @@ from before 0029 restores at 0027, and 0028–0029 then give each account its ow
 instead, its accounts have no key: each gets one at its next password login, and until then
 no cookie signs it in.
 
-A backup from before series (migration 0028, ARCH.md §16 #52) simply has no `series.sql`: skip it.
+A backup from before series (the series migration, ARCH.md §16 #52) simply has no `series.sql`: skip it.
 That migration changes no data, so such a backup restores straight into the latest schema, every
 item in no series.
 
