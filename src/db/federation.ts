@@ -2301,6 +2301,15 @@ export async function recommendToConnection(d1: D1Database, values: NewOutgoingR
   return row?.id ?? null;
 }
 
+/** Recommendations of ours sent to a connection since midnight UTC, whatever became of them. */
+export async function recommendedToday(d1: D1Database, connectionId: number): Promise<number> {
+  const row = await d1
+    .prepare(`SELECT count(*) AS n FROM recommendations WHERE connection_id = ?1 AND incoming = 0 AND created_at >= date('now')`)
+    .bind(connectionId)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
 /** Marks a recommendation of ours refused, from open only. */
 const refuseOwnRecommendation = (dbi: ReturnType<typeof db>, activityId: string) =>
   dbi
@@ -2360,7 +2369,12 @@ export async function takeRecommendation(d1: D1Database, values: NewIncomingReco
   const prune = sql`DELETE FROM recommendations WHERE incoming = 1 AND status IN ('dismissed', 'wanted')
     AND handled_at < datetime('now', ${`-${RECOMMENDATIONS_KEPT_DAYS} days`})`;
   const results = await d1.batch([notifyIfStatement(d1, notice, room), statement(d1, insert), statement(d1, prune)]);
-  return results[1]?.results.length ? 'received' : 'already received';
+  if (results[1]?.results.length) return 'received';
+  // nothing inserted: either a copy of this message landed first, or another recommendation took the last place
+  // meanwhile — which must be refused, not answered "already received", or the sender would count it delivered
+  const now = await statement(d1, sql`SELECT ${seen} AS seen, ${todayFrom} AS today`).first<{ seen: number; today: number }>();
+  if (now?.seen) return 'already received';
+  return (now?.today ?? 0) >= MAX_RECOMMENDATIONS_PER_DAY ? 'too many today' : 'too many waiting';
 }
 
 /** Which of these activity ids are recommendations already taken here — for an outbox pull. One query, none for none. */

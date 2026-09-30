@@ -16,9 +16,9 @@ import {
 } from '../src/federation/config';
 import { itemStamp } from '../src/federation/items';
 import { commentCreate, parseInboxMessage } from '../src/federation/messages';
-import { A, connectPeer, instanceA, makeKeys, makePeer, sessionCookie, setUpA, signedBy, type Keys, type Peer } from './federation-helpers';
+import { A, answerOutbound, connectPeer, instanceA, json, makeKeys, makePeer, sessionCookie, setUpA, signedBy, type Keys, type Peer } from './federation-helpers';
 import { member, upgradedSwitches } from './member-helpers';
-import { COVER_KEY, peerSide, retryDue, rows, theirRecommendation, to } from './recommend-helpers';
+import { COVER_KEY, descriptorOf, peerSide, retryDue, rows, theirRecommendation, to } from './recommend-helpers';
 
 let keysA: Keys;
 let a: ReturnType<typeof instanceA>;
@@ -253,6 +253,18 @@ describe('sending a recommendation', () => {
     expect(await rows('SELECT * FROM recommendations')).toHaveLength(0);
   });
 
+  it(`sends one household at most ${MAX_RECOMMENDATIONS_PER_DAY} a day, however many it refused`, async () => {
+    const side = peerSide(peer, { inbox: 409 });
+    const cookie = await sessionCookie('member');
+    for (let i = 0; i < MAX_RECOMMENDATIONS_PER_DAY; i++) {
+      const item = await createItem(env.DB, { libraryId: shelfId, title: `Book ${i}` });
+      expect(outcome(await recommendForm({ connectionId: String(connectionId) }, cookie, item))).toBe('refused');
+    }
+    expect(await rows('SELECT count(*) AS n FROM outbox')).toEqual([{ n: 0 }]); // refused ones leave the outbox
+    expect(outcome(await recommendForm({ connectionId: String(connectionId) }, cookie))).toBe('limit');
+    expect(to(side.log, '/federation/inbox')).toHaveLength(MAX_RECOMMENDATIONS_PER_DAY);
+  });
+
   it('refuses a household that isn’t an active connection', async () => {
     const waiting = await makePeer('Waiting');
     const w = await connectPeer(waiting, 'awaiting_them');
@@ -373,6 +385,20 @@ describe('a recommendation from a connection', () => {
     const [first] = await rows<{ id: number }>('SELECT id FROM recommendations WHERE connection_id = ?1 ORDER BY id LIMIT 1', connectionId);
     await a.postForm(`/recommendations/${first!.id}/dismiss`, {}, await sessionCookie('member'));
     expect((await inbox(peer, theirRecommendation(peer))).status).toBe(200);
+  });
+
+  it('refuses — never answers “already received” — a different one that loses the race for the last place', async () => {
+    for (let i = 0; i < MAX_OPEN_RECOMMENDATIONS_PER_CONNECTION - 1; i++) {
+      await env.DB.prepare(
+        `INSERT INTO recommendations (activity_id, connection_id, incoming, media_type, title, recommender, created_at)
+         VALUES (?1, ?2, 1, 'book', 't', 'A member', datetime('now', '-2 days'))`,
+      )
+        .bind(`urn:uuid:00000000-0000-4000-8000-${String(i).padStart(12, '0')}`, connectionId)
+        .run();
+    }
+    const answers = await Promise.all([inbox(peer, theirRecommendation(peer)), inbox(peer, theirRecommendation(peer, { id: 8 }))]);
+    expect(answers.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect(await rows('SELECT count(*) AS n FROM recommendations WHERE incoming = 1')).toEqual([{ n: MAX_OPEN_RECOMMENDATIONS_PER_CONNECTION }]);
   });
 
   it('is refused from a household that isn’t an active connection, before anything is written', async () => {
@@ -508,6 +534,46 @@ describe('the Recommended list', () => {
       before: claimRecommendation(env.DB, id, asha.id, null),
     });
     expect(await rows('SELECT item_id FROM wants')).toEqual([{ item_id: made }]);
+  });
+
+  it('never keeps a cover that isn’t a raster image, nor follows a redirect for one — and serves every cover sandboxed', async () => {
+    const id = await received();
+    const asha = await member('asha');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg"><script>alert(document.cookie)</script>${' '.repeat(600)}</svg>`;
+    const log = answerOutbound((req) => {
+      const url = new URL(req.url);
+      if (url.pathname === `/covers/${COVER_KEY}`) return new Response(svg, { headers: { 'content-type': 'image/svg+xml' } });
+      return json({}, 404);
+    });
+    await a.postForm(`/recommendations/${id}/want`, { libraryId: String(shelfId) }, asha.cookie);
+    expect(to(log, `/covers/${COVER_KEY}`)).toHaveLength(1);
+    expect(await rows('SELECT copies, cover_key FROM items WHERE title = ?1', 'The Left Hand of Darkness')).toEqual([{ copies: 0, cover_key: null }]);
+    expect((await env.COVERS.list()).objects).toHaveLength(0);
+
+    // a redirect from their /covers/ isn't followed: this Worker fetches nowhere they point it
+    const again = await received({ id: 9, title: 'Redirected' });
+    const followed: string[] = [];
+    answerOutbound((req) => {
+      const url = new URL(req.url);
+      if (url.pathname === `/covers/${COVER_KEY}`) return new Response(null, { status: 302, headers: { location: 'https://elsewhere.example/x.jpg' } });
+      followed.push(req.url);
+      return new Response(new Uint8Array(900), { headers: { 'content-type': 'image/jpeg' } });
+    });
+    await a.postForm(`/recommendations/${again}/want`, { libraryId: String(shelfId) }, asha.cookie);
+    expect(followed).toEqual([]);
+    expect(await rows('SELECT cover_key FROM items WHERE title = ?1', 'Redirected')).toEqual([{ cover_key: null }]);
+
+    // and whatever a cover is, it's served as an image and nothing more
+    await env.COVERS.put('11111111-2222-4333-8444-555555555555', svg, { httpMetadata: { contentType: 'image/svg+xml' } });
+    const res = await a.get('/covers/11111111-2222-4333-8444-555555555555');
+    expect(res.headers.get('content-security-policy')).toBe("default-src 'none'; style-src 'unsafe-inline'; sandbox");
+  });
+
+  it('says plainly that a wanted item shows on a shelf shared with them', async () => {
+    await received();
+    expect(await (await a.get('/recommendations', await sessionCookie('member'))).text()).toMatch(
+      /sent no reply either way — but an item on a shelf you share with them\s+shows there as any item does, Not owned and Wanted included\./,
+    );
   });
 
   it('asks for a shelf when there’s more than one, and won’t add without one', async () => {

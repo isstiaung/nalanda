@@ -20,6 +20,7 @@ import {
   recommendTargets,
   recommendToConnection,
   sentRecommendations,
+  recommendedToday,
   sentToday,
   wantedBefore,
   wantRecommendedAs,
@@ -29,7 +30,7 @@ import { createItemWithTags, existingForWant, getItem, getLibrary, listLibraries
 import type { FederationSettings, Item, RecommendationStatus } from '../db/schema';
 import type { AppEnv } from '../env';
 import { refreshInBackground } from '../federation/background';
-import { MAX_RECOMMEND_NOTE_CHARS, MAX_SENT_PER_DAY, RECOMMENDATIONS_SHOWN } from '../federation/config';
+import { MAX_RECOMMEND_NOTE_CHARS, MAX_RECOMMENDATIONS_PER_DAY, MAX_SENT_PER_DAY, RECOMMENDATIONS_SHOWN } from '../federation/config';
 import { fetchDescriptor, peerAccepts } from '../federation/http';
 import { coverUrl, itemStamp, toRecommendedItem } from '../federation/items';
 import { loadIdentity, type Identity } from '../federation/keys';
@@ -190,7 +191,10 @@ recommendations.post('/items/:id/recommend', async (c) => {
   if (note.length > MAX_RECOMMEND_NOTE_CHARS) return back('note', connection.id);
   const found = await recommendableItem(c.env.DB, item.id);
   if (!found) return back('unshared', connection.id);
+  // this household's own daily limits to them: every message, and recommendations however they fared — a refused one
+  // leaves the outbox, so the first alone would let a member try again and again against a household that refuses
   if ((await sentToday(c.env.DB, connection.id)) >= MAX_SENT_PER_DAY) return back('limit', connection.id);
+  if ((await recommendedToday(c.env.DB, connection.id)) >= MAX_RECOMMENDATIONS_PER_DAY) return back('limit', connection.id);
 
   const descriptor = await fetchDescriptor(connection.baseUrl);
   if (!descriptor) return back('unreachable', connection.id);
@@ -385,8 +389,8 @@ recommendations.get('/recommendations', async (c) => {
       </section>
       <p class="muted">
         Adding one puts it on your want list as a Not owned item — or, when it’s already in your catalog, puts that on your
-        want list. What you do with a recommendation stays here: the household that sent it isn’t told whether you added
-        it or dismissed it.
+        want list. The household that sent it is sent no reply either way — but an item on a shelf you share with them
+        shows there as any item does, Not owned and Wanted included.
       </p>
     </>,
   );
@@ -445,7 +449,7 @@ recommendations.post('/recommendations/:id/want', async (c) => {
   const connection = await getConnection(c.env.DB, rec.connectionId);
   if (!connection) return c.redirect('/recommendations?done=gone');
   // only ever <their origin>/covers/<uuid> (coverUrl), fetched and kept here as any added item's cover is
-  const coverKey = await storeCover(c.env.COVERS, coverUrl(connection.baseUrl, rec.coverKey));
+  const coverKey = await storeCover(c.env.COVERS, coverUrl(connection.baseUrl, rec.coverKey), { followRedirects: false });
   try {
     const itemId = await createItemWithTags(
       c.env.DB,
