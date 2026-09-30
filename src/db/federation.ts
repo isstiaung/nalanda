@@ -2,7 +2,7 @@
 // module so queries.ts stays untouched, while src/db/ remains the only code touching D1.
 import { and, asc, count, desc, eq, gt, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
-import { SQLiteAsyncDialect, type SQLiteColumn } from 'drizzle-orm/sqlite-core';
+import { SQLiteAsyncDialect } from 'drizzle-orm/sqlite-core';
 import { matchesStatus } from '../lib/reads';
 import { listItems, statusWhere, wantStatement } from './queries';
 import * as s from './schema';
@@ -316,15 +316,26 @@ function inView(view: ConnectionView): SQL | undefined {
 }
 
 /**
- * The entry kinds a view carries besides its items' own tests. A view filtered to In progress carries no finish, nor a
- * goal milestone, which is one (§16 #64): before a re-read counted as In progress, a finish always took its book out
- * of such a view, so none was ever served there. Now a book finished before is in the view while it's read again, and
- * without this its earlier finish — recorded while the book was outside, under an id past the follower's cursor —
- * would arrive as news the day the re-read started, and a new follower's first page would open on old finishes.
- * `kind` is the kind column of the stream asked about.
+ * What a view filtered to In progress carries of a book in it besides the item test (§16 #64): only reading still
+ * going on. Before a re-read counted as In progress, a book was in such a view only while nobody had finished it, so
+ * a finish took the book — and every entry about it — out. Now a book stays in while anyone is reading it, so the
+ * view keeps that rule per read instead of per book:
+ * - no finish, nor a goal milestone, which is one: a book finished before would otherwise bring its earlier finish —
+ *   recorded while it was outside, under an id past a follower's cursor — as news the day a re-read started;
+ * - a start or a page only while its read is open: once that reader finishes or stops, their start and pages are
+ *   withdrawn, as a first read's were when its finish took the book out, though someone else still reading keeps the
+ *   book in. A page with no read (from before reads, §16 #41) stays with its book.
+ * `stream` is which log is asked about: the household's `activity_log` or the per-person `member_activity`.
  */
-function kindsInView(view: ConnectionView, kind: SQL | SQLiteColumn): SQL | undefined {
-  return view.status === 'in_progress' ? sql`${kind} NOT IN ('finished', 'goal_halfway', 'goal_reached')` : undefined;
+function readingInView(view: ConnectionView, stream: 'household' | 'member'): SQL | undefined {
+  if (view.status !== 'in_progress') return undefined;
+  const log = stream === 'household' ? s.activityLog : s.memberActivity;
+  const closed = (readId: SQL) => sql`EXISTS (SELECT 1 FROM reads r WHERE r.id = ${readId} AND r.status <> 'in_progress')`;
+  const pageClosed = closed(sql`(SELECT p.read_id FROM reading_progress p WHERE p.id = ${log.progressId})`);
+  return sql`(${log.kind} NOT IN ('finished', 'goal_halfway', 'goal_reached')
+    AND NOT (${log.kind} = 'progress' AND ${pageClosed})${
+      stream === 'member' ? sql` AND NOT (${log.kind} = 'started' AND ${closed(sql`${s.memberActivity.readId}`)})` : sql``
+    })`;
 }
 
 /**
@@ -524,7 +535,7 @@ export async function activityInView(
     .from(s.activityLog)
     .innerJoin(s.items, eq(s.activityLog.itemId, s.items.id))
     .leftJoin(s.readingProgress, eq(s.activityLog.progressId, s.readingProgress.id))
-    .where(and(gt(s.activityLog.id, from), inView(view), kindsInView(view, s.activityLog.kind), stillShows))
+    .where(and(gt(s.activityLog.id, from), inView(view), readingInView(view, 'household'), stillShows))
     .orderBy(...(from === 0 ? [desc(s.activityLog.at), desc(s.activityLog.id)] : [asc(s.activityLog.id)]))
     .limit(limit);
   return { fromStart: from === 0, rows };
@@ -541,7 +552,7 @@ export async function stillShared(d1: D1Database, view: ConnectionView, ids: num
       and(
         sql`${s.activityLog.id} IN (SELECT value FROM json_each(${JSON.stringify(ids)}))`,
         inView(view),
-        kindsInView(view, s.activityLog.kind),
+        readingInView(view, 'household'),
         stillShows,
       ),
     );
@@ -593,7 +604,7 @@ const memberStillShows = (goals: boolean) => sql`(
  * view that can hold books (§16 #49): a goal is about a person, and a view of records only has no room for it.
  */
 function memberInView(view: ConnectionView): SQL {
-  const items = and(inView(view), kindsInView(view, s.memberActivity.kind));
+  const items = and(inView(view), readingInView(view, 'member'));
   const holdsBooks = view.mediaType === null || view.mediaType === 'book';
   return sql`((${s.memberActivity.itemId} IS NOT NULL${items ? sql` AND ${items}` : sql``})
     OR (${s.memberActivity.itemId} IS NULL AND ${sql.raw(holdsBooks ? '1' : '0')} = 1))`;
@@ -748,7 +759,7 @@ function volumeQuery(dbi: ReturnType<typeof db>, view: ConnectionView, days: num
     })
     .from(s.activityLog)
     .innerJoin(s.items, eq(s.activityLog.itemId, s.items.id))
-    .where(and(sql`${s.activityLog.at} > datetime('now', ${`-${days} days`})`, inView(view), kindsInView(view, s.activityLog.kind), stillShows));
+    .where(and(sql`${s.activityLog.at} > datetime('now', ${`-${days} days`})`, inView(view), readingInView(view, 'household'), stillShows));
 }
 
 // ---------- subscriptions: what this household follows (phase 2) ----------

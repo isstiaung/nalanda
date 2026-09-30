@@ -12,7 +12,19 @@ import {
   sharedReviewedItem,
   shelfPage,
 } from '../src/db/federation';
-import { addProgress, closeRead, countMatchingItems, createLibrary, createShare, getItem, listItems, startRead } from '../src/db/queries';
+import {
+  addProgress,
+  closeRead,
+  countMatchingItems,
+  createLibrary,
+  createShare,
+  getItem,
+  listItems,
+  setDisplayName,
+  setGoal,
+  startRead,
+  updateSiteSettings,
+} from '../src/db/queries';
 import { ITEM_STATUSES, type Item, type ItemStatus } from '../src/db/schema';
 import type { Bindings } from '../src/env';
 import { budgeted } from '../src/federation/budget';
@@ -326,6 +338,90 @@ describe('an In progress view’s feed while a book is read again', () => {
     expect(summary(fresh).filter((s) => s.endsWith('Again')).sort()).toEqual(['progress Again', 'rated Again']);
   });
 
+  for (const [target, kind] of [
+    [1, 'goal_reached'],
+    [2, 'goal_halfway'],
+  ] as const) {
+    it(`never carries a ${kind} whose book entered the view because someone else started it`, async () => {
+      await updateSiteSettings(env.DB, { namesToConnections: true, goalsToConnections: true });
+      const { asha, ravi, view, again, cursor } = await followed();
+      await setDisplayName(env.DB, asha.id, 'Asha');
+      await setGoal(env.DB, asha.id, new Date().getUTCFullYear(), target, actor(asha));
+      // naming Asha re-keys her entries (§16 #45), so her page comes again; the goal set is news in any view of books
+      const set = await pull(view.id, cursor);
+      expect(summary(set)).toEqual(['progress Reading now', 'goal_set']);
+
+      // Asha finishes X today, which crosses her goal's line: recorded, with X as its item, outside the view
+      const x = await book(asha, { libraryId: again.libraryId, title: 'X', status: 'completed', beganOn: today, completedOn: today });
+      expect(await rows('SELECT kind FROM member_activity WHERE item_id = ?1 ORDER BY id', x.id)).toEqual([{ kind: 'finished' }, { kind }]);
+      expect(summary(await pull(view.id, set.latest))).toEqual([]);
+
+      // Ravi's first read of it puts X in the view (someone finished it: Completed, re-reading)
+      await startRead(env.DB, x.id, today, ravi.id);
+      expect(await getItem(env.DB, x.id)).toMatchObject({ status: 'completed', rereading: true });
+      const started = await pull(view.id, set.latest);
+      expect(summary(started)).toEqual(['started X']);
+      expect(summary(await pull(view.id, 0)).filter((s) => s.startsWith('goal_') || s.endsWith(' X'))).toEqual(['started X', 'goal_set']);
+    });
+  }
+
+  /**
+   * The reviewer's two readers (§16 #64): X, finished by Asha in 2019, read again by her while Ravi reads it for the
+   * first time; both record pages; then Ravi finishes. X stays in the view — Asha is still reading — but Ravi's reading
+   * is over, so his start and pages go, as a first read's did when its finish took the book out.
+   */
+  async function twoReaders() {
+    const f = await followed();
+    const { asha, ravi, view, again: x } = f;
+    let cursor = f.cursor;
+    const step = async (act: () => Promise<unknown>) => {
+      await act();
+      const body = await pull(view.id, cursor);
+      cursor = body.latest;
+      return body.entries.map((e) => e.id);
+    };
+    const ids = {
+      herStart: await step(() => startRead(env.DB, x.id, today, asha.id)),
+      hisStart: await step(() => startRead(env.DB, x.id, today, ravi.id)),
+      herPage: await step(() => addProgress(env.DB, x.id, 50, asha.id)),
+      hisPage: await step(() => addProgress(env.DB, x.id, 60, ravi.id)),
+    };
+    const his = (await rows<{ id: number }>("SELECT id FROM reads WHERE item_id = ?1 AND reader_id = ?2 AND status = 'in_progress'", x.id, ravi.id))[0]!.id;
+    const finished = await step(() => closeRead(env.DB, x.id, his, 'completed', today, actor(ravi)));
+    return { ...f, x, ids, finished };
+  }
+
+  it('the per-person stream: when one of two readers finishes, their start and pages are withdrawn, and the other’s stay', async () => {
+    const { view, x, ids, finished, held } = await twoReaders(); // names on
+    expect(ids.herStart).toHaveLength(1);
+    expect(ids.hisStart).toHaveLength(1);
+    expect(ids.herPage).toHaveLength(1);
+    expect(ids.hisPage).toHaveLength(1);
+    expect(finished).toEqual([]); // his finish isn't news here
+    expect(await getItem(env.DB, x.id)).toMatchObject({ status: 'completed', rereading: true }); // still in the view
+
+    const all = [...held, ...ids.herStart, ...ids.hisStart, ...ids.herPage, ...ids.hisPage];
+    expect((await invalid(view.id, all)).sort()).toEqual([...ids.hisStart, ...ids.hisPage].sort());
+    // and a new follower never gets them
+    const fresh = await pull(view.id, 0);
+    expect(fresh.entries.filter((e) => e.item?.title === 'Again').map((e) => e.id).sort()).toEqual([...ids.herStart, ...ids.herPage].sort());
+  });
+
+  it('the household’s stream: when one of two readers finishes, their pages are withdrawn, and the other’s stay', async () => {
+    await upgradedSwitches(); // names off
+    const { view, x, ids, finished, held } = await twoReaders();
+    expect(ids.herStart).toEqual([]); // a start is per-person news only
+    expect(ids.hisStart).toEqual([]);
+    expect(ids.herPage).toHaveLength(1);
+    expect(ids.hisPage).toHaveLength(1);
+    expect(finished).toEqual([]);
+    expect(await getItem(env.DB, x.id)).toMatchObject({ status: 'completed', rereading: true });
+
+    expect(await invalid(view.id, [...held, ...ids.herPage, ...ids.hisPage])).toEqual(ids.hisPage);
+    const fresh = await pull(view.id, 0);
+    expect(fresh.entries.filter((e) => e.item?.title === 'Again').map((e) => e.id)).toEqual(ids.herPage);
+  });
+
   it('a Completed view is untouched: a re-read starting or finishing is what it was', async () => {
     await upgradedSwitches();
     const asha = await member('asha', 'admin');
@@ -366,5 +462,29 @@ describe('what the filter costs', () => {
     expect(byStatus.get('in_progress')).toBe(none);
     expect(byStatus.get('completed')).toBe(none);
     expect(await calls(asha, `/libraries/${shelf.id}?status=in_progress&status=completed`)).toBe(none);
+  });
+
+  it('costs a feed pull and a removal check what a Completed view’s do', async () => {
+    const keys = await makeKeys();
+    await setUpA();
+    const peer = await makePeer('Riverbank library');
+    await connectPeer(peer);
+    const { b } = await household();
+    await addProgress(env.DB, b.hisNow.id, 20, null);
+    const views = {
+      reading: await createConnectionView(env.DB, { name: 'Reading', libraryId: null, mediaType: 'book', status: 'in_progress', owned: null }),
+      read: await createConnectionView(env.DB, { name: 'Read', libraryId: null, mediaType: 'book', status: 'completed', owned: null }),
+    };
+    const cost = async (viewId: number) => {
+      const counter = { left: 1000 };
+      const a = instanceA({ ...env, DB: budgeted(env.DB, counter), FEDERATION_PRIVATE_KEY: keys.secret } as Bindings);
+      clearSharedViewsCache();
+      await a.signedGet(`/federation/feed?view=${viewId}&since=0`, peer); // the first request also looks the peer up
+      const before = counter.left;
+      expect((await a.signedGet(`/federation/feed?view=${viewId}&since=0`, peer)).status).toBe(200);
+      expect((await a.signedPost('/federation/feed/check', peer, { view: viewId, ids: [1, 2, 3] })).status).toBe(200);
+      return before - counter.left;
+    };
+    expect(await cost(views.reading.id)).toBe(await cost(views.read.id));
   });
 });
