@@ -8,19 +8,23 @@ import {
   closeRead,
   createItemWithTags,
   deleteItem,
+  deletePlay,
   deleteProgress,
   deleteRead,
   deleteReview,
   getItem,
   getLibrary,
+  getPlay,
   getProgressEntry,
   getRead,
   getReview,
   listLibraries,
   listPeople,
+  logPlay,
   moveRead,
   moveReview,
   pastLoansForItem,
+  playLog,
   readingLog,
   startRead,
   tagsForItem,
@@ -35,6 +39,7 @@ import {
 import type { AppEnv } from '../env';
 import { scanQueueOwner } from '../lib/auth';
 import { deleteCover, storeCover } from '../lib/covers';
+import { isPlayable, MAX_PLAYS_PER_ITEM, playDateProblem } from '../lib/plays';
 import { MAX_PROGRESS_PAGE } from '../lib/progress';
 import { isReadStatus, readDateProblem, summarizeReads, todayUtc, type ReadDraft } from '../lib/reads';
 import { reviewText } from '../lib/reviews';
@@ -51,6 +56,9 @@ import {
   ItemStatusPills,
   LendingHistory,
   MEDIA_LABEL,
+  AllPlays,
+  Pagination,
+  PlaysSection,
   ReadingSection,
   ReadsByPerson,
   ReviewAdded,
@@ -280,13 +288,14 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
   const viewer = viewerOf(c);
-  const [lib, tags, loans, people, log, lent] = await Promise.all([
+  const [lib, tags, loans, people, log, lent, plays] = await Promise.all([
     getLibrary(c.env.DB, item.libraryId),
     tagsForItem(c.env.DB, id),
     activeLoansForItem(c.env.DB, id),
     listPeople(c.env.DB),
     readingLog(c.env.DB, id),
     pastLoansForItem(c.env.DB, id),
+    playLog(c.env.DB, id),
   ]);
   const addedBy = item.addedBy ? (people.find((p) => p.id === item.addedBy) ?? null) : null;
   const grouped = showsPeople(people, viewer, log);
@@ -414,6 +423,11 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string) {
           </div>
         ) : null}
         {fromBgg(item) ? <BggAttribution /> : null}
+
+        {/* a game's or record's plays (§16 #54) — and any item's that has some, from before its type changed */}
+        {isPlayable(item.mediaType) || plays.count ? (
+          <PlaysSection item={item} count={plays.count} plays={plays.plays} today={todayUtc()} viewer={viewer} people={people} />
+        ) : null}
 
         {grouped ? (
           <>
@@ -805,6 +819,89 @@ items.post('/items/:id/reviews/:reviewId/move', async (c) => {
     return itemPage(c, id, `${to.username} has a review of this already: delete one of the two first, then move.`);
   }
   return c.redirect(`/items/${id}#reviews`);
+});
+
+// ---------- plays (ARCH.md §16 #54) ----------
+
+/**
+ * The Plays section after a change, for htmx; without it, back to the item page. As readingResponse: the change is
+ * already saved, so a failed read-back reloads the page rather than failing the request — a retry would log the play
+ * twice.
+ */
+async function playsResponse(c: Context<AppEnv>, id: number, error?: string) {
+  if (!c.req.header('HX-Request')) return c.redirect(`/items/${id}`);
+  let item: Item | null;
+  let plays: Awaited<ReturnType<typeof playLog>>;
+  let people: Person[];
+  try {
+    [item, plays, people] = await Promise.all([getItem(c.env.DB, id), playLog(c.env.DB, id), listPeople(c.env.DB)]);
+  } catch {
+    c.header('HX-Redirect', `/items/${id}`);
+    return c.body(null, 200);
+  }
+  if (!item) return c.notFound();
+  return c.html(<PlaysSection item={item} count={plays.count} plays={plays.plays} today={todayUtc()} viewer={viewerOf(c)} people={people} error={error} />);
+}
+
+/** "Played": a play of a board game or a record, today or on the date given, logged by the signed-in person. */
+items.post('/items/:id/plays', async (c) => {
+  const item = await getItem(c.env.DB, Number(c.req.param('id')));
+  if (!item) return c.notFound();
+  if (!isPlayable(item.mediaType)) return c.text('Plays are for board games and records. A book has reads.', 400);
+  const playedOn = formDate((await c.req.parseBody())['date']) ?? todayUtc();
+  const problem = playDateProblem(playedOn);
+  if (problem) return playsResponse(c, item.id, problem);
+  const logged = await logPlay(c.env.DB, item.id, playedOn, c.get('user').id);
+  return playsResponse(c, item.id, logged ? undefined : 'This has as many plays as it can hold.');
+});
+
+/** Every play of an item, a page at a time — where a play older than the item page lists can be removed. */
+const PLAYS_PAGE = 100;
+items.get('/items/:id/plays', async (c) => {
+  const item = await getItem(c.env.DB, Number(c.req.param('id')));
+  if (!item) return c.notFound();
+  // held to what an item can hold (MAX_PLAYS_PER_ITEM / PLAYS_PAGE pages): a huge ?page= would bind an offset SQLite refuses
+  const pageNum = Math.min(Math.max(1, Number.parseInt(c.req.query('page') ?? '1', 10) || 1), Math.ceil(MAX_PLAYS_PER_ITEM / PLAYS_PAGE) + 1);
+  const [plays, people] = await Promise.all([playLog(c.env.DB, item.id, PLAYS_PAGE, (pageNum - 1) * PLAYS_PAGE), listPeople(c.env.DB)]);
+  const pages = Math.max(1, Math.ceil(plays.count / PLAYS_PAGE));
+  return page(
+    c,
+    `Plays · ${item.title}`,
+    <>
+      <div class="page-head">
+        <div>
+          <h1>{item.mediaType === 'vinyl' ? 'Listening log' : 'Play log'}</h1>
+          <span class="sub">
+            <a href={`/items/${item.id}`}>{item.title}</a> · <span class="mono">{plays.count}</span> {plays.count === 1 ? 'play' : 'plays'}
+          </span>
+        </div>
+      </div>
+      {plays.plays.length ? (
+        <AllPlays item={item} plays={plays.plays} viewer={viewerOf(c)} people={people} page={pageNum} />
+      ) : (
+        <p class="muted">{plays.count ? 'No plays on this page.' : 'Not played yet.'}</p>
+      )}
+      <Pagination page={Math.min(pageNum, pages)} pages={pages} makeHref={(p) => `/items/${item.id}/plays?page=${p}`} />
+    </>,
+  );
+});
+
+/**
+ * Removes a play — one the signed-in person logged, or any for an admin. From the plays page (`back`), the form posts
+ * and returns there; from the item page, htmx swaps the section.
+ */
+items.post('/items/:id/plays/:playId/delete', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!(await getItem(c.env.DB, id))) return c.notFound();
+  const viewer = viewerOf(c);
+  const play = await getPlay(c.env.DB, id, Number(c.req.param('playId')));
+  if (play && !viewer.admin && play.loggedBy !== viewer.id) {
+    return c.text('That play was logged by someone else: only they or an admin can remove it.', 403);
+  }
+  if (play) await deletePlay(c.env.DB, id, play.id, viewer);
+  const back = c.req.query('back');
+  if (back && /^plays(\?page=\d{1,6})?$/.test(back)) return c.redirect(`/items/${id}/${back}`);
+  return playsResponse(c, id);
 });
 
 items.post('/items/:id/mark-owned', async (c) => {

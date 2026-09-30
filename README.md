@@ -38,6 +38,10 @@ manuscripts.
   connected households get a feed entry per person. "Read by" can't be published, and usernames
   never leave the app. Admins can move a read or review credited to the wrong person.
 - **Loans**: track who borrowed what, with due dates and history — each item's page lists who has had it before, and for how long.
+- **Play log for games, listening log for records**: press **Played** on a board game or a
+  record — today, or any day you pick — and its page keeps count ("Played 12 times · last on
+  14 Sep") with the recent dates. Plays are the household's, not a person's; share pages show
+  only the count, and connections see none of it.
 - **Connections between households** (optional): connect with another household that
   self-hosts Nalanda — follow each other's reading in a feed, comment on each other's
   reviews, and borrow each other's books with the loan tracked on both sides. One-to-one
@@ -62,7 +66,7 @@ manuscripts.
   reading, owned or not, whoever else has read it. **Another** draws a different one;
   **Start reading** starts your read and opens the book.
 - **Own your data**: every field round-trips through CSV export — each read with its reader,
-  each member's review, every loan — and plain-SQLite backups.
+  each member's review, every loan and every play — and plain-SQLite backups.
 - **The manuscript ledger**: a hand-written design system grounded in Nalanda's Pala-era
   scriptorium — palm-leaf paper, indigo and vermilion, Devanagari-first display type,
   a lamp-lit dark mode. No CSS framework.

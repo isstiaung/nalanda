@@ -78,7 +78,9 @@ shape from this file.
   `added_by`, usernames, reads or their dates, whose reads, or links into the authenticated
   app — and nothing per member unless names are switched on (next bullet). (The derived boolean
   `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge. So is
-  `readCount`, the household's finishes, only from two on — "Read N times", ARCH.md §16 #41.)
+  `readCount`, the household's finishes, only from two on — "Read N times", ARCH.md §16 #41 —
+  and, on a shared game's or record's page, `playCount`, the household's plays, never a play's
+  date or who logged it, §16 #54.)
   `rating` and `review` there are the household summary: the average of everyone's ratings
   and the review written last, with no author (§16 #43). Reading progress appears only when an
   admin turns on `site_settings.progress_on_shares` (off by default), and then only for a book
@@ -180,7 +182,9 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    code), reads.ts (each read: how reads decide status, the legacy mapping, the
                    export cell, Goodreads), reviews.ts (each member's review: the household
                    summary, the export's reviews cell), loans.ts (the export's loans cell),
-                   names.ts (display names, and names peers send)
+                   names.ts (display names, and names peers send), plays.ts (the household's play
+                   log for games and records: which types take plays, the export's plays cell —
+                   ARCH.md §16 #54)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments and borrowing (comments.ts,

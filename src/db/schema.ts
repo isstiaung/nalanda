@@ -344,6 +344,34 @@ export const readingProgress = sqliteTable(
   (t) => [index('idx_reading_progress_item').on(t.itemId, t.at), index('idx_reading_progress_read').on(t.readId)],
 );
 
+/**
+ * Each time the household played a board game or a record (ARCH.md §16 #54) — a play log for games, a listening log
+ * for records. A play is the household's, not a person's: nothing on `items` summarizes it and no status depends on
+ * it, so a play changes no item column and fires no activity trigger. `logged_by` is kept only for auditing and for
+ * who may remove it (whoever logged it, or an admin). Dated only, by the day: no players, scores or durations.
+ */
+export const plays = sqliteTable(
+  'plays',
+  {
+    // AUTOINCREMENT: a play's id is in its delete route, so it never names another play
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    playedOn: text('played_on').notNull(), // YYYY-MM-DD
+    // who pressed Played; NULL: a member removed since — the play stays, since it is the household's
+    loggedBy: integer('logged_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (t) => [
+    // an item's plays: its count, its last play and its recent ones (the item page), and last played per item
+    // ("what should we play tonight") — max(played_on) per item_id reads the index alone
+    index('idx_plays_item_played').on(t.itemId, t.playedOn),
+    // plays in a date range, across the catalogue ("year in review"): a range scan, grouped by item from the index
+    index('idx_plays_played_item').on(t.playedOn, t.itemId),
+  ],
+);
+
 export const ACTIVITY_KINDS = ['reviewed', 'rated', 'finished', 'progress', 'started'] as const; // 'started': per person only (§16 #45)
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
@@ -637,6 +665,7 @@ export type FeedSubscription = typeof feedSubscriptions.$inferSelect;
 export type ReadingProgress = typeof readingProgress.$inferSelect;
 export type Read = typeof reads.$inferSelect;
 export type Review = typeof reviews.$inferSelect;
+export type Play = typeof plays.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type RemoteActivity = typeof remoteActivities.$inferSelect;
 export type Comment = typeof comments.$inferSelect;

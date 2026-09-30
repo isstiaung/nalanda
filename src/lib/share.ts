@@ -1,5 +1,6 @@
 // The public-field whitelist for share pages. This is a whitelist on purpose:
 // new item columns stay private until explicitly added here (ARCH.md §9).
+import { isPlayable } from './plays';
 import { progressPercent } from './progress';
 import type { ItemFilters } from '../db/queries';
 import type { Item, MediaType, Share } from '../db/schema';
@@ -82,6 +83,10 @@ export type PublicItem = {
   // How many times it has been finished, only from twice on — a re-read says something about a book, where a
   // single read is what a finished book already means (§16 #41). Never the reads themselves, or their dates.
   readCount?: number;
+  // How many times the household has played a board game or a record (§16 #54), from the first play on — a count
+  // only, never a play's date or who logged it. Only when the caller passes the count in: share pages do, connections
+  // don't.
+  playCount?: number;
   // Only when the household has turned progress on for share pages, and only for a book in progress.
   progress?: { page: number; length: number | null; percent: number | null };
   // Only when an admin has switched names on for share pages (§16 #45): each member's rating and review, signed with
@@ -111,7 +116,7 @@ export function parseDetails(json: string | null | undefined): Record<string, un
  */
 export function toPublicItem(
   item: Item,
-  opts: { progress?: boolean; reviews?: Array<{ by: string | null; rating: number | null; review: string | null }> } = {},
+  opts: { progress?: boolean; reviews?: Array<{ by: string | null; rating: number | null; review: string | null }>; plays?: number } = {},
 ): PublicItem {
   const readingNow = item.status === 'in_progress' || item.rereading;
   const showProgress = opts.progress === true && item.mediaType === 'book' && readingNow && !!item.progressPage;
@@ -130,6 +135,8 @@ export function toPublicItem(
     inCollection: item.copies > 0,
     details: parseDetails(item.details),
     ...(item.readCount >= 2 ? { readCount: item.readCount } : {}),
+    // a game's or record's plays, counted; the key only when there are some, and never on a book, which has reads
+    ...(opts.plays !== undefined && opts.plays > 0 && isPlayable(item.mediaType) ? { playCount: opts.plays } : {}),
     ...(showProgress
       ? { progress: { page: item.progressPage!, length: item.length, percent: progressPercent(item.progressPage, item.length) } }
       : {}),

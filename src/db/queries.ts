@@ -18,6 +18,7 @@ import {
   type ReadRow,
 } from '../lib/reads';
 import { MAX_LOANS_PER_CELL, type LoanDraft } from '../lib/loans';
+import { MAX_PLAYS_PER_ITEM, PLAYABLE_TYPES, RECENT_PLAYS, type CellPlay, type PersonPlay } from '../lib/plays';
 import { reviewOrderSql, stampReviews, summarizeReviews, type PersonReview, type ReviewDraft } from '../lib/reviews';
 import * as s from './schema';
 import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Share, User } from './schema';
@@ -229,6 +230,8 @@ export async function deleteUser(d1: D1Database, id: number): Promise<void> {
     d1.prepare('UPDATE reading_progress SET added_by = NULL WHERE added_by = ?1').bind(id),
     d1.prepare('UPDATE reads SET reader_id = NULL WHERE reader_id = ?1').bind(id),
     d1.prepare('UPDATE reviews SET user_id = NULL WHERE user_id = ?1').bind(id),
+    // their plays are the household's and stay; only who logged them goes (its table would set null on its own too)
+    d1.prepare('UPDATE plays SET logged_by = NULL WHERE logged_by = ?1').bind(id),
     d1.prepare('DELETE FROM users WHERE id = ?1').bind(id),
   ]);
 }
@@ -1873,6 +1876,121 @@ export async function progressForIdRange(
   return result;
 }
 
+// ---------- plays (ARCH.md §16 #54) ----------
+//
+// The household's play log for board games and records. A play is one row and nothing depends on it: no item column
+// summarizes plays and no trigger watches them, so a play is its own one-statement write — no refresh rides with it,
+// and it never reaches connections. `logged_by` decides who may remove a play: whoever logged it, or an admin.
+
+export type PlayEntry = { id: number; playedOn: string; loggedBy: number | null };
+
+/** The SQL list of the media types that take plays, for a statement that checks it itself. */
+const PLAYABLE_SQL = PLAYABLE_TYPES.map((t) => `'${t}'`).join(', ');
+
+/**
+ * An item's plays, newest first — `limit` of them from `offset` — and how many it has in all, in one D1 call: the count
+ * rides on every row, so no plays at all is simply no rows and a count of 0. The item page asks for the first few; its
+ * plays page for a page at a time.
+ */
+export async function playLog(d1: D1Database, itemId: number, limit = RECENT_PLAYS, offset = 0): Promise<{ count: number; plays: PlayEntry[] }> {
+  const { results } = await d1
+    .prepare(
+      `SELECT id, played_on AS playedOn, logged_by AS loggedBy, (SELECT count(*) FROM plays WHERE item_id = ?1) AS total
+       FROM plays WHERE item_id = ?1 ORDER BY played_on DESC, id DESC LIMIT ?2 OFFSET ?3`,
+    )
+    .bind(itemId, limit, offset)
+    .all<PlayEntry & { total: number }>();
+  // an offset past the end has no rows to carry the count: ask once more, rather than call a page of nothing "0 plays"
+  const count = results[0]?.total ?? (offset > 0 ? await playCount(d1, itemId) : 0);
+  return { count, plays: results.map(({ id, playedOn, loggedBy }) => ({ id, playedOn, loggedBy })) };
+}
+
+/** How many times the household has played an item — all a share page may say of its plays (§9). */
+export async function playCount(d1: D1Database, itemId: number): Promise<number> {
+  const row = await d1.prepare('SELECT count(*) AS n FROM plays WHERE item_id = ?1').bind(itemId).first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/**
+ * Logs a play of a board game or a record on `playedOn`, by `loggedBy`. The statement checks for itself that the item
+ * takes plays and has room for one more, so a hand-made request for a book logs nothing. True when a play was logged.
+ */
+export async function logPlay(d1: D1Database, itemId: number, playedOn: string, loggedBy: number): Promise<boolean> {
+  const res = await d1
+    .prepare(
+      `INSERT INTO plays (item_id, played_on, logged_by)
+       SELECT ?1, ?2, ?3
+       WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1 AND media_type IN (${PLAYABLE_SQL}))
+         AND (SELECT count(*) FROM plays WHERE item_id = ?1) < ${MAX_PLAYS_PER_ITEM}`,
+    )
+    .bind(itemId, playedOn, loggedBy)
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+/** One play of an item, or null — what a route checks the actor against before it says why a removal was refused. */
+export async function getPlay(d1: D1Database, itemId: number, playId: number): Promise<PlayEntry | null> {
+  return d1
+    .prepare('SELECT id, played_on AS playedOn, logged_by AS loggedBy FROM plays WHERE id = ?1 AND item_id = ?2')
+    .bind(playId, itemId)
+    .first<PlayEntry>();
+}
+
+/** Removes a play — one the actor logged, or any for an admin. A play whose logger was removed since is an admin's to remove. */
+export async function deletePlay(d1: D1Database, itemId: number, playId: number, by: Actor): Promise<boolean> {
+  const res = await d1
+    .prepare(`DELETE FROM plays WHERE id = ?1 AND item_id = ?2 AND ${allowed('logged_by', '?3', '?4')}`)
+    .bind(playId, itemId, ...actorBinds(by))
+    .run();
+  return (res.meta.changes ?? 0) > 0;
+}
+
+/** Plays for every item whose id lies in [fromId, toId], oldest first, with who logged each by username — as readsForIdRange. */
+export async function playsForIdRange(
+  d1: D1Database,
+  fromId: number,
+  toId: number,
+  libraryId?: number,
+): Promise<Map<number, CellPlay[]>> {
+  const scoped = libraryId ? 'AND p.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : '';
+  const stmt = d1.prepare(
+    `SELECT p.item_id AS itemId, p.played_on AS playedOn, u.username AS by
+     FROM plays p LEFT JOIN users u ON u.id = p.logged_by
+     WHERE p.item_id BETWEEN ?1 AND ?2 ${scoped}
+     ORDER BY p.item_id, p.played_on, p.id`,
+  );
+  const rows = (
+    await (libraryId ? stmt.bind(fromId, toId, libraryId) : stmt.bind(fromId, toId)).all<{ itemId: number; playedOn: string; by: string | null }>()
+  ).results;
+  const result = new Map<number, CellPlay[]>();
+  for (const { itemId, playedOn, by } of rows) {
+    const list = result.get(itemId) ?? [];
+    list.push({ playedOn, by });
+    result.set(itemId, list);
+  }
+  return result;
+}
+
+/**
+ * Inserts `plays` for an item inserted earlier in the same batch, in list order. A play that names nobody is
+ * `person`'s — whoever imports it.
+ */
+function playInsertStatements(d1: D1Database, plays: PersonPlay[], person: number | null): D1PreparedStatement[] {
+  if (!plays.length) return [];
+  const json = JSON.stringify(
+    plays.slice(0, MAX_PLAYS_PER_ITEM).map((p) => ({ on: p.playedOn, by: p.loggedBy === undefined ? person : p.loggedBy })),
+  );
+  return [
+    d1
+      .prepare(
+        `INSERT INTO plays (item_id, played_on, logged_by)
+         SELECT (SELECT max(id) FROM items), json_extract(value, '$.on'), json_extract(value, '$.by')
+         FROM json_each(?1) ORDER BY key`,
+      )
+      .bind(json),
+  ];
+}
+
 // ---------- cover backfill ----------
 
 // Anything short of a cover or a description qualifies: the barcode pass needs an ISBN/UPC, but the
@@ -1955,14 +2073,17 @@ export type ImportRow = {
   reads?: PersonRead[];
   reviews?: PersonReview[];
   loans?: LoanDraft[];
+  // a Nalanda export's `plays` (§16 #54); any other file brings none
+  plays?: PersonPlay[];
   goodreads?: GoodreadsReading;
 };
 
 /**
  * Batched insert used by /api/import. One network round trip per batch of rows: each item goes in with the
  * reading state its reads decide and the rating and review its reviews decide, so the insert trigger dates it
- * right, then its reads and reviews, then the refreshes that fill in what only they know, then its loans. Loans go
- * only onto the item their row makes, never onto one already here.
+ * right, then its reads and reviews, then the refreshes that fill in what only they know, then its loans and its
+ * plays, which nothing on the item depends on (§16 #54). Loans go only onto the item their row makes, never onto one
+ * already here.
  */
 export async function importItems(d1: D1Database, rows: ImportRow[]): Promise<number> {
   if (!rows.length) return 0;
@@ -1981,6 +2102,7 @@ export async function importItems(d1: D1Database, rows: ImportRow[]): Promise<nu
       ...reviewInsertStatements(d1, 'newest', reviews, person),
       refreshReviewState(d1, 'newest'),
       ...loanInsertStatements(d1, r.loans ?? []),
+      ...playInsertStatements(d1, r.plays ?? [], person),
     );
   }
   const results = await d1.batch(asImport(d1, writes));

@@ -11,6 +11,7 @@ import {
   mergeImportItems,
   nextBackfillable,
   pageItems,
+  playsForIdRange,
   progressForIdRange,
   readsForIdRange,
   reviewsForIdRange,
@@ -193,8 +194,8 @@ importexport.post('/api/import', async (c) => {
   const members = new Map(people.map((p) => [p.username, p.id]));
   const tally: PeopleTally = new Map();
   const withOwners = mapped.map((m) => {
-    const { reads, reviews } = attributePeople(m, members, user.id, tally, keepNames);
-    return { ...m, reads, reviews, item: { ...m.item, libraryId, addedBy: user.id } };
+    const { reads, reviews, plays } = attributePeople(m, members, user.id, tally, keepNames);
+    return { ...m, reads, reviews, plays, item: { ...m.item, libraryId, addedBy: user.id } };
   });
 
   if (body.dryRun) {
@@ -331,9 +332,10 @@ export const EXPORT_PAGE = 250;
 export const EXPORT_LOANS = 1000;
 
 /**
- * Items after `afterId` as CSV lines, with their tags, reads, reviews, loans and reading logs: six queries. With
+ * Items after `afterId` as CSV lines, with their tags, reads, reviews, loans, reading logs and plays: seven
+ * queries. With
  * `loanLimit`, a page ends before it would carry more loans than that, and an item with more of its own goes out
- * alone, for a seventh query. `more` says another page may follow.
+ * alone, for an eighth query. `more` says another page may follow.
  */
 async function exportRows(
   d1: D1Database,
@@ -347,12 +349,13 @@ async function exportRows(
   if (!items.length) return { csv: '', count: 0, lastId: afterId, more: false };
   let more = items.length === limit;
   const [from, to] = [items[0]!.id, items.at(-1)!.id];
-  const [tagMap, progressMap, readMap, reviewMap, loansRead] = await Promise.all([
+  const [tagMap, progressMap, readMap, reviewMap, loansRead, playMap] = await Promise.all([
     tagsForIdRange(d1, from, to, scope),
     progressForIdRange(d1, from, to, scope),
     readsForIdRange(d1, from, to, scope),
     reviewsForIdRange(d1, from, to, scope),
     loansForIdRange(d1, from, to, scope, loanLimit === undefined ? undefined : loanLimit + 1),
+    playsForIdRange(d1, from, to, scope),
   ]);
   let loanMap = loansRead.loans;
   if (loansRead.cutAt !== null) {
@@ -377,6 +380,7 @@ async function exportRows(
       readMap.get(item.id) ?? [],
       reviewMap.get(item.id) ?? [],
       loanMap.get(item.id) ?? [],
+      playMap.get(item.id) ?? [],
     );
   }
   return { csv, count: items.length, lastId: items.at(-1)!.id, more };
@@ -414,7 +418,7 @@ importexport.get('/export.csv', async (c) => {
   // Without a cursor, the whole export in one streamed response: what the link does without JavaScript, and
   // what a script fetching /export.csv gets. Its CPU grows with the catalog, so a large one can be cut off by
   // the free plan's 10 ms limit, and the download fails rather than completing. Six queries a page
-  // (items, tags, reads, reviews, loans, reading progress) against the 50 budgeted per invocation. One page per pull, so a slow
+  // (items, tags, reads, reviews, loans, reading progress, plays) against the 50 budgeted per invocation. One page per pull, so a slow
   // download holds one page in memory rather than all of them. The response is already a 200 by the time a
   // page is read, so a failure must error the stream — ending it normally hands over a file that just stops,
   // with nothing to say it is incomplete.

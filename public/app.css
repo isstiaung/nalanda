@@ -947,3 +947,17 @@ button.bulk-clear { height: 24px; padding: 0 0.45rem; font-weight: 400; }
   .bulk-controls select[name='action'] { flex: 1 1 9rem; min-width: 0; }
   .bulk-controls .bulk-tag, .bulk-controls .bulk-shelf { order: 1; flex: 1 1 100%; width: auto; min-width: 0; }
 }
+
+/* ── the play log (ARCH.md §16 #54) ──────────────────────────────────────────
+   A board game's plays or a record's listens: the household's count, the Played
+   button with the day it logs, and the recent dates as a ruled ledger column —
+   mono, like every date. Indigo stays the working accent (the button); nothing here
+   is circulation or danger, so no vermilion but Remove's hover, as on a page. */
+.play-form { margin: 0.35rem 0 0; }
+.play-form label { gap: 0.4rem; }
+.play-form input[type="date"] { font-size: 12px; }
+.play-log { list-style: none; margin: 0.7rem 0 0; padding: 0.4rem 0 0; display: grid; gap: 0.25rem; font-size: 13px; border-top: 1px solid var(--line); }
+.play-log li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.8rem; min-width: 0; }
+.play-log li > time { min-width: 6.5rem; font-size: 12px; }
+.play-by { font-size: 12px; overflow-wrap: anywhere; }
+.play-more { margin: 0.5rem 0 0; font-size: 12.5px; }

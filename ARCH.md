@@ -168,6 +168,16 @@ CREATE TABLE reviews (           -- each member's rating and review (§16 #43)
 );
 CREATE UNIQUE INDEX reviews_item_user ON reviews(item_id, user_id);
 
+CREATE TABLE plays (             -- each time the household played a game or a record (§16 #54)
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  item_id    INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+  played_on  TEXT NOT NULL,     -- YYYY-MM-DD: a day, nothing more — no players, scores or durations
+  logged_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,  -- who pressed Played: for auditing and removal only
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_plays_item_played ON plays(item_id, played_on);   -- an item's count, last and recent plays
+CREATE INDEX idx_plays_played_item ON plays(played_on, item_id);   -- plays in a date range, by item
+
 CREATE TABLE tags (
   id   INTEGER PRIMARY KEY,
   name TEXT NOT NULL UNIQUE COLLATE NOCASE
@@ -222,6 +232,10 @@ neighbours are the **household's summary** of them — Completed once anyone has
 the average rating, the review written last — recomputed in the same batch as every write
 (§16 #41, #43), so shelves, filters, share pages, connections and the export read one value
 per item as they always have.
+
+Board games and records also have a **play log** (§16 #54): `plays`, one row per time the
+household played one, dated by the day. It is the household's, not anyone's, and nothing on
+`items` summarizes it — no status, date or count depends on a play.
 
 Sessions are **not** in the database: a signed (HMAC, WebCrypto) cookie carries
 `{userId, expiry}`, verified per request against `SESSION_SECRET`, plus a cheap
@@ -383,10 +397,13 @@ portable, and makes share routes trivially public. CF Access remains available l
   publisher/label, published date, description, media details, tags, rating, review, and
   a derived boolean `inCollection` (`copies > 0`) so reading-log entries (`copies = 0`)
   carry a "Not owned" badge (§16 #13), and `readCount` — how many times the household
-  finished it, only from twice on ("Read N times"), never the reads or their dates (§16 #41).
+  finished it, only from twice on ("Read N times"), never the reads or their dates (§16 #41),
+  and, on a shared board game's or record's own page, `playCount` — how many times the
+  household played it, from the first play on ("Played N times"), never a play's date or who
+  logged it (§16 #54). Listing cards don't carry it.
   The rating is the household's average and the review the one written last, with no author
   (§16 #43). **Never**: private notes, loans/borrowers, the copies count, added_by, usernames,
-  the dates of anyone's reads, or any nav into the authenticated app — and nothing per member
+  the dates of anyone's reads or plays, or any nav into the authenticated app — and nothing per member
   unless an admin switches names on (below). The whitelist lives in one view module so it
   can't drift.
 - **Names are the household's choice, off by default** (§16 #45). `site_settings.names_on_shares`
@@ -442,6 +459,9 @@ POST /items/:id/reads/start    open a read ("Read again") · POST /items/:id/rea
 POST /items/:id/reads/:read    correct · …/finish · …/stop · …/delete   (books; §16 #41)
                                · …/move (admins: to another member, with its pages; §16 #43)
 POST /items/:id/reviews/:rev   edit · …/delete · …/move (admins)   — own review, or any for an admin
+POST /items/:id/plays          "Played": a play today or on the date given (games, records; §16 #54)
+GET  /items/:id/plays          every play, 100 a page · POST /items/:id/plays/:play/delete (its
+                               logger, or an admin; ?back=plays returns to that page)
 GET  /add                      add flow: scan | search | manual
 GET  /add/review               ?barcode=…&scanned=… — one scan held offline, looked up (partial; §16 #48)
 GET  /api/lookup               ?barcode=… | ?q=…&type=boardgame → JSON candidates
@@ -515,7 +535,8 @@ Every authenticated page route returns a full document normally and a partial wh
 │   │                                 # musicbrainz.ts
 │   ├── federation/                   # connections between instances (§16 #29)
 │   └── lib/                          # auth.ts (pbkdf2, cookie), share.ts (public-field
-│                                     # whitelist), csv.ts, covers.ts, reads.ts, reviews.ts
+│                                     # whitelist), csv.ts, covers.ts, reads.ts, reviews.ts,
+│                                     # plays.ts
 ├── public/                           # app.css, app.js, scanner.js, import.js, covers.js;
 │                                     # manifest, icons/, sw.js, offline.html, scan-queue.js,
 │                                     # scan-review.js (the installed app, §16 #48);
@@ -1553,6 +1574,77 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     offline page refuses to hold scans when nobody is signed in on the device; "add all" skips
     entries with no match; `/offline.html` rather than `/offline`. The §14 non-goal "offline sync"
     stands: nothing is synced — the phone holds barcodes until a person reviews them.
+
+**2026-09-30 — the play log:**
+54. **Board games and records get a play log: each play a dated row, the household's, beside —
+    not inside — their reads.** A game's shelf life is how often it comes out; a record's, how often
+    it goes on. A read (#41) says someone started and finished something, which fits a book and
+    barely fits a game. The owner decided the shape: a **Played** button on a board game's and a
+    record's page records a play dated today, with a date field beside it to pick another day; the
+    page says "Played 12 times · last on 14 Sep" over the five most recent dates, and **All N plays**
+    lists every one, a hundred a page under a heading per year. **A play is the household's**: no
+    players, winners, scores or durations — a count, and the days. `logged_by` keeps who pressed the
+    button, for auditing and for who may **remove** a play: whoever logged it, or an admin — checked in
+    the route (403 with a reason) and again in the DELETE (`allowed()`, as #43's writes are). Only
+    admins see who logged each, and only once the household has more than one member. Not for books:
+    books have reads. The route and the INSERT both refuse any type but `boardgame` and `vinyl`
+    (`PLAYABLE_TYPES` in `src/lib/plays.ts`).
+
+    The design questions, answered:
+    - **Plays and reads stay apart, and nothing about reads or status changes.** Records and games
+      keep the per-member reads the edit form has always kept (#43), and the Reading list their page
+      shows in a household of more than one. `plays` is a new table, and nothing on `items`
+      summarizes it — no `play_count` column, unlike `read_count`. So a play writes no item column,
+      moves no `updated_at`, and fires no trigger: no status filter, share view, connection view or
+      activity log can see it. The page counts plays with one indexed statement instead, which the
+      budget affords (below). A play is one INSERT with nothing depending on it, so #39's "a write
+      and its dependents in one batch" is met by the statement alone.
+    - **Share pages say how many, never when.** A shared game's or record's own page shows
+      "Played N times" from the first play (`playCount`, through `toPublicItem(item, { plays })`),
+      always on, like `readCount` — the count is catalogue-level, harmless, and says something about
+      the object. Never a date, the last play, or who logged one (§9). The count is looked up for
+      every id the item route is asked, in the same `Promise.all` as the item, so a hit still costs
+      what a miss does (a test holds a shared game's hit to a miss's D1 calls). Listing cards don't carry it: a
+      page of cards would need an aggregate query for a glance's worth of information.
+    - **Plays don't go to connections — not in this change.** `toConnectionItem()` calls
+      `toPublicItem()` without a count, so no `playCount` key; no feed kind, no trigger. If they go
+      later, they must follow #45 — resolved at serve time, household entries with no `by` unless
+      names are on — and a new feed kind is skipped by older peers (#35), which keep the page.
+    - **Later work reads the table by its indexes.** `idx_plays_item_played (item_id, played_on)`
+      serves an item's count, last and recent plays and "last played" per item (`max(played_on)`
+      per group, from the index — "what should we play tonight"); `idx_plays_played_item
+      (played_on, item_id)` serves plays in a date range grouped by item ("year in review"). A test
+      reads the query plans for both.
+
+    **Portability.** The export gains a `plays` column: the dates, oldest first, each with who logged
+    it as the reads cell names readers — `2025-09-14@asha;2025-09-20@` (percent-encoded; an empty
+    name a former member; no `@` the importer's). An admin's import gives each play back to the
+    member of that name, or to the importer; a member's import is all theirs, as #43 does for reads.
+    An export from before plays has no such column, and its games and records arrive unplayed; a
+    date that isn't one, or is in the future, is dropped from a cell and the rest kept. A libib file
+    that happens to carry a `plays` column keeps it out of `details`, which share pages show. Plays
+    aren't in the import preview's per-name tally: who pressed Played isn't anyone's history.
+    **Deleting** an item or its shelf deletes its plays (ON DELETE CASCADE); **removing a member**
+    keeps the plays they logged, unattributed (`ON DELETE SET NULL`, and `deleteUser()` clears it in
+    its batch too, as it does `reviews.user_id`); only an admin can then remove one. At most 5,000
+    plays an item (a game a day for thirteen years), in the app and in an import, so no page or
+    export cell grows without bound. `scripts/backup.mjs` backs the table up after `reviews`.
+
+    **Migration 0030** (generated, one CREATE TABLE and two indexes; it was 0028 until 1.4.0's
+    session-key migrations took 0028–0029, and was regenerated unchanged) touches nothing else.
+    Rehearsed on a local copy of production's backup of 2026-09-29: 0000–0027, the per-table restore
+    in `TABLES` order, then this migration — all 34 pre-existing tables (FTS shadow tables included) identical in row counts and row
+    hashes, all 85 pre-existing schema objects unchanged, `plays` empty, no foreign-key violations,
+    integrity ok. D1 (budget 50, #37): a game's page is 11 calls (with lending history's), one more than
+    without plays, however many plays; a shared item page 5, the same for a hit and a miss; an export page 10 once loans (#57) sit beside plays.
+
+    **Chosen without asking, overrulable:** only board games and records (not `music`, `movie` or
+    `videogame`) — one constant; the date defaults to the server's UTC day and may be tomorrow, as a
+    read's may; "last on" and the list read "14 Sep", with the year only outside the current one;
+    five recent plays on the page; an item whose type changed away keeps its list (to see and remove)
+    but loses the button; the share count shows from one play, where `readCount` waits for two — a
+    single read is what "Completed" already says, and nothing else says a game was played once;
+    the logger is shown to admins only; the 5,000 cap; plays aren't in the import preview's tally.
 
 **2026-09-30 — session identity:**
 56. **A session names an account by its id and a random key, because ids are reused.** `users.id`
