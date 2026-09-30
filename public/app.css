@@ -45,6 +45,9 @@
   --stamp: #b93a1c;
   --stamp-tint: rgba(185, 58, 28, 0.08);
   --shadow: 0 1px 2px rgba(34, 29, 20, 0.06), 0 4px 16px rgba(34, 29, 20, 0.05);
+  /* every dropdown's arrow — a <select>'s and a filter menu's alike: a chevron stroked in --ink-2. A data URI can't
+     read a custom property, so the colour is written out here and again for dark. */
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235d564a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
   /* type */
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
@@ -76,6 +79,7 @@
     --stamp: #e06a45;
     --stamp-tint: rgba(224, 106, 69, 0.12);
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.35);
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23ab9f88' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
 }
 
@@ -330,6 +334,21 @@ input, select, textarea {
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 textarea { height: auto; padding: 0.5rem 0.6rem; line-height: 1.5; resize: vertical; }
+/* One arrow for every dropdown (the browser's own sits hard against the right edge, far from the text): the
+   --chevron, 0.6rem in from the edge, with the same 0.4rem to the text that a filter menu's summary keeps. */
+select:not([multiple]) {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: calc(1rem + 10px);
+  background-image: var(--chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 10px 6px;
+  text-overflow: ellipsis;
+  /* where a select isn't given a width (filter bars, inline forms), it is as wide as the choice showing, not the
+     longest option; a form's full-width select keeps its width. Browsers without it size to the longest option. */
+  field-sizing: content;
+}
 input::placeholder, textarea::placeholder { color: var(--ink-3); }
 input:focus, select:focus, textarea:focus {
   outline: none;
@@ -555,7 +574,9 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   border-radius: var(--radius-sm);
 }
 .toolbar .filter summary::-webkit-details-marker { display: none; }
-.toolbar .filter summary::after { content: '▾'; font-size: 9px; color: var(--ink-3); }
+/* the same chevron, gap and right padding as a <select> beside it; it turns over while the menu is open */
+.toolbar .filter summary::after { content: ''; flex: none; width: 10px; height: 6px; background: var(--chevron) no-repeat center / 10px 6px; transition: transform 120ms ease; }
+.toolbar .filter[open] summary::after { transform: rotate(180deg); }
 .toolbar .filter[open] summary { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
 .filter-count {
   font-family: var(--mono);
@@ -1332,6 +1353,8 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
   border-right: none;
   border-radius: var(--radius-sm) 0 0 var(--radius-sm);
 }
+/* the shared rule's background shorthand clears the chevron: put it back */
+.money-input select { padding-right: calc(1rem + 10px); background: var(--chevron) no-repeat right 0.6rem center / 10px 6px, var(--surface-2); }
 .money-input input[aria-invalid='true'] { border-color: var(--stamp); }
 .money-field .form-note { margin: 0.35rem 0 0; }
 .field-error { color: var(--stamp); font-size: 12.5px; margin: 0.35rem 0 0; }
