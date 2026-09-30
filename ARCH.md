@@ -672,7 +672,7 @@ Every authenticated page route returns a full document normally and a partial wh
 
 ### Dev workflow & first deploy
 
-- **Prereqs**: Node 22+ (the locked wrangler requires it; CI runs 22) and a Cloudflare
+- **Prereqs**: Node 22+ (the locked wrangler requires it; CI runs 24, whose npm 11 matches the lockfile) and a Cloudflare
   account. `npm install` brings wrangler, hono, drizzle, vitest; a `postinstall` script
   (`scripts/vendor.mjs`) copies the vendored assets (htmx, ZXing-WASM, the Eczar fonts)
   from `node_modules` into `public/vendor/` so versions stay pinned in `package.json`.
