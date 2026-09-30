@@ -7,6 +7,7 @@ import {
   importItems,
   listLibraries,
   listPeople,
+  loansForIdRange,
   mergeImportItems,
   nextBackfillable,
   pageItems,
@@ -63,7 +64,8 @@ importexport.get('/import', async (c) => {
         already on your shelves (by ISBN, then title + author) merge their rating, review, shelves,
         and read date onto it — Goodreads wins. The rest are added as “Not owned” reading-log
         entries. Reads, ratings and reviews a file brings are yours, the signed-in member's; a
-        Nalanda export keeps each one with the member of the same name here.
+        Nalanda export keeps each one with the member of the same name here, and brings back every
+        loan, open and returned.
       </p>
       <form id="import-form" onsubmit="return false" class="panel form-card">
         <label>
@@ -209,6 +211,9 @@ importexport.post('/api/import', async (c) => {
       fresh: match?.inserted ?? 0,
       // a libib row carries no reads of its own: the tally counted what importItems will derive from its status and dates
       reads: match?.reads ?? [...tally.values()].reduce((n, t) => n + t.reads, 0),
+      // a Nalanda export's loans, and how many of them are still out (§16 #57)
+      loans: mapped.reduce((n, m) => n + (m.loans?.length ?? 0), 0),
+      loansOut: mapped.reduce((n, m) => n + (m.loans?.filter((l) => l.returnedOn === null).length ?? 0), 0),
       // A household of one importing its own file has nobody to tell apart: the preview says nothing new then.
       ...(people.length > 1 || [...tally.keys()].some((name) => name !== undefined && name !== user.username)
         ? { importer: user.username, keepsNames: keepNames }
@@ -317,23 +322,51 @@ importexport.post('/api/backfill-covers', async (c) => {
  */
 export const EXPORT_PAGE = 250;
 
-/** Items after `afterId` as CSV lines, with their tags, reads, reviews and reading logs: five queries. */
+/**
+ * Loans a page carries at most, beside its items (§16 #57). Writing a loan costs about as much as the rest of an
+ * item's row; 250 items with twenty loans each, their text all to be encoded, measured 5–6 ms warm and 8 ms cold
+ * where the page alone took under 1. A page that would pass this ends at the last item whose loans all fit, and the
+ * next page starts after it.
+ */
+export const EXPORT_LOANS = 1000;
+
+/**
+ * Items after `afterId` as CSV lines, with their tags, reads, reviews, loans and reading logs: six queries. With
+ * `loanLimit`, a page ends before it would carry more loans than that, and an item with more of its own goes out
+ * alone, for a seventh query. `more` says another page may follow.
+ */
 async function exportRows(
   d1: D1Database,
   scope: number | undefined,
   afterId: number,
   limit: number,
   libNames: Map<number, string>,
-): Promise<{ csv: string; count: number; lastId: number }> {
-  const items = await pageItems(d1, { libraryId: scope, afterId, limit });
-  if (!items.length) return { csv: '', count: 0, lastId: afterId };
+  loanLimit?: number,
+): Promise<{ csv: string; count: number; lastId: number; more: boolean }> {
+  let items = await pageItems(d1, { libraryId: scope, afterId, limit });
+  if (!items.length) return { csv: '', count: 0, lastId: afterId, more: false };
+  let more = items.length === limit;
   const [from, to] = [items[0]!.id, items.at(-1)!.id];
-  const [tagMap, progressMap, readMap, reviewMap] = await Promise.all([
+  const [tagMap, progressMap, readMap, reviewMap, loansRead] = await Promise.all([
     tagsForIdRange(d1, from, to, scope),
     progressForIdRange(d1, from, to, scope),
     readsForIdRange(d1, from, to, scope),
     reviewsForIdRange(d1, from, to, scope),
+    loansForIdRange(d1, from, to, scope, loanLimit === undefined ? undefined : loanLimit + 1),
   ]);
+  let loanMap = loansRead.loans;
+  if (loansRead.cutAt !== null) {
+    // more loans than a page carries: the item they stopped at may be missing some, so the page ends before it
+    const cutAt = loansRead.cutAt;
+    const first = items[0]!;
+    items = items.filter((item) => item.id < cutAt);
+    if (!items.length) {
+      // that item alone has more than a page's worth: it goes out alone, with every loan
+      items = [first];
+      loanMap = (await loansForIdRange(d1, first.id, first.id, scope)).loans;
+    }
+    more = true;
+  }
   let csv = '';
   for (const item of items) {
     csv += itemToCsvLine(
@@ -343,9 +376,10 @@ async function exportRows(
       progressMap.get(item.id) ?? [],
       readMap.get(item.id) ?? [],
       reviewMap.get(item.id) ?? [],
+      loanMap.get(item.id) ?? [],
     );
   }
-  return { csv, count: items.length, lastId: to };
+  return { csv, count: items.length, lastId: items.at(-1)!.id, more };
 }
 
 importexport.get('/export.csv', async (c) => {
@@ -365,22 +399,22 @@ importexport.get('/export.csv', async (c) => {
   if (after !== undefined) {
     // One page per request, as the Export button asks for it (public/import.js), which joins the pages into
     // one file. The header row leads the first page only; `x-export-next` names where the next page starts,
-    // and is missing once a page comes back short.
+    // and is missing once a page comes back short — short of items, not ended early for its loans.
     const afterId = Number(after);
-    const page = await exportRows(c.env.DB, scope, afterId, EXPORT_PAGE, libNames);
+    const page = await exportRows(c.env.DB, scope, afterId, EXPORT_PAGE, libNames, EXPORT_LOANS);
     return new Response((afterId === 0 ? csvLine([...EXPORT_COLUMNS]) : '') + page.csv, {
       headers: {
         ...headers,
         'x-export-rows': String(page.count),
-        ...(page.count === EXPORT_PAGE ? { 'x-export-next': String(page.lastId) } : {}),
+        ...(page.more ? { 'x-export-next': String(page.lastId) } : {}),
       },
     });
   }
 
   // Without a cursor, the whole export in one streamed response: what the link does without JavaScript, and
   // what a script fetching /export.csv gets. Its CPU grows with the catalog, so a large one can be cut off by
-  // the free plan's 10 ms limit, and the download fails rather than completing. Five queries a page
-  // (items, tags, reads, reviews, reading progress) against the 50 budgeted per invocation. One page per pull, so a slow
+  // the free plan's 10 ms limit, and the download fails rather than completing. Six queries a page
+  // (items, tags, reads, reviews, loans, reading progress) against the 50 budgeted per invocation. One page per pull, so a slow
   // download holds one page in memory rather than all of them. The response is already a 200 by the time a
   // page is read, so a failure must error the stream — ending it normally hands over a file that just stops,
   // with nothing to say it is incomplete.
@@ -397,11 +431,12 @@ importexport.get('/export.csv', async (c) => {
           controller.enqueue(encoder.encode(csvLine([...EXPORT_COLUMNS])));
           return;
         }
+        // no loan limit: the whole stream is one invocation, so smaller pages would spend queries and save no CPU
         const page = await exportRows(d1, scope, afterId, PAGE, libNames);
         if (!page.count) return controller.close();
         controller.enqueue(encoder.encode(page.csv));
         afterId = page.lastId;
-        if (page.count < PAGE) controller.close();
+        if (!page.more) controller.close();
       } catch (err) {
         controller.error(err);
       }

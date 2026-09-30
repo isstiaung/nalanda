@@ -42,6 +42,19 @@ describe('lending from the item page', () => {
     expect((await activeLoansForItem(env.DB, item.id)).map((l) => l.borrower)).toEqual(['Ann']);
   });
 
+  it('keeps a due date only when it is a calendar date, so every loan round-trips through the export', async () => {
+    const { cookie, item } = await setup(3);
+    await request(`/items/${item.id}/loan`, cookie, { borrower: 'Ann', dueOn: '2026-10-15' });
+    await request(`/items/${item.id}/loan`, cookie, { borrower: 'Bob', dueOn: 'next week;2020-01-01..@Mallory' });
+    await request(`/items/${item.id}/loan`, cookie, { borrower: 'Cy', dueOn: '2026-02-30' });
+
+    expect((await activeLoansForItem(env.DB, item.id)).map((l) => [l.borrower, l.dueOn])).toEqual([
+      ['Ann', '2026-10-15'],
+      ['Bob', null],
+      ['Cy', null],
+    ]);
+  });
+
   it('lends both copies of a two-copy item, and shows both borrowers', async () => {
     const { cookie, item } = await setup(2);
     await request(`/items/${item.id}/loan`, cookie, { borrower: 'Ann' });

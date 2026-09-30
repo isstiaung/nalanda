@@ -62,7 +62,7 @@ manuscripts.
   reading, owned or not, whoever else has read it. **Another** draws a different one;
   **Start reading** starts your read and opens the book.
 - **Own your data**: every field round-trips through CSV export — each read with its reader,
-  each member's review — and plain-SQLite backups.
+  each member's review, every loan — and plain-SQLite backups.
 - **The manuscript ledger**: a hand-written design system grounded in Nalanda's Pala-era
   scriptorium — palm-leaf paper, indigo and vermilion, Devanagari-first display type,
   a lamp-lit dark mode. No CSS framework.

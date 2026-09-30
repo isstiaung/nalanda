@@ -16,6 +16,7 @@ import {
   type PersonRead,
   type ReadRow,
 } from './reads';
+import { formatLoansCell, parseLoansCell, type LoanDraft } from './loans';
 import { formatReviewsCell, parseReviewsCell, summarizeReviews, type CellReview, type PersonReview } from './reviews';
 
 export const EXPORT_COLUMNS = [
@@ -37,6 +38,7 @@ export const EXPORT_COLUMNS = [
   'notes',
   'tags',
   'copies',
+  'loans',
   'began_on',
   'completed_on',
   'read_count',
@@ -74,7 +76,8 @@ export function progressHistoryCell(
 
 /**
  * One item as a line of the export. `rating` and `review` are the household's summary (§16 #43); `reviews` holds
- * everyone's, and `reads` names each read's reader, so a re-import gives every member back their own.
+ * everyone's, and `reads` names each read's reader, so a re-import gives every member back their own. `loans` is
+ * every loan, open and returned (§16 #57).
  */
 export function itemToCsvLine(
   item: Item,
@@ -83,6 +86,7 @@ export function itemToCsvLine(
   progress: { page: number; at: string; readId?: number | null }[] = [],
   reads: Array<ReadRow & { reader?: string | null }> = [],
   reviews: CellReview[] = [],
+  loans: LoanDraft[] = [],
 ): string {
   const ordered = inDisplayOrder(reads);
   const position = new Map(ordered.map((r, i) => [r.id, i + 1]));
@@ -105,6 +109,7 @@ export function itemToCsvLine(
     item.notes,
     tags.join(', '),
     item.copies,
+    formatLoansCell(loans),
     item.beganOn,
     item.completedOn,
     item.readCount,
@@ -132,6 +137,8 @@ export type MappedRow = {
   reviews?: CellReview[];
   // a Goodreads row's reading, which a merge reconciles with the reads already here
   goodreads?: GoodreadsReading;
+  // a Nalanda export's `loans`, restored onto the item the row makes (§16 #57); libib and Goodreads have none
+  loans?: LoanDraft[];
 };
 
 /** Columns we map onto real item fields; everything else lands in `details` (lossless). */
@@ -145,6 +152,8 @@ const KNOWN_COLUMNS = new Set([
   'read_count',
   'reads',
   'reviews',
+  // and so is every loan, with its borrower (§9)
+  'loans',
   'item_type',
   'type',
   'ean_isbn13',
@@ -346,6 +355,8 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
     },
     reads,
     ...(reviews ? { reviews } : {}),
+    // every loan, open and returned, as the file has it (§16 #57); an export from before loans has none
+    loans: parseLoansCell(r['loans']),
     tags: (r['tags'] ?? '')
       .split(',')
       .map((t) => t.trim())

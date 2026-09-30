@@ -59,7 +59,30 @@
   if (!fileInput || !previewBtn || !runBtn) return;
 
   const BATCH = 200;
+  // A Nalanda export's loans cost the server about what a row does each, so a batch also stops at this many
+  // (ARCH.md §16 #57); a row with more still goes, alone.
+  const LOANS_PER_BATCH = 1000;
   let rows = null;
+
+  /** [start, end) of each batch: at most BATCH rows, and at most LOANS_PER_BATCH loans unless one row has more. */
+  function batches(all) {
+    const out = [];
+    let start = 0;
+    let loans = 0;
+    // the column as the server reads it, whatever its case
+    const key = Object.keys(all[0] || {}).find((k) => k.trim().toLowerCase() === 'loans');
+    for (let i = 0; i < all.length; i++) {
+      const n = key && all[i][key] ? all[i][key].split(';').length : 0;
+      if (i > start && (i - start === BATCH || loans + n > LOANS_PER_BATCH)) {
+        out.push([start, i]);
+        start = i;
+        loans = 0;
+      }
+      loans += n;
+    }
+    if (start < all.length) out.push([start, all.length]);
+    return out;
+  }
 
   // picking a different file invalidates previously parsed rows
   fileInput.addEventListener('change', () => { rows = null; });
@@ -133,6 +156,7 @@
     if (data.format === 'nalanda') {
       append(`Nalanda export detected: every column maps back as it was exported, into the shelf chosen above. Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
       append('Rows are added, never merged — importing the same export into this library twice adds everything twice.');
+      if (data.loans) append(`Loans in the first ${sampled} rows: ${data.loans} (${data.loansOut} still out), restored onto the items they belong to. A loan to a connected household comes back as an ordinary loan under the name it was lent to.`);
       // whose each read and review becomes: a member of the same name here, or you
       const people = data.importer ? (data.people ?? []) : [];
       if (people.length) {
@@ -168,8 +192,8 @@
     let merged = 0;
     let skipped = 0;
     say(`Importing ${rows.length} rows…`);
-    for (let i = 0; i < rows.length; i += BATCH) {
-      const res = await fetch('/api/import', options(false, rows.slice(i, i + BATCH)));
+    for (const [i, end] of batches(rows)) {
+      const res = await fetch('/api/import', options(false, rows.slice(i, end)));
       if (!res.ok) {
         append(`Batch at row ${i} failed (${res.status}) — stopped. ${inserted} imported so far; re-run after fixing (already-imported rows merge instead of duplicating).`);
         previewBtn.disabled = false;
@@ -179,7 +203,7 @@
       inserted += data.inserted;
       merged += data.merged ?? 0;
       skipped += data.skipped;
-      say(`Importing… ${Math.min(i + BATCH, rows.length)}/${rows.length} (${inserted} added${merged ? `, ${merged} merged` : ''})`);
+      say(`Importing… ${end}/${rows.length} (${inserted} added${merged ? `, ${merged} merged` : ''})`);
     }
     say(
       `Done: ${inserted} items added${merged ? `, ${merged} merged onto existing items` : ''}, ${skipped} rows skipped (no title).` +
