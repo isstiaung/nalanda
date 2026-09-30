@@ -2476,9 +2476,14 @@ pages have no repeated navigation to skip); keyboard focus survives an htmx swap
   faint tint, or a border that changes), every visible control is reached, and the tab order comes
   back round (no trap). Anything axe can't decide about contrast or target size is listed for a
   person to check. Any violation exits 1 with a report grouped by rule, naming page, theme, width
-  and element. It never touches port 8787, the development database or Cloudflare (`--local`, a
-  temporary `--persist-to`, no credentials in its environment), and removes its state and server when
-  done.
+  and element (on GitHub Actions, the count left for a person is a notice on the run). It waits for
+  each htmx swap by htmx's own `htmx:afterSettle`, never by a change in the HTML or a fixed delay, so a
+  slow runner checks the same moment a fast one does (`A11Y_CPU_THROTTLE=4` reproduces one). It never
+  touches port 8787, the development database or Cloudflare (`--local`, a temporary `--persist-to`, no
+  credentials in its environment and wrangler's config home inside that state), and never reads
+  `.dev.vars`: the Worker's variables come from an `--env-file` it writes, provider tokens empty, so a
+  local run is as offline as CI's (`A11Y_USE_DEV_VARS=1` opts back in). It removes its state and server
+  when done.
 
 **The htmx limitation.** The linter can't see `hx-*` behaviour: to it `hx-post` is an unknown
 attribute, so a `<div hx-post hx-trigger="click">` — interactive, but not to a keyboard or a
