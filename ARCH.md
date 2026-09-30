@@ -1634,8 +1634,8 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     on production's backup of 2026-09-29: 0000–0027, the per-table restore in `TABLES` order, then
     0028 — all 34 pre-existing tables (FTS shadow tables included) identical in row counts and row
     hashes, all 85 pre-existing schema objects unchanged, `plays` empty, no foreign-key violations,
-    integrity ok. D1 (budget 50, #37): a game's page is 10 calls, one more than before, however many
-    plays; a shared item page 5, the same for a hit and a miss; an export page 9.
+    integrity ok. D1 (budget 50, #37): a game's page is 11 calls (with lending history's), one more than
+    without plays, however many plays; a shared item page 5, the same for a hit and a miss; an export page 9.
 
     **Chosen without asking, overrulable:** only board games and records (not `music`, `movie` or
     `videogame`) — one constant; the date defaults to the server's UTC day and may be tomorrow, as a

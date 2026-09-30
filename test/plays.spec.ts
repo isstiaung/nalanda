@@ -626,7 +626,8 @@ describe('D1 calls', () => {
     expect([none.status, lots.status, aBook.status]).toEqual([200, 200, 200]);
     expect(lots.calls).toBe(none.calls);
     expect(aBook.calls).toBe(none.calls); // a book asks too — it may hold plays from before its type changed
-    expect(lots.calls).toBeLessThanOrEqual(12);
+    // 11 as measured with lending history's query beside ours: one more than the page without plays
+    expect(lots.calls).toBeLessThanOrEqual(11);
     const all = await calls(asha, `/items/${busy.id}/plays?page=2`);
     expect(all.status).toBe(200);
     expect(all.calls).toBeLessThanOrEqual(6);
