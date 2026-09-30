@@ -144,7 +144,8 @@ by step in [runbooks/deploy.md](runbooks/deploy.md).
 Nalanda installs to a phone's home screen and opens full-screen, like an app. Sign in on the
 phone first, in the browser, over HTTPS (your `workers.dev` address or custom domain):
 
-- **iPhone / iPad** — in **Safari**, tap **Share** → **Add to Home Screen** → **Add**.
+- **iPhone / iPad** — in **Safari**, tap **Share** → **Add to Home Screen** → **Add**. The
+  home-screen app may keep its own sign-in apart from Safari's, so sign in there too.
 - **Android** — in **Chrome**, open the **⋮** menu → **Install app** (or **Add to Home screen**),
   and confirm. Long-press the icon for a **Scan** shortcut.
 

@@ -1408,7 +1408,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     `skipWaiting` + `clients.claim`, and app.js registers with `updateViaCache: 'none'`. Every
     other request — `/share/*` (never answered, even offline: its behaviour is unchanged), API
     calls, htmx partials, covers, other origins, every POST — gets no `respondWith` at all.
-    Registered from app pages and the login page only; share pages never register it.
+    Registered from app pages and the login page only; share pages never register it. Nothing
+    but a failed navigation asks for the offline page, so a successful page load refreshes its
+    copy (at most hourly, without a cookie) — otherwise an edit to it would wait for a version bump.
 
     *Why a static offline page rather than caching `/add`:* the Add page is a signed-in page
     (shelves, the sidebar's names), so keeping it would break the rule. `offline.html` is a
@@ -1435,7 +1437,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     anyone signed in). Chosen over logout-only because a session can end without a logout (expiry,
     a cleared cookie) and the next person to sign in on a family phone would have seen the scans;
     the stamp covers that, and logout covers a device nobody signs back into. With no stamp —
-    signed out — the offline page won't hold scans. A review entry carries the stamp it was
+    signed out — the offline page won't hold scans. scan-queue.js also compares the device's
+    stamp with the page's own and refuses to list, hold or remove on a mismatch, so a page whose
+    app.js failed to load still shows nothing of the previous account's. A review entry carries the stamp it was
     rendered for (`scanOwner`), and `POST /items` refuses it with 409 for anyone else — a list
     left open in one tab while someone else signs in in another adds nothing. The stamp says
     nothing about the account, and its message has a colon, which a session payload (base64url)
