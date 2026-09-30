@@ -8,6 +8,13 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [Unreleased]
+
+### Fixed
+- **Polish across reading, lending, sharing and settings.** The reading-goal form's labels sit above their fields, and the pace mark crosses the bar instead of hanging below it; Year in review says "1 spin" and "1 play", and drops its You/Household key when there are no columns; Members and Account space their notes, panels and the Temp password badge; a share page or gift list says "304 pages", not a bare 304; the Shared links page points to Members instead of "here"; Borrowed no longer points to shelves "below" when there are none; a connection's storage reads "2 feed entries".
+- **An overdue loan keeps its due date.** Loans and Borrowed show the date with an Overdue badge beside it (under it on a phone), where Loans used to show the badge alone; and Loans says "100+ returned" once its history has more than the 100 it lists.
+- **An expired connection invitation can be removed.** It used to stay on the Connections page for good, with no button.
+
 ## [1.6.0] - 2026-09-30
 
 Year in review, game night, recommendations between connected households, what you paid for things, a sidebar in sections, an accessibility audit in CI, and Discogs' credit beside a record's pressing.
