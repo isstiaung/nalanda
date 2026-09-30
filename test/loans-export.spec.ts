@@ -66,7 +66,7 @@ async function call(path: string, cookie?: string, body?: unknown, bindings: Bin
 
 async function signIn(role: 'admin' | 'member' = 'admin', username: string = role) {
   const u = await createUser(env.DB, { username, passwordHash: 'pbkdf2$1$x$y', role, mustChangePassword: false });
-  return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, u.id, Math.floor(Date.now() / 1000))}`;
+  return `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, u, Math.floor(Date.now() / 1000))}`;
 }
 
 /** The export as the Export button fetches it: page by page, joined. */
@@ -306,8 +306,7 @@ describe('loans through the export and back', () => {
   });
 
   it("restores a member's import too: loans aren't anyone's", async () => {
-    await signIn('admin');
-    const admin = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, 1, Math.floor(Date.now() / 1000))}`;
+    const admin = await signIn('admin');
     const member = await signIn('member', 'ravi');
     const shelf = (await createLibrary(env.DB, 'Main')).id;
     const item = await createItem(env.DB, { libraryId: shelf, title: 'Catan', copies: 1, details: '{}' });

@@ -71,7 +71,7 @@ const loans = (n: number, who: string) => Array.from({ length: n }, (_, j) => `2
 describe('importing a Nalanda export with many loans', () => {
   it('posts batches of at most 200 rows and a thousand loans, a row with more alone, and every loan arrives', async () => {
     const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-    const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000))}`;
+    const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;
     page.library.value = String((await createLibrary(env.DB, 'Restored')).id);
     const lines = [HEADER];
     for (let i = 1; i <= 300; i++) lines.push(`x,boardgame,Game ${i},1,${i === 150 ? loans(1200, 'Big') : loans(i <= 100 ? 15 : 0, 'Asha')},,,,,{}`);
@@ -92,7 +92,7 @@ describe('importing a Nalanda export with many loans', () => {
 
   it('still posts 200 rows a batch when there are no loans', async () => {
     const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
-    const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin.id, Math.floor(Date.now() / 1000))}`;
+    const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;
     const shelf = await createLibrary(env.DB, 'Main');
     page.library.value = String(shelf.id);
     await createItem(env.DB, { libraryId: shelf.id, title: 'Already here', details: '{}' });
