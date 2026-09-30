@@ -365,13 +365,11 @@ export const ReadingSection: FC<{
       {/* pages go to an open read; recording one on a book never started starts it (§16 #34) */}
       {open || !mine.length ? (
         <form method="post" action={`${base}/progress`} class="inline-form" {...htmxTo(`${base}/progress`)}>
-          {/* ids: htmx puts focus back on an element with the same id after the section swaps */}
+          {/* the id: htmx puts focus back on the page field after the section swaps (anything else, app.js) */}
           <input id="reading-page" name="page" inputmode="numeric" pattern="[0-9]+" class="mono" size={6} placeholder="Page" aria-label="Page reached" required />
           {item.length ? <span class="muted">of {item.length}</span> : null}
           {/* each form's own action is primary (a plain submit); Stop is secondary (.btn), Delete a danger action */}
-          <button type="submit" id="reading-record">
-            Record
-          </button>
+          <button type="submit">Record</button>
         </form>
       ) : null}
 
