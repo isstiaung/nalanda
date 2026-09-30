@@ -15,8 +15,9 @@ A member can still delete a single item from its page (ARCH.md §16 #47).
 **Display names.** Each member can set a display name on their **Account** page, and an admin can set
 anyone's in the Members table. It's optional, not a login, and not unique (two people can both be
 "Sam"). It only ever appears outside Nalanda where an admin has switched names on — **Shared links →
-Names on share pages** and **Connections → Show names to connected households**, both off by default
-(ARCH.md §16 #45). Without one, a member stays unnamed. Usernames never leave the app. Each person's
+Names on share pages** and **Connections → Show names to connected households** (ARCH.md §16 #45). Both
+start on for a new instance; an instance upgraded from 1.3 or earlier keeps what it had — off unless an
+admin turned them on (§16 #49). Without one, a member stays unnamed. Usernames never leave the app. Each person's
 reads, recorded pages, rating and review are their own (ARCH.md §16 #43): members change only
 theirs, and admins can change, delete or **move** anyone's — a read (with its pages) or a review
 credited to the wrong person moves from the book's page, under *Edit* on it.
