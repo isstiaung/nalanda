@@ -418,7 +418,10 @@ describe('the edit form', () => {
   it('lets a record or board game be made not started again, clearing its read — a book has its page for that', async () => {
     const shelf = await createLibrary(env.DB, 'Records');
     const record = await createItem(env.DB, { libraryId: shelf.id, mediaType: 'vinyl', title: 'Kind of Blue', status: 'completed', completedOn: '2020-01-01', details: '{}', addedBy: await user() });
-    expect(await (await request(`/items/${record.id}/edit`)).text()).toContain('value="not_started"');
+    // the form picks no reading status for a record (it takes plays), carrying its own back as it came; the route still clears one
+    const form = await (await request(`/items/${record.id}/edit`)).text();
+    expect(form).not.toContain('<select name="status"');
+    expect(form).toContain('<input type="hidden" name="status" value="completed"/>');
     const res = await request(`/items/${record.id}`, {
       body: { libraryId: String(shelf.id), title: 'Kind of Blue', mediaType: 'vinyl', status: 'not_started', beganOn: '', completedOn: '' },
     });

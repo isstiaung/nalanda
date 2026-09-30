@@ -162,6 +162,52 @@ describe('the item table at 1280px', () => {
   });
 });
 
+describe('games and records have no reading status', () => {
+  const statusFilter = (page: string) => page.includes('<summary>Status');
+
+  it('show no status pill in a table, on their page, or as a shelf filter — the data kept', async () => {
+    const asha = await member('asha', 'admin');
+    const games = await createLibrary(env.DB, 'Games');
+    const game = await book(asha, { libraryId: games.id, mediaType: 'boardgame', title: 'Wingspan', status: 'completed', completedOn: '2026-05-01' });
+    const record = await book(asha, { libraryId: games.id, mediaType: 'vinyl', title: 'Blue', status: 'in_progress', beganOn: '2026-09-01' });
+
+    const shelf = await html(asha, `/libraries/${games.id}`);
+    const rowOf = (title: string) => shelf.match(new RegExp(`title="${title}"[\\s\\S]*?</tr>`))?.[0] ?? '';
+    expect(rowOf('Wingspan')).not.toMatch(/class="pill (done|progress|ghost-status)?[^"]*">(Completed|In progress)/);
+    expect(rowOf('Wingspan')).not.toContain('>Completed<');
+    expect(rowOf('Blue')).not.toContain('>In progress<');
+    expect(statusFilter(shelf)).toBe(false); // a shelf of games and records: no Status filter
+
+    const page = await html(asha, `/items/${game.id}`);
+    expect(page).not.toContain('<dt>Status</dt>');
+    expect(page).not.toContain('>Completed<');
+    // lent, the row stays to say so
+    await createLoan(env.DB, { itemId: record.id, borrower: 'Anjali' });
+    const lent = await html(asha, `/items/${record.id}`);
+    expect(lent).toContain('<dt>Status</dt>');
+    expect(lent).toContain('class="pill lent"');
+    expect(lent).not.toContain('>In progress<');
+
+    // the edit form picks no status or dates, and carries what's there back untouched
+    const form = await html(asha, `/items/${game.id}/edit`);
+    expect(form).not.toContain('<select name="status"');
+    expect(form).toContain('<input type="hidden" name="status" value="completed"/>');
+    expect(form).toContain('<input type="hidden" name="completedOn" value="2026-05-01"/>');
+    expect(await rows('SELECT status, completed_on AS completedOn FROM items WHERE id = ?1', game.id)).toEqual([{ status: 'completed', completedOn: '2026-05-01' }]);
+  });
+
+  it('keep the Status filter on a shelf with books, and for a view already filtered by status', async () => {
+    const asha = await member('asha', 'admin');
+    const mixed = await createLibrary(env.DB, 'Mixed');
+    await book(asha, { libraryId: mixed.id, title: 'A book' });
+    await book(asha, { libraryId: mixed.id, mediaType: 'boardgame', title: 'A game' });
+    expect(statusFilter(await html(asha, `/libraries/${mixed.id}`))).toBe(true);
+    expect(statusFilter(await html(asha, `/libraries/${mixed.id}?type=boardgame`))).toBe(false); // the view is games only
+    expect(statusFilter(await html(asha, `/libraries/${mixed.id}?type=boardgame&status=completed`))).toBe(true); // clearable
+    expect(await html(asha, `/libraries/${mixed.id}`)).toContain('>Not started<'); // the book keeps its pill
+  });
+});
+
 describe('an item page’s Want and Where to buy', () => {
   const wantButton = (page: string) => /class="want-toggle[^"]*"/.test(page);
   const buySection = (page: string) => page.includes('id="buy"');

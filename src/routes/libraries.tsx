@@ -19,6 +19,7 @@ import {
 import type { AppEnv } from '../env';
 import { deleteCover } from '../lib/covers';
 import { formatCount } from '../lib/money';
+import { isPlayable } from '../lib/plays';
 import { shareVisibility, shareVisibilityLabel } from '../lib/share';
 import {
   ColumnsMenu,
@@ -159,6 +160,10 @@ libraries.get('/libraries/:id', async (c) => {
     shelfTotals(c.env.DB, id),
   ]);
   const shelfTotal = totals.shelves.get(id);
+  // Status is reading status: a shelf — or a view of it — holding only games and records (they take plays) leaves the
+  // filter out, unless one is already applied, so it can still be cleared
+  const typesHere = (shelfTotal?.byType ?? []).filter((t) => t.count > 0).map((t) => t.mediaType);
+  const showStatus = statuses.length > 0 || (mediaTypes.length ? mediaTypes : typesHere).some((t) => !isPlayable(t));
   // everything on the shelf, whatever the filters: what deleting it takes with it
   const shelfCount = shelves.find((l) => l.id === id)?.itemCount ?? total;
 
@@ -219,12 +224,14 @@ libraries.get('/libraries/:id', async (c) => {
             aria-label="Filter by title, author or location"
           />
           <FilterMenu label="Type" name="type" options={MEDIA_TYPES.map((t) => [t, MEDIA_LABEL[t]] as const)} selected={mediaTypes} />
-          <FilterMenu
-            label="Status"
-            name="status"
-            options={ITEM_STATUSES.map((st) => [st, STATUS_LABEL[st]] as const)}
-            selected={statuses}
-          />
+          {showStatus ? (
+            <FilterMenu
+              label="Status"
+              name="status"
+              options={ITEM_STATUSES.map((st) => [st, STATUS_LABEL[st]] as const)}
+              selected={statuses}
+            />
+          ) : null}
           <FilterMenu
             label="Holding"
             name="owned"

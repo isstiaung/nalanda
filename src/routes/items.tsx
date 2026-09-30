@@ -635,11 +635,16 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           <dd>{lib ? <a href={`/libraries/${lib.id}`}>{lib.name}</a> : '—'}</dd>
           <dt>Type</dt>
           <dd>{MEDIA_LABEL[item.mediaType]}</dd>
-          <dt>Status</dt>
-          <dd>
-            <ItemStatusPills item={item} />
-            {loan ? <span class={overdue ? 'pill overdue' : 'pill lent'}>{overdue ? 'Overdue' : 'Lent'}</span> : null}
-          </dd>
+          {/* a game or record has no reading status (it takes plays): the row stays only to say it's out */}
+          {!isPlayable(item.mediaType) || loan ? (
+            <>
+              <dt>Status</dt>
+              <dd>
+                <ItemStatusPills item={item} />
+                {loan ? <span class={overdue ? 'pill overdue' : 'pill lent'}>{overdue ? 'Overdue' : 'Lent'}</span> : null}
+              </dd>
+            </>
+          ) : null}
           <dt>Holding</dt>
           <dd>
             <HoldingPill item={item} />
@@ -726,14 +731,14 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
               <dd class="mono">{item.copies}</dd>
             </>
           ) : null}
-          {/* a book's dates are its reads, in the Reading section below */}
-          {item.beganOn && item.mediaType !== 'book' ? (
+          {/* a book's dates are its reads, in the Reading section below; a game or record has no reading dates to show */}
+          {item.beganOn && item.mediaType !== 'book' && !isPlayable(item.mediaType) ? (
             <>
               <dt>Began</dt>
               <dd class="mono">{item.beganOn}</dd>
             </>
           ) : null}
-          {item.completedOn && item.mediaType !== 'book' ? (
+          {item.completedOn && item.mediaType !== 'book' && !isPlayable(item.mediaType) ? (
             <>
               <dt>Completed</dt>
               <dd class="mono">{item.completedOn}</dd>
@@ -796,7 +801,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
             people={people}
             grouped={grouped}
           />
-        ) : grouped && log.reads.length ? (
+        ) : grouped && log.reads.length && !isPlayable(item.mediaType) ? (
           // a record's or game's reads are kept from the edit form; with more than one person, here is whose they are
           <ReadsByPerson item={item} reads={log.reads} viewer={viewer} people={people} />
         ) : null}

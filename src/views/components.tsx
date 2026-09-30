@@ -112,8 +112,10 @@ export const WantedPill: FC = () => <span class="pill wanted">Wanted</span>;
  */
 export const RereadingPill: FC = () => <span class="pill rereading">Re-reading</span>;
 
-/** The status pill, and the re-reading marker beside it when there is one. */
-export const StatusPills: FC<{ item: Pick<Item, 'status' | 'rereading'> }> = ({ item }) => (
+/** The status pill, and the re-reading marker beside it when there is one. A game or record (it takes plays, not
+ *  reads) shows none: reading status means nothing there, though the column keeps its value for the export. */
+export const StatusPills: FC<{ item: Pick<Item, 'status' | 'rereading'> & { mediaType?: MediaType } }> = ({ item }) =>
+  item.mediaType && isPlayable(item.mediaType) ? null : (
   <>
     <StatusPill status={item.status} />
     {item.rereading ? (
@@ -129,7 +131,7 @@ export const StatusPills: FC<{ item: Pick<Item, 'status' | 'rereading'> }> = ({ 
  * The item page's status, in a span htmx can replace out of band: starting, finishing or stopping a read changes
  * it from inside the Reading section. `oob` renders it for that swap.
  */
-export const ItemStatusPills: FC<{ item: Pick<Item, 'status' | 'rereading'>; oob?: boolean }> = ({ item, oob }) => (
+export const ItemStatusPills: FC<{ item: Pick<Item, 'status' | 'rereading'> & { mediaType?: MediaType }; oob?: boolean }> = ({ item, oob }) => (
   <span id="item-status" class="status-pills" hx-swap-oob={oob ? 'true' : undefined}>
     <StatusPills item={item} />
   </span>
@@ -1086,9 +1088,12 @@ export const ItemTable: FC<{
             {libraryNames ? <td class="num hide-sm col-shelf">{libraryNames.get(item.libraryId) ?? ''}</td> : null}
             <td class="num hide-sm col-year">{yearOf(item.published)}</td>
             <td class="date hide-sm col-completed">
-              {item.completedOn ?? <span class="muted">—</span>}
+              {/* a game or record has no reading status, so no finish to date */}
+              {isPlayable(item.mediaType) ? <span class="muted">—</span> : (item.completedOn ?? <span class="muted">—</span>)}
               {/* the last finish, and how many there have been once there's more than one (§16 #41) */}
-              {item.readCount > 1 ? <span class="muted read-count" title={`Finished ${item.readCount} times`}> ×{item.readCount}</span> : null}
+              {item.readCount > 1 && !isPlayable(item.mediaType) ? (
+                <span class="muted read-count" title={`Finished ${item.readCount} times`}> ×{item.readCount}</span>
+              ) : null}
             </td>
             <td class="col-rating">{item.rating ? <span class="rating">{stars(item.rating)}</span> : <span class="muted">—</span>}</td>
             <td class="col-status">
@@ -1202,6 +1207,9 @@ export const ItemForm: FC<{
 }> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverUrl, removeCover, perMember, series, seriesNames, money }) => {
   // a book being read again: status and dates describe its last finish, and the re-read is managed on its page
   const readingLocked = item?.mediaType === 'book' && !!item?.rereading;
+  // a game or record takes plays, not reads: its form shows no status or reading dates (the Add form's type is picked
+  // in the form itself, so only an edit knows)
+  const noReading = !!item && isPlayable(item.mediaType);
   // A book finished before: the form edits that finish, so it offers Completed only — reading it again, or a stop, is
   // done on its page (the route refuses the rest). A book with reads can't be made not started from here either. The
   // status the form was sent with is always offered, so a refused form shows what was chosen.
@@ -1305,18 +1313,28 @@ export const ItemForm: FC<{
         {item?.description ?? ''}
       </textarea>
     </label>
+    {noReading ? (
+      // a game or record has no reading status to show or pick: what it has goes back as it came, untouched
+      <>
+        <input type="hidden" name="status" value={item?.status ?? 'not_started'} />
+        <input type="hidden" name="beganOn" value={item?.beganOn ?? ''} />
+        <input type="hidden" name="completedOn" value={item?.status === 'in_progress' ? '' : (item?.completedOn ?? '')} />
+      </>
+    ) : null}
     <div class="grid">
-      <label>
-        {perMember ? 'Your status' : 'Status'}
-        <select name="status" disabled={readingLocked} {...invalid(error, 'item-form-error')}>
-          {/* only what a read can become from here (`offered`, §16 #41) */}
-          {ITEM_STATUSES.filter(offered).map((st) => (
-            <option value={st} selected={(item?.status ?? 'not_started') === st}>
-              {STATUS_LABEL[st]}
-            </option>
-          ))}
-        </select>
-      </label>
+      {noReading ? null : (
+        <label>
+          {perMember ? 'Your status' : 'Status'}
+          <select name="status" disabled={readingLocked} {...invalid(error, 'item-form-error')}>
+            {/* only what a read can become from here (`offered`, §16 #41) */}
+            {ITEM_STATUSES.filter(offered).map((st) => (
+              <option value={st} selected={(item?.status ?? 'not_started') === st}>
+                {STATUS_LABEL[st]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label>
         {perMember ? 'Your rating' : 'Rating'}
         <RatingSelect value={item?.rating} />
@@ -1326,23 +1344,25 @@ export const ItemForm: FC<{
         <input name="copies" value={item?.copies?.toString() ?? '1'} inputmode="numeric" />
       </label>
     </div>
-    <div class="grid">
-      <label>
-        Began
-        <input type="date" name="beganOn" value={item?.beganOn ?? ''} disabled={readingLocked} {...invalid(error, 'item-form-error')} />
-      </label>
-      <label>
-        Completed
-        {/* an open read has no end: the date shown for a book in progress is always blank */}
-        <input
-          type="date"
-          name="completedOn"
-          value={item?.status === 'in_progress' ? '' : (item?.completedOn ?? '')}
-          disabled={readingLocked}
-          {...invalid(error, 'item-form-error')}
-        />
-      </label>
-    </div>
+    {noReading ? null : (
+      <div class="grid">
+        <label>
+          Began
+          <input type="date" name="beganOn" value={item?.beganOn ?? ''} disabled={readingLocked} {...invalid(error, 'item-form-error')} />
+        </label>
+        <label>
+          Completed
+          {/* an open read has no end: the date shown for a book in progress is always blank */}
+          <input
+            type="date"
+            name="completedOn"
+            value={item?.status === 'in_progress' ? '' : (item?.completedOn ?? '')}
+            disabled={readingLocked}
+            {...invalid(error, 'item-form-error')}
+          />
+        </label>
+      </div>
+    )}
     {finishedBook && !readingLocked ? (
       <p class="muted form-note">
         Finished before: these are the dates of its last finished read. To read it again, or to record a read you
@@ -1357,7 +1377,8 @@ export const ItemForm: FC<{
     ) : null}
     {perMember ? (
       <p class="muted form-note">
-        Status, dates, rating and review here are yours; everyone's show on the item's page.
+        {noReading ? 'Rating and review here are yours' : 'Status, dates, rating and review here are yours'}; everyone's show on
+        the item's page.
       </p>
     ) : null}
     {isRecord(item?.mediaType) ? <GradeFields media={item?.mediaCondition ?? null} sleeve={item?.sleeveCondition ?? null} /> : null}

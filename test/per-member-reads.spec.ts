@@ -434,12 +434,13 @@ describe('permissions: members change their own, admins anyone’s', () => {
     expect(finished.status).toBe(200);
     expect((await readsOf(item.id)).find((r) => r.id === his)).toMatchObject({ readerId: ravi.id, status: 'completed', endedOn: '2026-09-20' });
 
-    // and on a record, where reads are kept from the edit form: his own too, never someone else's
+    // a record has no reading status on its page — its reads stay in the data, with no controls for them — and the
+    // stop route still holds anyone but the reader and an admin to it
     const record = await book(ravi, { mediaType: 'vinyl', title: 'Blue', status: 'in_progress', beganOn: '2026-09-01' });
     const [spin] = await readsOf(record.id);
-    expect(await html(asha, `/items/${record.id}`)).toContain(`/reads/${spin!.id}/stop`);
-    expect(await html(ravi, `/items/${record.id}`)).toContain(`/reads/${spin!.id}/stop`);
-    expect(await html(mira, `/items/${record.id}`)).not.toContain(`/reads/${spin!.id}/stop`);
+    expect(spin).toMatchObject({ readerId: ravi.id, status: 'in_progress' });
+    for (const who of [asha, ravi, mira]) expect(await html(who, `/items/${record.id}`)).not.toContain(`/reads/${spin!.id}/stop`);
+    expect((await as(mira, `/items/${record.id}/reads/${spin!.id}/stop`, { body: { date: '2026-09-20' }, htmx: true })).status).toBe(403);
   });
 
   it('gives a record’s or game’s reads the same: listed by person, fixed by an admin, refused to other members', async () => {
@@ -447,11 +448,11 @@ describe('permissions: members change their own, admins anyone’s', () => {
     const game = await book(ravi, { mediaType: 'boardgame', title: 'Wingspan', status: 'completed', completedOn: '2026-05-01' });
     const [read] = await readsOf(game.id);
 
+    // no reading status on a game's page: its reads aren't listed (they stay in the data and the export)
     const page = await html(asha, `/items/${game.id}`);
-    expect(page).toContain('<p class="reader-name">ravi</p>');
-    expect(page).toContain(`/reads/${read!.id}/delete`);
-    expect(page).toContain(`/reads/${read!.id}/move`);
-    expect(await html(mira, `/items/${game.id}`)).not.toContain(`/reads/${read!.id}/delete`);
+    expect(page).not.toContain('<p class="reader-name">ravi</p>');
+    expect(page).not.toContain(`/reads/${read!.id}/delete`);
+    expect(page).not.toContain(`/reads/${read!.id}/move`);
 
     expect((await as(mira, `/items/${game.id}/reads/${read!.id}/delete`, { body: {}, htmx: true })).status).toBe(403);
     const moved = await as(asha, `/items/${game.id}/reads/${read!.id}/move`, { body: { to: String(mira.id) }, htmx: true });
