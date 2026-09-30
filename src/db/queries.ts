@@ -690,6 +690,151 @@ export async function listTagsWithCounts(d1: D1Database): Promise<Array<{ name: 
     .orderBy(asc(s.tags.name));
 }
 
+// ---------- bulk edit (ARCH.md §16 #47) ----------
+//
+// One action on a selection of items: add or remove a tag, move to a shelf, mark owned or not owned, delete. Each is
+// one batch (§16 #39) — the tally, any tag it creates, the links and the writes — so a failure anywhere leaves every
+// item as it was. The ids travel as one JSON parameter however many there are, as refreshReadState's do.
+//
+// An item a bulk action changes is changed exactly as an edit of it alone would change it: updated_at stamped, and
+// the FTS triggers re-index it on the same UPDATE. An item it doesn't change — tagged already, on that shelf
+// already — is left alone, updated_at included. None of these touch reads or reviews, so no household summary moves;
+// migration 0021's activity triggers watch review, rating, status and completed_on only, so a move or a re-tag
+// records no news for connections. Deleting is the single delete's DELETE, over the selection: the same cascades
+// and the same BEFORE DELETE triggers, row by row.
+
+/** The most items one bulk action takes. A page of a shelf shows 60, so this binds only a hand-rolled request. */
+export const BULK_MAX = 250;
+
+export type BulkAction = 'tag-add' | 'tag-remove' | 'move' | 'owned' | 'not-owned' | 'delete';
+export const BULK_ACTIONS: readonly BulkAction[] = ['tag-add', 'tag-remove', 'move', 'owned', 'not-owned', 'delete'];
+
+/**
+ * What a bulk action did: `found` of the selection still exist; `changed` were changed; `same` already were as asked
+ * (tagged already, on that shelf already); `skipped` were refused — only owned / not owned, for an item held in two or
+ * more copies (§16 #27). `covers` are the deleted items' cover keys, for the caller to remove from R2 once the batch
+ * has succeeded.
+ */
+export type BulkResult = { found: number; changed: number; same: number; skipped: number; covers: string[] };
+
+const SELECTED = 'id IN (SELECT value FROM json_each(?1))';
+
+type Tally = { found: number; changed: number | null; skipped?: number | null };
+function tallied(t: Tally | undefined, covers: string[] = []): BulkResult {
+  const found = t?.found ?? 0;
+  const changed = t?.changed ?? 0;
+  const skipped = t?.skipped ?? 0;
+  return { found, changed, same: found - changed - skipped, skipped, covers };
+}
+
+/** Adds each of `names` (normalized, as every tag write) to every selected item that lacks it, in one batch. */
+export async function bulkAddTags(d1: D1Database, ids: number[], names: string[]): Promise<BulkResult> {
+  const json = JSON.stringify(ids);
+  const tags = JSON.stringify(normalizeTags(names));
+  const lacks = `EXISTS (SELECT 1 FROM json_each(?2) n WHERE NOT EXISTS (
+    SELECT 1 FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = items.id AND t.name = n.value))`;
+  const [tally] = await d1.batch([
+    d1.prepare(`SELECT count(*) AS found, sum(${lacks}) AS changed FROM items WHERE ${SELECTED}`).bind(json, tags),
+    // a tag is created only for an item that will carry it: a selection of nothing adds no tag
+    d1
+      .prepare(
+        `INSERT INTO tags (name) SELECT value FROM json_each(?2) WHERE EXISTS (SELECT 1 FROM items WHERE ${SELECTED})
+         ON CONFLICT (name) DO NOTHING`,
+      )
+      .bind(json, tags),
+    // stamped before the links go in, while "lacks" still tells the changed items from the rest
+    d1.prepare(`UPDATE items SET updated_at = datetime('now') WHERE ${SELECTED} AND ${lacks}`).bind(json, tags),
+    d1
+      .prepare(
+        `INSERT INTO item_tags (item_id, tag_id)
+         SELECT items.id, tags.id FROM items JOIN tags ON tags.name IN (SELECT value FROM json_each(?2))
+         WHERE items.${SELECTED} ON CONFLICT DO NOTHING`,
+      )
+      .bind(json, tags),
+  ]);
+  return tallied(tally?.results[0] as Tally | undefined);
+}
+
+/** Takes each of `names` off every selected item carrying it, in one batch. The tag itself stays, as an edit leaves it. */
+export async function bulkRemoveTags(d1: D1Database, ids: number[], names: string[]): Promise<BulkResult> {
+  const json = JSON.stringify(ids);
+  const tags = JSON.stringify(normalizeTags(names));
+  const has = `EXISTS (SELECT 1 FROM item_tags it JOIN tags t ON t.id = it.tag_id
+    WHERE it.item_id = items.id AND t.name IN (SELECT value FROM json_each(?2)))`;
+  const [tally] = await d1.batch([
+    d1.prepare(`SELECT count(*) AS found, sum(${has}) AS changed FROM items WHERE ${SELECTED}`).bind(json, tags),
+    d1.prepare(`UPDATE items SET updated_at = datetime('now') WHERE ${SELECTED} AND ${has}`).bind(json, tags),
+    d1
+      .prepare(
+        `DELETE FROM item_tags WHERE item_id IN (SELECT value FROM json_each(?1))
+         AND tag_id IN (SELECT id FROM tags WHERE name IN (SELECT value FROM json_each(?2)))`,
+      )
+      .bind(json, tags),
+  ]);
+  return tallied(tally?.results[0] as Tally | undefined);
+}
+
+/**
+ * Moves every selected item not already there to shelf `libraryId`, in one batch — nothing at all if the shelf is gone
+ * by then. Only library_id and updated_at change, so no activity is recorded: a view the items move into serves their
+ * existing entries under their old ids, below every follower's cursor, and one they leave withdraws them at the next
+ * removal check — as moving each on its edit form would.
+ */
+export async function bulkMove(d1: D1Database, ids: number[], libraryId: number): Promise<BulkResult> {
+  const json = JSON.stringify(ids);
+  const moves = `library_id <> ?2 AND EXISTS (SELECT 1 FROM libraries WHERE id = ?2)`;
+  const [tally] = await d1.batch([
+    d1.prepare(`SELECT count(*) AS found, sum(${moves}) AS changed FROM items WHERE ${SELECTED}`).bind(json, libraryId),
+    d1.prepare(`UPDATE items SET library_id = ?2, updated_at = datetime('now') WHERE ${SELECTED} AND ${moves}`).bind(json, libraryId),
+  ]);
+  return tallied(tally?.results[0] as Tally | undefined);
+}
+
+/**
+ * Owned sets copies to 1 on every selected item with 0; not owned, to 0 on every one with 1 — the Holding toggle's
+ * two moves (§16 #27), in one batch. An item held in two or more copies is skipped either way: the toggle only lands
+ * on 0 or 1, and zeroing or flattening a real count would lose a number that round-trips through /export.csv.
+ */
+export async function bulkSetOwned(d1: D1Database, ids: number[], owned: boolean): Promise<BulkResult> {
+  const json = JSON.stringify(ids);
+  const [from, to] = owned ? [0, 1] : [1, 0];
+  const [tally] = await d1.batch([
+    d1
+      .prepare(`SELECT count(*) AS found, sum(copies = ?2) AS changed, sum(copies >= 2) AS skipped FROM items WHERE ${SELECTED}`)
+      .bind(json, from),
+    d1.prepare(`UPDATE items SET copies = ?3, updated_at = datetime('now') WHERE ${SELECTED} AND copies = ?2`).bind(json, from, to),
+  ]);
+  return tallied(tally?.results[0] as Tally | undefined);
+}
+
+/**
+ * Deletes every selected item, in one batch: the single delete's DELETE, over a list. Cascades take its tags' links,
+ * reads, pages, reviews, loans, activity and comments; the FTS trigger drops it from search; migration 0010's BEFORE
+ * DELETE triggers tell a connection that a book lent to it is returned and that a request waiting on it is declined,
+ * row by row, as N single deletes would. Returns the cover keys to remove once this has succeeded.
+ */
+export async function bulkDelete(d1: D1Database, ids: number[]): Promise<BulkResult> {
+  const json = JSON.stringify(ids);
+  const [found] = await d1.batch([
+    d1.prepare(`SELECT id, cover_key AS coverKey FROM items WHERE ${SELECTED}`).bind(json),
+    d1.prepare(`DELETE FROM items WHERE ${SELECTED}`).bind(json),
+  ]);
+  const rows = (found?.results ?? []) as Array<{ id: number; coverKey: string | null }>;
+  const covers = rows.map((r) => r.coverKey).filter((k): k is string => !!k);
+  return { found: rows.length, changed: rows.length, same: 0, skipped: 0, covers };
+}
+
+/** The selection as a delete's confirmation names it: which still exist, and their titles, in the order they were picked. */
+export async function itemsForConfirmation(d1: D1Database, ids: number[]): Promise<Array<{ id: number; title: string }>> {
+  if (!ids.length) return [];
+  const rows = await d1
+    .prepare(`SELECT id, title FROM items WHERE ${SELECTED}`)
+    .bind(JSON.stringify(ids))
+    .all<{ id: number; title: string }>();
+  const byId = new Map(rows.results.map((r) => [r.id, r]));
+  return ids.map((id) => byId.get(id)).filter((r): r is { id: number; title: string } => !!r);
+}
+
 // ---------- loans ----------
 
 export async function createLoan(
