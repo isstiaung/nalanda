@@ -36,7 +36,9 @@ still exists, so their session dies on their next click. A member added later ma
 the removed member's id; the removed member's old cookie still signs nobody in, because a
 session names the account's random session key as well as its id, and every account gets
 its own (ARCH.md §16 #56). Their reads, pages, ratings and reviews stay, shown as a *Former member*'s: nothing about a book changes on shelves, share
-pages or connections. An admin can move any of them to someone still here.
+pages or connections. An admin can move any of them to someone still here. Their **want list
+goes**, and so does every gift list published of it — its link stops working. The books on it,
+and the purchase links on those books, stay.
 
 ## Admin lockout (you forgot the admin password)
 
@@ -90,12 +92,23 @@ have leaked.
   item carrying that tag, on any shelf, owned or not — a hand-picked list such as
   "reviewed-books" that no combination of shelf filters could express. That tag's page
   lists its links with rotate and remove, and they appear under *Shared links* too.
+- **Publish a want list as a gift list**: *Want list* in the sidebar → pick the member →
+  *Publish as a gift list*. The link shows everything on that member's want list as it
+  stands — titles, covers, and the links under *Where to buy* on each item — so family can
+  choose a present. It follows the list: an item taken off it (or finished — a finished book
+  leaves its reader's list) leaves the page, and the link can't reach anything else by id.
+  It's titled "A want list" unless *Names on share pages* is on and the member has a display
+  name, when it reads "Priya's want list" — never their login. Rotate and remove are on the
+  same page and under *Shared links*. It doesn't count towards a shelf's badge. Nothing on it
+  says whether an item was already bought: tell a second giver yourself.
 - **Reading the shelf badges**: a shelf reads *Shared* only when a link exposes it
   entire. If you've only published slices of it, it reads "2 views shared" instead —
   the shelf itself is not reachable, just those views.
 - **What's exposed**: title, creators, cover, publisher, date, description, media details,
   tags, rating, review, and the "Not owned" badge. **Never**: private notes, where it lives,
-  loans/borrowers, copy counts, who added it. A link can't be browsed beyond its
+  loans/borrowers, copy counts, who added it. A gift list shows less — title, creators,
+  cover, type, publisher, date, length, description, "On the shelves" for something you
+  already have — plus its purchase links, which appear on no other public page. A link can't be browsed beyond its
   filters, even by guessing item URLs. Pages carry `noindex`.
 - **Rotate** if a link spread further than intended — a new URL is minted immediately.
   Public pages are cached up to 1 hour per Cloudflare location; any edit you make in

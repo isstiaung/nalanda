@@ -69,7 +69,9 @@ export async function lookupByBarcode(env: Bindings, raw: string): Promise<Looku
       notices: ['This looks like a music/vinyl barcode. Set the DISCOGS_TOKEN secret to enable Discogs lookups.'],
     };
   }
-  const hit = await discogs(env.DISCOGS_TOKEN).lookupByBarcode(classified.code).catch(() => null);
+  const found = await discogs(env.DISCOGS_TOKEN).lookupByBarcode(classified.code).catch(() => null);
+  // the barcode scanned is the record's own: kept on the item, so "Want" on it again finds it (§16 #53)
+  const hit = found ? { ...found, isbn10Upc: found.isbn10Upc || classified.code } : null;
   return {
     candidates: hit ? [hit] : [],
     notices: hit ? [] : [`Discogs has no release for barcode ${classified.code}. Try a name search.`],

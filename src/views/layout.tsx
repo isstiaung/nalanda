@@ -110,6 +110,7 @@ const Sidebar: FC<{ user: SessionUser; path: string; libraries: NavLibrary[]; fe
       <NavLink href="/search" label="Search" path={path} />
       <NavLink href="/tags" label="Tags" path={path} />
       <NavLink href="/series" label="Series" path={path} />
+      <NavLink href="/wants" label="Want list" path={path} />
     </nav>
     <nav class="nav-section" aria-label="Circulation">
       <div class="nav-eyebrow">Circulation</div>

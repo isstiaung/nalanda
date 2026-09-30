@@ -18,9 +18,20 @@ import { MAX_DETAIL_TEXT_CHARS, MAX_FEED_REVIEW_CHARS, MAX_FEED_TEXT_CHARS } fro
  */
 export type ConnectionItem = PublicItem & { completedOn: string | null; updatedAt: string; readCount: number };
 
-export function toConnectionItem(item: Item): ConnectionItem {
+/**
+ * `wanted` (§16 #53): someone in the household wants it and it isn't owned — `wanted: true`, and absent otherwise, so an
+ * item nobody wants serializes exactly as before, and an older household's parser, which keeps only the fields it
+ * knows, drops it.
+ */
+export function toConnectionItem(item: Item, opts: { wanted?: boolean } = {}): ConnectionItem {
   // No play count: plays stay home (§16 #54), so toPublicItem is given none and leaves `playCount` out
-  return { ...toPublicItem(item), completedOn: item.completedOn, updatedAt: item.updatedAt, readCount: item.readCount };
+  return { ...toPublicItem(item, { wanted: opts.wanted }), completedOn: item.completedOn, updatedAt: item.updatedAt, readCount: item.readCount };
+}
+
+/** A connection's `wanted`: absent, null or false is none; `true` is the badge; anything else is malformed (undefined). */
+function parseWanted(value: unknown): { wanted?: true } | undefined {
+  if (value === undefined || value === null || value === false) return {};
+  return value === true ? { wanted: true } : undefined;
 }
 
 /** The page one progress update recorded, and how far through the book that is when its length is known. */
@@ -42,6 +53,8 @@ export type FeedItem = Pick<
   // names on, and only for a member with a display name. Absent everywhere else, so a household's entries are exactly
   // what they were; an older receiver ignores it.
   by?: string;
+  // §16 #53: the household wants it and hasn't got it — only when true; an older receiver ignores it
+  wanted?: true;
 };
 
 /** A per-person feed entry's own part (§16 #45): whose it is, and that member's rating or review on those kinds. */
@@ -59,8 +72,9 @@ export function toFeedItem(
   progressPage: number | null = null,
   readsBefore = 0,
   person?: FeedPerson,
+  wanted = false,
 ): FeedItem {
-  const c = toConnectionItem(item);
+  const c = toConnectionItem(item, { wanted });
   // a per-person entry carries its member's own rating and review, not the household's summary
   // — and that member's own finishes, not the household's (a first read isn't "finished again")
   if (person) Object.assign(c, { rating: person.rating && person.rating > 0 ? person.rating : null, review: person.review, readCount: person.readCount });
@@ -84,6 +98,7 @@ export function toFeedItem(
       readCount: kind === 'progress' ? readsBefore : c.readCount,
       // only a named member's entry has the key at all, so a household's entry serializes exactly as before
       ...(person?.by ? { by: person.by } : {}),
+      ...(c.wanted ? { wanted: true as const } : {}),
     },
     kind,
   );
@@ -177,6 +192,8 @@ export function parseFeedItem(value: unknown): FeedItem | null {
   // absent from an older sender, a household's entry or an unnamed member's; malformed rejects the entry
   const by = parsePeerName(v.by);
   if (by === null) return null;
+  const wanted = parseWanted(v.wanted);
+  if (!wanted) return null;
   return {
     id: v.id,
     mediaType: v.mediaType as MediaType,
@@ -193,6 +210,7 @@ export function parseFeedItem(value: unknown): FeedItem | null {
     progress,
     readCount: readCount as number | null,
     ...(by !== undefined ? { by } : {}),
+    ...wanted,
   };
 }
 
@@ -273,10 +291,10 @@ export function jsonBytes(value: unknown): { json: string; bytes: number } {
 export type ShelfItem = Pick<
   ConnectionItem,
   'id' | 'mediaType' | 'title' | 'creators' | 'published' | 'coverKey' | 'rating' | 'inCollection'
-> & { available: boolean; stamp: string };
+> & { available: boolean; stamp: string; wanted?: true };
 
-export function toShelfItem(item: Item, available: boolean, stamp: string): ShelfItem {
-  const c = toConnectionItem(item);
+export function toShelfItem(item: Item, available: boolean, stamp: string, wanted = false): ShelfItem {
+  const c = toConnectionItem(item, { wanted });
   return {
     id: c.id,
     mediaType: c.mediaType,
@@ -288,6 +306,7 @@ export function toShelfItem(item: Item, available: boolean, stamp: string): Shel
     inCollection: c.inCollection,
     available: c.inCollection && available,
     stamp,
+    ...(c.wanted ? { wanted: true as const } : {}),
   };
 }
 
@@ -319,8 +338,15 @@ function plainDetails(details: Record<string, unknown>): Record<string, string |
   return out;
 }
 
-export function toItemDetail(item: Item, available: boolean, tags: string[], stamp: string, reviews?: NamedReview[]): ItemDetail {
-  const c = toConnectionItem(item);
+export function toItemDetail(
+  item: Item,
+  available: boolean,
+  tags: string[],
+  stamp: string,
+  reviews?: NamedReview[],
+  wanted = false,
+): ItemDetail {
+  const c = toConnectionItem(item, { wanted });
   return {
     ...c,
     title: c.title.slice(0, MAX_FEED_TEXT_CHARS),
@@ -381,6 +407,8 @@ function shelfBase(v: Record<string, unknown>): ShelfItem | null {
   if (!(v.coverKey === null || (typeof v.coverKey === 'string' && COVER_KEY.test(v.coverKey)))) return null;
   if (!(v.rating === null || (Number.isInteger(v.rating) && (v.rating as number) >= 0 && (v.rating as number) <= 10))) return null;
   if (typeof v.inCollection !== 'boolean' || typeof v.available !== 'boolean' || !isStamp(v.stamp)) return null;
+  const wanted = parseWanted(v.wanted);
+  if (!wanted) return null;
   return {
     id: v.id,
     mediaType: v.mediaType as MediaType,
@@ -392,6 +420,8 @@ function shelfBase(v: Record<string, unknown>): ShelfItem | null {
     inCollection: v.inCollection,
     available: v.inCollection && v.available,
     stamp: v.stamp,
+    // the badge only beside "Not owned": an owned item isn't wanted, whatever a sender says
+    ...(v.inCollection ? {} : wanted),
   };
 }
 

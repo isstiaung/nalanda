@@ -8,14 +8,17 @@ import {
   deleteShare,
   getLibrary,
   getSiteSettings,
+  getUserById,
   listLibraries,
+  listPeople,
   listShares,
   rotateShare,
   updateSiteSettings,
 } from '../db/queries';
 import { ITEM_STATUSES, MEDIA_TYPES, type ItemStatus, type MediaType } from '../db/schema';
 import type { AppEnv } from '../env';
-import { newShareToken, shareFilters } from '../lib/share';
+import { giftListStamp } from '../lib/auth';
+import { isWantListShare, newShareToken, shareFilters } from '../lib/share';
 import { shareScopeLabel } from '../views/components';
 import { page } from '../views/layout';
 
@@ -27,6 +30,10 @@ shares.get('/shares', async (c) => {
 
   const [views, libraries, settings] = await Promise.all([listShares(c.env.DB), listLibraries(c.env.DB), getSiteSettings(c.env.DB)]);
   const shelfName = new Map(libraries.map((l) => [l.id, l.name]));
+  // whose want list a gift list is — usernames, on this admin-only page inside the app, never on the public one; asked
+  // for only when there is a gift list to name
+  const people = views.some(isWantListShare) ? await listPeople(c.env.DB) : [];
+  const username = new Map(people.map((p) => [p.id, p.username]));
   const origin = new URL(c.req.url).origin;
 
   // One count per link — the same filters the public page applies, so the number is exactly how many items
@@ -55,7 +62,8 @@ shares.get('/shares', async (c) => {
         <p class="muted">
           Nothing is published. To share a slice of the catalogue, open a shelf, filter it to what you
           want public, and use <strong>Publish current view</strong> under Shelf settings — or open a
-          tag and use <strong>Publish this tag</strong>. Each link gets its own unguessable URL that you
+          tag and use <strong>Publish this tag</strong>, or a member's <a href="/wants">want list</a> and use{' '}
+          <strong>Publish as a gift list</strong>. Each link gets its own unguessable URL that you
           can rotate or remove independently.
         </p>
       ) : (
@@ -83,14 +91,16 @@ shares.get('/shares', async (c) => {
                       </a>
                     </td>
                     <td class="hide-sm">
-                      {v.libraryId === null ? (
+                      {v.wantUserId !== null ? (
+                        <a href={`/wants?member=${v.wantUserId}`}>Want list</a>
+                      ) : v.libraryId === null ? (
                         <span class="muted">All shelves</span>
                       ) : (
                         <a href={`/libraries/${v.libraryId}`}>{shelfName.get(v.libraryId) ?? '—'}</a>
                       )}
                     </td>
                     <td>
-                      <span class="pill">{shareScopeLabel(v)}</span>
+                      <span class="pill">{shareScopeLabel(v, v.wantUserId !== null ? username.get(v.wantUserId) : undefined)}</span>
                     </td>
                     <td class="num">{counts[i] ?? 0}</td>
                     <td class="date hide-sm">{v.createdAt.slice(0, 10)}</td>
@@ -123,7 +133,9 @@ shares.get('/shares', async (c) => {
           <p class="muted">
             Public pages show only whitelisted fields — never private notes, loans and borrowers, copy
             counts, or when you read a book, and never a link back into this app. A book finished more
-            than once says how many times. Reading progress stays off them unless you turn it on below. Rotating a link issues a new token and kills the old URL; an already-cached
+            than once says how many times. Reading progress stays off them unless you turn it on below. A gift
+            list shows only what its member wants now — titles, covers and the links pasted under “Where to buy” —
+            and is titled “A want list” unless names are on below. Rotating a link issues a new token and kills the old URL; an already-cached
             page can survive up to an hour.
           </p>
         </>
@@ -187,6 +199,19 @@ shares.post('/shares', async (c) => {
     const v = body[k];
     return typeof v === 'string' ? v.trim() : '';
   };
+  // A gift list (§16 #53): one member's want list as it stands, published from their want-list page. It captures
+  // nothing but the member — no shelf, no filters, no sort but title — and has no name of its own to show: its public
+  // title is worked out when served, with a display name only while names are on for share pages.
+  if (str('wantUserId')) {
+    const raw = str('wantUserId');
+    const member = /^\d{1,15}$/.test(raw) ? await getUserById(c.env.DB, Number(raw)) : null;
+    // A user id is reused once the newest member is removed (§16 #56), so a form left open from before could name
+    // someone else: it carries a stamp of the account it was made for, which must still be this one's.
+    const stamp = member && c.env.SESSION_SECRET ? await giftListStamp(c.env.SESSION_SECRET, member) : null;
+    if (!member || !stamp || stamp !== str('wantStamp')) return c.text('No such member — reload their want list and publish again.', 400);
+    await createShare(c.env.DB, { token: newShareToken(), name: 'Want list', libraryId: null, wantUserId: member.id, sort: 'title' });
+    return c.redirect(`/wants?member=${member.id}`);
+  }
   // Published from a shelf (its current filters) or from a tag's page (everything carrying the tag, on any
   // shelf). Tags are stored lowercase.
   const tag = str('tag').toLowerCase();
@@ -217,10 +242,12 @@ shares.post('/shares/:id', async (c) => {
   const action = String(body['action'] ?? '');
   if (action === 'rotate') await rotateShare(c.env.DB, id, newShareToken());
   else if (action === 'delete') await deleteShare(c.env.DB, id);
-  // Posted from a shelf's settings panel, a tag's page, or /shares with neither in hand.
+  // Posted from a shelf's settings panel, a tag's page, a want list, or /shares with none of them in hand.
   const back = Number.parseInt(String(body['libraryId'] ?? ''), 10);
   const backTag = typeof body['tag'] === 'string' ? body['tag'] : '';
+  const backWant = Number.parseInt(String(body['wantUserId'] ?? ''), 10);
   if (Number.isInteger(back)) return c.redirect(`/libraries/${back}`);
+  if (Number.isInteger(backWant)) return c.redirect(`/wants?member=${backWant}`);
   return c.redirect(backTag ? `/tags/${encodeURIComponent(backTag)}` : '/shares');
 });
 

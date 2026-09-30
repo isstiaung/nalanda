@@ -90,7 +90,7 @@ const UsersPage = ({
                     method="post"
                     action={`/settings/users/${u.id}/delete`}
                     class="inline"
-                    data-confirm={`Remove ${u.username}? They will be logged out immediately. Their reads and reviews stay, credited to a former member.`}
+                    data-confirm={`Remove ${u.username}? They will be logged out immediately. Their reads and reviews stay, credited to a former member. Their want list goes, with any gift list published of it.`}
                   >
                     <button class="btn-danger" type="submit">
                       Remove

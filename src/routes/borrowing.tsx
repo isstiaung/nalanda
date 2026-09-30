@@ -212,6 +212,8 @@ borrowing.get('/households/:id/views/:viewId', async (c) => {
                     ) : (
                       <span class="pill ghost">Not owned</span>
                     )}
+                    {/* their household wants it (§16 #53) — a boolean from them, rendered as our own fixed text */}
+                    {item.wanted && !item.inCollection ? <span class="pill wanted">Wanted</span> : null}
                   </span>
                 </div>
               </a>
@@ -355,7 +357,9 @@ borrowing.get('/households/:id/views/:viewId/items/:itemId', async (c) => {
           ) : item.inCollection ? (
             <p class="muted">Every copy is out right now.</p>
           ) : (
-            <p class="muted">Read, but not on their shelves — nothing to lend.</p>
+            <p class="muted">
+              {item.wanted ? 'Wanted, not on their shelves yet' : 'In their catalogue, not on their shelves'} — nothing to lend.
+            </p>
           )}
         </div>
         <p class="back-link">

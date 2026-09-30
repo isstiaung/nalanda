@@ -2,14 +2,35 @@
 // toPublicItem() (src/lib/share.ts). See ARCH.md §9 and CLAUDE.md privacy invariants.
 import { Hono, type Context } from 'hono';
 import type { Child, FC, PropsWithChildren } from 'hono/jsx';
-import { getItem, getSeries, getShareByToken, getSiteSettings, listItems, namedReviews, playCount, tagsForItems } from '../db/queries';
+import {
+  getItem,
+  getSeries,
+  getShareByToken,
+  getSiteSettings,
+  giftExtras,
+  listItems,
+  namedReviews,
+  playCount,
+  shareGuardFacts,
+  wantedAmong,
+} from '../db/queries';
+import type { Item, Share } from '../db/schema';
 import type { AppEnv } from '../env';
 import { timesPlayed } from '../lib/plays';
 import { formatSeriesNumber } from '../lib/series';
 import { isRecord } from '../lib/condition';
-import { itemMatchesShare, shareFilters, toPublicItem, type PublicItem } from '../lib/share';
+import {
+  isWantListShare,
+  itemMatchesShare,
+  shareFilters,
+  toGiftItem,
+  toPublicItem,
+  wantListTitle,
+  type GiftItem,
+  type PublicItem,
+} from '../lib/share';
 import { BggCredit, fromBgg } from '../views/attribution';
-import { DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, RecordDetails, stars } from '../views/components';
+import { BuyLinks, DetailsList, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, RecordDetails, stars, WantedPill } from '../views/components';
 
 const share = new Hono<AppEnv>();
 
@@ -55,8 +76,17 @@ share.use('*', async (c, next) => {
   }
 });
 
-/** `bgg`: the page shows a board game, so BoardGameGeek's logo is owed in the footer (ARCH.md §16 #44). */
-const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: boolean }>> = ({ title, shelf, bgg, children }) => (
+/**
+ * `bgg`: the page shows a board game, so BoardGameGeek's logo is owed in the footer (ARCH.md §16 #44). `mark`: what
+ * kind of page it is, above its name — a gift list says so (§16 #53).
+ */
+const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: boolean; mark?: string }>> = ({
+  title,
+  shelf,
+  bgg,
+  mark = 'Nalanda · shared shelf',
+  children,
+}) => (
   <html lang="en">
     <head>
       <meta charset="utf-8" />
@@ -75,7 +105,7 @@ const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: bo
         <div class="share-head">
           <div>
             <div class="brand-rule"></div>
-            <div class="share-mark">Nalanda · shared shelf</div>
+            <div class="share-mark">{mark}</div>
             <h1>{shelf}</h1>
           </div>
         </div>
@@ -115,13 +145,145 @@ const PublicCard: FC<{ item: PublicItem; token: string }> = ({ item, token }) =>
         {item.rating ? <span class="rating">{stars(item.rating)}</span> : null}
         {item.readCount ? <small class="mono muted">read {item.readCount}×</small> : null}
         {!item.inCollection ? <NotOwnedPill /> : null}
+        {item.wanted ? <WantedPill /> : null}
       </span>
     </div>
   </a>
 );
 
-function renderShare(c: Context<AppEnv>, title: string, shelf: string, body: Child, opts: { bgg?: boolean } = {}) {
-  return c.html(`<!doctype html>${ShareLayout({ title, shelf, bgg: opts.bgg, children: body })}`);
+function renderShare(c: Context<AppEnv>, title: string, shelf: string, body: Child, opts: { bgg?: boolean; mark?: string } = {}) {
+  return c.html(`<!doctype html>${ShareLayout({ title, shelf, bgg: opts.bgg, mark: opts.mark, children: body })}`);
+}
+
+// ---------- gift lists: a member's want list, published (ARCH.md §16 #53) ----------
+
+const GIFT_MARK = 'Nalanda · want list';
+
+const GiftCover: FC<{ item: GiftItem }> = ({ item }) =>
+  item.coverKey ? (
+    <img class="cover-img" src={`/covers/${item.coverKey}`} alt={`Cover of ${item.title}`} loading="lazy" data-fallback={MEDIA_ICON[item.mediaType]} />
+  ) : (
+    <div class="cover-fallback">{MEDIA_ICON[item.mediaType]}</div>
+  );
+
+/** An item already on the household's shelves: a giver can skip it. The derived boolean only — never a count. */
+const OnShelvesPill: FC = () => <span class="pill">On the shelves</span>;
+
+const GiftCard: FC<{ item: GiftItem; token: string }> = ({ item, token }) => (
+  <li class="want-card">
+    <a href={`/share/${token}/items/${item.id}`} class="want-cover" tabindex={-1} aria-hidden="true">
+      <GiftCover item={item} />
+    </a>
+    <div class="want-body">
+      <a href={`/share/${token}/items/${item.id}`} class="want-title">
+        {item.title}
+      </a>
+      {item.creators ? <small class="want-creators">{item.creators}</small> : null}
+      <span class="mline">
+        <small class="muted">{MEDIA_LABEL[item.mediaType]}</small>
+        {item.inCollection ? <OnShelvesPill /> : null}
+      </span>
+      <BuyLinks links={item.purchaseLinks} />
+    </div>
+  </li>
+);
+
+/** A gift list: every item its member wants now, on any shelf, with the household's purchase links, and nothing else. */
+async function giftListPage(c: Context<AppEnv>, view: Share & { wantUserId: number }, token: string, pageNum: number) {
+  const { items, total, page: current, pages } = await listItems(c.env.DB, view.libraryId, { ...shareFilters(view), page: pageNum });
+  // the page's links and the member's public name, in one call
+  const { owner, links } = await giftExtras(
+    c.env.DB,
+    view.wantUserId,
+    items.map((i) => i.id),
+  );
+  const gifts = items.map((i) => toGiftItem(i, links.get(i.id) ?? []));
+  const title = wantListTitle(owner);
+  return renderShare(
+    c,
+    title,
+    title,
+    <>
+      <p class="eyebrow">
+        {total} {total === 1 ? 'item' : 'items'}
+      </p>
+      {gifts.length ? (
+        <ol class="want-list">
+          {gifts.map((g) => (
+            <GiftCard item={g} token={token} />
+          ))}
+        </ol>
+      ) : (
+        <p class="muted">Nothing on this list right now.</p>
+      )}
+      <Pagination page={current} pages={pages} makeHref={(p) => `/share/${token}?page=${p}`} />
+    </>,
+    { bgg: gifts.some(fromBgg), mark: GIFT_MARK },
+  );
+}
+
+/** One item on a gift list: what finding the right one takes, and where to buy it. */
+async function giftItemPage(c: Context<AppEnv>, view: Share & { wantUserId: number }, token: string, item: Item) {
+  const { owner, links } = await giftExtras(c.env.DB, view.wantUserId, [item.id]);
+  const gift = toGiftItem(item, links.get(item.id) ?? []);
+  const title = wantListTitle(owner);
+  return renderShare(
+    c,
+    `${gift.title} · ${title}`,
+    title,
+    <article class="item-detail">
+      <div class="item-detail-cover">
+        <GiftCover item={gift} />
+      </div>
+      <div class="item-detail-body">
+        <hgroup>
+          <h1>{gift.title}</h1>
+          {gift.creators ? <p>{gift.creators}</p> : null}
+        </hgroup>
+        <dl class="props">
+          <dt>Type</dt>
+          <dd>{MEDIA_LABEL[gift.mediaType]}</dd>
+          {gift.inCollection ? (
+            <>
+              <dt>Holding</dt>
+              <dd>
+                <OnShelvesPill /> already on these shelves
+              </dd>
+            </>
+          ) : null}
+          {gift.published ? (
+            <>
+              <dt>Published</dt>
+              <dd>{gift.published}</dd>
+            </>
+          ) : null}
+          {gift.publisher ? (
+            <>
+              <dt>Publisher</dt>
+              <dd>{gift.publisher}</dd>
+            </>
+          ) : null}
+          {gift.length ? (
+            <>
+              <dt>Length</dt>
+              <dd class="mono">{gift.length}</dd>
+            </>
+          ) : null}
+        </dl>
+        {gift.description ? <p class="prewrap">{gift.description}</p> : null}
+        {gift.purchaseLinks.length ? (
+          <div class="detail-section">
+            <p class="eyebrow">Where to buy</p>
+            <BuyLinks links={gift.purchaseLinks} />
+          </div>
+        ) : null}
+        <p class="back-link">
+          <a href={`/share/${token}`}>← back to {title}</a>
+        </p>
+      </div>
+    </article>,
+    { bgg: fromBgg(gift), mark: GIFT_MARK },
+  );
 }
 
 /**
@@ -143,11 +305,17 @@ share.get('/:token', async (c) => {
   const view = await getShareByToken(c.env.DB, token);
   if (!view) return c.notFound();
   const pageNum = Number.parseInt(c.req.query('page') ?? '1', 10) || 1;
+  if (isWantListShare(view)) return giftListPage(c, view, token, pageNum);
   const { items, total, page: current, pages } = await listItems(c.env.DB, view.libraryId, {
     ...shareFilters(view),
     page: pageNum,
   });
-  const publicItems = items.map((i) => toPublicItem(i));
+  // §16 #53: the "Wanted" badge — someone here wants it and it isn't owned; a boolean, never whose
+  const wanted = await wantedAmong(
+    c.env.DB,
+    items.filter((i) => i.copies === 0).map((i) => i.id),
+  );
+  const publicItems = items.map((i) => toPublicItem(i, { wanted: wanted.has(i.id) }));
 
   return renderShare(
     c,
@@ -179,22 +347,24 @@ share.get('/:token/items/:id', async (c) => {
   const id = Number.isSafeInteger(raw) && raw > 0 ? raw : 0;
   // Members' reviews are fetched here too, whatever the switch says, so a hit does no more work than a miss with names
   // on — the default for a new instance since §16 #49 — and are used only once the item is known to be in the view.
-  const [item, tagMap, plays, settings, named] = await Promise.all([
+  // Its tags and who wants it (a gift list's guard, §16 #53) come in one call, for every id alike.
+  const [item, { tags, wanters }, plays, settings, named] = await Promise.all([
     getItem(c.env.DB, id),
-    tagsForItems(c.env.DB, [id]),
+    shareGuardFacts(c.env.DB, id),
     // counted for every id, played or not, so a hit and a miss still do the same work; the whitelist keeps it for games
     // and records only (§16 #54)
     playCount(c.env.DB, id),
     getSiteSettings(c.env.DB),
     namedReviews(c.env.DB, id),
   ]);
-  const tags = tagMap.get(id) ?? [];
-  if (!item || !itemMatchesShare(view, item, tags)) return c.notFound(); // token only unlocks its own view
+  if (!item || !itemMatchesShare(view, item, tags, wanters)) return c.notFound(); // token only unlocks its own view
+  if (isWantListShare(view)) return giftItemPage(c, view, token, item);
   // §16 #45: each member's rating and review, by display name, only while an admin has names on for share pages
   // §16 #52: its series name and number are public catalogue data, like the publisher — never the gaps or "next up"
   const series = item.seriesId !== null ? await getSeries(c.env.DB, item.seriesId) : null;
   const reviews = settings.namesOnShares ? named : undefined;
-  const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews, plays, series });
+  // §16 #53: the "Wanted" badge, from the wanters the guard already read — a boolean, never whose
+  const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews, plays, series, wanted: wanters.length > 0 });
 
   return renderShare(
     c,
@@ -259,7 +429,16 @@ share.get('/:token/items/:id', async (c) => {
             <>
               <dt>Holding</dt>
               <dd>
-                <NotOwnedPill /> read, not on these shelves
+                <NotOwnedPill />
+                {/* No status on share pages, so no claim it was read: a Goodreads to-read entry is Not owned too.
+                    Wanted, it's on its way — or hoped to be (§16 #53). */}
+                {pub.wanted ? (
+                  <>
+                    <WantedPill /> wanted, not on these shelves yet
+                  </>
+                ) : (
+                  ' in the catalogue, not on these shelves'
+                )}
               </dd>
             </>
           ) : null}

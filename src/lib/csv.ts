@@ -17,6 +17,7 @@ import {
   type PersonRead,
   type ReadRow,
 } from './reads';
+import { formatLinksCell, formatWantsCell, parseLinksCell, parseWantsCell, type CellWant, type LinkDraft } from './links';
 import { formatLoansCell, parseLoansCell, type LoanDraft } from './loans';
 import { formatPlaysCell, parsePlaysCell, type CellPlay, type PersonPlay } from './plays';
 import { formatReviewsCell, parseReviewsCell, summarizeReviews, type CellReview, type PersonReview } from './reviews';
@@ -55,6 +56,8 @@ export const EXPORT_COLUMNS = [
   'plays',
   'added_at',
   'progress_history',
+  'wanted_by',
+  'purchase_links',
   'details',
 ] as const;
 
@@ -88,7 +91,8 @@ export function progressHistoryCell(
  * One item as a line of the export. `rating` and `review` are the household's summary (§16 #43); `reviews` holds
  * everyone's, and `reads` names each read's reader, so a re-import gives every member back their own. `loans` is
  * every loan, open and returned (§16 #57), and `plays` is the household's play log, oldest first, each date with
- * who logged it (§16 #54).
+ * who logged it (§16 #54). `wanted_by` names whose want list it is on and since when, and `purchase_links` holds its
+ * links (§16 #53).
  */
 export function itemToCsvLine(
   item: Item,
@@ -100,6 +104,8 @@ export function itemToCsvLine(
   loans: LoanDraft[] = [],
   plays: CellPlay[] = [],
   series: { name: string; total: number | null } | null = null,
+  wants: Array<{ by: string; at: string }> = [],
+  links: LinkDraft[] = [],
 ): string {
   const ordered = inDisplayOrder(reads);
   const position = new Map(ordered.map((r, i) => [r.id, i + 1]));
@@ -136,6 +142,8 @@ export function itemToCsvLine(
     formatPlaysCell(plays),
     item.addedAt,
     progressHistoryCell(progress, position),
+    formatWantsCell(wants),
+    formatLinksCell(links),
     item.details === '{}' ? '' : item.details,
   ]);
 }
@@ -166,6 +174,9 @@ export type MappedRow = {
   reviews?: CellReview[];
   // a Nalanda export's `plays` (§16 #54), each with who logged it by name; any other file brings none
   plays?: CellPlay[];
+  // a Nalanda export's `wanted_by` and `purchase_links` (§16 #53)
+  wants?: CellWant[];
+  links?: LinkDraft[];
   // a Goodreads row's reading, which a merge reconciles with the reads already here
   goodreads?: GoodreadsReading;
   // a Nalanda export's `loans`, restored onto the item the row makes (§16 #57); libib and Goodreads have none
@@ -192,6 +203,10 @@ const KNOWN_COLUMNS = new Set([
   'sleeve_condition',
   // and the dates a game or record was played (§16 #54): share pages may say how many, never when
   'plays',
+  // who wants what is theirs to publish, as a gift list, and a link belongs to "Where to buy" (§16 #53) — neither may
+  // fall into details, which every share page renders
+  'wanted_by',
+  'purchase_links',
   'item_type',
   'type',
   'ean_isbn13',
@@ -426,6 +441,8 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
     // every loan, open and returned, as the file has it (§16 #57); an export from before loans has none
     loans: parseLoansCell(r['loans']),
     ...(plays.length ? { plays } : {}),
+    wants: parseWantsCell(r['wanted_by']),
+    links: parseLinksCell(r['purchase_links']),
     tags: (r['tags'] ?? '')
       .split(',')
       .map((t) => t.trim())
@@ -439,7 +456,7 @@ export function mapNalandaRow(row: Record<string, string>): MappedRow | null {
  * How the people in a file were matched, for the preview: per name — `undefined` for reads and reviews that name
  * nobody, `null` for a member removed since — what it brings and whose it becomes here (`to`, null: nobody's).
  */
-export type PeopleTally = Map<string | null | undefined, { reads: number; reviews: number; to: number | null; known: boolean }>;
+export type PeopleTally = Map<string | null | undefined, { reads: number; reviews: number; wants: number; to: number | null; known: boolean }>;
 
 /**
  * A mapped row's reads and reviews with their people as ids here. A username that is a member here is theirs; any
@@ -455,12 +472,12 @@ export function attributePeople(
   importer: number,
   tally?: PeopleTally,
   keepNames = true,
-): { reads?: PersonRead[]; reviews?: PersonReview[]; plays?: PersonPlay[] } {
+): { reads?: PersonRead[]; reviews?: PersonReview[]; plays?: PersonPlay[]; wants?: Array<{ userId: number; at: string | null }> } {
   const resolve = (name: string | null | undefined): number | null =>
     !keepNames || name === undefined ? importer : name === null ? null : (members.get(name) ?? importer);
-  const count = (name: string | null | undefined, what: 'reads' | 'reviews', n = 1) => {
+  const count = (name: string | null | undefined, what: 'reads' | 'reviews' | 'wants', n = 1) => {
     if (!tally || n < 1) return;
-    const entry = tally.get(name) ?? { reads: 0, reviews: 0, to: resolve(name), known: keepNames && typeof name === 'string' && members.has(name) };
+    const entry = tally.get(name) ?? { reads: 0, reviews: 0, wants: 0, to: resolve(name), known: keepNames && typeof name === 'string' && members.has(name) };
     entry[what] += n;
     tally.set(name, entry);
   };
@@ -492,7 +509,20 @@ export function attributePeople(
   // Who logged each play (§16 #54) resolves as a read's reader does. Plays aren't in the preview's tally: who pressed
   // Played is kept for auditing and removal, not as anyone's history.
   const plays = m.plays?.map(({ by, ...play }) => ({ ...play, loggedBy: resolve(by) }));
-  return { ...(reads ? { reads } : {}), ...(reviews ? { reviews } : {}), ...(plays ? { plays } : {}) };
+  // Wants (§16 #53) by the same rule: a member of that name here in an admin's import, else the importer. A want is
+  // always someone's — there is no former member's — and one each: two names landing on one person keep the earliest.
+  let wants: Array<{ userId: number; at: string | null }> | undefined;
+  if (m.wants?.length) {
+    const byPerson = new Map<number, string | null>();
+    for (const w of m.wants) {
+      count(w.by, 'wants');
+      const userId = resolve(w.by) ?? importer; // never null: parseWantsCell drops a want of nobody
+      const had = byPerson.get(userId);
+      if (!byPerson.has(userId) || (w.at !== null && (had === null || had === undefined || w.at < had))) byPerson.set(userId, w.at);
+    }
+    wants = [...byPerson].map(([userId, at]) => ({ userId, at }));
+  }
+  return { ...(reads ? { reads } : {}), ...(reviews ? { reviews } : {}), ...(plays ? { plays } : {}), ...(wants ? { wants } : {}) };
 }
 
 // ---------- Goodreads import mapping ----------

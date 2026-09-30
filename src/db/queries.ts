@@ -17,6 +17,7 @@ import {
   type ReadDraft,
   type ReadRow,
 } from '../lib/reads';
+import { MAX_LINKS_PER_ITEM, type LinkDraft } from '../lib/links';
 import { MAX_LOANS_PER_CELL, type LoanDraft } from '../lib/loans';
 import { MAX_PLAYS_PER_ITEM, PLAYABLE_TYPES, RECENT_PLAYS, type CellPlay, type PersonPlay } from '../lib/plays';
 import { reviewOrderSql, stampReviews, summarizeReviews, type PersonReview, type ReviewDraft } from '../lib/reviews';
@@ -239,6 +240,12 @@ export async function deleteUser(d1: D1Database, id: number): Promise<void> {
     d1.prepare('UPDATE reviews SET user_id = NULL WHERE user_id = ?1').bind(id),
     // their plays are the household's and stay; only who logged them goes (its table would set null on its own too)
     d1.prepare('UPDATE plays SET logged_by = NULL WHERE logged_by = ?1').bind(id),
+    // Their want list goes with them, and every gift list published of it (§16 #53): a want is a wish for later, not
+    // history, and nobody's wish is nothing to keep — a link to it must not outlive them. shares.want_user_id has no
+    // ON DELETE action (drizzle-kit drops it on ALTER TABLE), so it is cleared here, before the user row; wants would
+    // go with it by cascade, and are cleared here too, so the batch says everything that leaves with them.
+    d1.prepare('DELETE FROM shares WHERE want_user_id = ?1').bind(id),
+    d1.prepare('DELETE FROM wants WHERE user_id = ?1').bind(id),
     d1.prepare('DELETE FROM users WHERE id = ?1').bind(id),
   ]);
 }
@@ -327,6 +334,7 @@ export type NewShare = {
   owned?: boolean | null;
   tag?: string | null;
   sort?: 'added' | 'title' | 'rating' | 'completed';
+  wantUserId?: number | null; // a gift list: this member's want list (§16 #53)
 };
 
 export async function createShare(d1: D1Database, values: NewShare): Promise<Share> {
@@ -354,6 +362,11 @@ export async function listTagShares(d1: D1Database, tag: string): Promise<Share[
   return db(d1).select().from(s.shares).where(eq(s.shares.tag, tag)).orderBy(asc(s.shares.id));
 }
 
+/** The gift lists published of one member's want list (§16 #53). */
+export async function listWantShares(d1: D1Database, userId: number): Promise<Share[]> {
+  return db(d1).select().from(s.shares).where(eq(s.shares.wantUserId, userId)).orderBy(asc(s.shares.id));
+}
+
 export async function rotateShare(d1: D1Database, id: number, token: string): Promise<void> {
   await db(d1).update(s.shares).set({ token }).where(eq(s.shares.id, id));
 }
@@ -372,7 +385,10 @@ export type ItemFilters = {
   owned?: boolean; // true = copies > 0, false = copies = 0 (reading-log entries)
   q?: string; // title/creators/location substring, case-insensitive — the signed-in shelf's only, never a view's
   tag?: string; // only items carrying this tag (tags are stored lowercase)
-  sort?: 'added' | 'title' | 'rating' | 'completed';
+  // only items on this member's want list (§16 #53) — what a gift list captures, and the want-list page shows
+  wantedBy?: number;
+  // 'wanted': newest on the want list first — only with wantedBy
+  sort?: 'added' | 'title' | 'rating' | 'completed' | 'wanted';
   page?: number; // 1-based
 };
 
@@ -404,6 +420,9 @@ function itemFilterWhere(libraryId: number | null, f: ItemFilters, reader?: Read
     conds.push(
       sql`EXISTS (SELECT 1 FROM ${s.itemTags} INNER JOIN ${s.tags} ON ${s.tags.id} = ${s.itemTags.tagId} WHERE ${s.itemTags.itemId} = ${s.items.id} AND ${s.tags.name} = ${f.tag})`,
     );
+  }
+  if (f.wantedBy !== undefined) {
+    conds.push(sql`EXISTS (SELECT 1 FROM ${s.wants} WHERE ${s.wants.itemId} = ${s.items.id} AND ${s.wants.userId} = ${f.wantedBy})`);
   }
   if (f.q) {
     const needle = `%${f.q.replace(/[%_\\]/g, '\\$&')}%`;
@@ -453,7 +472,12 @@ export async function listItems(
   const where = itemFilterWhere(libraryId, f, reader);
 
   const order =
-    f.sort === 'title'
+    f.sort === 'wanted' && f.wantedBy !== undefined
+      ? [
+          sql`(SELECT ${s.wants.createdAt} FROM ${s.wants} WHERE ${s.wants.itemId} = ${s.items.id} AND ${s.wants.userId} = ${f.wantedBy}) DESC`,
+          desc(s.items.id),
+        ]
+      : f.sort === 'title'
       ? [asc(s.items.title)]
       : f.sort === 'rating'
         ? [sql`${s.items.rating} IS NULL, ${s.items.rating} DESC`, asc(s.items.title)]
@@ -543,7 +567,7 @@ export async function recentItems(d1: D1Database, limit = 12): Promise<Item[]> {
 }
 
 /** What the Overview's "Read next" card shows of its pick. */
-export type ReadNextPick = Pick<Item, 'id' | 'title' | 'creators' | 'coverKey' | 'copies' | 'mediaType'>;
+export type ReadNextPick = Pick<Item, 'id' | 'title' | 'creators' | 'coverKey' | 'copies' | 'mediaType'> & { wanted: boolean };
 
 /**
  * A random book for `readerId` to read next, or null when there is none: any book, owned or not, that they haven't
@@ -561,6 +585,8 @@ export async function pickNextRead(d1: D1Database, readerId: number, notId: numb
       coverKey: s.items.coverKey,
       copies: s.items.copies,
       mediaType: s.items.mediaType,
+      // the "Wanted" badge beside "Not owned" (§16 #53), in the same query
+      wanted: sql`${s.items.copies} = 0 AND EXISTS (SELECT 1 FROM ${s.wants} WHERE ${s.wants.itemId} = ${s.items.id})`.mapWith(Boolean),
     })
     .from(s.items)
     .where(
@@ -763,9 +789,16 @@ export async function setItemTags(d1: D1Database, itemId: number, names: string[
 /**
  * A new item, its tags, and the read and review the form's status, dates, rating and review stand for — the adder's
  * (§16 #43) — in one batch: a failure between them saved it without them, and the person's second try saved it
- * twice. Returns its id.
+ * twice. `wantedBy`: "Want it" on a scan or search result (§16 #53) — the item joins that member's want list in the
+ * same batch. Returns its id.
  */
-export async function createItemWithTags(d1: D1Database, values: NewItem, names: string[], series: SeriesDraft | null = null): Promise<number> {
+export async function createItemWithTags(
+  d1: D1Database,
+  values: NewItem,
+  names: string[],
+  series: SeriesDraft | null = null,
+  opts: { wantedBy?: number } = {},
+): Promise<number> {
   const reads = readsFromColumns(values.status ?? 'not_started', values.beganOn, values.completedOn);
   const reviews = stampReviews(reviewsFromColumns(values));
   const q = db(d1)
@@ -782,6 +815,7 @@ export async function createItemWithTags(d1: D1Database, values: NewItem, names:
     refreshReadState(d1, 'newest'),
     ...reviewInsertStatements(d1, 'newest', reviews, values.addedBy ?? null),
     refreshReviewState(d1, 'newest'),
+    ...(opts.wantedBy !== undefined ? wantInsertStatements(d1, 'newest', [{ userId: opts.wantedBy, at: null }]) : []),
   ]);
   const row = results[upsert.length]?.results[0] as { id: number } | undefined;
   if (!row) throw new Error('failed to create item');
@@ -1196,16 +1230,27 @@ export async function loansForIdRange(
   libraryId?: number,
   limit?: number,
 ): Promise<{ loans: Map<number, LoanDraft[]>; cutAt: number | null }> {
+  const rows = (await loansRangeStatement(d1, fromId, toId, libraryId, limit).all<LoanDraft & { itemId: number }>()).results;
+  return groupLoans(rows, limit);
+}
+
+/** loansForIdRange's statement — shared with exportCellsForIdRange, so the page cap can't drift between them. */
+function loansRangeStatement(d1: D1Database, fromId: number, toId: number, libraryId?: number, limit?: number): D1PreparedStatement {
   const scoped = libraryId ? 'AND l.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : '';
-  const stmt = d1.prepare(
-    `SELECT l.item_id AS itemId, l.borrower, l.loaned_on AS loanedOn, l.due_on AS dueOn, l.returned_on AS returnedOn,
-            l.contact, l.note
-     FROM loans l
-     WHERE l.item_id BETWEEN ?1 AND ?2 ${scoped}
-     ORDER BY l.item_id, l.id
-     LIMIT ?4`,
-  );
-  const rows = (await stmt.bind(fromId, toId, libraryId ?? null, limit ?? -1).all<LoanDraft & { itemId: number }>()).results;
+  return d1
+    .prepare(
+      `SELECT l.item_id AS itemId, l.borrower, l.loaned_on AS loanedOn, l.due_on AS dueOn, l.returned_on AS returnedOn,
+              l.contact, l.note
+       FROM loans l
+       WHERE l.item_id BETWEEN ?1 AND ?2 ${scoped}
+       ORDER BY l.item_id, l.id
+       LIMIT ?4`,
+    )
+    .bind(fromId, toId, libraryId ?? null, limit ?? -1);
+}
+
+/** Loan rows by item, and where a `limit` cut them off: the item the last row read belongs to, which may be missing some. */
+function groupLoans(rows: Array<LoanDraft & { itemId: number }>, limit?: number): { loans: Map<number, LoanDraft[]>; cutAt: number | null } {
   const loans = new Map<number, LoanDraft[]>();
   for (const { itemId, ...loan } of rows) {
     const list = loans.get(itemId);
@@ -1498,6 +1543,10 @@ function formReadStatements(d1: D1Database, itemId: number, person: number | nul
   }
   const ended = form.status === 'in_progress' ? null : form.completedOn;
   return [
+    // Marking a book Completed that they hadn't finished is finishing it: it leaves their want list (§16 #53). First,
+    // while their reads still say whether they had finished it — an edit of a book they finished before leaves a
+    // want to read it again where it is.
+    ...(form.status === 'completed' ? [finishedWantStatement(d1, itemId, person)] : []),
     d1
       .prepare(
         `INSERT INTO reads (item_id, reader_id, status, began_on, ended_on)
@@ -1548,7 +1597,28 @@ export async function readingLog(
   d1: D1Database,
   itemId: number,
 ): Promise<{ reads: ReadEntry[]; entries: ProgressEntry[]; reviews: ReviewEntry[] }> {
-  const [reads, entries, reviews] = await d1.batch([
+  return readingLogOf(await d1.batch(readingLogStatements(d1, itemId)));
+}
+
+/**
+ * The item page's reading log and its want list and purchase links (§16 #53) in the same one D1 call — readingLog's
+ * batch with wantsAndLinks' two statements after it — so want lists add nothing to the page's calls.
+ */
+export async function itemPageLog(
+  d1: D1Database,
+  itemId: number,
+): Promise<{
+  reads: ReadEntry[];
+  entries: ProgressEntry[];
+  reviews: ReviewEntry[];
+  want: { wanters: Array<{ id: number; username: string; at: string }>; links: Array<{ id: number; label: string; url: string }> };
+}> {
+  const results = await d1.batch([...readingLogStatements(d1, itemId), ...wantsAndLinksStatements(d1, itemId)]);
+  return { ...readingLogOf(results), want: wantsAndLinksOf(results.slice(3)) };
+}
+
+function readingLogStatements(d1: D1Database, itemId: number): D1PreparedStatement[] {
+  return [
     d1
       .prepare(
         `SELECT r.id, r.status, r.began_on AS beganOn, r.ended_on AS endedOn, r.created_at AS createdAt, r.reader_id AS readerId
@@ -1564,7 +1634,10 @@ export async function readingLog(
          FROM reviews v WHERE v.item_id = ?1 ORDER BY ${reviewOrderSql('v')}`,
       )
       .bind(itemId),
-  ]);
+  ];
+}
+
+function readingLogOf([reads, entries, reviews]: D1Result[]): { reads: ReadEntry[]; entries: ProgressEntry[]; reviews: ReviewEntry[] } {
   return {
     reads: (reads?.results ?? []) as ReadEntry[],
     entries: (entries?.results ?? []) as ProgressEntry[],
@@ -1626,6 +1699,18 @@ export async function closeRead(
            AND ${allowed('reader_id', '?5', '?6')}`,
       )
       .bind(readId, itemId, status, endedOn, ...actorBinds(by)),
+    // A finished book leaves its reader's want list (§16 #53) — straight after the UPDATE, so changes() is its: a
+    // finish refused changes nothing, and neither does this. A stop leaves the want: they still mean to read it.
+    ...(status === 'completed'
+      ? [
+          d1
+            .prepare(
+              `DELETE FROM wants WHERE item_id = ?2 AND user_id = (SELECT reader_id FROM reads WHERE id = ?1 AND item_id = ?2)
+                 AND changes() > 0 AND EXISTS (SELECT 1 FROM items WHERE id = ?2 AND media_type = 'book')`,
+            )
+            .bind(readId, itemId),
+        ]
+      : []),
     refreshReadState(d1, [itemId], { touch: true }),
   ]);
   return (closed?.meta.changes ?? 0) > 0;
@@ -1654,7 +1739,17 @@ export async function addPastRead(d1: D1Database, itemId: number, read: ReadDraf
  * reader has another open. True when it changed.
  */
 export async function updateRead(d1: D1Database, itemId: number, readId: number, read: ReadDraft, by: Actor): Promise<boolean> {
-  const [updated] = await d1.batch([
+  const [, updated] = await d1.batch([
+    // Correcting an open read to Completed finishes it: the book leaves its reader's want list (§16 #53), as Finish
+    // takes it off. First, while the read still says it was open, and on the same conditions the UPDATE below has.
+    d1
+      .prepare(
+        `DELETE FROM wants WHERE ?3 = 'completed' AND item_id = ?2
+           AND EXISTS (SELECT 1 FROM items WHERE id = ?2 AND media_type = 'book')
+           AND user_id = (SELECT r.reader_id FROM reads r WHERE r.id = ?1 AND r.item_id = ?2 AND r.status = 'in_progress'
+             AND ${allowed('r.reader_id', '?4', '?5')})`,
+      )
+      .bind(readId, itemId, read.status, ...actorBinds(by)),
     d1
       .prepare(
         `UPDATE reads SET status = ?3, began_on = ?4, ended_on = ?5
@@ -1726,19 +1821,20 @@ export async function moveRead(d1: D1Database, itemId: number, readId: number, t
  * (null for a member removed since) — the export's pages are contiguous in id order, so one query covers a page
  * (see tagsForIdRange).
  */
+/** readsForIdRange's statement, shared with exportCellsForIdRange so the two can't drift. */
+const readsRangeSql = (scoped: string) =>
+  `SELECT r.item_id AS itemId, r.id, r.status, r.began_on AS beganOn, r.ended_on AS endedOn, u.username AS reader
+   FROM reads r LEFT JOIN users u ON u.id = r.reader_id
+   WHERE r.item_id BETWEEN ?1 AND ?2 ${scoped}
+   ORDER BY r.item_id, ${displayOrderSql('r')}`;
+
 export async function readsForIdRange(
   d1: D1Database,
   fromId: number,
   toId: number,
   libraryId?: number,
 ): Promise<Map<number, Array<ReadRow & { reader: string | null }>>> {
-  const scoped = libraryId ? 'AND r.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : '';
-  const stmt = d1.prepare(
-    `SELECT r.item_id AS itemId, r.id, r.status, r.began_on AS beganOn, r.ended_on AS endedOn, u.username AS reader
-     FROM reads r LEFT JOIN users u ON u.id = r.reader_id
-     WHERE r.item_id BETWEEN ?1 AND ?2 ${scoped}
-     ORDER BY r.item_id, ${displayOrderSql('r')}`,
-  );
+  const stmt = d1.prepare(readsRangeSql(libraryId ? 'AND r.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : ''));
   const rows = (
     await (libraryId ? stmt.bind(fromId, toId, libraryId) : stmt.bind(fromId, toId)).all<ReadRow & { itemId: number; reader: string | null }>()
   ).results;
@@ -1957,19 +2053,20 @@ export async function moveReview(d1: D1Database, itemId: number, reviewId: numbe
 }
 
 /** Reviews for every item whose id lies in [fromId, toId], oldest first, with each writer's username — as readsForIdRange. */
+/** reviewsForIdRange's statement, shared with exportCellsForIdRange. */
+const reviewsRangeSql = (scoped: string) =>
+  `SELECT v.item_id AS itemId, u.username AS by, v.rating, v.review, v.reviewed_at AS reviewedAt, v.rated_at AS ratedAt
+   FROM reviews v LEFT JOIN users u ON u.id = v.user_id
+   WHERE v.item_id BETWEEN ?1 AND ?2 ${scoped}
+   ORDER BY v.item_id, v.id`;
+
 export async function reviewsForIdRange(
   d1: D1Database,
   fromId: number,
   toId: number,
   libraryId?: number,
 ): Promise<Map<number, Array<ReviewDraft & { by: string | null }>>> {
-  const scoped = libraryId ? 'AND v.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : '';
-  const stmt = d1.prepare(
-    `SELECT v.item_id AS itemId, u.username AS by, v.rating, v.review, v.reviewed_at AS reviewedAt, v.rated_at AS ratedAt
-     FROM reviews v LEFT JOIN users u ON u.id = v.user_id
-     WHERE v.item_id BETWEEN ?1 AND ?2 ${scoped}
-     ORDER BY v.item_id, v.id`,
-  );
+  const stmt = d1.prepare(reviewsRangeSql(libraryId ? 'AND v.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : ''));
   const rows = (
     await (libraryId ? stmt.bind(fromId, toId, libraryId) : stmt.bind(fromId, toId)).all<ReviewDraft & { itemId: number; by: string | null }>()
   ).results;
@@ -1980,6 +2077,327 @@ export async function reviewsForIdRange(
     result.set(itemId, list);
   }
   return result;
+}
+
+// ---------- want lists and purchase links (ARCH.md §16 #53) ----------
+//
+// `wants` is each member's want list; `purchase_links` the household's pasted links for an item. A want is its member's
+// alone: only they change it (the route passes their own id; nothing here takes someone else's). A link is the item's:
+// any member adds or removes one. Deleting an item takes both with it (ON DELETE CASCADE); removing a member clears
+// their list and their gift lists (deleteUser).
+
+/** A want as an import brings it: a member here, and since when (null: now). */
+export type PersonWant = { userId: number; at: string | null };
+
+/** Inserts wants for an item — its id, or 'newest' for one inserted earlier in the batch — skipping any already there, or of nobody. */
+function wantInsertStatements(d1: D1Database, item: number | 'newest', wants: PersonWant[]): D1PreparedStatement[] {
+  if (!wants.length) return [];
+  const itemRef = item === 'newest' ? '(SELECT max(id) FROM items)' : '?2';
+  const stmt = d1.prepare(
+    `INSERT INTO wants (item_id, user_id, created_at)
+     SELECT ${itemRef}, json_extract(value, '$.userId'), coalesce(json_extract(value, '$.at'), datetime('now'))
+     FROM json_each(?1) WHERE EXISTS (SELECT 1 FROM users u WHERE u.id = json_extract(value, '$.userId'))
+     ON CONFLICT DO NOTHING`,
+  );
+  const json = JSON.stringify(wants.map((w) => ({ userId: w.userId, at: w.at })));
+  return [item === 'newest' ? stmt.bind(json) : stmt.bind(json, item)];
+}
+
+/** Inserts purchase links for an item — its id, or 'newest' — already checked (checkPurchaseLink), at most MAX_LINKS_PER_ITEM. */
+function linkInsertStatements(d1: D1Database, item: number | 'newest', links: LinkDraft[]): D1PreparedStatement[] {
+  if (!links.length) return [];
+  const itemRef = item === 'newest' ? '(SELECT max(id) FROM items)' : '?2';
+  const stmt = d1.prepare(
+    `INSERT INTO purchase_links (item_id, label, url)
+     SELECT ${itemRef}, json_extract(value, '$.label'), json_extract(value, '$.url') FROM json_each(?1) WHERE true
+     ORDER BY key ON CONFLICT DO NOTHING`,
+  );
+  const json = JSON.stringify(links.slice(0, MAX_LINKS_PER_ITEM).map((l) => ({ label: l.label, url: l.url })));
+  return [item === 'newest' ? stmt.bind(json) : stmt.bind(json, item)];
+}
+
+/**
+ * A book `person` finished leaves their want list: the statement for the edit form's Completed, which goes before the
+ * form's read is written — it clears the want only while they have no finished read of the book yet, so saving the
+ * form of a book they'd finished before keeps a want to read it again. Books only: a record or a game marked
+ * Completed was heard or played, which isn't having it.
+ */
+function finishedWantStatement(d1: D1Database, itemId: number, person: number | null): D1PreparedStatement {
+  return d1
+    .prepare(
+      `DELETE FROM wants WHERE item_id = ?1 AND user_id IS ?2
+         AND EXISTS (SELECT 1 FROM items WHERE id = ?1 AND media_type = 'book')
+         AND NOT EXISTS (SELECT 1 FROM reads WHERE item_id = ?1 AND reader_id IS ?2 AND status = 'completed')`,
+    )
+    .bind(itemId, person);
+}
+
+/**
+ * Puts an item on `userId`'s want list, or takes it off — the signed-in member's own list only. Idempotent: wanting
+ * what they already want keeps the date it was first wanted; an item that isn't there is wanted by nobody.
+ */
+export async function setWant(d1: D1Database, itemId: number, userId: number, want: boolean): Promise<void> {
+  await (want
+    ? d1
+        .prepare(
+          `INSERT INTO wants (item_id, user_id) SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1)
+           ON CONFLICT DO NOTHING`,
+        )
+        .bind(itemId, userId)
+    : d1.prepare('DELETE FROM wants WHERE item_id = ?1 AND user_id = ?2').bind(itemId, userId)
+  ).run();
+}
+
+/**
+ * Which of these items the household wants and doesn't have (§16 #53): someone's want list holds it and `copies` is 0 —
+ * the "Wanted" badge beside "Not owned". A set of ids, never whose. One query, the ids as one JSON parameter.
+ */
+export async function wantedAmong(d1: D1Database, itemIds: number[]): Promise<Set<number>> {
+  if (!itemIds.length) return new Set();
+  const rows = await d1.prepare(WANTED_AMONG).bind(JSON.stringify(itemIds)).all<{ id: number }>();
+  return new Set(rows.results.map((r) => r.id));
+}
+const WANTED_AMONG = `SELECT i.id FROM items i WHERE i.id IN (SELECT value FROM json_each(?1)) AND i.copies = 0
+  AND EXISTS (SELECT 1 FROM wants w WHERE w.item_id = i.id)`;
+
+/** A shelf page's badges in one D1 call: which items are out on loan, and which are wanted (wantedAmong). */
+export async function shelfFlags(d1: D1Database, itemIds: number[]): Promise<{ onLoan: Set<number>; wanted: Set<number> }> {
+  if (!itemIds.length) return { onLoan: new Set(), wanted: new Set() };
+  const ids = JSON.stringify(itemIds);
+  const [loans, wanted] = await d1.batch([
+    d1.prepare('SELECT DISTINCT item_id AS id FROM loans WHERE returned_on IS NULL AND item_id IN (SELECT value FROM json_each(?1))').bind(ids),
+    d1.prepare(WANTED_AMONG).bind(ids),
+  ]);
+  const set = (r: D1Result | undefined) => new Set(((r?.results ?? []) as Array<{ id: number }>).map((x) => x.id));
+  return { onLoan: set(loans), wanted: set(wanted) };
+}
+
+/** Who wants an item — ids and usernames, for the item's page inside the app — and its purchase links, oldest first: one D1 call. */
+export async function wantsAndLinks(
+  d1: D1Database,
+  itemId: number,
+): Promise<{ wanters: Array<{ id: number; username: string; at: string }>; links: Array<{ id: number; label: string; url: string }> }> {
+  return wantsAndLinksOf(await d1.batch(wantsAndLinksStatements(d1, itemId)));
+}
+
+function wantsAndLinksStatements(d1: D1Database, itemId: number): D1PreparedStatement[] {
+  return [
+    d1
+      .prepare('SELECT u.id, u.username, w.created_at AS at FROM wants w JOIN users u ON u.id = w.user_id WHERE w.item_id = ?1 ORDER BY w.created_at, u.id')
+      .bind(itemId),
+    d1.prepare('SELECT id, label, url FROM purchase_links WHERE item_id = ?1 ORDER BY id').bind(itemId),
+  ];
+}
+
+function wantsAndLinksOf([w, l]: D1Result[]): {
+  wanters: Array<{ id: number; username: string; at: string }>;
+  links: Array<{ id: number; label: string; url: string }>;
+} {
+  return {
+    wanters: (w?.results ?? []) as Array<{ id: number; username: string; at: string }>,
+    links: (l?.results ?? []) as Array<{ id: number; label: string; url: string }>,
+  };
+}
+
+/** When `userId` put each of these items on their want list, and the items' purchase links: one D1 call, for the want-list page. */
+export async function wantListExtras(
+  d1: D1Database,
+  userId: number,
+  itemIds: number[],
+): Promise<{ since: Map<number, string>; links: Map<number, Array<{ id: number; label: string; url: string }>> }> {
+  const since = new Map<number, string>();
+  const links = new Map<number, Array<{ id: number; label: string; url: string }>>();
+  if (!itemIds.length) return { since, links };
+  const ids = JSON.stringify(itemIds);
+  const [w, l] = await d1.batch([
+    d1.prepare('SELECT item_id AS itemId, created_at AS at FROM wants WHERE user_id = ?1 AND item_id IN (SELECT value FROM json_each(?2))').bind(userId, ids),
+    d1.prepare('SELECT item_id AS itemId, id, label, url FROM purchase_links WHERE item_id IN (SELECT value FROM json_each(?1)) ORDER BY item_id, id').bind(ids),
+  ]);
+  for (const r of (w?.results ?? []) as Array<{ itemId: number; at: string }>) since.set(r.itemId, r.at);
+  for (const { itemId, ...link } of (l?.results ?? []) as Array<{ itemId: number; id: number; label: string; url: string }>) {
+    links.set(itemId, [...(links.get(itemId) ?? []), link]);
+  }
+  return { since, links };
+}
+
+/**
+ * What the public item route checks an item against, whatever kind of share it is (itemMatchesShare): its tags, and
+ * who wants it. One D1 call, the same work for every id — an item that doesn't exist costs what one outside the view does.
+ */
+export async function shareGuardFacts(d1: D1Database, itemId: number): Promise<{ tags: string[]; wanters: number[] }> {
+  const [t, w] = await d1.batch([
+    // no ORDER BY, as tagsForItems() had none: a shelf's share page lists an item's tags as it always did
+    d1.prepare('SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = ?1').bind(itemId),
+    d1.prepare('SELECT user_id AS id FROM wants WHERE item_id = ?1').bind(itemId),
+  ]);
+  return {
+    tags: ((t?.results ?? []) as Array<{ name: string }>).map((r) => r.name),
+    wanters: ((w?.results ?? []) as Array<{ id: number }>).map((r) => r.id),
+  };
+}
+
+/**
+ * A gift list's page's two facts in one D1 call: its items' purchase links, oldest first, and the name its member goes
+ * by in public — their display name only while names are on for share pages (the instance's default when no admin has
+ * set it, §16 #49), else null; never a username.
+ */
+export async function giftExtras(
+  d1: D1Database,
+  userId: number,
+  itemIds: number[],
+): Promise<{ owner: string | null; links: Map<number, Array<{ id: number; label: string; url: string }>> }> {
+  const [o, l] = await d1.batch([
+    d1
+      .prepare(
+        `SELECT u.display_name AS name, coalesce((SELECT names_on_shares FROM site_settings WHERE id = 1), ?2) AS on_
+         FROM users u WHERE u.id = ?1`,
+      )
+      .bind(userId, SITE_DEFAULTS.namesOnShares ? 1 : 0),
+    d1
+      .prepare('SELECT item_id AS itemId, id, label, url FROM purchase_links WHERE item_id IN (SELECT value FROM json_each(?1)) ORDER BY item_id, id')
+      .bind(JSON.stringify(itemIds)),
+  ]);
+  const row = (o?.results ?? [])[0] as { name: string | null; on_: number } | undefined;
+  const links = new Map<number, Array<{ id: number; label: string; url: string }>>();
+  for (const { itemId, ...link } of (l?.results ?? []) as Array<{ itemId: number; id: number; label: string; url: string }>) {
+    links.set(itemId, [...(links.get(itemId) ?? []), link]);
+  }
+  return { owner: row?.on_ && row.name ? row.name : null, links };
+}
+
+export type AddLinkResult = 'added' | 'duplicate' | 'full' | 'missing';
+
+/** Adds a checked purchase link to an item — any member may. At most MAX_LINKS_PER_ITEM, and an address once. */
+export async function addPurchaseLink(d1: D1Database, itemId: number, link: LinkDraft): Promise<AddLinkResult> {
+  const res = await d1
+    .prepare(
+      `INSERT INTO purchase_links (item_id, label, url)
+       SELECT ?1, ?2, ?3 WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1)
+         AND (SELECT count(*) FROM purchase_links WHERE item_id = ?1) < ${MAX_LINKS_PER_ITEM}
+       ON CONFLICT DO NOTHING`,
+    )
+    .bind(itemId, link.label, link.url)
+    .run();
+  if (res.meta.changes > 0) return 'added';
+  const row = await d1
+    .prepare(`SELECT EXISTS (SELECT 1 FROM items WHERE id = ?1) AS item, EXISTS (SELECT 1 FROM purchase_links WHERE item_id = ?1 AND url = ?2) AS dup`)
+    .bind(itemId, link.url)
+    .first<{ item: number; dup: number }>();
+  return !row?.item ? 'missing' : row.dup ? 'duplicate' : 'full';
+}
+
+/** Removes one of an item's purchase links — any member may. */
+export async function deletePurchaseLink(d1: D1Database, itemId: number, linkId: number): Promise<void> {
+  await d1.prepare('DELETE FROM purchase_links WHERE id = ?1 AND item_id = ?2').bind(linkId, itemId).run();
+}
+
+/**
+ * The item already in the catalog that a scan or search result names, if any — "Want" on it then adds a want there
+ * rather than a second copy (§16 #53). A book by its ISBN-13; a record by its barcode (in isbn13 or isbn10_upc, digits
+ * only) or its Discogs release id; a board game by its BGG id. Ids in details compare as text, whatever JSON type they
+ * were stored as. The oldest match, or null. One query.
+ */
+export async function existingForWant(
+  d1: D1Database,
+  c: { mediaType: MediaType; isbn13?: string | null; isbn10Upc?: string | null; details: Record<string, unknown> },
+): Promise<number | null> {
+  const digits = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '') || null;
+  const idOf = (v: unknown) => (typeof v === 'number' && Number.isSafeInteger(v) && v > 0) || (typeof v === 'string' && /^\d{1,15}$/.test(v)) ? String(v) : null;
+  const music = c.mediaType === 'vinyl' || c.mediaType === 'music';
+  const isbn = c.mediaType === 'book' ? digits(c.isbn13) : null;
+  const barcode = music ? (digits(c.isbn10Upc) ?? digits(c.isbn13)) : null;
+  const discogs = music ? idOf(c.details['discogs_id']) : null;
+  const bgg = c.mediaType === 'boardgame' ? idOf(c.details['bgg_id']) : null;
+  if (!isbn && !barcode && !discogs && !bgg) return null;
+  const row = await d1
+    .prepare(
+      `SELECT id FROM items WHERE
+         (?1 IS NOT NULL AND isbn13 = ?1)
+         OR (?2 IS NOT NULL AND media_type IN ('vinyl', 'music') AND (isbn10_upc = ?2 OR isbn13 = ?2))
+         OR (?3 IS NOT NULL AND media_type IN ('vinyl', 'music') AND CAST(json_extract(details, '$.discogs_id') AS TEXT) = ?3)
+         OR (?4 IS NOT NULL AND media_type = 'boardgame' AND CAST(json_extract(details, '$.bgg_id') AS TEXT) = ?4)
+       ORDER BY id LIMIT 1`,
+    )
+    .bind(isbn, barcode, discogs, bgg)
+    .first<{ id: number }>();
+  return row?.id ?? null;
+}
+
+export type ExportCells = {
+  tags: Map<number, string[]>;
+  progress: Map<number, ProgressEntry[]>;
+  reads: Map<number, Array<ReadRow & { reader: string | null }>>;
+  reviews: Map<number, Array<ReviewDraft & { by: string | null }>>;
+  loans: Map<number, LoanDraft[]>;
+  // with a loan limit: the item the loans stopped at, which may be missing some (loansForIdRange's cutAt, §16 #57)
+  loanCutAt: number | null;
+  plays: Map<number, CellPlay[]>;
+  series: Map<number, Series>; // every series an item in the range belongs to, by id (§16 #52)
+  wants: Map<number, Array<{ by: string; at: string }>>; // each want's member by username (§16 #53)
+  links: Map<number, LinkDraft[]>;
+};
+
+/**
+ * Everything an export page writes beside its items, for every item whose id lies in [fromId, toId] — tags, the reading
+ * log, reads and reviews with their people, loans (§16 #57), plays (§16 #54), series (§16 #52), wants and purchase
+ * links (§16 #53) — in ONE D1 call, a batch of nine statements, where it took eight calls before want lists and would
+ * have taken nine with them. A page is then two calls with its items (three for an item with more loans than a page
+ * carries, which goes out alone), so the streamed export stays well inside the 50-call design budget (§16 #37). Each
+ * statement is the one its single-purpose twin runs — loans with the same `limit`, so a page ends where it did —
+ * rows from other shelves skipped in SQL for a scoped export, ordered as they order them; a test holds the two paths
+ * to the same answer. Series are those of the items in the range: the page is exactly the items of its scope in it.
+ */
+export async function exportCellsForIdRange(
+  d1: D1Database,
+  fromId: number,
+  toId: number,
+  libraryId?: number,
+  loanLimit?: number,
+): Promise<ExportCells> {
+  const scoped = (col: string) => (libraryId ? `AND ${col} IN (SELECT id FROM items WHERE library_id = ?3)` : '');
+  const bind = (sql: string) => (libraryId ? d1.prepare(sql).bind(fromId, toId, libraryId) : d1.prepare(sql).bind(fromId, toId));
+  const results = await d1.batch([
+    bind(
+      `SELECT it.item_id AS itemId, t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id
+       WHERE it.item_id BETWEEN ?1 AND ?2 ${scoped('it.item_id')}`,
+    ),
+    bind(
+      `SELECT item_id AS itemId, id, page, at, added_by AS addedBy, read_id AS readId FROM reading_progress
+       WHERE item_id BETWEEN ?1 AND ?2 ${scoped('item_id')} ORDER BY at, id`,
+    ),
+    bind(readsRangeSql(scoped('r.item_id'))),
+    bind(reviewsRangeSql(scoped('v.item_id'))),
+    loansRangeStatement(d1, fromId, toId, libraryId, loanLimit),
+    bind(playsRangeSql(scoped('p.item_id'))),
+    bind(
+      `SELECT s.id, s.name, s.key, s.total, s.created_at AS createdAt FROM series s
+       WHERE s.id IN (SELECT series_id FROM items WHERE id BETWEEN ?1 AND ?2 ${libraryId ? 'AND library_id = ?3' : ''})`,
+    ),
+    bind(
+      `SELECT w.item_id AS itemId, u.username AS by, w.created_at AS at FROM wants w JOIN users u ON u.id = w.user_id
+       WHERE w.item_id BETWEEN ?1 AND ?2 ${scoped('w.item_id')} ORDER BY w.item_id, w.created_at, u.id`,
+    ),
+    bind(`SELECT item_id AS itemId, label, url FROM purchase_links WHERE item_id BETWEEN ?1 AND ?2 ${scoped('item_id')} ORDER BY item_id, id`),
+  ]);
+  const rowsOf = <T,>(i: number) => (results[i]?.results ?? []) as Array<T & { itemId: number }>;
+  const group = <T, U>(rows: Array<T & { itemId: number }>, pick: (r: T & { itemId: number }) => U) => {
+    const out = new Map<number, U[]>();
+    for (const r of rows) out.set(r.itemId, [...(out.get(r.itemId) ?? []), pick(r)]);
+    return out;
+  };
+  const loans = groupLoans(rowsOf<LoanDraft>(4), loanLimit);
+  return {
+    tags: group(rowsOf<{ name: string }>(0), (r) => r.name),
+    progress: group(rowsOf<ProgressEntry>(1), (r) => ({ id: r.id, page: r.page, at: r.at, addedBy: r.addedBy, readId: r.readId })),
+    reads: group(rowsOf<ReadRow & { reader: string | null }>(2), (r) => ({ id: r.id, status: r.status, beganOn: r.beganOn, endedOn: r.endedOn, reader: r.reader })),
+    reviews: group(rowsOf<ReviewDraft & { by: string | null }>(3), ({ itemId: _i, ...review }) => review),
+    loans: loans.loans,
+    loanCutAt: loans.cutAt,
+    plays: group(rowsOf<{ playedOn: string; by: string | null }>(5), (r) => ({ playedOn: r.playedOn, by: r.by })),
+    series: new Map(((results[6]?.results ?? []) as Series[]).map((r) => [r.id, r])),
+    wants: group(rowsOf<{ by: string; at: string }>(7), (r) => ({ by: r.by, at: r.at })),
+    links: group(rowsOf<LinkDraft>(8), (r) => ({ label: r.label, url: r.url })),
+  };
 }
 
 // ---------- reading progress ----------
@@ -2176,19 +2594,20 @@ export async function deletePlay(d1: D1Database, itemId: number, playId: number,
 }
 
 /** Plays for every item whose id lies in [fromId, toId], oldest first, with who logged each by username — as readsForIdRange. */
+/** playsForIdRange's statement, shared with exportCellsForIdRange. */
+const playsRangeSql = (scoped: string) =>
+  `SELECT p.item_id AS itemId, p.played_on AS playedOn, u.username AS by
+   FROM plays p LEFT JOIN users u ON u.id = p.logged_by
+   WHERE p.item_id BETWEEN ?1 AND ?2 ${scoped}
+   ORDER BY p.item_id, p.played_on, p.id`;
+
 export async function playsForIdRange(
   d1: D1Database,
   fromId: number,
   toId: number,
   libraryId?: number,
 ): Promise<Map<number, CellPlay[]>> {
-  const scoped = libraryId ? 'AND p.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : '';
-  const stmt = d1.prepare(
-    `SELECT p.item_id AS itemId, p.played_on AS playedOn, u.username AS by
-     FROM plays p LEFT JOIN users u ON u.id = p.logged_by
-     WHERE p.item_id BETWEEN ?1 AND ?2 ${scoped}
-     ORDER BY p.item_id, p.played_on, p.id`,
-  );
+  const stmt = d1.prepare(playsRangeSql(libraryId ? 'AND p.item_id IN (SELECT id FROM items WHERE library_id = ?3)' : ''));
   const rows = (
     await (libraryId ? stmt.bind(fromId, toId, libraryId) : stmt.bind(fromId, toId)).all<{ itemId: number; playedOn: string; by: string | null }>()
   ).results;
@@ -2397,6 +2816,9 @@ export type ImportRow = {
   plays?: PersonPlay[];
   goodreads?: GoodreadsReading;
   series?: SeriesDraft | null; // its series, and the series' total when the file gives one (§16 #52)
+  // a Nalanda export's want lists and purchase links (§16 #53), each want already resolved to a member here
+  wants?: PersonWant[];
+  links?: LinkDraft[];
 };
 
 /**
@@ -2429,6 +2851,8 @@ export async function importItems(d1: D1Database, rows: ImportRow[]): Promise<nu
       refreshReviewState(d1, 'newest'),
       ...loanInsertStatements(d1, r.loans ?? []),
       ...playInsertStatements(d1, r.plays ?? [], person),
+      ...wantInsertStatements(d1, 'newest', r.wants ?? []),
+      ...linkInsertStatements(d1, 'newest', r.links ?? []),
     );
   }
   const results = await d1.batch(asImport(d1, writes));

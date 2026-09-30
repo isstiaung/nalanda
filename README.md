@@ -29,6 +29,11 @@ manuscripts.
   (below), and the scanner keeps working in a basement or a bookshop — barcodes are held on
   the phone and listed on **Add items** for you to add or drop once you're back online. No
   page of your catalog is ever stored on the phone.
+- **Want lists and gift lists**: each member keeps their own want list — "Want to read" on a
+  book, "Want" on a record or game, or straight from a scan or search result, which adds it as
+  Not owned. Anyone pastes shop links under "Where to buy". An admin can publish a member's
+  list as a gift list: a share link showing exactly what they want now, with those links, and
+  their display name only if names are switched on. Finishing a book takes it off your list.
 - **Family accounts**: admin + members, no email infrastructure needed.
 - **Everyone's own reading and reviews**: each member's reads, pages, rating and review are
   their own, shown under their name on the book's page, and a "Read by" filter narrows a shelf
@@ -84,7 +89,7 @@ manuscripts.
   reading, owned or not, whoever else has read it. **Another** draws a different one;
   **Start reading** starts your read and opens the book.
 - **Own your data**: every field round-trips through CSV export — each read with its reader,
-  each member's review, every loan and every play — and plain-SQLite backups.
+  each member's review, every loan and every play, want lists and purchase links — and plain-SQLite backups.
 - **The manuscript ledger**: a hand-written design system grounded in Nalanda's Pala-era
   scriptorium — palm-leaf paper, indigo and vermilion, Devanagari-first display type,
   a lamp-lit dark mode. No CSS framework.

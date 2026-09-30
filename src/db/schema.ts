@@ -180,6 +180,10 @@ export const shares = sqliteTable('shares', {
   tag: text('tag'), // everything carrying this tag (stored lowercase), on any shelf the other filters allow
   sort: text('sort', { enum: ['added', 'title', 'rating', 'completed'] }).notNull().default('title'),
   createdAt: text('created_at').notNull().default(now),
+  // A gift list (§16 #53): this member's want list as it stands — every item they want, on any shelf — and nothing
+  // else. Set only on a want-list share, whose other filters are all unset. No ON DELETE action: drizzle-kit drops it
+  // on ALTER TABLE, so deleteUser() removes a member's want-list shares itself, in its batch.
+  wantUserId: integer('want_user_id').references(() => users.id),
 });
 
 export const loginAttempts = sqliteTable('login_attempts', {
@@ -436,6 +440,46 @@ export const plays = sqliteTable(
     // plays in a date range, across the catalogue ("year in review"): a range scan, grouped by item from the index
     index('idx_plays_played_item').on(t.playedOn, t.itemId),
   ],
+);
+
+/**
+ * Each member's want list (§16 #53): what they want to read — or, for a record or a game, want — one row per member
+ * per item. A member's own, changed only by them. Their finishing a book takes it off (closeRead, and the edit form's
+ * Completed); removing the member clears their list, and deleting the item takes it off every list.
+ */
+export const wants = sqliteTable(
+  'wants',
+  {
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.itemId] }), index('idx_wants_item').on(t.itemId)],
+);
+
+/**
+ * Where to buy an item (§16 #53): a label and an http(s) URL someone pasted — never generated. The item's, shared by
+ * the household: any member adds or removes one. Public only on a want-list share (a gift list), never on a shelf's
+ * share page or to connections.
+ */
+export const purchaseLinks = sqliteTable(
+  'purchase_links',
+  {
+    // AUTOINCREMENT: a link's id is in its remove route, so it never names another link
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    url: text('url').notNull(),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  // the same URL twice on one item is one link
+  (t) => [uniqueIndex('purchase_links_item_url').on(t.itemId, t.url)],
 );
 
 export const ACTIVITY_KINDS = ['reviewed', 'rated', 'finished', 'progress', 'started'] as const; // 'started': per person only (§16 #45)
@@ -760,3 +804,4 @@ export type Comment = typeof comments.$inferSelect;
 export type OutboxRow = typeof outbox.$inferSelect;
 export type BorrowRequestRow = typeof borrowRequests.$inferSelect;
 export type BorrowedItem = typeof borrowedItems.$inferSelect;
+export type PurchaseLink = typeof purchaseLinks.$inferSelect;

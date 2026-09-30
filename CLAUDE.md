@@ -127,6 +127,30 @@ shape from this file.
   is `goalCountSql()` — a member's finished reads of books ending in the year — and the triggers
   carry it word for word. The goal kinds are the only item-less ones: `parseFeedEntry()` still needs an
   item on every other kind, and 1.3.0's parser (test/fixtures/items-v1.3.0.ts) skips goal entries.
+- **Gift lists** (ARCH.md §16 #53) are the one share kind that isn't a shelf: `shares.want_user_id`
+  captures one member's **want list as it stands** and nothing else (no shelf, no filters).
+  `shareFilters()` carries it as `wantedBy` and `itemMatchesShare(share, item, tags, wanters)`
+  checks the item's wanters — the twins must keep agreeing (a test holds every share kind to it).
+  They never count towards a shelf's visibility (`shareVisibility()`, `isWholeShelfShare()`).
+  Their pages render `toGiftItem()` — title, creators, cover, type, publisher, published, length,
+  description, `inCollection` and **purchase links** — built on `toPublicItem()`: no rating,
+  review, reviews, read count, progress, tags or details. The title is "A want list", or the
+  member's **display name** only while `names_on_shares` is on — never a username.
+  Removing a member deletes their wants and their gift lists in `deleteUser()`'s batch.
+- **"Wanted"** is a derived boolean — someone's want list holds the item and `copies = 0` — and the
+  one public key want lists added: `toPublicItem(item, { wanted })` adds `wanted: true` only when
+  asked and only while not owned, and `toConnectionItem(item, { wanted })` passes it to connections
+  (shelf cards, item pages, feed entries) the same way — absent otherwise, so every other item's
+  bytes are unchanged, and older peers drop the unknown key. Never whose want, never a count. It
+  shows wherever "Not owned" does; a peer's `wanted` renders as our own fixed text. A Not owned
+  item's share page never claims it was read (share pages have no status to say so).
+- **Purchase links** are pasted, never generated, the item's (any member adds or removes one),
+  and **public only on gift lists** — never on a shelf's share page or to connections
+  (`toConnectionItem()` has no field for them). `checkPurchaseLink()` (`src/lib/links.ts`) takes
+  only an absolute http(s) URL without credentials, on every way in (form, import) and again on
+  the way out of a gift list; they render with `target="_blank" rel="noopener noreferrer"`,
+  so a share token never reaches a shop. Want lists and links round-trip through `/export.csv`
+  (`wanted_by`, `purchase_links`), with names as the reads and reviews cells carry them.
 - The shelf's **"Read by" filter** (`ReaderFilter` in `src/db/queries.ts`) is never publishable:
   it is deliberately not part of `ItemFilters`, so `shareFilters()`, `itemMatchesShare()` and
   connection views have no room for it, and the publish form carries no field for it. Keep it
@@ -221,6 +245,7 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    condition.ts (a record's grades and their fixed scale), pressing.ts (what an add
                    and "Refresh from Discogs" may write into a record's details, and reading it back),
                    goals.ts (a reading goal's pace and limits; what counts is goalCountSql in queries.ts)
+                   links.ts (purchase links: the http(s) check, the export's want and link cells — §16 #53)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments and borrowing (comments.ts,

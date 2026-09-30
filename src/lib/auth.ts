@@ -123,6 +123,16 @@ export async function scanQueueOwner(secret: string, user: AccountRef): Promise<
 }
 
 /**
+ * Which account a gift-list publish form was made for (§16 #53): an HMAC over "gift-list:" + accountIdentity(), as the
+ * scan queue's stamp is over its own purpose. The form names the member by id, and ids are reused (§16 #56): a form
+ * left open while that member was removed and someone new was given the id must publish nothing, not the newcomer's list.
+ */
+export async function giftListStamp(secret: string, user: AccountRef): Promise<string> {
+  const sig = await crypto.subtle.sign('HMAC', await hmacKey(secret), enc.encode(`gift-list:${accountIdentity(user)}`));
+  return b64url.encode(new Uint8Array(sig).slice(0, 16));
+}
+
+/**
  * The id and key of a genuine, unexpired token; null otherwise. Always null without a session secret, and for a token
  * with no key — every cookie signed before keys existed (§16 #56), so upgrading signs everyone out once. A session
  * returned here may still name an account that is gone, or an id that is someone else's now: `sessionMatches()`

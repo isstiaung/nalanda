@@ -28,6 +28,7 @@ import shareRoutes, { clearSharePageCache } from './routes/share';
 import shareAdminRoutes from './routes/shares';
 import seriesRoutes from './routes/series';
 import tagRoutes from './routes/tags';
+import wantRoutes from './routes/wants';
 
 const app = new Hono<AppEnv>();
 
@@ -125,6 +126,7 @@ app.route('/', addRoutes);
 app.route('/', loanRoutes);
 app.route('/', tagRoutes);
 app.route('/', seriesRoutes);
+app.route('/', wantRoutes);
 app.route('/', searchRoutes);
 app.route('/', importExportRoutes);
 app.route('/', accountRoutes);

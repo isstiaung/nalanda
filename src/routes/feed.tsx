@@ -233,6 +233,13 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] | nul
           {card.by ? <span class="feed-by">{card.by} </span> : null}
           <span class="muted">{verbs(card)}</span> <strong>{item.title}</strong>
           {item.creators ? <small> · {item.creators}</small> : null}
+          {/* their household wants it (§16 #53): a boolean from them, rendered as our own fixed text */}
+          {item.wanted && !item.inCollection ? (
+            <>
+              {' '}
+              <span class="pill wanted">Wanted</span>
+            </>
+          ) : null}
         </p>
         {card.rating ? <span class="rating">{stars(card.rating)}</span> : null}
         {timeline.length ? (
