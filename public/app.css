@@ -669,6 +669,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .candidate-body small { font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.03em; }
 .candidate-save { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.65rem; }
 #tab-search .inline-form input[type='search'] { flex: 1 1 16rem; }
+/* the typed-barcode field: its label beside it, wrapping under it on a phone */
+#tab-scan .inline-form label { gap: 0.5rem; flex-wrap: wrap; }
 .candidate-save select { width: auto; margin: 0; height: 30px; font-size: 12.5px; }
 
 /* scans held on the device while offline, waiting on the Add page (ARCH.md §16 #48) — candidate cards under a notice */

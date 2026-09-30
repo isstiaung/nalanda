@@ -336,7 +336,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
           </span>
         </div>
       </div>
-      {p.error ? <p class="error">{p.error}</p> : null}
+      {p.error ? <p class="error" role="alert">{p.error}</p> : null}
       {p.notice ? <article class="notice">{p.notice}</article> : null}
 
       <section class="fed-section">
@@ -820,7 +820,7 @@ const ConnectionFeedPage: FC<
           </span>
         </div>
       </div>
-      {p.error ? <p class="error">{p.error}</p> : null}
+      {p.error ? <p class="error" role="alert">{p.error}</p> : null}
       {p.notice ? <article class="notice">{p.notice}</article> : null}
 
       <section class="fed-section">

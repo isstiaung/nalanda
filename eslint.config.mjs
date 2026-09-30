@@ -41,6 +41,16 @@ export default [
       'jsx-a11y/prefer-tag-over-role': 'error',
       // label-has-associated-control: every label here wraps its control; `either` also accepts for=.
       'jsx-a11y/label-has-associated-control': ['error', { assert: 'either', depth: 3, controlComponents: ['RatingSelect'] }],
+      // no-autofocus compares the prop name exactly ("React only recognizes autoFocus"), so hono/jsx's lowercase
+      // `autofocus` walks straight past it. The same check, in the spelling this codebase writes; the few pages
+      // that are one field (log in, setup, search) keep theirs with a reason beside it.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "JSXAttribute[name.name='autofocus']",
+          message: 'jsx-a11y/no-autofocus in hono/jsx spelling: autofocus carries a screen reader past everything before the field.',
+        },
+      ],
     },
   },
 ];

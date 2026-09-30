@@ -514,7 +514,7 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
           </span>
         </div>
       </div>
-      {flash.error ? <p class="error">{flash.error}</p> : null}
+      {flash.error ? <p class="error" role="alert">{flash.error}</p> : null}
 
       <section>
         <p class="eyebrow">Borrowed now</p>

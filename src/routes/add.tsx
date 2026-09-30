@@ -55,22 +55,23 @@ add.get('/add', async (c) => {
         </article>
         <div id="scan-review-list"></div>
       </section>
-      <div role="group" class="tab-bar">
-        <button type="button" class="tab active" data-tab="scan">
-          📷 Scan
+      {/* toggle buttons: aria-pressed says which panel is showing (app.js keeps it in step) */}
+      <div class="tab-bar">
+        <button type="button" class="tab active" data-tab="scan" aria-pressed="true">
+          <span aria-hidden="true">📷</span> Scan
         </button>
-        <button type="button" class="tab" data-tab="search">
-          🔎 Search
+        <button type="button" class="tab" data-tab="search" aria-pressed="false">
+          <span aria-hidden="true">🔎</span> Search
         </button>
-        <button type="button" class="tab" data-tab="manual">
-          ✍️ Manual
+        <button type="button" class="tab" data-tab="manual" aria-pressed="false">
+          <span aria-hidden="true">✍️</span> Manual
         </button>
       </div>
 
       <section id="tab-scan" class="tab-panel active">
         <p class="muted">
-          Point the camera at a book or record barcode. ISBNs look up books; other barcodes look up vinyl on
-          Discogs. Board games have no barcodes on BGG — use the Search tab.
+          Point the camera at a book or record barcode — or type its digits below, no camera needed. ISBNs look up
+          books; other barcodes look up vinyl on Discogs. Board games have no barcodes on BGG — use the Search tab.
         </p>
         <video id="scanner-video" playsinline muted></video>
         <div class="inline-form">
@@ -88,7 +89,10 @@ add.get('/add', async (c) => {
           hx-target="#scan-results"
           hx-swap="innerHTML"
         >
-          <input name="barcode" placeholder="…or type the barcode digits" inputmode="numeric" />
+          <label>
+            Barcode <small>(ISBN, EAN or UPC digits)</small>
+            <input name="barcode" placeholder="e.g. 9780441478125" inputmode="numeric" autocomplete="off" />
+          </label>
           <button type="submit">Look up</button>
         </form>
         <div id="scan-results"></div>
@@ -96,7 +100,7 @@ add.get('/add', async (c) => {
 
       <section id="tab-search" class="tab-panel" hidden>
         <form hx-get="/add/results" hx-target="#search-results" hx-swap="innerHTML" class="inline-form">
-          <input type="search" name="q" placeholder="Title, artist, game name…" required />
+          <input type="search" name="q" placeholder="Title, artist, game name…" aria-label="Title, artist or game name" required />
           <select name="type" aria-label="What is it?">
             <option value="book">📖 Book</option>
             <option value="boardgame">🎲 Board game</option>

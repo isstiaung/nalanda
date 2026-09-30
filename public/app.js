@@ -63,7 +63,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const tabs = document.querySelectorAll('.tab[data-tab]');
   tabs.forEach((tab) => {
     tab.addEventListener('click', () => {
-      tabs.forEach((t) => t.classList.toggle('active', t === tab));
+      tabs.forEach((t) => {
+        t.classList.toggle('active', t === tab);
+        t.setAttribute('aria-pressed', String(t === tab));
+      });
       document.querySelectorAll('.tab-panel').forEach((panel) => {
         const active = panel.id === `tab-${tab.dataset.tab}`;
         panel.hidden = !active;

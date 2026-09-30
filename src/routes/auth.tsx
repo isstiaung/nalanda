@@ -19,6 +19,7 @@ import {
   verifyPassword,
   type AccountRef,
 } from '../lib/auth';
+import { invalid } from '../views/components';
 import { Brand, page } from '../views/layout';
 
 const auth = new Hono<AppEnv>();
@@ -40,15 +41,20 @@ const LoginForm = ({ error, note }: { error?: string; note?: string }) => (
     <Brand />
     <h1>Log in</h1>
     {note ? <p class="notice">{note}</p> : null}
-    {error ? <p class="error">{error}</p> : null}
+    {error ? (
+      <p class="error" role="alert" id="login-error">
+        {error}
+      </p>
+    ) : null}
     <form method="post" action="/auth/login">
       <label>
         Username
-        <input name="username" required autofocus autocomplete="username" />
+        {/* eslint-disable-next-line no-restricted-syntax -- the login page is one form: its first field is where everyone starts */}
+        <input name="username" required autofocus autocomplete="username" {...invalid(error, 'login-error')} />
       </label>
       <label>
         Password
-        <input type="password" name="password" required autocomplete="current-password" />
+        <input type="password" name="password" required autocomplete="current-password" {...invalid(error, 'login-error')} />
       </label>
       <button type="submit">Log in</button>
     </form>
@@ -138,19 +144,24 @@ const SetupForm = ({ error }: { error?: string }) => (
     <Brand />
     <h1>Welcome</h1>
     <p class="muted">Create the admin account. Family members can be added later under Members.</p>
-    {error ? <p class="error">{error}</p> : null}
+    {error ? (
+      <p class="error" role="alert" id="setup-error">
+        {error}
+      </p>
+    ) : null}
     <form method="post" action="/setup">
       <label>
         Username
-        <input name="username" required autofocus autocomplete="username" />
+        {/* eslint-disable-next-line no-restricted-syntax -- setup is one form, on a fresh instance: its first field is where everyone starts */}
+        <input name="username" required autofocus autocomplete="username" {...invalid(error, 'setup-error')} />
       </label>
       <label>
         Password <small>(at least 8 characters)</small>
-        <input type="password" name="password" required minlength={8} autocomplete="new-password" />
+        <input type="password" name="password" required minlength={8} autocomplete="new-password" {...invalid(error, 'setup-error')} />
       </label>
       <label>
         Confirm password
-        <input type="password" name="confirm" required autocomplete="new-password" />
+        <input type="password" name="confirm" required autocomplete="new-password" {...invalid(error, 'setup-error')} />
       </label>
       <button type="submit">Create account</button>
     </form>

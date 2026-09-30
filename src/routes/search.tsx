@@ -47,7 +47,8 @@ search.get('/search', async (c) => {
       </div>
       <BulkNotice query={c.req.query()} libraries={libs} />
       <form method="get" action="/search" role="search" class={people.length > 1 ? 'search-by-reader' : undefined}>
-        <input type="search" name="q" value={q} placeholder="Search the catalog…" autofocus />
+        {/* eslint-disable-next-line no-restricted-syntax -- this page is a search box: typing is why you came */}
+        <input type="search" name="q" value={q} placeholder="Search the catalog…" aria-label="Search the catalog" autofocus />
         {people.length > 1 || reader ? (
           <>
             <ReadByMenu value={readBy} me={user.id} people={people} />

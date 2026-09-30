@@ -33,7 +33,7 @@ const UsersPage = ({
         </span>
       </div>
     </div>
-    {error ? <p class="error">{error}</p> : null}
+    {error ? <p class="error" role="alert">{error}</p> : null}
     {minted ? (
       <article class="notice">
         <strong>Temporary password for “{minted.username}”:</strong> <code>{minted.password}</code>
@@ -107,7 +107,7 @@ const UsersPage = ({
     <section style="margin-top:1.5rem">
       <p class="eyebrow">Add a member</p>
       <form method="post" action="/settings/users" class="inline-form">
-        <input name="username" placeholder="username" required />
+        <input name="username" placeholder="username" aria-label="Username" required />
         <select name="role" aria-label="Role">
           <option value="member">member</option>
           <option value="admin">admin</option>
