@@ -69,8 +69,10 @@
     const out = [];
     let start = 0;
     let loans = 0;
+    // the column as the server reads it, whatever its case
+    const key = Object.keys(all[0] || {}).find((k) => k.trim().toLowerCase() === 'loans');
     for (let i = 0; i < all.length; i++) {
-      const n = all[i].loans ? all[i].loans.split(';').length : 0;
+      const n = key && all[i][key] ? all[i][key].split(';').length : 0;
       if (i > start && (i - start === BATCH || loans + n > LOANS_PER_BATCH)) {
         out.push([start, i]);
         start = i;

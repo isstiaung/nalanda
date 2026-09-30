@@ -397,6 +397,40 @@ describe('loans through the export and back', () => {
     expect(restored[0]!.borrower).toBe('Borrower, "number" 6');
     expect(restored.at(-1)).toMatchObject({ borrower: `Borrower, "number" ${EXPORT_LOANS + 5}`, returnedOn: null });
   });
+
+  it('streams without a cursor in the same few queries however many loans, since smaller pages would save it no CPU', async () => {
+    const cookie = await signIn();
+    await manyItems(EXPORT_PAGE + 10);
+    const stream = async () => {
+      const budget = { left: 50 };
+      const res = await call('/export.csv', cookie, undefined, { ...env, DB: budgeted(env.DB, budget) } as Bindings);
+      return { queries: 50 - budget.left, text: res.text };
+    };
+    const without = await stream();
+    await lend(20);
+    const withLoans = await stream();
+    expect(withLoans.queries).toBe(without.queries);
+    expect(parseCsv(withLoans.text).every((r) => parseLoansCell(r.loans).length === 20)).toBe(true);
+  });
+
+  it("counts only the shelf's own loans when scoped, however the shelves interleave", async () => {
+    const cookie = await signIn();
+    const [mine, theirs] = [(await createLibrary(env.DB, 'Mine')).id, (await createLibrary(env.DB, 'Theirs')).id];
+    // alternate shelves, so every page's id range spans the other shelf's items and their many loans
+    await env.DB.prepare(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 120)
+       INSERT INTO items (library_id, media_type, title, status, copies, details)
+       SELECT CASE WHEN i % 2 THEN ?1 ELSE ?2 END, 'boardgame', 'Game ' || i, 'not_started', 1, '{}' FROM n`,
+    ).bind(mine, theirs).run();
+    await lend(30, `items.library_id = ${theirs}`);
+    await lend(1, `items.library_id = ${mine}`);
+
+    const res = await call(`/export.csv?library=${mine}&after=0`, cookie);
+    const rows = parseCsv(res.text);
+    expect(rows).toHaveLength(60); // not cut by the 1,800 loans on the other shelf
+    expect(res.headers.get('x-export-next')).toBeNull();
+    expect(rows.every((r) => parseLoansCell(r.loans).length === 1)).toBe(true);
+  });
 });
 
 describe('loans never leave the app', () => {

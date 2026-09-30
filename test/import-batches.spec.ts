@@ -90,6 +90,17 @@ describe('importing a Nalanda export with many loans', () => {
     expect(total!.n).toBe(100 * 15 + 1000); // row 150 keeps its latest thousand (MAX_LOANS_PER_CELL)
   });
 
+  it('finds the loans column whatever its case, as the server does', async () => {
+    const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
+    const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;
+    page.library.value = String((await createLibrary(env.DB, 'Restored')).id);
+    const lines = [HEADER.replace('loans', 'Loans ')];
+    for (let i = 1; i <= 3; i++) lines.push(`x,boardgame,Game ${i},1,${loans(600, 'Asha')},,,,,{}`);
+    const posted = await importFile(lines.join('\n'), cookie);
+    expect(posted.map((b) => b.rows)).toEqual([1, 1, 1]);
+    expect((await env.DB.prepare('SELECT count(*) AS n FROM loans').first<{ n: number }>())!.n).toBe(1800);
+  });
+
   it('still posts 200 rows a batch when there are no loans', async () => {
     const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
     const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;

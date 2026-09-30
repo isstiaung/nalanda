@@ -1685,13 +1685,16 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     `EXPORT_LOANS` (1,000): the loans query reads at most 1,001 rows, the page stops before the
     item they stopped in, and `x-export-next` says where to go on (it now means "more may
     follow", not "the page was full"). An item with more than 1,000 loans of its own goes out
-    alone, with all of them, for a seventh query. The Export button needed no change. On the way
+    alone, with all of them, for a seventh query. The Export button needed no change. The route
+    without a cursor streams with no loan limit: the whole stream is one invocation, so smaller
+    pages would spend D1 calls and save no CPU, and it keeps its six a page of 2,000. On the way
     in, `public/import.js` closes a batch at 1,000 loans as well as at 200 rows (a row with more
     goes alone), and a cell keeps at most `MAX_LOANS_PER_CELL` (1,000), the latest — where the
     loans still out are — so an item lent more than a thousand times comes back with its latest
     thousand. `isIsoDate()` now checks a date by arithmetic instead of a `Date` round trip, which
     cost about a microsecond a date; a test holds the two to the same answers. Tests count each
-    page's D1 calls: the same with 5,200 loans as with none.
+    page's D1 calls, and the stream's: the same with 5,200 loans as with none. A shelf-scoped page
+    counts only its own shelf's loans, however the shelves' ids interleave.
 
     **Privacy.** `/export.csv` sits behind `requireAuth`; a test's signed-out request is
     redirected and carries none of it. Loans stay out of share pages and connection payloads

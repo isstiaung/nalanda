@@ -331,9 +331,9 @@ export const EXPORT_PAGE = 250;
 export const EXPORT_LOANS = 1000;
 
 /**
- * Items after `afterId` as CSV lines, with their tags, reads, reviews, loans and reading logs: six queries, and a
- * seventh for an item with more than EXPORT_LOANS loans of its own, which then makes a page alone. `more` says
- * another page may follow.
+ * Items after `afterId` as CSV lines, with their tags, reads, reviews, loans and reading logs: six queries. With
+ * `loanLimit`, a page ends before it would carry more loans than that, and an item with more of its own goes out
+ * alone, for a seventh query. `more` says another page may follow.
  */
 async function exportRows(
   d1: D1Database,
@@ -341,6 +341,7 @@ async function exportRows(
   afterId: number,
   limit: number,
   libNames: Map<number, string>,
+  loanLimit?: number,
 ): Promise<{ csv: string; count: number; lastId: number; more: boolean }> {
   let items = await pageItems(d1, { libraryId: scope, afterId, limit });
   if (!items.length) return { csv: '', count: 0, lastId: afterId, more: false };
@@ -351,7 +352,7 @@ async function exportRows(
     progressForIdRange(d1, from, to, scope),
     readsForIdRange(d1, from, to, scope),
     reviewsForIdRange(d1, from, to, scope),
-    loansForIdRange(d1, from, to, scope, EXPORT_LOANS + 1),
+    loansForIdRange(d1, from, to, scope, loanLimit === undefined ? undefined : loanLimit + 1),
   ]);
   let loanMap = loansRead.loans;
   if (loansRead.cutAt !== null) {
@@ -400,7 +401,7 @@ importexport.get('/export.csv', async (c) => {
     // one file. The header row leads the first page only; `x-export-next` names where the next page starts,
     // and is missing once a page comes back short — short of items, not ended early for its loans.
     const afterId = Number(after);
-    const page = await exportRows(c.env.DB, scope, afterId, EXPORT_PAGE, libNames);
+    const page = await exportRows(c.env.DB, scope, afterId, EXPORT_PAGE, libNames, EXPORT_LOANS);
     return new Response((afterId === 0 ? csvLine([...EXPORT_COLUMNS]) : '') + page.csv, {
       headers: {
         ...headers,
@@ -430,6 +431,7 @@ importexport.get('/export.csv', async (c) => {
           controller.enqueue(encoder.encode(csvLine([...EXPORT_COLUMNS])));
           return;
         }
+        // no loan limit: the whole stream is one invocation, so smaller pages would spend queries and save no CPU
         const page = await exportRows(d1, scope, afterId, PAGE, libNames);
         if (!page.count) return controller.close();
         controller.enqueue(encoder.encode(page.csv));
