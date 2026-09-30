@@ -36,6 +36,7 @@ const reading: Item = {
   rating: null,
   review: null,
   notes: null,
+  location: null,
   copies: 1,
   beganOn: '2026-09-20',
   completedOn: null,

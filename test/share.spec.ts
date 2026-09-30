@@ -27,6 +27,7 @@ const item: Item = {
   rating: 10,
   review: 'A favorite.',
   notes: 'SECRET: bought as a gift for dad, do not spoil',
+  location: null,
   copies: 2,
   beganOn: '2026-01-01',
   completedOn: '2026-01-10',
