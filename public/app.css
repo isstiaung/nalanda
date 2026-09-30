@@ -594,7 +594,9 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   z-index: 20;
   min-width: 170px;
   max-width: calc(100vw - 2rem);
-  padding: 0.55rem 0.7rem 0.8rem; /* the last checkbox, too, keeps 24px clear of what's below the menu */
+  /* the last checkbox, too, keeps 24px clear of what's below the menu; and each keeps 24px clear of whatever the
+     menu half covers beside it — a sliver of a select peeking out at its left edge is a touch target too */
+  padding: 0.55rem 1.1rem 0.8rem;
   display: grid;
   gap: 0.8rem; /* each checkbox keeps 24px clear of the next: they are touch targets (WCAG 2.5.8) */
   background: var(--surface);
