@@ -43,6 +43,10 @@ Local dev prints to the `npm run dev` terminal.
   details kept the short format a search gave it — clear that key in the edit form's details
   JSON, save, and refresh. **"Found by barcode — refresh again for the tracklist"**: a barcode search has no
   tracklist; the release id it stored fetches one on the next click.
+- **"Something went wrong — try again."** after Refresh from Discogs or Refresh from BGG: the
+  request never came back with an answer — a server error (look in `wrangler tail`) or a dropped
+  connection. Discogs' and BGG's own refusals say so in their own words instead. Reload the page
+  and click again.
 - **Weird edition data** (wrong publisher/year): providers return their "best" edition.
   Edit the item after saving — lookup fills the form, it doesn't own the data.
 - **Backfill stops with "request failed (500)"**: a large backfill can trip the free plan's

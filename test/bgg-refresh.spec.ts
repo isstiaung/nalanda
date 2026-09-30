@@ -276,12 +276,12 @@ describe('BGG’s failures', () => {
 
     const planted = await seen(`bgg=${encodeURIComponent('<script>alert(1)</script>')}`);
     expect(planted).not.toContain('alert(1)');
-    expect(planted).not.toContain('<p class="notice">'); // an unknown code shows no notice at all
+    expect(planted).toContain('<output id="bgg-status" class="notice refresh-status" aria-live="polite"></output>'); // an unknown code shows no notice at all
     const filled = await seen(`bgg=filled&f=${encodeURIComponent('<b>x</b>,weight,constructor,__proto__')}`);
     expect(filled).toContain('Filled from BoardGameGeek: weight.');
     expect(filled).not.toContain('<b>x</b>');
     expect(filled).not.toContain('constructor');
-    expect(await seen('bgg=toString')).not.toContain('<p class="notice">'); // not Object.prototype's
+    expect(await seen('bgg=toString')).toContain('<output id="bgg-status" class="notice refresh-status" aria-live="polite"></output>'); // not Object.prototype's
   });
 });
 
