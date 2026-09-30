@@ -544,7 +544,7 @@ describe('migration 0036', () => {
     const asha = await member('u-asha', 'admin');
     await createConnectionView(env.DB, { name: 'All', libraryId: null, mediaType: null, status: null, owned: null });
     // Raw SQL, not book(): a Drizzle insert names every column schema.ts has today, and migrations after 0036 add some
-    // (0037's purchase price) that this database, stopped before 0036, doesn't have yet.
+    // (0037's want lists touch no item column; 0038's purchase price does) that this database, stopped before 0036, lacks.
     const shelf = await createLibrary(env.DB, 'Household shelf');
     for (const title of ['One', 'Two', 'Three']) {
       const item = await env.DB.prepare("INSERT INTO items (library_id, media_type, title, length, details, added_by) VALUES (?1, 'book', ?2, 300, '{}', ?3) RETURNING id")
