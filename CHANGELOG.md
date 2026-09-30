@@ -21,7 +21,7 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **Filter menus' checkboxes are spaced further apart**, so each is easier to tap, and a menu near the right edge of a phone's screen opens leftwards instead of hanging off it.
 - **Keyboard focus is always visible and stays put.** Checkboxes and the Table / Covers and Scan / Search / Manual toggles show a clear focus ring, and recording a page, finishing a read or toggling Owned keeps your place instead of sending focus back to the top of the page.
 - **Nothing scrolls a phone's page sideways**: long share links on a shelf's settings and a tag's page wrap, and the Members table keeps its buttons on screen.
-- **A hovered table row** is a lighter tint with an indigo rule at its left edge.
+- **A hovered table row** is a lighter tint with an indigo rule at its left edge, and a row picked for bulk edit likewise (a firmer rule), so the text on it stays readable.
 
 ### Upgrading
 - Contributors: run `npm install`, then `npx playwright install chromium` once before `npm run a11y`.
