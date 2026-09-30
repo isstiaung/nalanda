@@ -314,8 +314,8 @@ recommendations.get('/recommendations', async (c) => {
                     <form method="post" action={`/recommendations/${r.id}/want`} class="inline-form">
                       {shelves.length > 1 ? (
                         <>
-                          <label for={`want-shelf-${r.id}`} class="visually-hidden">
-                            Shelf for {r.title}
+                          <label for={`want-shelf-${r.id}`} class="muted">
+                            Shelf<span class="visually-hidden"> for {r.title}</span>
                           </label>
                           <select id={`want-shelf-${r.id}`} name="libraryId">
                             {shelves.map((l) => (
