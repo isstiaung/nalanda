@@ -2364,11 +2364,27 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     sum of `items.length` over finishes of books with a length (> 0); the page says how many finishes had
     none. Lists count **books**, not finishes: a book is its folded title and creators (`work`), so two
     editions are one book and a re-read doesn't make one book two — authors rank by books, then finishes
-    ("1 book · 3 finishes"); tags by books carrying them. Authors come from `creators` split on commas, a lone
-    "Jr."/"Sr." dropped rather than counted as an author. A rating counts once per reader and book finished
-    that year (a re-read doesn't count it twice), and only from the reader who finished it — so a rating of a
-    book finished in another year, or by someone who didn't finish it that year, isn't that year's. The
-    household's highest-rated averages a book's ratings across its readers and editions. Longest and
+    ("1 book · 3 finishes"); tags by books carrying them. **Authors** come from `creators` split into people
+    (`YEAR_CREATORS`). The separator really used is ", ": Open Library, Google Books and BoardGameGeek join
+    several names with it, and so does the Goodreads import (author, then additional authors), so splitting only
+    on ';' and ' & ' would stop splitting nearly every multi-author book. But a hand-typed or libib-imported
+    catalogue can hold one person written "Last, First", which a plain comma split made two people ("Le Guin"
+    and "Ursula K."; found by nalanda-review). So a string is one person when it has exactly one comma, no ';'
+    or '&', no full stop before the comma, and given names after it — a single word ("Herbert, Frank") or
+    names ending in an initial ("Le Guin, Ursula K.", "Tolkien, J. R. R.") — and not a suffix; it is turned
+    round ("Ursula K. Le Guin") so it meets the same author spelled the usual way. Two full names ("Terry
+    Pratchett, Neil Gaiman") and anything with two commas ("A, B, C") still split; ';' and ' & ' split too
+    ("Pratchett & Gaiman" is two). A lone "Jr."/"Sr." is dropped rather than counted as an author, and
+    "Martin Luther King, Jr." isn't turned round. What the rule gets wrong, knowingly: two surnames alone
+    ("Pratchett, Gaiman") read as one person, and "Mandel, Emily St. John" as two. `work` still folds the
+    creators string as written, so a book held as "Le Guin, Ursula K." and "Ursula K. Le Guin" is two books.
+    **A rating** counts once per reader and book finished that year — the `work`, not the item, so neither a
+    re-read nor a second edition counts it twice, and a reader who rated two editions of one book gave it their
+    average of the two (the per-item grouping counted both; found by nalanda-review) — and only from the reader
+    who finished it, only for the editions they finished — so a rating of a book finished in another year, or
+    by someone who didn't finish it that year, isn't that year's. Former members, one "nobody" to the app's
+    checks (#43), are one reader here too. The household's highest-rated averages a book's per-reader ratings
+    across its readers. Longest and
     shortest are among the year's books with a length; the fastest read is began → ended counting both days
     (a book begun and finished the same day took one), among finishes with a start date no later than the end.
     Plays count per type (`boardgame`, `vinyl` — an item since retyped away from those drops out), a total,
@@ -2416,7 +2432,9 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
 
     **Chosen without asking, overrulable:** reading figures are books only, as goals are; undated finishes are
     counted in a note rather than listed; lists rank books (editions and re-reads folded) before finishes; the
-    average rating is over ratings by those who finished the book that year, once per reader and book; fastest
+    average rating is over ratings by those who finished the book that year, once per reader and book (two
+    editions rated: their average); a "Last, First" author is recognised by the given-names rule above and
+    turned round, and ';' and ' & ' separate authors as commas do; fastest
     counts both days; ties go to the latest; top five authors, tags and rated books, top three per play type; a
     household of one — whose figures are all its own — sees one column, "You", not the same figures twice (a
     former member's reads make the columns differ, and both show); `/year-in-review` sits in the sidebar's
