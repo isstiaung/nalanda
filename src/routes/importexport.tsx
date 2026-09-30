@@ -48,7 +48,7 @@ importexport.get('/import', async (c) => {
           <span class="sub">LIBIB · GOODREADS CSV IN · FULL CSV OUT</span>
         </div>
         <div class="page-actions">
-          <a href="/export.csv" role="button" data-export>
+          <a href="/export.csv" class="btn" data-export>
             Export everything as CSV
           </a>
         </div>

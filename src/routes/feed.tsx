@@ -247,7 +247,7 @@ const FeedCard: FC<{ card: Card; showHousehold: boolean; thread: Comment[] | nul
             {/* the bar says how far through a book they are — a finished book isn't partway through anything,
                 but one being read again is */}
             {timeline[0]!.percent !== null && (!card.kinds.has('finished') || again) ? (
-              <div class="progress-track" role="img" aria-label={`${timeline[0]!.percent}% read`}>
+              <div class="progress-track" aria-hidden="true">
                 <div class="progress-fill" style={`width:${timeline[0]!.percent}%`} />
               </div>
             ) : null}

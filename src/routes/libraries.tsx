@@ -184,7 +184,7 @@ libraries.get('/libraries/:id', async (c) => {
           </span>
         </div>
         <div class="page-actions">
-          <a href="/add" role="button">
+          <a href="/add" class="btn">
             Add items
           </a>
         </div>
@@ -282,7 +282,7 @@ libraries.get('/libraries/:id', async (c) => {
         </form>
         {user.role === 'admin' ? (
           <div class="share-panel">
-            <h4>Public share links</h4>
+            <h2 class="share-panel-head">Public share links</h2>
             {shares.map((v) => (
               <div class="share-row">
                 <span>

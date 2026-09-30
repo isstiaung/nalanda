@@ -51,7 +51,7 @@ const UsersPage = ({
             <th>Display name</th>
             <th>Role</th>
             <th class="hide-sm">Since</th>
-            <th class="actions-cell"></th>
+            <th class="actions-cell"><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>

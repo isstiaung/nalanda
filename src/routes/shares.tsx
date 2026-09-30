@@ -77,7 +77,7 @@ shares.get('/shares', async (c) => {
                   <th>Scope</th>
                   <th class="num">Items</th>
                   <th class="hide-sm">Published</th>
-                  <th />
+                  <th><span class="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>

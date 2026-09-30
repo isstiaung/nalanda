@@ -700,6 +700,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
                     , due <span class="mono">{l.dueOn}</span>
                   </>
                 ) : null}
+                {/* said in words, not by the vermilion alone */}
+                {isOverdue(l) ? <strong> — overdue</strong> : null}
               </span>
               <button type="submit" class="btn">
                 Mark returned
@@ -719,7 +721,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
         <LendingHistory loans={lent.loans} total={lent.total} />
 
         <div class="actions">
-          <a href={`/items/${item.id}/edit`} role="button">
+          <a href={`/items/${item.id}/edit`} class="btn">
             Edit
           </a>
           <form

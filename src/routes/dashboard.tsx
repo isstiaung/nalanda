@@ -58,7 +58,7 @@ dashboard.get('/', async (c) => {
       <div class="page-head">
         <h1>Overview</h1>
         <div class="page-actions">
-          <a href="/add" role="button" class="btn-primary">
+          <a href="/add" class="btn btn-primary">
             Add items
           </a>
         </div>

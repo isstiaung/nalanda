@@ -251,7 +251,7 @@ const ProgressLine: FC<{ page: number; length: number | null; percent: number | 
       ) : null}
     </p>
     {percent !== null ? (
-      <div class="progress-track" role="img" aria-label={`${percent}% read`}>
+      <div class="progress-track" aria-hidden="true">
         <div class="progress-fill" style={`width:${percent}%`} />
       </div>
     ) : null}

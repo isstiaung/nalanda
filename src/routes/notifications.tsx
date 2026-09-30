@@ -95,6 +95,8 @@ notificationsRoutes.get('/notifications', async (c) => {
           {list.map((n) => (
             <li class={n.id > readUpTo ? 'unread' : undefined}>
               <a href={n.href}>
+                {/* the dot is colour alone; this says it */}
+                {n.id > readUpTo ? <span class="sr-only">New: </span> : null}
                 <Sentence n={n} />
               </a>
               <span class="mono muted">{n.at.slice(0, 16)}</span>

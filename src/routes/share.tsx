@@ -417,7 +417,7 @@ share.get('/:token/items/:id', async (c) => {
                   <>
                     {' · '}
                     <span class="mono">{pub.progress.percent}%</span>
-                    <div class="progress-track" role="img" aria-label={`${pub.progress.percent}% read`}>
+                    <div class="progress-track" aria-hidden="true">
                       <div class="progress-fill" style={`width:${pub.progress.percent}%`} />
                     </div>
                   </>
