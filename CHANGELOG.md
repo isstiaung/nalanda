@@ -8,7 +8,9 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
-## [Unreleased]
+## [1.5.0] - 2026-09-30
+
+A lot for games, records and reading: a play and listening log, reading goals (shared with connected households if you like), want lists with shop links and gift-list shares, series with what's missing and what's next, a record's condition and pressing from Discogs, where each thing lives, and loans in the export.
 
 ### Added
 - **Export and import now include loans.** A new `loans` column holds every loan of an item, still out or returned, with its borrower, the dates it went out, was due and came back, the contact and the note. Importing a Nalanda export brings them back onto the items it adds, whoever imports it; an export from before this version imports as it always did, without loans. A loan to a connected household comes back as an ordinary loan under the name it was lent to, since the link to that household can't be rebuilt from a file. Importing the same file twice still adds every item twice, each copy with its own loans, never a loan twice on one item. Very large exports now come in more, smaller pieces when items carry many loans; the Export button joins them into one file as before. Nothing to do when upgrading.
@@ -45,28 +47,20 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **A loan's due date is kept only when it's a real date.** The item page's Lend form stored whatever it was sent, which the export couldn't carry; anything else now means no due date, as it already did when lending to a connected household. Due dates already stored as free text ("next week") still export and import unchanged.
 
 ### Upgrading
-- **Back up first** (`npm run backup`). Migration `0030_plays` runs when you deploy. It adds the `plays` table and changes nothing already there. `npm run backup` now backs up `plays` too; the restore order in [runbooks/backup-and-restore.md](runbooks/backup-and-restore.md) includes it.
-- **Exports from before this version** have no `plays` column. They still import: their games and records arrive with no plays. An export from this version imports into an older one without its plays, which that version ignores.
-- An export made by this version has a `loans` column. An older Nalanda ignores it when importing the file, so the loans don't come back there.
-- Migrations `0031_location` and `0032_location-fts` run when you deploy. 0031 adds an empty `location` column to items. 0032 rebuilds the search index with the new column: it drops the index and its three triggers, makes them again, and refills the index from your items. Nothing else changes, and search finds what it found before.
-- **Rolling back is safe.** Older code ignores the column and leaves locations as they are. An export from this version imported into an older one leaves the locations out.
-- Migration `0033_series` runs when you deploy: it adds a `series` table and two empty columns to items. It changes no existing data — rehearsed on a production backup, every existing table came through identical. Every item starts in no series; there is no backfill, so existing books stay blank until you edit them.
-- **Backups now include `series.sql`**, restored before `items`. A backup from before this release simply has none: skip it when restoring ([runbooks/backup-and-restore.md](runbooks/backup-and-restore.md)).
-- An export from this version imports into an older one without its series: older versions drop columns they don't know.
-- Migration `0034_vinyl-condition` runs when you deploy. It adds two empty columns to items for a record's media and sleeve grades, and changes no existing data.
-- **No new secrets.** Pressing details and **Refresh from Discogs** use the `DISCOGS_TOKEN` you may already have. Without it, a record's page says to set one.
-- **Connections** are unaffected. Plays, loans, locations, series and a record's grades aren't sent to connected households on any version. A record's pressing fields travel in its details, as its label and catalogue number always did, so households on older versions see them as before; the tracklist isn't sent.
-- **Back up first** (`npm run backup`). Migrations `0035_reading-goals` and `0036_goal-activity` run when you deploy. 0036 rebuilds the per-person activity table so a goal entry can have no book, keeping every entry and its id. Your books, reads, reviews and everything else are untouched.
-- **Your sharing settings don't change.** The new defaults are for new instances only. If your instance already has members, 0036 writes down the settings you have been running on: names stay off unless an admin turned them on, and **Share reading goals** starts off. Nothing anyone outside sees changes until an admin switches something on.
-- **Backups:** `npm run backup` now also exports `reading_goals`. To restore a backup from before this version, restore it at its own migration level and apply 0035–0036 afterwards, as [runbooks/backup-and-restore.md](runbooks/backup-and-restore.md) says; migrated to the latest first, an instance restored from a backup that never saved a switch would start with names and goals on.
-- **Reading goals aren't in `/export.csv`**, by design: a goal is a person's, not an item's. Backups carry them.
-- **Connections:** households on 1.3.0 or older keep working with yours. The protocol is still version 1. They skip goal entries without error, see the rest of your feed as before, and never ask for those entries again. Goals from households on this version show on your Feed.
-- **Back up first** (`npm run backup`). Migration `0037_want-to-read` runs when you deploy: it adds two empty tables, `wants` and `purchase_links`, and one column to `shares`. It changes no existing data.
-- **If you restore from backups**, the table order now has `wants` and `purchase_links` after `reading_goals` ([runbooks/backup-and-restore.md](runbooks/backup-and-restore.md)).
+- **Back up first** (`npm run backup`). Eight migrations run when you deploy, in order. Each was rehearsed on a copy of a real backup, and none changes your existing data:
+  - `0030_plays` adds the `plays` table;
+  - `0031_location` adds an empty `location` column, and `0032_location-fts` rebuilds the search index to include it (it drops the index and its three triggers, makes them again, and refills it from your items — search finds what it found before);
+  - `0033_series` adds a `series` table and two empty columns to items. There is no backfill: existing books stay out of any series until you edit them;
+  - `0034_vinyl-condition` adds two empty columns for a record's grades;
+  - `0035_reading-goals` adds the goals table and the **Share reading goals** switch, and `0036_goal-activity` rebuilds the per-person activity table so a goal entry can have no book, keeping every entry and its id;
+  - `0037_want-to-read` adds the `wants` and `purchase_links` tables and one column to `shares`.
+- **Your sharing settings don't change.** The new defaults (names and goals on) are for new instances only. If your instance already has members, 0036 writes down the settings you have been running on: names stay as an admin left them, and **Share reading goals** starts off. Nothing anyone outside sees changes until an admin switches something on.
+- **Deploy when nobody is using the app, and don't roll back past this release** without restoring the backup: older code doesn't know the rebuilt activity table's goal entries.
+- **Backups** now also export `plays`, `series`, `reading_goals`, `wants` and `purchase_links`. To restore a backup from before this version (a 1.4.0 backup is at migration 0029), restore it at its own migration level and apply 0030–0037 afterwards, as [runbooks/backup-and-restore.md](runbooks/backup-and-restore.md) says; migrated to the latest first, an instance restored from a backup that never saved a switch would start with names and goals on.
+- **Exports** gain columns: `loans`, `plays`, `location`, `series`/`series_number`/`series_total`, `media_condition`/`sleeve_condition`, `wanted_by` and `purchase_links`. Exports from before this version still import. An export from this version imports into an older one without those columns, which that version ignores. **Reading goals aren't in `/export.csv`**, by design: a goal is a person's, not an item's; backups carry them.
 - **Removing a member now clears their want list**, and any gift list published of it stops working. Their reads and reviews stay, as before.
-- **No new secrets.**
-- **Connections:** connected households see a book you want and don't own marked "Wanted" — no names. Households on older versions ignore it. Want lists and purchase links never go to them.
-- **An export from this version** has two more columns; an older version's import ignores them.
+- **No new secrets.** Pressing details and **Refresh from Discogs** use the `DISCOGS_TOKEN` you may already have; without it, a record's page says to set one.
+- **Connections:** households on older versions keep working with yours; the protocol is still version 1. They skip goal entries without error and ignore the "Wanted" flag. Plays, loans, locations, series, a record's grades, want lists and purchase links are never sent to any connected household. A record's pressing fields travel in its details as its label and catalogue number always did; the tracklist isn't sent.
 
 ## [1.4.0] - 2026-09-30
 
