@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { listLibraries, listPeople, seriesNames } from '../db/queries';
 import type { AppEnv } from '../env';
 import { lookupByBarcode, searchByName, type SearchType } from '../metadata';
-import { BggAttribution } from '../views/attribution';
+import { BggAttribution, DiscogsNotice } from '../views/attribution';
 import { scanQueueOwner } from '../lib/auth';
 import { CandidateCard, ItemForm, ReviewEntry, SCANNED_AT } from '../views/components';
 import { page } from '../views/layout';
@@ -140,6 +140,8 @@ add.get('/add/results', async (c) => {
         <CandidateCard candidate={candidate} libraries={libs} />
       ))}
       {result.candidates.some((candidate) => candidate.provider === 'bgg') ? <BggAttribution /> : null}
+      {/* §16 #63: each Discogs result carries its own credit; the terms' notice goes once, below them */}
+      {result.candidates.some((candidate) => candidate.provider === 'discogs') ? <DiscogsNotice /> : null}
     </>,
   );
 });

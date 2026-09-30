@@ -706,6 +706,18 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .bgg-credit:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .bgg-attribution { margin: 1.4rem 0 0; }
 
+/* "Data provided by Discogs." — Discogs' terms want those words beside its data, linked to the release's page, and
+   its notice (ARCH.md §16 #63). Text, no logo: small and quiet like the BGG credit, a working link in the accent,
+   the notice in the muted ink below it. Long words wrap rather than push a phone's page sideways. */
+.discogs-attribution { margin: 0.9rem 0 0; font-size: 11.5px; line-height: 1.45; color: var(--ink-3); overflow-wrap: anywhere; }
+.discogs-attribution p { margin: 0; }
+.discogs-attribution .discogs-notice { margin-top: 0.2rem; font-size: 10.5px; }
+.discogs-credit { text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
+.discogs-credit:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+.candidate-credit { display: block; }
+.discogs-notice { font-size: 10.5px; color: var(--ink-3); overflow-wrap: anywhere; } /* once, below the Add page's Discogs results */
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+
 /* ── misc lists ───────────────────────────────────────────────────────────── */
 
 .details-list { display: grid; grid-template-columns: max-content 1fr; gap: 0.1rem 1rem; font-size: 12.5px; }
