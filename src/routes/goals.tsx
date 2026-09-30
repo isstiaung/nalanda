@@ -3,7 +3,7 @@
 // src/db/queries.ts). What counts is worked out when a page asks — see goalCountSql.
 import { Hono, type Context } from 'hono';
 import type { FC } from 'hono/jsx';
-import { deleteGoal, getGoal, getSiteSettings, goalsOf, listPeople, setGoal, type GoalProgress } from '../db/queries';
+import { deleteGoal, getGoal, getSiteSettings, getUserById, goalsOf, listPeople, setGoal, type GoalProgress } from '../db/queries';
 import type { AppEnv } from '../env';
 import { MAX_GOAL_TARGET, parseGoalTarget, settableYears } from '../lib/goals';
 import { todayUtc } from '../lib/reads';
@@ -21,7 +21,8 @@ type PageProps = {
   people: Array<{ id: number; username: string }>;
   list: GoalProgress[];
   today: string;
-  // connected households hear about goals: connections are set up, and names and goals both go to them
+  // connected households hear about this member's goals: connections are set up, names and goals both go to them, and
+  // the member has a display name — without one their goals never go out (§16 #49)
   shared: boolean;
   error?: string;
   year?: number;
@@ -91,7 +92,7 @@ const GoalsPage: FC<PageProps> = ({ whose, self, admin, people, list, today, sha
           Every book {self ? 'you finish' : 'they finish'} with an end date in that year counts, a re-read too. Records and
           board games don’t, and nor does a finish with no date. Setting a new number keeps the count.
           {shared
-            ? ' Connected households see when a goal is set, passes halfway and is reached, signed with the display name — never which book or when it was read.'
+            ? ' Connected households following a view of your books see when a goal is set, passes halfway and is reached, signed with the display name — never which book or when it was read.'
             : ''}
         </p>
       </article>
@@ -131,10 +132,15 @@ function whoseGoals(c: Context<AppEnv>, raw: string | undefined): number | null 
 async function render(c: Context<AppEnv>, memberId: number, extra: Pick<PageProps, 'error' | 'year' | 'target'> = {}, status: 200 | 400 = 200) {
   const user = c.get('user');
   const admin = user.role === 'admin';
-  const [people, list, site] = await Promise.all([listPeople(c.env.DB), goalsOf(c.env.DB, memberId), getSiteSettings(c.env.DB)]);
+  const [people, list, site, row] = await Promise.all([
+    listPeople(c.env.DB),
+    goalsOf(c.env.DB, memberId),
+    getSiteSettings(c.env.DB),
+    getUserById(c.env.DB, memberId),
+  ]);
   const whose = people.find((p) => p.id === memberId);
   if (!whose) return c.notFound();
-  const shared = !!c.env.FEDERATION_PRIVATE_KEY && site.namesToConnections && site.goalsToConnections;
+  const shared = !!c.env.FEDERATION_PRIVATE_KEY && site.namesToConnections && site.goalsToConnections && !!row?.displayName;
   c.status(status);
   return page(
     c,
