@@ -1,6 +1,6 @@
 import { fetchWithTimeout, USER_AGENT } from '../env';
 import { cleanSeriesName, parseSeriesNumber, type SeriesDraft } from '../lib/series';
-import { cleanDescription, type Candidate, type MetadataProvider } from './provider';
+import { cleanDescription, PAGE_SIZE, type Candidate, type MetadataProvider, type SearchPage } from './provider';
 
 type OlDoc = {
   key?: string;
@@ -24,12 +24,13 @@ const FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pag
 // budget, several times per item — so cover/detail lookups ask for the lean set.
 const LEAN_FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,series_name,series_position';
 
-async function searchOl(q: string, limit: number, fields: string = FIELDS): Promise<OlDoc[]> {
-  const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&fields=${fields}&limit=${limit}`;
+async function searchOl(q: string, limit: number, fields: string = FIELDS, page = 1): Promise<{ docs: OlDoc[]; found: number }> {
+  const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&fields=${fields}&limit=${limit}${page > 1 ? `&page=${page}` : ''}`;
   const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } });
-  if (!res.ok) return [];
-  const data = (await res.json()) as { docs?: OlDoc[] };
-  return data.docs ?? [];
+  if (!res.ok) return { docs: [], found: 0 };
+  const data = (await res.json()) as { docs?: OlDoc[]; numFound?: number };
+  const docs = data.docs ?? [];
+  return { docs, found: typeof data.numFound === 'number' ? data.numFound : docs.length };
 }
 
 /**
@@ -89,17 +90,23 @@ export const openLibrary: MetadataProvider = {
   async lookupByBarcode(code: string): Promise<Candidate | null> {
     // Lean: the ISBN recorded is the one that was scanned, so the doc's edition list is never read —
     // and Open Library sends the whole thing (70 KB for a much-reprinted work) even at limit 1.
-    const docs = await searchOl(`isbn:${code}`, 1, LEAN_FIELDS);
+    const { docs } = await searchOl(`isbn:${code}`, 1, LEAN_FIELDS);
     return docs[0] ? toCandidate(docs[0], code) : null;
   },
 
   async search(query: string): Promise<Candidate[]> {
-    const docs = await searchOl(query, 8);
-    return docs
-      .map((d) => toCandidate(d, d.isbn?.find((i) => i.length === 13)))
-      .filter((c): c is Candidate => !!c);
+    return (await openLibrarySearchPage(query, 1)).candidates;
   },
 };
+
+/** One page of a book search: Open Library ranks by relevance and pages itself (`page`, eight at a time). */
+export async function openLibrarySearchPage(query: string, page: number): Promise<SearchPage> {
+  const { docs, found } = await searchOl(query, PAGE_SIZE, FIELDS, page);
+  const candidates = docs
+    .map((d) => toCandidate(d, d.isbn?.find((i) => i.length === 13)))
+    .filter((c): c is Candidate => !!c);
+  return { candidates, more: page * PAGE_SIZE < found };
+}
 
 /**
  * The description Open Library's search index omits: it lives on the work record. Their text often ends
@@ -115,6 +122,6 @@ export async function olWorkDescription(workKey: string): Promise<string | null>
 
 /** Cover and description lookups: fewer results, and none of the ISBN bulk the backfill never reads. */
 export async function olSearchLean(query: string, limit = 5): Promise<Candidate[]> {
-  const docs = await searchOl(query, limit, LEAN_FIELDS);
+  const { docs } = await searchOl(query, limit, LEAN_FIELDS);
   return docs.map((d) => toCandidate(d)).filter((c): c is Candidate => !!c);
 }

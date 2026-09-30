@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
-import { catalogMatches, getSiteSettings, listLibraries, listPeople, seriesNames } from '../db/queries';
+import type { FC } from 'hono/jsx';
+import { catalogMatches, getSiteSettings, listLibraries, listPeople, seriesNames, shelfForType } from '../db/queries';
 import type { AppEnv } from '../env';
 import { lookupByBarcode, searchByName, type SearchType } from '../metadata';
 import { BggAttribution, DiscogsNotice } from '../views/attribution';
@@ -133,29 +134,69 @@ add.get('/add', async (c) => {
   );
 });
 
-/** htmx partial shared by the scanner and the search tab. */
+/** How far "More results" goes: fifty pages of eight is 400 results, past anything worth scrolling. */
+const LAST_PAGE = 50;
+
+/**
+ * "More results", after a page of name-search results: the next page, swapped in where the button was. The next
+ * page arrives wrapped in an element with the same id, so the page-wide focus handler (public/app.js) lands on it and
+ * Tab carries on into the new results.
+ */
+const MoreResults: FC<{ q: string; type: SearchType; page: number }> = ({ q, type, page }) => {
+  const id = `results-more-${page}`;
+  return (
+    <div id={id} class="results-more">
+      <button type="button" class="btn" hx-get={`/add/results?${new URLSearchParams({ q, type, page: String(page) })}`} hx-target={`#${id}`} hx-swap="outerHTML">
+        More results
+      </button>
+    </div>
+  );
+};
+
+/** htmx partial shared by the scanner and the search tab; a name search comes a page at a time. */
 add.get('/add/results', async (c) => {
   const barcode = c.req.query('barcode')?.trim();
   const q = c.req.query('q')?.trim();
   const typeParam = c.req.query('type');
   const type: SearchType = typeParam === 'boardgame' || typeParam === 'vinyl' ? typeParam : 'book';
+  const asked = Number.parseInt(c.req.query('page') ?? '1', 10);
+  const pageNo = barcode ? 1 : Math.min(Math.max(Number.isFinite(asked) ? asked : 1, 1), LAST_PAGE);
 
   const result = barcode
     ? await lookupByBarcode(c.env, barcode)
     : q
-      ? await searchByName(c.env, q, type)
+      ? await searchByName(c.env, q, type, pageNo)
       : { candidates: [], notices: ['Enter a barcode or search term.'] };
 
-  // the shelves, and which results the catalog already has ("In your catalog"): two calls, whatever the list's length
-  const [libs, held] = await Promise.all([listLibraries(c.env.DB), catalogMatches(c.env.DB, result.candidates)]);
-  return c.html(
+  // the shelves, which shelf each type starts on, and which results the catalog already has ("In your catalog"):
+  // three calls, whatever the list's length
+  const [libs, shelfFor, held] = await Promise.all([
+    listLibraries(c.env.DB),
+    shelfForType(c.env.DB),
+    catalogMatches(c.env.DB, result.candidates),
+  ]);
+  const cards = (
     <>
       {result.notices.map((n) => (
         <p class="notice">{n}</p>
       ))}
       {result.candidates.map((candidate, i) => (
-        <CandidateCard candidate={candidate} libraries={libs} inCatalog={held[i]} />
+        <CandidateCard candidate={candidate} libraries={libs} inCatalog={held[i]} shelfFor={shelfFor} />
       ))}
+      {q && !barcode && result.more && pageNo < LAST_PAGE ? <MoreResults q={q} type={type} page={pageNo + 1} /> : null}
+    </>
+  );
+  // a later page takes the place of the button that asked for it, under the same id; the credits are already there
+  if (pageNo > 1) {
+    return c.html(
+      <div id={`results-more-${pageNo}`} class="results-page">
+        {cards}
+      </div>,
+    );
+  }
+  return c.html(
+    <>
+      {cards}
       {result.candidates.some((candidate) => candidate.provider === 'bgg') ? <BggAttribution /> : null}
       {/* §16 #63: each Discogs result carries its own credit; the terms' notice goes once, below them */}
       {result.candidates.some((candidate) => candidate.provider === 'discogs') ? <DiscogsNotice /> : null}
@@ -172,9 +213,10 @@ add.get('/add/review', async (c) => {
   const barcode = c.req.query('barcode')?.trim() ?? '';
   if (!/^\d{8,14}$/.test(barcode)) return c.text('Not a barcode.', 400);
   const scanned = c.req.query('scanned')?.trim() ?? '';
-  const [result, libs, scanOwner] = await Promise.all([
+  const [result, libs, shelfFor, scanOwner] = await Promise.all([
     lookupByBarcode(c.env, barcode),
     listLibraries(c.env.DB),
+    shelfForType(c.env.DB),
     scanQueueOwner(c.env.SESSION_SECRET ?? '', c.get('user')),
   ]);
   const [held] = result.candidates[0] ? await catalogMatches(c.env.DB, [result.candidates[0]]) : [null];
@@ -187,6 +229,7 @@ add.get('/add/review', async (c) => {
       libraries={libs}
       scanOwner={scanOwner}
       inCatalog={held}
+      shelfFor={shelfFor}
     />,
   );
 });

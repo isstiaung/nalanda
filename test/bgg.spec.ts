@@ -1,10 +1,10 @@
 // BoardGameGeek went registration-only in 2025: every XML API2 request needs an application's bearer token,
 // and without one it answers 401 to everything. That took board-game search down silently — this pins the
-// token, the host, the notices, and the cheap id scan.
+// token, the host and the notices; the ranking of its search is test/add-search.spec.ts.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Bindings } from '../src/env';
 import { searchByName } from '../src/metadata';
-import { bgg, firstIds } from '../src/metadata/bgg';
+import { bgg } from '../src/metadata/bgg';
 import { activateFetchMock, assertNoPendingInterceptors, intercept } from './fetch-mock';
 
 type Seen = { url: string; auth: string | null };
@@ -78,12 +78,6 @@ describe('BoardGameGeek', () => {
     const [catan] = await bgg('tok-123').search('Catan');
 
     expect(catan!.description).toBe("Settlers' island — 3–4 players.\n\nTrade & build ❤ &unknown; &#0;");
-  });
-
-  it('takes the first ids from a huge search result without parsing all of it', () => {
-    const big = `<items total="5000">${Array.from({ length: 5000 }, (_, i) => `<item type="boardgame" id="${i + 1}"><name type="primary" value="Game ${i}"/></item>`).join('')}</items>`;
-    expect(firstIds(big, 8)).toEqual(['1', '2', '3', '4', '5', '6', '7', '8']);
-    expect(firstIds('<items total="0"></items>', 8)).toEqual([]);
   });
 
   it("reads a 403 from BGG's edge as BGG not answering, not as a bad token", async () => {

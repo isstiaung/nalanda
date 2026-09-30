@@ -6,7 +6,7 @@
 // No barcode endpoint exists; board games are added via name search.
 import { XMLParser } from 'fast-xml-parser';
 import { fetchWithTimeout, USER_AGENT } from '../env';
-import type { Candidate, MetadataProvider } from './provider';
+import { PAGE_SIZE, type Candidate, type MetadataProvider, type SearchPage } from './provider';
 
 // The documented root. BGG asks that the www. subdomain not be used, as it can interfere with authorization.
 const API = 'https://boardgamegeek.com/xmlapi2';
@@ -137,15 +137,49 @@ function toCandidate(item: ThingItem): Candidate | null {
   };
 }
 
+/** A name folded for comparison: lower case, accents and punctuation gone, spaces collapsed. */
+function fold(text: string): string {
+  return text
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+/** How well a name matches what was typed: 0 exactly, 1 starts with it, 2 has it as whole words, 3 anywhere, 4 not. */
+function matchScore(name: string, query: string): number {
+  if (!query) return 4;
+  if (name === query) return 0;
+  if (name.startsWith(`${query} `)) return 1;
+  if (` ${name} `.includes(` ${query} `)) return 2;
+  return name.includes(query) ? 3 : 4;
+}
+
 /**
- * The first `limit` game ids from a search response, found with a string scan. A common title can return
- * thousands of <item>s, and parsing the whole document only to keep eight costs CPU a Worker doesn't have.
+ * Every game in a search answer, best match for `query` first. BGG's search sends every match at once and in no
+ * useful order, so keeping its first eight lost the game asked for whenever more than eight titles held the word
+ * ("Cryptid" came after "48 Rooms: Cryptid Maze"). Ranked here: the name exactly as typed, then names starting
+ * with it, then holding it as a word, then anywhere; a primary name before an alternate one; ties in BGG's order.
+ * A game listed under several names (BGG repeats it once per matching name) counts once, by its best. A string
+ * scan, not a parse: a common word can answer thousands of <item>s, and a Worker's CPU budget is 10 ms.
  */
-export function firstIds(xml: string, limit: number): string[] {
-  const ids: string[] = [];
-  const re = /<item\b[^>]*\bid="(\d+)"/g;
-  for (let m = re.exec(xml); m && ids.length < limit; m = re.exec(xml)) ids.push(m[1]!);
-  return ids;
+export function rankedIds(xml: string, query: string): string[] {
+  const want = fold(query);
+  const best = new Map<string, number>(); // id → score, lower is better; insertion order is BGG's
+  const re = /<item\b[^>]*?\bid="(\d+)"[^>]*?(?:\/>|>([\s\S]*?)<\/item>)/g;
+  for (let m = re.exec(xml); m; m = re.exec(xml)) {
+    const body = m[2] ?? '';
+    const name = /<name\b[^>]*\bvalue="([^"]*)"/.exec(body)?.[1] ?? '';
+    const primary = /<name\b[^>]*\btype="primary"/.test(body);
+    const score = matchScore(fold(decodeReferences(name)), want) * 2 + (primary ? 0 : 1);
+    const seen = best.get(m[1]!);
+    if (seen === undefined || score < seen) best.set(m[1]!, score);
+  }
+  return [...best]
+    .map(([id, score], order) => ({ id, score, order }))
+    .sort((a, b) => a.score - b.score || a.order - b.order)
+    .map((g) => g.id);
 }
 
 /** What one `thing` request for a stored BGG id came back with — never text from BGG's answer, only a code. */
@@ -179,7 +213,31 @@ export async function bggGame(token: string, id: number): Promise<BggGameResult>
   return game ? { ok: true, game } : { ok: false, failure: 'not_found' };
 }
 
-export function bgg(token: string | undefined): MetadataProvider {
+export function bgg(token: string | undefined): MetadataProvider & { searchPage(query: string, page: number): Promise<SearchPage> } {
+  /**
+   * One page of a name search: two requests, as the first page always was — the search, ranked here
+   * (`rankedIds()`), and one `thing` for this page's games (it takes at most 20 ids). BGG's search has no paging of
+   * its own, so a later page asks the search again and takes the next eight from the same ranking.
+   */
+  async function searchPage(query: string, page: number): Promise<SearchPage> {
+    if (!token) return { candidates: [], more: false };
+    const found = await fetchText(`${API}/search?type=boardgame&query=${encodeURIComponent(query)}`, token);
+    const ranked = rankedIds(found, query);
+    const ids = ranked.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    if (!ids.length) return { candidates: [], more: false };
+
+    const things = await fetchText(`${API}/thing?id=${ids.join(',')}&stats=1`, token);
+    const doc = parser.parse(things) as { items?: { item?: ThingItem[] } } | null;
+    // `thing` answers in its own order; put the games back in the ranking's
+    const byId = new Map((doc?.items?.item ?? []).map((item) => [item['@_id'], item] as const));
+    const candidates = ids
+      .map((id) => byId.get(id))
+      .filter((item): item is ThingItem => !!item)
+      .map(toCandidate)
+      .filter((c): c is Candidate => !!c);
+    return { candidates, more: ranked.length > page * PAGE_SIZE };
+  }
+
   return {
     id: 'bgg',
     mediaTypes: ['boardgame'],
@@ -189,14 +247,9 @@ export function bgg(token: string | undefined): MetadataProvider {
     },
 
     async search(query: string): Promise<Candidate[]> {
-      if (!token) return [];
-      const found = await fetchText(`${API}/search?type=boardgame&query=${encodeURIComponent(query)}`, token);
-      const ids = firstIds(found, 8); // `thing` takes at most 20 ids
-      if (!ids.length) return [];
-
-      const things = await fetchText(`${API}/thing?id=${ids.join(',')}&stats=1`, token);
-      const doc = parser.parse(things) as { items?: { item?: ThingItem[] } } | null;
-      return (doc?.items?.item ?? []).map(toCandidate).filter((c): c is Candidate => !!c);
+      return (await searchPage(query, 1)).candidates;
     },
+
+    searchPage,
   };
 }

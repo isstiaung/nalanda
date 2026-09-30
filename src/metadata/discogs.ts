@@ -6,7 +6,7 @@
 // formats with quantities and descriptions, the tracklist). Authenticated, Discogs allows 60 requests a minute.
 import { fetchWithTimeout, USER_AGENT } from '../env';
 import type { Pressing, Track } from '../lib/pressing';
-import type { Candidate, MetadataProvider } from './provider';
+import { PAGE_SIZE, type Candidate, type MetadataProvider, type SearchPage } from './provider';
 
 type DiscogsResult = {
   id?: number;
@@ -176,23 +176,34 @@ const failure = (status: number): DiscogsFailure =>
   status === 404 ? 'not_found' : status === 429 ? 'busy' : status === 401 || status === 403 ? 'refused' : 'unavailable';
 
 export function discogs(token: string | undefined): MetadataProvider & {
+  searchPage(q: string, page: number): Promise<SearchPage>;
   release(id: number): Promise<PressingResult>;
   pressingByBarcode(code: string): Promise<PressingResult>;
 } {
   const headers = () => ({ 'User-Agent': USER_AGENT, Authorization: `Discogs token=${token}` });
 
-  async function searchResults(params: string, limit: number): Promise<DiscogsResult[] | DiscogsFailure> {
-    const url = `https://api.discogs.com/database/search?${params}&per_page=${limit}`;
+  async function searchPageOf(params: string, limit: number, page: number): Promise<{ results: DiscogsResult[]; pages: number } | DiscogsFailure> {
+    const url = `https://api.discogs.com/database/search?${params}&per_page=${limit}${page > 1 ? `&page=${page}` : ''}`;
     const res = await fetchWithTimeout(url, { headers: headers() });
     if (!res.ok) return failure(res.status);
-    const data = (await res.json()) as { results?: DiscogsResult[] };
-    return Array.isArray(data.results) ? data.results : [];
+    const data = (await res.json()) as { results?: DiscogsResult[]; pagination?: { pages?: number } };
+    const results = Array.isArray(data.results) ? data.results : [];
+    return { results, pages: typeof data.pagination?.pages === 'number' ? data.pagination.pages : page };
+  }
+
+  async function searchResults(params: string, limit: number): Promise<DiscogsResult[] | DiscogsFailure> {
+    const found = await searchPageOf(params, limit, 1);
+    return typeof found === 'string' ? found : found.results;
   }
 
   async function query(params: string, limit: number, barcode?: string): Promise<Candidate[]> {
     if (!token) return [];
     const results = await searchResults(params, limit);
     if (typeof results === 'string') return [];
+    return toCandidates(results, barcode);
+  }
+
+  function toCandidates(results: DiscogsResult[], barcode?: string): Candidate[] {
     return results
       .map((r) => {
         if (!r.title) return null;
@@ -226,6 +237,14 @@ export function discogs(token: string | undefined): MetadataProvider & {
       .filter((c): c is Candidate => !!c);
   }
 
+  /** One page of a record search: Discogs ranks by relevance and pages itself (`page`, eight at a time). */
+  async function searchPage(q: string, page: number): Promise<SearchPage> {
+    if (!token) return { candidates: [], more: false };
+    const found = await searchPageOf(`q=${encodeURIComponent(q)}&type=release&format=Vinyl`, PAGE_SIZE, page);
+    if (typeof found === 'string') return { candidates: [], more: false };
+    return { candidates: toCandidates(found.results), more: page < found.pages };
+  }
+
   return {
     id: 'discogs',
     mediaTypes: ['vinyl', 'music'],
@@ -234,8 +253,9 @@ export function discogs(token: string | undefined): MetadataProvider & {
       return results[0] ?? null;
     },
     async search(q: string): Promise<Candidate[]> {
-      return query(`q=${encodeURIComponent(q)}&type=release&format=Vinyl`, 8);
+      return (await searchPage(q, 1)).candidates;
     },
+    searchPage,
     /** One request: the release, with its tracklist. */
     async release(id: number): Promise<PressingResult> {
       const res = await fetchWithTimeout(`https://api.discogs.com/releases/${id}`, { headers: headers() });
