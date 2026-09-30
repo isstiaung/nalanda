@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { activateFetchMock, assertNoPendingInterceptors, intercept, json } from './fetch-mock';
 import { GB_ISBN_ABADDON, GB_ISBN_ORCS, OL_ISBN_ABADDON, OL_ISBN_EARTHSEA, OL_SEARCH_LAST_WISH, OL_SEARCH_TWO_TOWERS } from './fixtures/series-responses';
 import { as, book, html, member, rows, type Member } from './member-helpers';
-import { addPastRead, createLibrary, deleteItem, deleteLibrary, getItem, startRead, updateItemWithTags } from '../src/db/queries';
+import { addPastRead, bulkDelete, createLibrary, deleteItem, deleteLibrary, getItem, startRead, updateItemWithTags } from '../src/db/queries';
 import { budgeted } from '../src/federation/budget';
 import {
   cleanSeriesName,
@@ -205,6 +205,12 @@ describe('next up', () => {
     expect(next).toMatchObject({ kind: 'volume', volume: { id: 5 }, skipped: [[4, 4]] });
     // with nothing finished, everything missing below counts
     expect(nextUp([vol(3, 3), vol(4, 4)])).toMatchObject({ kind: 'volume', volume: { id: 3 }, skipped: [[1, 2]] });
+    // a finished #2.5 sits between #2 and #3: it says nothing about #2, which is still missing before #3
+    expect(nextUp([vol(1, 1, { finishedByMe: true }), vol(2, 2.5, { finishedByMe: true }), vol(3, 3)])).toMatchObject({
+      kind: 'volume',
+      volume: { id: 3 },
+      skipped: [[2, 2]],
+    });
   });
 
   it('counts a number finished in any edition, and prefers the edition being read', () => {
@@ -289,6 +295,18 @@ describe('a book’s series, edited', () => {
     expect((await seriesRows()).map((s) => s.name)).toEqual(['Earthsea Cycle']);
     await deleteItem(env.DB, b.id);
     expect(await seriesRows()).toEqual([]);
+  });
+
+  it('deletes a series whose last volumes go in a bulk delete, and keeps one with a volume left', async () => {
+    const asha = await member('asha', 'admin');
+    const [a, b, c] = [await book(asha, { title: 'G1' }), await book(asha, { title: 'G2' }), await book(asha, { title: 'D1' })];
+    const d = await book(asha, { title: 'D2' });
+    await editForm(asha, a.id, { seriesName: 'Gamma', seriesNumber: '1' });
+    await editForm(asha, b.id, { seriesName: 'Gamma', seriesNumber: '2' });
+    await editForm(asha, c.id, { seriesName: 'Delta', seriesNumber: '1' });
+    await editForm(asha, d.id, { seriesName: 'Delta', seriesNumber: '2' });
+    await bulkDelete(env.DB, [a.id, b.id, c.id]);
+    expect((await seriesRows()).map((s) => s.name)).toEqual(['Delta']);
   });
 
   it('prunes series whose shelf went, and never one that still has a volume elsewhere', async () => {

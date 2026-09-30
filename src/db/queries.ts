@@ -1005,6 +1005,7 @@ export async function bulkDelete(d1: D1Database, ids: number[]): Promise<BulkRes
   const [found] = await d1.batch([
     d1.prepare(`SELECT id, cover_key AS coverKey FROM items WHERE ${SELECTED}`).bind(json),
     d1.prepare(`DELETE FROM items WHERE ${SELECTED}`).bind(json),
+    pruneSeries(d1), // a series whose last volumes were among them goes too (§16 #52), as with a single delete
   ]);
   const rows = (found?.results ?? []) as Array<{ id: number; coverKey: string | null }>;
   const covers = rows.map((r) => r.coverKey).filter((k): k is string => !!k);

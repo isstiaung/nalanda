@@ -149,7 +149,8 @@ export function nextUp(volumes: SeriesVolume[], total: number | null = null): Ne
   const candidates = numbered.filter((v) => !finished.has(v.seriesNumber!));
   const lowest = candidates[0]?.seriesNumber;
   const next = lowest === undefined ? undefined : (candidates.find((v) => v.seriesNumber === lowest && v.readingByMe) ?? candidates[0]);
-  const lastFinishedBelow = (n: number) => Math.max(0, ...[...finished].filter((f) => f < n));
+  // the last whole number finished below it: a finished #2.5 sits between #2 and #3, so it says nothing about #2
+  const lastFinishedBelow = (n: number) => Math.max(0, ...[...finished].filter((f) => f < n && Number.isInteger(f)));
   if (next) {
     const n = next.seriesNumber!;
     const from = lastFinishedBelow(n);
