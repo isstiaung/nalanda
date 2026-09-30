@@ -20,6 +20,13 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **Limits:** a note is up to 500 characters. From one household you take at most 20 recommendations a day and keep at most 50 waiting; past that theirs are turned away until you dismiss some. Dismiss is the only way to turn one down; disconnecting removes all of theirs.
 - **Covers are kept only as ordinary images** (JPEG, PNG, GIF, WebP, AVIF), wherever they come from, and every cover is served so that it can only ever display as an image. A cover that is anything else is left out and the item gets the usual placeholder, and so is a connected household's cover that doesn't say what type it is.
 - **Export:** recommendations, sent and received, are in **Borrowed → Export connections data**, not in `/export.csv`, which holds your own items.
+- **What you paid.** Every item — book, board game, record, anything — can have a **purchase price**, on the item form when you add it by hand or edit it. It's entered in the household's currency, shown on the item's page ("Paid ₹499"), and private: share pages and connected households never see it.
+- **A household currency**, set once by an admin under **Members → Household currency** (INR, USD, JPY — any ISO 4217 currency). Prices are entered in it, with its decimals: two for rupees and dollars, none for yen. Until it's set, the item form says so instead of offering a price. Changing it later converts nothing: prices already entered keep the currency they were entered in.
+- **What each shelf cost.** A shelf's page says what the household paid for it ("Paid ₹30,200 for 9 — of 12 records on this shelf"), and the Overview's shelf table gains a **Paid** column. Each currency is totalled on its own, never added to another.
+- **Purchase prices leave and come back through the CSV**, in two new columns, `purchase_price` (like `302.50`) and `purchase_currency` (like `INR`). A libib file's `price` column becomes the purchase price, in the household's currency, when one is set before you import.
+
+### Fixed
+- **Prices never reach share pages or connected households.** A libib import kept a file's `price` column in each item's details, which share pages and connected households were shown. Money in details is now left out of anything published; inside the app it stays where it was.
 
 ### Upgrading
 - **Year in review** needs no migration and no new secret, and connected households see nothing of it.
@@ -27,6 +34,9 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **Back up first** (`npm run backup`). Migration `0038_recommendations` runs when you deploy. It adds a `recommendations` table and changes nothing already there; rehearsed on a production backup, every existing table came through identical. `npm run backup` now backs it up too, restored after `borrowed_items` ([runbooks/backup-and-restore.md](runbooks/backup-and-restore.md)).
 - **No new secrets.**
 - **Connections:** the protocol is still version 1. Your library's descriptor now also lists the message types it takes (`accepts`), which older versions ignore. **Households on 1.5.0 or older can't receive recommendations**: their library refuses a message type it doesn't know, so yours checks first and sends nothing to them, saying they run an older version. Once they update, recommending to them works with nothing to do on either side. Everything else between you works as before, in both directions.
+- **Back up first** (`npm run backup`). Migration `0039_purchase-price` runs when you deploy. It adds two empty columns to items (`purchase_price`, `purchase_currency`) and an empty `currency` to the household settings, and changes no existing data — rehearsed on a production backup, every existing table and value came through identical. Rolling back is safe: older code ignores the columns.
+- **Set the household currency** under **Members** before entering prices, and before importing a libib file whose prices you want as purchase prices. Until then no one can enter a price, and libib prices stay in the item's details (never on share pages now).
+- An export from this version imports into an older one without its purchase prices, which older versions ignore. **No new secrets.** **Connections** are unaffected: prices never go to connected households, on any version.
 
 ## [1.5.0] - 2026-09-30
 

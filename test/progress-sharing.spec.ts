@@ -50,6 +50,8 @@ const reading: Item = {
   updatedAt: '2026-09-28 10:00:00',
   seriesId: null,
   seriesNumber: null,
+  purchasePrice: null,
+  purchaseCurrency: null,
 };
 
 describe('the whitelist', () => {
@@ -82,7 +84,7 @@ describe('site settings', () => {
   it('keeps progress off on share pages with no row, and round-trips', async () => {
     // progress: share pages private, connections included — the answer the household gave when this was designed;
     // names and goals start on for a new instance (§16 #49 — test/defaults.spec.ts has the upgrade side)
-    const fresh = { progressOnShares: false, progressToConnections: true, namesOnShares: true, namesToConnections: true, goalsToConnections: true };
+    const fresh = { progressOnShares: false, progressToConnections: true, namesOnShares: true, namesToConnections: true, goalsToConnections: true, currency: null };
     expect(await getSiteSettings(env.DB)).toEqual(fresh);
     await updateSiteSettings(env.DB, { progressOnShares: true });
     expect(await getSiteSettings(env.DB)).toEqual({ ...fresh, progressOnShares: true });

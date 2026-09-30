@@ -172,6 +172,12 @@ shape from this file.
   grade into `details`, and an import drops an off-scale grade rather than keeping it there. Its
   **pressing** (label, catno, country, year, format, tracklist) is public catalogue data in
   `details`; connections get its plain values, not the tracklist.
+- **Money is never published** (ARCH.md §16 #61). What was paid (`purchase_price`, integer minor
+  units, with `purchase_currency`) is in no whitelist: never on share pages, never to connections,
+  never a key of `toPublicItem()` or `toConnectionItem()`. `toPublicItem()` also strips money keys
+  (`MONEY_DETAIL_KEYS` in `src/lib/money.ts` — libib's `price`) from the `details` it publishes; never
+  move a price into `details`. Money is never a float: parse with `parseMoney()`, sum in SQL as
+  `CAST(sum(…) AS TEXT)`, format with `formatMoney()`, and never add two currencies together.
 - `/covers/:key` is intentionally public — keys are random UUIDs; never make them
   enumerable or derived from item data.
 - **The service worker never stores a page or an API answer** (ARCH.md §16 #48): only the
@@ -262,7 +268,9 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    yearInReview() in queries.ts, its page routes/yearreview.tsx — ARCH.md §16 #59)
                    games.ts (a board game's weight bands, the play-tonight filters, and what "Refresh
                    from BGG" may fill; the filtering SQL is gamesForTonight in queries.ts, the page
-                   routes/play.tsx, ARCH.md §16 #60)
+                   routes/play.tsx, ARCH.md §16 #60),
+                   money.ts (purchase prices: minor units, parsing, exact formatting, currency codes —
+                   ARCH.md §16 #61)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments, borrowing and recommendations
