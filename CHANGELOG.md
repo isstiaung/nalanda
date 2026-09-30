@@ -8,7 +8,9 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
-## [Unreleased]
+## [1.6.1] - 2026-09-30
+
+Polish and fixes from using 1.6.0: Refresh from Discogs and BGG update in place, a book being re-read counts as In progress, a failed button says so, an expired session goes to the login page, and a sweep of small layout, wording and consistency fixes across the app.
 
 ### Added
 - **In your catalog.** A scan or search result on the Add page, or a held scan being reviewed, that the catalog already has — the same book by ISBN, record by barcode or Discogs id, game by BGG id — says so, with a pill that opens it.
@@ -38,15 +40,15 @@ Each release has an **Upgrading** section. Read it for every version between you
 - **Read next** says plainly when nobody owns the book it suggests.
 - **Delete shelf** asks about every item on the shelf, not just those the filters show.
 - Search says when it's showing only its 50 best matches.
-
-### Fixed
 - **A button that fails now says so.** When Played, Finish, Stop, recording a page, the Holding toggle, Want, purchase links, Another and the other in-place buttons hit a server error or a dropped connection, nothing used to happen. Now a message appears at the bottom of the page and is read out by screen readers: "Couldn't reach Nalanda — check your connection and try again." when there was no answer, "Something went wrong — try again." for a server error, and a short fixed sentence for anything else. It goes away on the next thing that works. The button stays usable and keeps focus. Refresh from Discogs and Refresh from BGG keep their own message above the button, so nothing is said twice.
 - **A signed-out click loads the login page instead of squeezing it into the page.** If your session had expired (or you were signed out elsewhere), clicking one of those buttons used to swap the whole login page into the middle of the section you were on. Now the browser goes to the login page, as a link would. The same goes for a new member who still has to choose a password: they're taken to Account.
 
 ### Upgrading
-- **No migration and no new secret.** Nothing is stored differently: the change is in how status filters read what's there.
+- **No migration and no new secret.** Nothing is stored differently; deploy as usual. A backup first is still good practice.
 - **Share links and connection views filtered to In progress grow** to include books being read again. Check **Shared links** and **Connections** if that matters to you.
+- **Board games and records no longer show a reading status**, and their edit form no longer sets one. Their stored status is kept and still exports.
 - **Connections:** nothing changes on the wire. Households on 1.6.0 or older following your In progress views simply see the re-reads in them; their own In progress views keep the old meaning until they update.
+- **Contributors:** `npm run a11y` now also starts a second local server, on `A11Y_PORT + 2` (8819 by default), for the Refresh buttons' checks.
 
 ## [1.6.0] - 2026-09-30
 
