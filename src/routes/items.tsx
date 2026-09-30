@@ -99,6 +99,7 @@ import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
 import { recommendOnItemPage } from './recommendations';
 import { SeriesSection } from '../views/series';
+import { ledgerDate } from '../lib/dates';
 
 const items = new Hono<AppEnv>();
 
@@ -746,7 +747,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           ) : null}
           <dt>Added</dt>
           <dd class="mono">
-            {item.addedAt.slice(0, 10)}
+            {ledgerDate(item.addedAt)}
             {addedBy ? ` · ${addedBy.username}` : ''}
           </dd>
         </dl>

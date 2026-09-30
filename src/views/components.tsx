@@ -8,12 +8,13 @@ import { goalPace, goalPercent, paceLabel, pacePercent } from '../lib/goals';
 import { currencyDigits, formatCount, formatMoney, isStoredPrice, minorToDecimal, type CurrencyTotal } from '../lib/money';
 import { progressPercent } from '../lib/progress';
 import { linkHost } from '../lib/links';
-import { isPlayable, playDate } from '../lib/plays';
+import { isPlayable } from '../lib/plays';
 import { latestReadDate, ordinal, summarizeReads, todayUtc, type ReadDraft, type ReadRow } from '../lib/reads';
 import { formatSeriesNumber } from '../lib/series';
 import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
 import { DiscogsAttribution, DiscogsCredit, discogsLink, discogsUrl } from './attribution';
+import { ledgerDate, ledgerDateTime } from '../lib/dates';
 
 export const MEDIA_LABEL: Record<MediaType, string> = {
   book: 'Book',
@@ -169,10 +170,10 @@ const PageLog: FC<{ item: Item; entries: ReadingPage[]; removable: boolean }> = 
       {entries.map((e) => (
         <li>
           <span class="mono">p. {e.page}</span>
-          <span class="mono muted">{e.at.slice(0, 10)}</span>
+          <span class="mono muted">{ledgerDate(e.at)}</span>
           {removable ? (
             <form method="post" action={`/items/${item.id}/progress/${e.id}/delete`} {...htmxTo(`/items/${item.id}/progress/${e.id}/delete`)}>
-              <button type="submit" class="progress-delete" aria-label={`Remove page ${e.page}, ${e.at.slice(0, 10)}`}>
+              <button type="submit" class="progress-delete" aria-label={`Remove page ${e.page}, ${ledgerDate(e.at)}`}>
                 Remove
               </button>
             </form>
@@ -546,15 +547,14 @@ export const ReadsByPerson: FC<{ item: Item; reads: ReadingRead[]; viewer: Viewe
 type PlayLine = { id: number; playedOn: string; loggedBy: number | null };
 
 /**
- * Plays as a list, newest first: each date, who logged it (for an admin, once the household has more than one member —
- * the logger is kept for auditing, not shown as anyone's history), and Remove for whoever may: the play's logger, or an
- * admin. `year` drops the year from dates in it, under a year heading; otherwise it shows only outside `today`'s.
- * `htmx` swaps the item page's Plays section on a removal; without it, the form posts and comes back to `back`.
+ * Plays as a list, newest first: each date, in the ledger's form (2026-09-28), who logged it (for an admin, once the
+ * household has more than one member — the logger is kept for auditing, not shown as anyone's history), and Remove for
+ * whoever may: the play's logger, or an admin. `htmx` swaps the item page's Plays section on a removal; without it, the
+ * form posts and comes back to `back`.
  */
-const PlayList: FC<{ item: Item; plays: PlayLine[]; today: string; viewer: Viewer; people: Person[]; back?: string }> = ({
+const PlayList: FC<{ item: Item; plays: PlayLine[]; viewer: Viewer; people: Person[]; back?: string }> = ({
   item,
   plays,
-  today,
   viewer,
   people,
   back,
@@ -564,7 +564,7 @@ const PlayList: FC<{ item: Item; plays: PlayLine[]; today: string; viewer: Viewe
   return (
     <ol class="play-log">
       {plays.map((p) => {
-        const when = playDate(p.playedOn, today);
+        const when = ledgerDate(p.playedOn);
         const action = `${base}/plays/${p.id}/delete${back ? `?back=${encodeURIComponent(back)}` : ''}`;
         return (
           <li>
@@ -619,7 +619,7 @@ export const PlaysSection: FC<{ item: Item; count: number; plays: PlayLine[]; to
           )}{' '}
           · last on{' '}
           <time class="mono" datetime={last.playedOn}>
-            {playDate(last.playedOn, today)}
+            {ledgerDate(last.playedOn)}
           </time>
         </p>
       ) : (
@@ -636,7 +636,7 @@ export const PlaysSection: FC<{ item: Item; count: number; plays: PlayLine[]; to
           </label>
         </form>
       ) : null}
-      {plays.length ? <PlayList item={item} plays={plays} today={today} viewer={viewer} people={people} /> : null}
+      {plays.length ? <PlayList item={item} plays={plays} viewer={viewer} people={people} /> : null}
       {count > plays.length ? (
         <p class="play-more">
           <a href={`${base}/plays`}>All {count} plays</a>
@@ -661,8 +661,7 @@ export const AllPlays: FC<{ item: Item; plays: PlayLine[]; viewer: Viewer; peopl
       {years.map((g) => (
         <div class="detail-section">
           <p class="eyebrow mono">{g.year}</p>
-          {/* a date in its own year's list needs no year */}
-          <PlayList item={item} plays={g.plays} today={`${g.year}-01-01`} viewer={viewer} people={people} back={back} />
+          <PlayList item={item} plays={g.plays} viewer={viewer} people={people} back={back} />
         </div>
       ))}
     </div>
@@ -703,7 +702,7 @@ export const ReviewsSection: FC<{ item: Item; reviews: ReviewLine[]; viewer: Vie
                     )}
                   </span>
                   {r.rating ? <span class="rating">{stars(r.rating)}</span> : null}
-                  {r.reviewedAt ? <span class="mono muted">{r.reviewedAt.slice(0, 10)}</span> : null}
+                  {r.reviewedAt ? <span class="mono muted">{ledgerDate(r.reviewedAt)}</span> : null}
                 </p>
                 {r.review ? <p class="prewrap">{r.review}</p> : null}
                 {editable ? (
@@ -1590,7 +1589,7 @@ export const ReviewEntry: FC<{
           {scannedAt ? (
             <>
               {' · scanned '}
-              <time datetime={scannedAt}>{`${scannedAt.slice(0, 16).replace('T', ' ')} UTC`}</time>
+              <time datetime={scannedAt}>{`${ledgerDateTime(scannedAt)} UTC`}</time>
             </>
           ) : null}
         </small>

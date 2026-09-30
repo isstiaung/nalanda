@@ -36,6 +36,7 @@ import { pushNow, pushQueued } from '../federation/outbox';
 import { DiscogsAttribution, discogsLink } from '../views/attribution';
 import { DetailsList, MEDIA_ICON, MEDIA_LABEL, Pagination, stars } from '../views/components';
 import { page } from '../views/layout';
+import { ledgerDate } from '../lib/dates';
 
 const borrowing = new Hono<AppEnv>();
 
@@ -573,7 +574,7 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
                       <strong>{r.itemTitle}</strong>
                     </td>
                     <td>{r.householdName}</td>
-                    <td class="date hide-sm">{r.createdAt.slice(0, 10)}</td>
+                    <td class="date hide-sm">{ledgerDate(r.createdAt)}</td>
                     <td>
                       {r.returned ? (
                         <span class="pill ghost">Returned</span>
@@ -727,7 +728,7 @@ export async function loanRequestsSection(c: Context<AppEnv>): Promise<Child | n
                   {r.requesterName}
                   <small class="muted"> · {r.householdName}</small>
                 </td>
-                <td class="date hide-sm">{r.createdAt.slice(0, 10)}</td>
+                <td class="date hide-sm">{ledgerDate(r.createdAt)}</td>
                 <td class="actions-cell">
                   <div class="request-actions">
                     {free.get(r.item.id) ? (

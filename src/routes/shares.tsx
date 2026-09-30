@@ -21,6 +21,7 @@ import { giftListStamp } from '../lib/auth';
 import { isWantListShare, newShareToken, shareFilters } from '../lib/share';
 import { shareScopeLabel } from '../views/components';
 import { page } from '../views/layout';
+import { ledgerDate } from '../lib/dates';
 
 const shares = new Hono<AppEnv>();
 
@@ -103,7 +104,7 @@ shares.get('/shares', async (c) => {
                       <span class="pill">{shareScopeLabel(v, v.wantUserId !== null ? username.get(v.wantUserId) : undefined)}</span>
                     </td>
                     <td class="num">{counts[i] ?? 0}</td>
-                    <td class="date hide-sm">{v.createdAt.slice(0, 10)}</td>
+                    <td class="date hide-sm">{ledgerDate(v.createdAt)}</td>
                     <td class="actions-cell">
                       {/* onclick, not onsubmit: two buttons in one form, each with its own warning */}
                       <form method="post" action={`/shares/${v.id}`} class="inline-form">

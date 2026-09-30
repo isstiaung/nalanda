@@ -31,12 +31,14 @@
     }
   }
 
+  // the ledger's form, as every date in the app (src/lib/dates.ts): "2026-09-30 18:28", in this device's own time
+  const two = (n) => String(n).padStart(2, '0');
+  const ledgerDateTime = (d) =>
+    `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`;
   const localTime = (root) =>
     root.querySelectorAll('time[datetime]').forEach((t) => {
       const d = new Date(t.getAttribute('datetime'));
-      if (!Number.isNaN(d.getTime())) {
-        t.textContent = d.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-      }
+      if (!Number.isNaN(d.getTime())) t.textContent = ledgerDateTime(d);
     });
 
   function placeholder(scan) {

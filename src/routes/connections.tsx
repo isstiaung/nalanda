@@ -80,6 +80,7 @@ import { clearSharedViewsCache } from '../federation/routes';
 import { hashToken, newInviteToken } from '../federation/tokens';
 import { MEDIA_LABEL, STATUS_LABEL } from '../views/components';
 import { page } from '../views/layout';
+import { ledgerDate, ledgerDateTime } from '../lib/dates';
 
 const connections = new Hono<AppEnv>();
 
@@ -146,7 +147,7 @@ const ConnectionTable: FC<{
                   <strong>{row.householdName}</strong>
                 </td>
                 <td class="hide-sm mono break-anywhere">{row.baseUrl}</td>
-                <td class="date hide-sm">{since(row).slice(0, 10)}</td>
+                <td class="date hide-sm">{ledgerDate(since(row))}</td>
                 <td class="actions-cell">
                   {/* one flex row, so each pair sits the same 0.5rem apart as on /shares and /loans */}
                   <div class="inline-form">{actions(row)}</div>
@@ -403,8 +404,8 @@ const ConnectionsPage: FC<PageProps> = (p) => {
                     const state = inviteState(invite);
                     return (
                       <tr>
-                        <td class="date">{invite.createdAt.slice(0, 10)}</td>
-                        <td class="date">{invite.expiresAt.slice(0, 10)}</td>
+                        <td class="date">{ledgerDate(invite.createdAt)}</td>
+                        <td class="date">{ledgerDate(invite.expiresAt)}</td>
                         <td>{state}</td>
                         <td class="actions-cell">
                           {state === 'Unused' ? (
@@ -865,7 +866,7 @@ const ConnectionFeedPage: FC<
                       <br />
                       <small class="muted">{formatBytes(sub.bytes)}</small>
                     </td>
-                    <td class="date hide-sm">{sub.lastPulledAt ? sub.lastPulledAt.slice(0, 16) : 'Not yet'}</td>
+                    <td class="date hide-sm">{sub.lastPulledAt ? ledgerDateTime(sub.lastPulledAt) : 'Not yet'}</td>
                     <td class="actions-cell">
                       <div class="inline-form">
                         <form method="post" action={`${base}/subscriptions/${sub.id}/purge`} class="inline">

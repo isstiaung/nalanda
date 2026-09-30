@@ -7,6 +7,7 @@ import { todayUtc } from '../lib/reads';
 import { shareVisibility, shareVisibilityLabel } from '../lib/share';
 import { GoalMeter, ItemGrid, MEDIA_LABEL, MEDIA_PLURAL, ReadNextCard, Stat } from '../views/components';
 import { page } from '../views/layout';
+import { ledgerDate } from '../lib/dates';
 
 const dashboard = new Hono<AppEnv>();
 
@@ -169,7 +170,7 @@ dashboard.get('/', async (c) => {
                         </span>
                       </td>
                       {anyPaid ? <td class="num money-cell">{paidCell(l.id) || '—'}</td> : null}
-                      <td class="date hide-sm">{l.createdAt.slice(0, 10)}</td>
+                      <td class="date hide-sm">{ledgerDate(l.createdAt)}</td>
                     </tr>
                   );
                 })}

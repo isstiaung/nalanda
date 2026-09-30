@@ -50,6 +50,7 @@ import { deleteCover, storeCover } from '../lib/covers';
 import { MEDIA_LABEL } from '../views/components';
 import { page } from '../views/layout';
 import { TheirCover } from './borrowing';
+import { ledgerDate } from '../lib/dates';
 
 const recommendations = new Hono<AppEnv>();
 
@@ -188,7 +189,7 @@ const SentTo: FC<{ households: RecommendTarget[] }> = ({ households }) => {
         <li>
           {h.householdName}
           <span class="muted"> · {SENT_STATE[h.lastStatus!]} </span>
-          <span class="mono">{h.lastAt?.slice(0, 10)}</span>
+          <span class="mono">{h.lastAt ? ledgerDate(h.lastAt) : null}</span>
         </li>
       ))}
     </ul>
@@ -335,7 +336,7 @@ recommendations.get('/recommendations', async (c) => {
                 </p>
                 <p class="recommend-from">
                   From <bdi class="reviewer">{r.recommender}</bdi> at <bdi>{r.householdName}</bdi> ·{' '}
-                  <span class="mono">{r.createdAt.slice(0, 10)}</span>
+                  <span class="mono">{ledgerDate(r.createdAt)}</span>
                 </p>
                 {r.note ? <p class="feed-review prewrap recommend-note">{r.note}</p> : null}
                 <div class="recommend-actions">
@@ -399,7 +400,7 @@ recommendations.get('/recommendations', async (c) => {
                     <td>{r.ourItemId ? <a href={`/items/${r.ourItemId}`}>{r.title}</a> : r.title}</td>
                     <td>{r.householdName}</td>
                     <td class="hide-sm">{r.senderName ?? '—'}</td>
-                    <td class="date hide-sm">{r.createdAt.slice(0, 10)}</td>
+                    <td class="date hide-sm">{ledgerDate(r.createdAt)}</td>
                     <td>
                       <span class={SENT_PILL[r.status][0]}>{SENT_PILL[r.status][1]}</span>
                     </td>
