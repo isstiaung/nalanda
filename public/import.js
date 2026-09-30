@@ -7,6 +7,8 @@
   const backfillBtn = document.getElementById('backfill-run');
   const backfillStatus = document.getElementById('backfill-status');
   if (!backfillBtn || !backfillStatus) return;
+  // "1 row", "2 rows": a count and its noun, singular for one
+  const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`;
 
   backfillBtn.addEventListener('click', async () => {
     backfillBtn.disabled = true;
@@ -38,12 +40,12 @@
       byTitle += d.byTitle ?? 0;
       enriched += d.enriched ?? 0;
       after = d.lastId;
-      backfillStatus.textContent = `Scanned ${tried} items — ${found} covers added, ${enriched} details filled…`;
+      backfillStatus.textContent = `Scanned ${plural(tried, 'item')} — ${plural(found, 'cover')} added, ${enriched} details filled…`;
       if (d.done) break;
       await new Promise((r) => setTimeout(r, 300)); // politeness gap between batches
     }
     backfillStatus.textContent =
-      `Done: ${found} covers added` +
+      `Done: ${plural(found, 'cover')} added` +
       (byTitle ? ` (${byTitle} matched by title/author — worth a quick skim)` : '') +
       `, ${enriched} descriptions or details filled, ${tried - found} still without a cover. ` +
       'Safe to re-run any time.';
@@ -57,6 +59,8 @@
   const runBtn = document.getElementById('import-run');
   const status = document.getElementById('import-status');
   if (!fileInput || !previewBtn || !runBtn) return;
+  // "1 row", "2 rows": a count and its noun, singular for one
+  const plural = (count, noun) => `${count} ${noun}${count === 1 ? '' : 's'}`;
 
   const BATCH = 200;
   // A Nalanda export's loans cost the server about what a row does each, so a batch also stops at this many
@@ -147,15 +151,15 @@
   previewBtn.addEventListener('click', async () => {
     rows = await loadRows();
     if (!rows) return;
-    say(`Parsed ${rows.length} rows. Checking the mapping…`);
+    say(`Parsed ${plural(rows.length, 'row')}. Checking the mapping…`);
     const res = await fetch('/api/import', options(true, rows.slice(0, 200)));
     if (!res.ok) { append(`Preview failed (${res.status}).`); return; }
     const data = await res.json();
     const sampled = Math.min(200, rows.length);
-    append(`Sample of first ${sampled} rows: ${data.mapped} map cleanly, ${data.skipped} would be skipped (no title).`);
+    append(`${sampled === rows.length ? `All ${plural(sampled, 'row')}` : `Sample of the first ${sampled} rows`}: ${data.mapped} ${data.mapped === 1 ? 'maps' : 'map'} cleanly, ${data.skipped} would be skipped (no title).`);
     if (data.format === 'nalanda') {
       append(`Nalanda export detected: every column maps back as it was exported, into the shelf chosen above. Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
-      append('Rows are added, never merged — importing the same export into this library twice adds everything twice.');
+      append('Rows are added, never merged — importing the same export into this shelf twice adds everything twice.');
       if (data.loans) append(`Loans in the first ${sampled} rows: ${data.loans} (${data.loansOut} still out), restored onto the items they belong to. A loan to a connected household comes back as an ordinary loan under the name it was lent to.`);
       // whose each read and review becomes: a member of the same name here, or you
       const people = data.importer ? (data.people ?? []) : [];
@@ -186,7 +190,7 @@
     for (const s of data.sample) {
       append(`  · [${s.mediaType}] ${s.title}${s.creators ? ` — ${s.creators}` : ''}${s.tags.length ? ` (${s.tags.join(', ')})` : ''}`);
     }
-    append(`Ready to import all ${rows.length} rows.`);
+    append(rows.length === 1 ? 'Ready to import 1 row.' : `Ready to import all ${rows.length} rows.`);
   });
 
   runBtn.addEventListener('click', async () => {
@@ -197,7 +201,7 @@
     let inserted = 0;
     let merged = 0;
     let skipped = 0;
-    say(`Importing ${rows.length} rows…`);
+    say(`Importing ${plural(rows.length, 'row')}…`);
     for (const [i, end] of batches(rows)) {
       const res = await fetch('/api/import', options(false, rows.slice(i, end)));
       if (!res.ok) {
@@ -212,8 +216,8 @@
       say(`Importing… ${end}/${rows.length} (${inserted} added${merged ? `, ${merged} merged` : ''})`);
     }
     say(
-      `Done: ${inserted} items added${merged ? `, ${merged} merged onto existing items` : ''}, ${skipped} rows skipped (no title).` +
-      (inserted ? ' New items arrive without covers — reload this page and run the cover backfill.' : ' Head to your library →'),
+      `Done: ${plural(inserted, 'item')} added${merged ? `, ${merged} merged onto existing items` : ''}, ${plural(skipped, 'row')} skipped (no title).` +
+      (inserted ? ' New items arrive without covers — reload this page and run the cover backfill.' : ''),
     );
     previewBtn.disabled = false;
     runBtn.disabled = false;
