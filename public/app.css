@@ -1035,6 +1035,6 @@ details.tracklist summary .mono { font-weight: 400; font-size: 11px; }
 .track-artist { font-size: 12px; }
 .track-time { font-size: 11.5px; color: var(--ink-2); text-align: right; }
 .tracks > li.track-heading { display: block; font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-3); padding-top: 0.7rem; }
-.discogs-refresh { margin-top: 0.8rem; }
-.discogs-refresh small { font-size: 12px; }
+.discogs-refresh, .discogs-note { margin: 0.8rem 0 0; }
+.discogs-refresh small, .discogs-note { font-size: 12px; }
 #pressing .notice { margin: 0.8rem 0 0; }

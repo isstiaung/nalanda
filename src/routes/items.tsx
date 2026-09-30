@@ -409,9 +409,9 @@ function DiscogsRefresh({ item, token, notice }: { item: Item; token: boolean; n
     <>
       {notice ? <p class="notice">{notice}</p> : null}
       {!token ? (
-        notice ? null : <p class="muted form-note">Set the DISCOGS_TOKEN secret to fill pressing details from Discogs.</p>
+        notice ? null : <p class="muted discogs-note">Set the DISCOGS_TOKEN secret to fill pressing details from Discogs.</p>
       ) : !lookup ? (
-        notice ? null : <p class="muted form-note">Add its barcode, or its Discogs release id, to fill these from Discogs.</p>
+        notice ? null : <p class="muted discogs-note">Add its barcode, or its Discogs release id, to fill these from Discogs.</p>
       ) : (
         <form method="post" action={`/items/${item.id}/discogs`} class="inline-form discogs-refresh">
           <button type="submit" class="btn">
