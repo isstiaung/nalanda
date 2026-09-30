@@ -8,6 +8,14 @@ Every release of Nalanda, newest first. Versions follow [Semantic Versioning](ht
 
 Each release has an **Upgrading** section. Read it for every version between yours and the one you're moving to. [runbooks/updating.md](runbooks/updating.md) walks through an update. Your running version is on the **Account** page.
 
+## [Unreleased]
+
+### Fixed
+- Catalog polish: on a shelf, Columns and the Table/Covers toggle wrap together; the publish forms show their whole link-name hint; a review's "You" is set as the Reading section sets it, and an open edit keeps its buttons apart; Add results say "via Open Library" rather than "via openlibrary"; the import page says "shelf" and "1 row"; playing times say they're in minutes; and "1 TAGS", "its last finished read's" and "Pick from the board game" are gone.
+- The Overview's recently added cards, and a series' volumes, show **Lent** and **Wanted** as a shelf does.
+- **Delete shelf** asks about every item on the shelf, not just those the filters show.
+- Search says when it's showing only its 50 best matches.
+
 ## [1.6.0] - 2026-09-30
 
 Year in review, game night, recommendations between connected households, what you paid for things, a sidebar in sections, an accessibility audit in CI, and Discogs' credit beside a record's pressing.
