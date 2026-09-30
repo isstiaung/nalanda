@@ -25,6 +25,7 @@ export const TABLES = [
   'libraries',
   'shares',
   'site_settings',
+  'series', // before items, which reference it (§16 #52)
   'items',
   'reads', // after items, before reading_progress, which references it
   'reading_progress', // after items, users and reads, which it references

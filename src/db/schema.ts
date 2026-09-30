@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const MEDIA_TYPES = ['book', 'boardgame', 'vinyl', 'movie', 'music', 'videogame', 'other'] as const;
 export type MediaType = (typeof MEDIA_TYPES)[number];
@@ -46,6 +46,20 @@ export const libraries = sqliteTable('libraries', {
   createdAt: text('created_at').notNull().default(now),
 });
 
+/**
+ * A series items belong to (ARCH.md §16 #52): "The Expanse", with the household's optional count of its volumes.
+ * A table rather than a name on every item, so a rename or a total is one row. `key` is the name folded for
+ * comparison (seriesKey() in src/lib/series.ts: Unicode lowercase, spaces collapsed) — the name is unique by it,
+ * so "the expanse" and "The  Expanse" are one series. Any media type may belong to one.
+ */
+export const series = sqliteTable('series', {
+  id: integer('id').primaryKey(),
+  name: text('name').notNull(),
+  key: text('key').notNull().unique(),
+  total: integer('total'), // how many numbered volumes the series has; NULL = not known
+  createdAt: text('created_at').notNull().default(now),
+});
+
 export const items = sqliteTable(
   'items',
   {
@@ -88,8 +102,17 @@ export const items = sqliteTable(
     addedBy: integer('added_by').references(() => users.id),
     addedAt: text('added_at').notNull().default(now),
     updatedAt: text('updated_at').notNull().default(now),
+    // Its series and its number in it (§16 #52): 3, or 2.5 for a novella between two books; NULL = in the series,
+    // number not known. Added by ALTER TABLE, so the reference carries no ON DELETE (§16 #35): a series is deleted
+    // only once nothing points at it (pruneSeries()).
+    seriesId: integer('series_id').references(() => series.id),
+    seriesNumber: real('series_number'),
   },
-  (t) => [index('idx_items_library').on(t.libraryId), index('idx_items_isbn13').on(t.isbn13)],
+  (t) => [
+    index('idx_items_library').on(t.libraryId),
+    index('idx_items_isbn13').on(t.isbn13),
+    index('idx_items_series').on(t.seriesId),
+  ],
 );
 
 export const tags = sqliteTable('tags', {
@@ -656,6 +679,7 @@ export const borrowedItems = sqliteTable('borrowed_items', {
 export type User = typeof users.$inferSelect;
 export type Library = typeof libraries.$inferSelect;
 export type Share = typeof shares.$inferSelect;
+export type Series = typeof series.$inferSelect;
 export type Item = typeof items.$inferSelect;
 export type NewItem = typeof items.$inferInsert;
 export type Loan = typeof loans.$inferSelect;
