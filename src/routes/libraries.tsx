@@ -158,6 +158,8 @@ libraries.get('/libraries/:id', async (c) => {
     shelfTotals(c.env.DB, id),
   ]);
   const shelfTotal = totals.shelves.get(id);
+  // everything on the shelf, whatever the filters: what deleting it takes with it
+  const shelfCount = shelves.find((l) => l.id === id)?.itemCount ?? total;
 
   const makeHref = (p: number, v = view) => {
     const params = new URLSearchParams();
@@ -249,22 +251,24 @@ libraries.get('/libraries/:id', async (c) => {
           <button type="submit" class="btn">
             Apply
           </button>
-          <span class="spacer"></span>
-          {/* Display-only, and only meaningful in the table: its checkboxes carry no
-              `name`, so they never join this GET form. "shelf" is omitted — a single
-              shelf's table has no Shelf column to hide. */}
-          {view === 'table' ? (
-            <ColumnsMenu
-              available={['type', 'year', 'completed', 'rating', 'status', 'holding', 'tags', 'acc']}
-            />
-          ) : null}
-          <span class="view-toggle">
-            <a href={makeHref(1, 'table')} class={view === 'table' ? 'active' : undefined}>
-              Table
-            </a>
-            <a href={makeHref(1, 'grid')} class={view === 'grid' ? 'active' : undefined}>
-              Covers
-            </a>
+          {/* Columns and the view toggle stay together at the row's end, and wrap as one */}
+          <span class="toolbar-end">
+            {/* Display-only, and only meaningful in the table: its checkboxes carry no
+                `name`, so they never join this GET form. "shelf" is omitted — a single
+                shelf's table has no Shelf column to hide. */}
+            {view === 'table' ? (
+              <ColumnsMenu
+                available={['type', 'year', 'completed', 'rating', 'status', 'holding', 'tags', 'acc']}
+              />
+            ) : null}
+            <span class="view-toggle">
+              <a href={makeHref(1, 'table')} class={view === 'table' ? 'active' : undefined}>
+                Table
+              </a>
+              <a href={makeHref(1, 'grid')} class={view === 'grid' ? 'active' : undefined}>
+                Covers
+              </a>
+            </span>
           </span>
         </form>
       )}
@@ -323,7 +327,7 @@ libraries.get('/libraries/:id', async (c) => {
               {statuses.length === 1 ? <input type="hidden" name="status" value={statuses[0]} /> : null}
               {owned !== undefined ? <input type="hidden" name="owned" value={owned ? '1' : '0'} /> : null}
               <input type="hidden" name="sort" value={sort} />
-              <input name="name" placeholder="Link name (shown as the public page title)" aria-label="Link name" required />
+              <input name="name" class="share-name" placeholder="Link name (shown as the public page title)" aria-label="Link name" required />
               <button type="submit">Publish current view</button>
             </form>
             <small class="muted">
@@ -350,7 +354,11 @@ libraries.get('/libraries/:id', async (c) => {
         <form
           method="post"
           action={`/libraries/${id}/delete`}
-          data-confirm={`Delete “${lib.name}” and all ${total} items in it? This cannot be undone.`}
+          data-confirm={
+            shelfCount
+              ? `Delete “${lib.name}” and ${shelfCount === 1 ? 'the 1 item' : `all ${shelfCount} items`} in it? This cannot be undone.`
+              : `Delete the empty shelf “${lib.name}”?`
+          }
         >
           <button type="submit" class="btn-danger">
             Delete shelf
