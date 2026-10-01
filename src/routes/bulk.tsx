@@ -1,5 +1,6 @@
 // Bulk edit (ARCH.md §16 #47): one action on the items checked on a shelf page or in search results. Each action is
 // one D1 batch (src/db/queries.ts), and a plain form post — the redirect carries back what it did.
+import { writerOf } from './items';
 import { Hono, type Context } from 'hono';
 import {
   BULK_ACTIONS,
@@ -109,13 +110,13 @@ bulk.post('/bulk', async (c) => {
       const raw = one(body['libraryId']);
       const lib = /^\d{1,15}$/.test(raw) ? await getLibrary(c.env.DB, Number(raw)) : null;
       if (!lib) return refuse(c, 400, 'Choose the shelf to move them to.', back);
-      result = await bulkMove(c.env.DB, ids, lib.id);
+      result = await bulkMove(c.env.DB, ids, lib.id, writerOf(c));
       to = lib.id;
       break;
     }
     case 'owned':
     case 'not-owned':
-      result = await bulkSetOwned(c.env.DB, ids, act === 'owned');
+      result = await bulkSetOwned(c.env.DB, ids, act === 'owned', writerOf(c));
       break;
     case 'delete': {
       if (one(body['confirm']) !== '1') {
