@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
-import { getUserById, setDisplayName, setPassword } from '../db/queries';
+import { getUserById, setDisplayName, setPassword, signOutOtherDevices } from '../db/queries';
 import type { AppEnv } from '../env';
-import { hashPassword, verifyPassword } from '../lib/auth';
+import { hasSessionSecret, hashPassword, verifyPassword } from '../lib/auth';
+import { signIn } from './auth';
 import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
 import { VERSION } from '../version';
 import { invalid } from '../views/components';
@@ -32,6 +33,25 @@ const DisplayNameForm = ({ displayName, saved }: { displayName: string | null; s
   </article>
 );
 
+/**
+ * Every other device signed out (§16 #70): the one place a member can answer a lost phone or a shared laptop left
+ * signed in, without an admin. This device stays in — its cookie is re-issued in the new generation. A password
+ * change does the same, and an admin's reset signs a member out everywhere, temporary password in hand.
+ */
+const DevicesForm = ({ done }: { done?: boolean }) => (
+  <article class="panel form-card account-card" id="devices">
+    <p class="eyebrow">Devices</p>
+    {done ? <p class="notice">Every other device is signed out. This one stays in.</p> : null}
+    <form method="post" action="/account/sign-out-others">
+      <button type="submit">Sign out other devices</button>
+    </form>
+    <p class="muted form-note">
+      Signs this account out everywhere but here — a phone that went missing, a browser left signed in. Changing your
+      password does the same. Each of them logs in again with your password; this device stays signed in.
+    </p>
+  </article>
+);
+
 /** Which field a refused password change is about, so its message is tied to that field. */
 type PasswordField = 'current' | 'next' | 'confirm';
 
@@ -42,6 +62,7 @@ const Form = ({
   ok,
   displayName,
   nameSaved,
+  devicesDone,
 }: {
   mustChange: boolean;
   error?: string;
@@ -49,6 +70,7 @@ const Form = ({
   ok?: boolean;
   displayName?: string | null;
   nameSaved?: boolean;
+  devicesDone?: boolean;
 }) => (
   <>
     <div class="page-head">
@@ -64,7 +86,7 @@ const Form = ({
           {error}
         </p>
       ) : null}
-      {ok ? <p class="notice">Password changed.</p> : null}
+      {ok ? <p class="notice">Password changed. Every other device is signed out; this one stays in.</p> : null}
       <form method="post" action="/account/password">
         <label>
           Current password
@@ -82,6 +104,7 @@ const Form = ({
       </form>
     </article>
     {mustChange ? null : <DisplayNameForm displayName={displayName ?? null} saved={nameSaved} />}
+    {mustChange ? null : <DevicesForm done={devicesDone} />}
     <p class="muted version-line">
       Nalanda <span class="mono">v{VERSION}</span> ·{' '}
       <a href={`https://github.com/isstiaung/nalanda/releases/tag/v${VERSION}`}>release notes</a>
@@ -100,6 +123,7 @@ account.get('/account', async (c) => {
       ok={c.req.query('ok') === '1'}
       displayName={row?.displayName ?? null}
       nameSaved={c.req.query('name') === 'saved'}
+      devicesDone={c.req.query('devices') === 'out'}
     />,
   );
 });
@@ -130,8 +154,19 @@ account.post('/account/password', async (c) => {
   if (next !== confirm) {
     return page(c, 'Account', <Form mustChange={user.mustChangePassword} error="New passwords do not match." errorField="confirm" />);
   }
-  await setPassword(c.env.DB, user.id, await hashPassword(next), false);
+  // the new password signs every other device out (§16 #70); this one carries on, in the generation the row is in now
+  const account = await setPassword(c.env.DB, user.id, await hashPassword(next), false);
+  if (!account || !hasSessionSecret(c.env.SESSION_SECRET)) return c.redirect('/login');
+  await signIn(c, c.env.SESSION_SECRET, account);
   return c.redirect(user.mustChangePassword ? '/' : '/account?ok=1');
+});
+
+/** Signs the account out everywhere but this device (§16 #70): the generation moves on, and this cookie moves with it. */
+account.post('/account/sign-out-others', async (c) => {
+  const account = await signOutOtherDevices(c.env.DB, c.get('user').id);
+  if (!account || !hasSessionSecret(c.env.SESSION_SECRET)) return c.redirect('/login');
+  await signIn(c, c.env.SESSION_SECRET, account);
+  return c.redirect('/account?devices=out#devices');
 });
 
 export default account;

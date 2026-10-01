@@ -20,6 +20,8 @@ export type SessionUser = {
   // must not carry over to a later account given the same id uses accountIdentity() over this and the id. Never
   // rendered — not a secret, but nothing a page needs.
   sessionKey: string;
+  // The generation this session was made in (§16 #70): what a cookie re-issued on this response must name.
+  sessionGeneration: number;
 };
 
 export type AppEnv = {

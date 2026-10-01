@@ -844,6 +844,7 @@ is a section of this document and "#N" another decision.
 | 66 | 2026-09-30 | [A name search comes eight results a page, best match first, and each result starts on the shelf that holds most of its type](docs/decisions/066-name-search-comes-eight-results.md) |
 | 67 | 2026-10-01 | [A record's stored cover comes from the Cover Art Archive or nowhere, never from Discogs; the covers already stored from Discogs are replaced or dropped by a one-off run from a laptop](docs/decisions/067-records-stored-cover-comes-cover.md) |
 | 68 | 2026-10-01 | [Rows read are budgeted like calls: pages read in index order, count once, and filter from the small side](docs/decisions/068-rows-read-budgeted-like-calls.md) |
+| 70 | 2026-10-01 | [Sign out other devices: a session generation beside the identity key, named by the cookie and moved on by a sign-out, a new password or a reset](docs/decisions/070-sign-out-other-devices.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

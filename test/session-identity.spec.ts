@@ -240,7 +240,8 @@ describe('migration 0029', () => {
     await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
 
     const after = (await env.DB.prepare('SELECT * FROM users ORDER BY id').all<Record<string, unknown>>()).results;
-    expect(after.map(({ session_key: _, ...rest }) => rest)).toEqual(before);
+    // 0041's session_generation (§16 #70) arrives with it, 0 for everyone
+    expect(after.map(({ session_key: _, session_generation: g, ...rest }) => (expect(g).toBe(0), rest))).toEqual(before);
     const got = after.map((u) => u.session_key as string);
     for (const k of got) expect(k).toMatch(/^[0-9a-f]{32}$/);
     expect(new Set(got).size).toBe(got.length);

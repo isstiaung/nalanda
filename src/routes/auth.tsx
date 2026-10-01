@@ -17,15 +17,15 @@ import {
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
   verifyPassword,
-  type AccountRef,
+  type SessionRef,
 } from '../lib/auth';
 import { invalid } from '../views/components';
 import { Brand, page } from '../views/layout';
 
 const auth = new Hono<AppEnv>();
 
-/** Signs this account in on this response: a cookie naming its id and session key (§16 #56). */
-async function signIn(c: Context<AppEnv>, secret: string, account: AccountRef): Promise<void> {
+/** Signs this account in on this response: a cookie naming its id, session key (§16 #56) and generation (§16 #70). */
+export async function signIn(c: Context<AppEnv>, secret: string, account: SessionRef): Promise<void> {
   const token = await createSessionToken(secret, account, Math.floor(Date.now() / 1000));
   setCookie(c, SESSION_COOKIE, token, {
     path: '/',

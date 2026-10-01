@@ -42,7 +42,12 @@ constraints bullets.
   User ids are reused (no AUTOINCREMENT), so a session names the id **and** `users.session_key`
   (random, set in the insert, never changed — ARCH.md §16 #56). Every path that
   inserts a user sets a key; anything else that remembers a person across time (an HMAC
-  stamp, a cache) binds `accountIdentity()`, never the bare id.
+  stamp, a cache) binds `accountIdentity()`, never the bare id. Which of an account's sessions
+  still count is `users.session_generation` (ARCH.md §16 #70): the cookie names the generation it
+  was made in (`g`, absent for 0), the middleware compares it with the row it already reads, and
+  "Sign out other devices" (Account), a password change and an admin's reset each add one in the
+  statement that writes — the device acting re-issues its own cookie with `signIn()` from the row
+  returned. The key is never rotated for this: the identity stamps hang from it.
 - Members change their own reads, pages and review; admins anyone's, and only admins move
   one to another member. Check it in the route (403 with a reason) *and* in the statement
   that writes (the `Actor` guards in `src/db/queries.ts`). No permission matrix beyond this.

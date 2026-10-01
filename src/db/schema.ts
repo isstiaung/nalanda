@@ -46,6 +46,11 @@ export const users = sqliteTable('users', {
   // default there); the migration after it fills every row, every insert sets its own, and an empty key never
   // signs anyone in (sessionMatches in src/lib/auth.ts).
   sessionKey: text('session_key').notNull().default(''),
+  // Which of this account's sessions still count (§16 #70): a cookie names the generation it was made in, and one
+  // made in an earlier generation signs in nobody. "Sign out other devices", a password change and an admin's reset
+  // each add one. Beside the key, never instead of it: the key is who the account is and hangs the identity stamps
+  // (the scan queue's) — rotating it would drop a device's held scans; this rotates freely.
+  sessionGeneration: integer('session_generation').notNull().default(0),
 });
 
 export const libraries = sqliteTable('libraries', {

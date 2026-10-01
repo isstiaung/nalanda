@@ -41,7 +41,7 @@ describe('session tokens', () => {
 
   it('verifies its own tokens, naming the id and the key', async () => {
     const token = await createSessionToken('secret', ann, now);
-    expect(await verifySessionToken('secret', token, now + 60)).toEqual({ userId: 42, key: ann.sessionKey });
+    expect(await verifySessionToken('secret', token, now + 60)).toEqual({ userId: 42, key: ann.sessionKey, generation: 0 });
   });
 
   it('rejects tampering, wrong secrets, and expiry', async () => {
@@ -76,7 +76,7 @@ describe('session tokens', () => {
     // another id holding the same key
     expect(sessionMatches(session, { id: 43, sessionKey: ann.sessionKey })).toBe(false);
     // a row with no usable key never matches, even a session naming that same nothing
-    expect(sessionMatches({ userId: 42, key: '' }, { id: 42, sessionKey: '' })).toBe(false);
+    expect(sessionMatches({ userId: 42, key: '', generation: 0 }, { id: 42, sessionKey: '' })).toBe(false);
     expect(sessionMatches(null, ann)).toBe(false);
     expect(sessionMatches(session, null)).toBe(false);
   });

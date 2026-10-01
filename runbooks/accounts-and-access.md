@@ -26,8 +26,9 @@ credited to the wrong person moves from the book's page, under *Edit* on it.
 
 Settings → *Reset password* next to their name → a new one-time temp password is shown.
 The reset takes effect immediately — their old password stops working the moment you click,
-and they set their own again at next login. Sessions they already hold stay signed in (a
-reset doesn't sign anyone out); to end those, see *Log everyone out everywhere* below.
+they are signed out on every device at the same moment, and they set their own password again
+at next login. So a reset is also the remedy for a member's lost phone: reset, hand them the
+temporary password, and the phone's session is dead.
 
 ## Remove someone
 
@@ -64,6 +65,13 @@ minutes or clear the throttle:
 ```sh
 npm run wrangler:remote -- d1 execute nalanda --remote --command "DELETE FROM login_attempts"
 ```
+
+## Sign one person out everywhere
+
+Anyone can do it for themselves: Account → *Sign out other devices*. Every other device of
+theirs is signed out at once and this one stays in; changing their password does the same.
+For someone else, *Reset password* (above) signs them out everywhere as well. Neither touches
+anyone else's sessions, and neither needs a deploy or a secret.
 
 ## Log everyone out everywhere
 
