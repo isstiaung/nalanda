@@ -126,6 +126,22 @@ describe('Sign out other devices', () => {
     expect(await signedIn(admin.cookie)).toBe(true); // the admin's own session is untouched
   });
 
+  it('is not offered on the admin’s own row, which points at Account instead, and a stray self-reset is refused', async () => {
+    const admin = await member('admin', 'admin');
+    const dee = await member('dee');
+    const members = await (await send('/settings/users', admin.cookie)).text();
+    expect(members).toContain(`action="/settings/users/${dee.id}/reset"`);
+    expect(members).not.toContain(`action="/settings/users/${admin.id}/reset"`);
+    expect(members).toContain('href="/account"');
+    const res = await send(`/settings/users/${admin.id}/reset`, admin.cookie, {});
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain('Change your own password under Account');
+    expect(await signedIn(admin.cookie)).toBe(true); // this device is still in
+    const row = (await getUserById(env.DB, admin.id))!;
+    expect(row.sessionGeneration).toBe(0);
+    expect(row.mustChangePassword).toBe(false); // no temporary password minted
+  });
+
   it('a refused password change signs nothing out', async () => {
     const user = await createUser(env.DB, { username: 'eve', passwordHash: await hashPassword('old-password'), role: 'member', mustChangePassword: false });
     const phone = await cookieFor(user);

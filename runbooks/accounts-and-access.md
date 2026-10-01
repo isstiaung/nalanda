@@ -28,7 +28,9 @@ Settings → *Reset password* next to their name → a new one-time temp passwor
 The reset takes effect immediately — their old password stops working the moment you click,
 they are signed out on every device at the same moment, and they set their own password again
 at next login. So a reset is also the remedy for a member's lost phone: reset, hand them the
-temporary password, and the phone's session is dead.
+temporary password, and the phone's session is dead. Your own row offers no reset — it would
+sign out the device you are on — and points at **Account**, where you change your own password
+(which signs out your other devices and keeps this one).
 
 ## Remove someone
 
