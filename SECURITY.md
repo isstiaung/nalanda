@@ -37,7 +37,9 @@ attempt is counted in the statement that checks the count, before the password i
 so a burst of parallel guesses stops at ten too; past the limit the answer is 429, the right
 password included, until the failures age out. A login that succeeds takes its row back. An
 unknown username is checked against a fixed hash (`DUMMY_HASH`), so it costs what a wrong
-password does and the response time says nothing about which usernames exist.
+password does and the response time says nothing about which usernames exist. The
+current-password check under Account counts against the same limits, so a stolen session
+cookie can't be turned into the password by guessing.
 
 **CSRF.** `SameSite=Lax` cookies plus an Origin-check middleware on every mutation. All
 mutations are POSTs; a state-changing GET would itself be a bug.

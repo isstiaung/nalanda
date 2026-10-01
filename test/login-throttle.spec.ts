@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { createUser, LOGIN_ATTEMPT_LIMIT } from '../src/db/queries';
 import app from '../src/index';
 import { DUMMY_HASH, hashPassword } from '../src/lib/auth';
-import { rows } from './member-helpers';
+import { as, member, rows } from './member-helpers';
 
 const ORIGIN = 'http://nalanda.test';
 const TOO_MANY = 'Too many attempts';
@@ -114,5 +114,45 @@ describe('the login throttle', () => {
     for (let i = 0; i < LOGIN_ATTEMPT_LIMIT - 1; i++) await login('nobody-here', `guess-${i}`, `198.51.100.${i}`);
     const locked = await login('nobody-here', 'guess-x', '198.51.100.50');
     expect(locked.status).toBe(429);
+  });
+});
+
+describe('the current-password check under Account', () => {
+  const change = (who: Awaited<ReturnType<typeof member>>, current: string, ip = '203.0.113.9') =>
+    as(who, '/account/password', { body: { current, next: 'new password 1', confirm: 'new password 1' }, ip });
+
+  it('counts against the same limit, by address and by account, and refuses past it with 429', async () => {
+    const ravi = await member('ravi');
+    await env.DB.prepare('UPDATE users SET password_hash = ?1 WHERE id = ?2').bind(await hashPassword('correct horse'), ravi.id).run();
+    for (let i = 0; i < LOGIN_ATTEMPT_LIMIT; i++) {
+      const res = await change(ravi, `guess-${i}`);
+      expect(res.status, `guess ${i}`).toBe(200);
+      expect(await res.text()).toContain('Current password is wrong.');
+    }
+    expect(await attempts()).toHaveLength(LOGIN_ATTEMPT_LIMIT);
+    // the eleventh guess — right or wrong — is refused before it is checked
+    const locked = await change(ravi, 'correct horse');
+    expect(locked.status).toBe(429);
+    const body = await locked.text();
+    expect(body).toContain(TOO_MANY);
+    expect(body).toContain('role="alert"');
+    expect(body).not.toContain('aria-invalid'); // about waiting, not about what was typed
+    expect(locked.headers.get('set-cookie')).toBeNull();
+    expect(await rows('SELECT must_change_password AS must FROM users WHERE id = ?1', ravi.id)).toEqual([{ must: 0 }]);
+    expect((await rows<{ g: number }>('SELECT session_generation AS g FROM users WHERE id = ?1', ravi.id))[0]!.g).toBe(0); // nothing changed, nobody signed out
+    // the account is locked out of login too, from anywhere: the guesses were at its password
+    expect((await login('ravi', 'correct horse', '198.51.100.1')).status).toBe(429);
+    // aged out, the right password changes it, and the row that was right is taken back
+    await env.DB.prepare("UPDATE login_attempts SET attempted_at = datetime('now', '-11 minutes')").run();
+    expect((await change(ravi, 'correct horse')).status).toBe(302);
+    expect(await attempts("attempted_at > datetime('now', '-10 minutes')")).toEqual([]);
+  });
+
+  it('shares the address’s count with login', async () => {
+    const ravi = await member('ravi');
+    await env.DB.prepare('UPDATE users SET password_hash = ?1 WHERE id = ?2').bind(await hashPassword('correct horse'), ravi.id).run();
+    for (let i = 0; i < LOGIN_ATTEMPT_LIMIT; i++) await login('someone', `guess-${i}`, '203.0.113.5');
+    expect((await change(ravi, 'whatever', '203.0.113.5')).status).toBe(429);
+    expect((await change(ravi, 'whatever', '203.0.113.6')).status).toBe(200); // another address: checked, and wrong
   });
 });
