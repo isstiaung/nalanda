@@ -149,6 +149,11 @@ app.use(async (c, next) => {
     return sendTo(c, '/account', 403, 'Choose a new password first — reload the page.');
   }
   await next();
+  // Nothing served to a signed-in person stays in the browser either (§16 #48 keeps the service worker out of it;
+  // this keeps the browser's own cache out): a page with notes, locations, borrowers or a minted password is not
+  // kept, so Back or a restored tab on a shared device after a logout shows none of it. Share pages, covers, static
+  // files and the login page are served before this middleware and cache as they did.
+  c.res.headers.set('cache-control', 'no-store');
 });
 
 /** What a session that must still change its temporary password may reach (logout is public, before this middleware). */

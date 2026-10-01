@@ -149,6 +149,9 @@ auth.post('/auth/login', async (c) => {
 
 auth.post('/auth/logout', (c) => {
   deleteCookie(c, SESSION_COOKIE, { path: '/' });
+  // the browser's cache of this origin goes with the session (signed-in pages are no-store, this is for whatever a
+  // browser kept anyway); app.js empties the device's scan queue on the same click (§16 #48)
+  c.header('Clear-Site-Data', '"cache"');
   return c.redirect('/login');
 });
 
