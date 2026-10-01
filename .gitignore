@@ -5,6 +5,7 @@ node_modules
 .dev.vars
 backups/
 .backfill/
+.record-covers/
 public/vendor/
 *.log
 .DS_Store

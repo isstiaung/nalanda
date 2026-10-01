@@ -26,7 +26,9 @@ deployment's shape from this file.
 - R2 for cover art. Metadata providers behind `src/metadata/provider.ts`: Open Library + Google
   Books (books, keyless-capable), BoardGameGeek XML API2 (games: name search only, no barcode
   lookup, needs `BGG_TOKEN` — registration-only since 2025), Discogs (vinyl, **has** barcode
-  search, needs `DISCOGS_TOKEN`).
+  search, needs `DISCOGS_TOKEN`). A record's stored cover comes only from the Cover Art Archive via
+  MusicBrainz (`recordCover()`, keyless, one request a second) — **never a Discogs image**
+  (Restricted Data); `fetchCover()` refuses discogs.com hosts on every path (ARCH.md §16 #67).
 - Styling: the hand-written design system in `public/app.css`, "the manuscript ledger" (ARCH.md
   §16 #16) — no CSS framework. Indigo working accent; vermilion only for circulation/danger;
   turmeric gold for ratings; monospace for all data (counts, ISBNs, dates, pills, `accNo()`);
@@ -157,6 +159,8 @@ npm run backup             # per-table data-only export → backups/remote-<date
 npm run backup:local       # same, for the local dev database
 npm run backfill:remote -- <step>  # production covers + descriptions: rehearse | export | enrich |
                            # upload | apply | status; apply wants a backup < 12 h old (runbook)
+npm run record-covers:remote -- <step>  # one-off: record covers stored from Discogs → the Cover Art
+                           # Archive's, or dropped; same steps (runbooks/record-covers.md, §16 #67)
 npm run vendor             # re-copy vendored assets after bumping htmx/zxing/font versions
 npm run federation:keygen  # Ed25519 identity → FEDERATION_PRIVATE_KEY, printed once, never on disk
 ```
@@ -220,7 +224,7 @@ Long forms in [docs/conventions.md](docs/conventions.md).
 
 ## Ops guardrails
 - Develop against local D1. `--remote` is for deploy, remote migrate, backup, and
-  `backfill:remote` only.
+  `backfill:remote` / `record-covers:remote` only.
 - Any destructive remote operation (dropping data, hand-run `wrangler d1 execute --remote`)
   requires a fresh `npm run backup` first.
 - Secrets (`SESSION_SECRET`, `DISCOGS_TOKEN`, `BGG_TOKEN`, optional `GOOGLE_BOOKS_KEY`, optional

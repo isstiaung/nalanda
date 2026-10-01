@@ -68,7 +68,9 @@ its own licenses, fetched to your machine or the CI runner, never into the repo 
 ## Data sources
 
 Metadata and cover art are fetched at runtime from Open Library, Google Books,
-BoardGameGeek, and Discogs. Each has its own terms of use, and none of them are affiliated
+BoardGameGeek, Discogs, and — for records' covers — MusicBrainz and its Cover Art Archive (a
+joint project with the Internet Archive; keyless, asked with Nalanda's User-Agent and at most one
+request a second, as MusicBrainz asks). Each has its own terms of use, and none of them are affiliated
 with this project — if you run an instance, you are the API consumer and those terms are
 between you and them. BoardGameGeek's, for example, require an approved application (its
 token is your `BGG_TOKEN`) and the logo above.
@@ -99,3 +101,9 @@ The terms split Discogs' data into CC0 Data — release titles, formats, track l
 barcodes, labels — and **Restricted Data**, which includes *"'Marketplace Data' such as …
 pricing"*. They also forbid showing their data more than six hours older than Discogs' own,
 which is why Nalanda fetches and stores no marketplace prices (ARCH.md §16 #61).
+
+Release images are Restricted Data too, licensed *"limited, personal, non-sublicensable"* and
+not to be transferred to any third party. A stored cover is served on share pages and to
+connected households, so Nalanda never stores a Discogs image: a record's cover comes from the
+Cover Art Archive, or the record has none (ARCH.md §16 #67). The Add page still shows a Discogs
+result's image while you choose, loaded by your browser straight from Discogs and never kept.

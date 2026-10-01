@@ -5,13 +5,15 @@ import { bgg, BggAuthError, BggBusyError, bggGame, type BggGameResult } from './
 import { discogs } from './discogs';
 import { googleBooks } from './googlebooks';
 import { itunesCoverByIsbn } from './itunes';
-import { caaCoverByBarcode } from './musicbrainz';
+import { recordCover } from './musicbrainz';
 import { olEditionCover, olSearchLean, olWorkDescription, openLibrary, openLibrarySearchPage } from './openlibrary';
-import { creatorsMatch, titlesMatch, type Candidate, type LookupResult } from './provider';
+import { creatorsMatch, searchableTitle, titlesMatch, type Candidate, type LookupResult } from './provider';
 
 export type { Candidate, LookupResult } from './provider';
 export type { DiscogsFailure, PressingResult } from './discogs';
-export { cleanDescription, creatorsMatch, normTitle, titlesMatch } from './provider';
+export type { RecordCoverResult, RecordCoverSubject } from './musicbrainz';
+export { cleanDescription, creatorsMatch, normTitle, searchableTitle, titlesMatch } from './provider';
+export { recordCover } from './musicbrainz';
 
 export type BarcodeKind = 'isbn13' | 'upc';
 
@@ -83,6 +85,8 @@ export type CoverSubject = {
   title: string;
   creators?: string | null;
   mediaType: MediaType;
+  /** A record's MusicBrainz release id, if its details keep one (`musicbrainz_id`): a way to its cover. */
+  musicbrainzId?: unknown;
   // False for an item that already has a cover and only wants details. Its search can then stop at the
   // first description and skip the cover-only lookups — without this, every description-only item ran the
   // whole chain, about three Google Books calls each against a 1,000-a-day quota.
@@ -101,33 +105,19 @@ export type CoverResult = {
 /**
  * Cover backfill: try providers lazily until one yields a storable image.
  * Pass 1 (exact, by barcode): Open Library search → OL edition record → Google Books
- *   → iTunes for ISBNs; Discogs → MusicBrainz/Cover Art Archive for other barcodes.
+ *   → iTunes for ISBNs.
  * Pass 2 (by title + author, guarded by titlesMatch): OL/Google Books for books,
- *   BGG for board games, Discogs for vinyl — a different edition's cover may be used.
+ *   BGG for board games — a different edition's cover may be used.
+ * A record has a pass of its own (findRecord): its cover only ever from the Cover Art Archive, its details from Discogs.
  * Storage is injected so this module stays the only place that talks to provider APIs.
  */
-/**
- * What to ask a provider for. Search indexes are literal: a series suffix ("(Sprawl, #1)"), an
- * issue number, a bracketed note or an ampersand finds nothing, even when the book is right there.
- * Matching still compares the item's real title — this only shapes the query.
- */
-export function searchableTitle(title: string): string {
-  const cleaned = title
-    .replace(/\s*[([{][^)\]}]*[)\]}]\s*/g, ' ')
-    .split(':')[0]!
-    .replace(/&/g, ' and ')
-    .replace(/#\d+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return cleaned.length >= 3 ? cleaned : title;
-}
-
 export async function findCover(
   env: Bindings,
   subject: CoverSubject,
   store: (url: string) => Promise<string | null>,
 ): Promise<CoverResult | null> {
   const { title, creators, mediaType } = subject;
+  if (mediaType === 'vinyl' || mediaType === 'music') return findRecord(env, subject, store);
   const wantCover = subject.wantCover !== false;
   // nothing is fetched or stored for an item that already has its cover
   const tryStore = async (url: string | null | undefined) => (url && wantCover ? store(url) : null);
@@ -164,14 +154,6 @@ export async function findCover(
     }
     if (!key && wantCover) key = await tryStore(await itunesCoverByIsbn(isbn, title).catch(() => null));
     if (satisfied()) return { key, method: key ? 'barcode' : 'title', candidate: details };
-  } else if (classified) {
-    if (env.DISCOGS_TOKEN) {
-      const release = await discogs(env.DISCOGS_TOKEN).lookupByBarcode(classified.code).catch(() => null);
-      details = keep(details, release);
-      key = await tryStore(release?.coverUrl);
-    }
-    if (!key && wantCover) key = await tryStore(await caaCoverByBarcode(classified.code).catch(() => null));
-    if (satisfied()) return { key, method: key ? 'barcode' : 'title', candidate: details };
   }
   const method: CoverResult['method'] = key ? 'barcode' : 'title';
 
@@ -200,11 +182,6 @@ export async function findCover(
     if (!env.BGG_TOKEN) return null; // no token, no BGG — nothing to find a board game's cover with
     return fromSearches([() => bgg(env.BGG_TOKEN).search(query)]);
   }
-  if (mediaType === 'vinyl' || mediaType === 'music') {
-    if (!env.DISCOGS_TOKEN) return key || details ? { key, method, candidate: details } : null;
-    const q = firstCreator ? `${firstCreator} ${query}` : query;
-    return fromSearches([() => discogs(env.DISCOGS_TOKEN!).search(q)]);
-  }
 
   const olQuery = firstCreator ? `title:"${query}" author:"${firstCreator}"` : `title:"${query}"`;
   const gbQuery = firstCreator ? `intitle:"${query}" inauthor:"${firstCreator}"` : `intitle:"${query}"`;
@@ -217,6 +194,34 @@ export async function findCover(
     () => olSearchLean(`title:"${query}"`),
     () => googleBooks(env.GOOGLE_BOOKS_KEY).search(`intitle:"${query}"`),
   ]);
+}
+
+/**
+ * A record (ARCH.md §16 #67): its details from Discogs — the release with its barcode, else the first search result
+ * whose title and artist match — and its cover from the Cover Art Archive alone (recordCover), never the image Discogs
+ * answered with. Discogs' pressing data is CC0; its images are Restricted Data, which a stored cover would publish.
+ */
+async function findRecord(env: Bindings, subject: CoverSubject, store: (url: string) => Promise<string | null>): Promise<CoverResult | null> {
+  const { title, creators } = subject;
+  const classified = subject.barcode ? classifyBarcode(subject.barcode) : null;
+  const barcode = classified?.kind === 'upc' ? classified.code : null;
+  let details: Candidate | null = null;
+  if (env.DISCOGS_TOKEN) {
+    const client = discogs(env.DISCOGS_TOKEN);
+    if (barcode) details = await client.lookupByBarcode(barcode).catch(() => null);
+    if (!details) {
+      const firstCreator = creators?.split(',')[0]?.trim();
+      const query = searchableTitle(title);
+      const found = await client.search(firstCreator ? `${firstCreator} ${query}` : query).catch(() => null);
+      details = (found ?? []).find((c) => titlesMatch(c.title, title) && creatorsMatch(creators, c.creators)) ?? null;
+    }
+  }
+  // the image Discogs answered with goes no further than this
+  if (details) details = { ...details, coverUrl: undefined };
+  const cover =
+    subject.wantCover === false ? null : await recordCover({ barcode, musicbrainzId: subject.musicbrainzId, title, creators }, store);
+  if (!cover?.key && !details) return null;
+  return { key: cover?.key ?? null, method: cover?.key && cover.via !== 'search' ? 'barcode' : 'title', candidate: details };
 }
 
 /** Keeps the first record, filling its blanks from later ones: providers are complementary. */

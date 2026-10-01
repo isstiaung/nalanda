@@ -1211,6 +1211,8 @@ export const ItemForm: FC<{
   tags?: string[];
   selectedLibraryId?: number;
   error?: string;
+  /** The error is the cover URL's: Discogs' image, which is never stored (§16 #67). */
+  coverError?: boolean;
   // what a refused form sends back, so nothing typed is lost
   coverUrl?: string;
   removeCover?: boolean;
@@ -1221,7 +1223,7 @@ export const ItemForm: FC<{
   seriesNames?: string[];
   // the purchase price field (§16 #61): the household's currency (null: none set yet) and whether the viewer can set one
   money?: PriceFieldProps;
-}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverUrl, removeCover, perMember, series, seriesNames, money }) => {
+}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverError, coverUrl, removeCover, perMember, series, seriesNames, money }) => {
   // a book being read again: status and dates describe its last finish, and the re-read is managed on its page
   const readingLocked = item?.mediaType === 'book' && !!item?.rereading;
   // a game or record takes plays, not reads: its form shows no status or reading dates (the Add form's type is picked
@@ -1428,7 +1430,7 @@ export const ItemForm: FC<{
     </label>
     <label>
       Cover image URL <small>(fetched once into storage on save)</small>
-      <input name="coverUrl" placeholder="https://…" value={coverUrl ?? ''} />
+      <input name="coverUrl" placeholder="https://…" value={coverUrl ?? ''} {...invalid(coverError && error, 'item-form-error')} />
     </label>
     {item?.coverKey ? (
       <label>
@@ -1460,7 +1462,9 @@ const CandidateFields: FC<{ candidate: Candidate }> = ({ candidate }) => (
     <input type="hidden" name="isbn10Upc" value={candidate.isbn10Upc ?? ''} />
     <input type="hidden" name="seriesName" value={candidate.series?.name ?? ''} />
     <input type="hidden" name="seriesNumber" value={candidate.series?.number != null ? formatSeriesNumber(candidate.series.number) : ''} />
-    <input type="hidden" name="coverUrl" value={candidate.coverUrl ?? ''} />
+    {/* Discogs' image is shown above, from Discogs, and goes no further: a record's cover is the Cover Art Archive's,
+        looked up on save (§16 #67) */}
+    <input type="hidden" name="coverUrl" value={candidate.provider === 'discogs' ? '' : (candidate.coverUrl ?? '')} />
     <input type="hidden" name="details" value={JSON.stringify(candidate.details)} />
     {/* a Discogs result's release is fetched once on save, for its tracklist and full pressing (§16 #55) */}
     {candidate.provider === 'discogs' ? <input type="hidden" name="source" value="discogs" /> : null}

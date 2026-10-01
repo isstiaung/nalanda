@@ -17,6 +17,7 @@
     "backup": "node scripts/backup.mjs",
     "backup:local": "node scripts/backup.mjs --local",
     "backfill:remote": "node --disable-warning=ExperimentalWarning scripts/backfill-remote.mjs",
+    "record-covers:remote": "node --disable-warning=ExperimentalWarning scripts/record-covers.mjs",
     "federation:keygen": "node scripts/federation-keygen.mjs",
     "vendor": "node scripts/vendor.mjs",
     "postinstall": "node scripts/vendor.mjs",
