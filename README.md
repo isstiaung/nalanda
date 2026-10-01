@@ -82,6 +82,9 @@ manuscripts.
   and invite-only, never a network or the fediverse; off unless you give the instance a key.
   **Notifications** count connection requests, borrowing and comments, and Feed counts what's
   new, per person in the household.
+- **Formats and editions**: say which forms you hold a work in — hardcover and audiobook, LP and
+  CD — filter a shelf by them, and list the other editions' ISBNs so a scan of any of them finds
+  the one item. Lending asks which copy went out. One item per work; its reads and reviews stay one.
 - **New from your authors**: the authors you've finished, and on a click their works from Open
   Library, newest first, with what you already have marked — the extent of discovery here: no
   recommendation engine, nothing about your reading sent anywhere.

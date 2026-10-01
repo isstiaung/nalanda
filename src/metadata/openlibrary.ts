@@ -1,8 +1,10 @@
 import { fetchWithTimeout, USER_AGENT } from '../env';
+import { formatFromPhysical } from '../lib/formats';
 import { cleanSeriesName, parseSeriesNumber, type SeriesDraft } from '../lib/series';
 import { cleanDescription, PAGE_SIZE, type Candidate, type MetadataProvider, type SearchPage } from './provider';
 
 type OlDoc = {
+  format?: string[]; // the edition's physical form: 'Paperback', 'Hardcover', 'Audio CD'…
   key?: string;
   title?: string;
   author_name?: string[];
@@ -18,11 +20,11 @@ type OlDoc = {
   series_position?: string[];
 };
 
-const FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,isbn,series_name,series_position';
+const FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,isbn,series_name,series_position,format';
 // The backfill never reads the isbn list, and it dwarfs the rest: a search for a work with many
 // editions answers in 78 KB with it and 17 KB without. A Worker parses that inside a 10 ms CPU
 // budget, several times per item — so cover/detail lookups ask for the lean set.
-const LEAN_FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,series_name,series_position';
+const LEAN_FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,series_name,series_position,format';
 
 async function searchOl(q: string, limit: number, fields: string = FIELDS, page = 1): Promise<{ docs: OlDoc[]; found: number }> {
   const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&fields=${fields}&limit=${limit}${page > 1 ? `&page=${page}` : ''}`;
@@ -62,6 +64,8 @@ function toCandidate(doc: OlDoc, isbn13?: string): Candidate | null {
     coverUrl,
     workKey: doc.key?.startsWith('/works/') ? doc.key : undefined,
     ...seriesOf(doc),
+    // the edition's physical form, when the index names one clearly (§16 #75)
+    ...(formatFromPhysical(doc.format?.find((f) => formatFromPhysical(f))) ? { formats: [formatFromPhysical(doc.format!.find((f) => formatFromPhysical(f)))!] } : {}),
     details: {},
     provider: 'openlibrary',
   };

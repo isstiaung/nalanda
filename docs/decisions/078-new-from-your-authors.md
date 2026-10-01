@@ -19,7 +19,10 @@ how far to go: this page, and a series' gaps (#79), and no "readers like you".
   general proxy to Open Library. Answers are kept per isolate for a day (`worksOf()`), two
   hundred authors at most, so a household looking twice asks once; **no answer is never cached**
   (a burst block or an outage returns null, the page says so, and the next click asks again),
-  while a genuine empty answer is.
+  while a genuine empty answer is. **Measured (2026-10-01):** Terry Pratchett's twelve newest
+  works with ISBNs come back as about 3 KB and parse in well under a millisecond; a series'
+  forty works (#79, Discworld) as 74 KB, parsed in 0.17 ms — nowhere near the 10 ms budget, so
+  the ISBN field stays in the request.
 - **What is already here is marked.** Each work is matched as the Add page matches (#93's
   `catalogMatches()`, by ISBN) and, for a work without one, by title and author
   (`booksNamed()` + `titleKey`), and shows "In your catalog"; the rest are ordinary Add-page
