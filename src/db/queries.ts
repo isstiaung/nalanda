@@ -1784,7 +1784,8 @@ async function viewsWithoutReader(d1: D1Database, id: number): Promise<D1Prepare
     const r = sp.get('readBy');
     if (r !== String(id) && r !== `now-${id}`) continue;
     sp.delete('readBy');
-    out.push(d1.prepare('UPDATE saved_views SET params = ?2 WHERE id = ?1').bind(v.id, sp.toString()));
+    // only the version read: a view re-saved between the read and the batch keeps its newer filters
+    out.push(d1.prepare('UPDATE saved_views SET params = ?2 WHERE id = ?1 AND params = ?3').bind(v.id, sp.toString(), v.params));
   }
   return out;
 }
