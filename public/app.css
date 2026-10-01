@@ -1498,3 +1498,8 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 /* "More results" under a page of Add-page search results; the next page takes its place */
 .results-more { margin: 0.25rem 0 1rem; }
 .results-page:focus { outline: none; }
+
+/* creators and publishers (ARCH.md §16 #72): the index's groups and its narrowing box */
+.names-filter { margin: 0 0 1rem; }
+.names-filter input[type='search'] { max-width: 20rem; }
+.names-group + .names-group { margin-top: 1.5rem; }

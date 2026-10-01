@@ -61,7 +61,7 @@ describe('sections', () => {
 
     expect(bar.pinned).toEqual(['/', '/add', '/search']);
     expect(bar.sections.map((s) => [s.id, s.links])).toEqual([
-      ['library', ['/tags', '/series']],
+      ['library', ['/tags', '/series', '/creators', '/publishers']],
       ['shelves', [`/libraries/${shelf.id}`]],
       ['reading', ['/wants', '/goals', '/year-in-review']],
       ['lending', ['/loans', '/borrowed']],
@@ -107,6 +107,8 @@ describe('open sections', () => {
       ['/search', null, '/search'],
       ['/tags', 'library', '/tags'],
       ['/series', 'library', '/series'],
+      ['/creators', 'library', '/creators'],
+      ['/publishers', 'library', '/publishers'],
       [`/libraries/${shelf.id}`, 'shelves', `/libraries/${shelf.id}`],
       ['/wants', 'reading', '/wants'],
       ['/goals', 'reading', '/goals'],

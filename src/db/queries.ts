@@ -18,6 +18,7 @@ import {
   type ReadRow,
   todayUtc,
 } from '../lib/reads';
+import { countName, nameKey, sortNames, splitCreators, type NameCount } from '../lib/creators';
 import { FEWEST_PLAYERS, WEIGHT_BANDS, type GameFilters } from '../lib/games';
 import { MAX_LINKS_PER_ITEM, type LinkDraft } from '../lib/links';
 import { MAX_LOANS_PER_CELL, type LoanDraft } from '../lib/loans';
@@ -3247,7 +3248,7 @@ const YEAR_RATED = `${YEAR_FINISHES},
  * keeps its order, and the lone "Jr." is dropped as nobody). Two full names ("Terry Pratchett, Neil Gaiman") stay two
  * people. ';' and ' & ' separate people too ("Pratchett & Gaiman").
  */
-const YEAR_CREATORS = `named AS (
+export const YEAR_CREATORS = `named AS (
     SELECT scope, work, ended_on, cr, trim(substr(cr, 1, instr(cr, ',') - 1)) AS a, trim(substr(cr, instr(cr, ',') + 1)) AS b
     FROM (SELECT scope, work, ended_on, trim(coalesce(creators, '')) AS cr FROM scoped)
   ),
@@ -3764,3 +3765,72 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
   }
   return { inserted: inserts.length, merged: merges.length, reads: readChanges };
 }
+
+// ---------- creators and publishers (ARCH.md §16 #72) ----------
+
+/**
+ * Every creator the catalog names, with how many items of each kind: one pass over `creators`, split into people in
+ * TypeScript (splitCreators, the twin of YEAR_CREATORS). Reads one row per item that has creators — a 2,000-item
+ * catalogue reads 2,000 — once per visit to the index.
+ */
+export async function listCreators(d1: D1Database): Promise<NameCount[]> {
+  const rows = await d1
+    .prepare(`SELECT media_type AS mediaType, creators FROM items WHERE creators IS NOT NULL AND trim(creators) <> ''`)
+    .all<{ mediaType: MediaType; creators: string }>();
+  const counts = new Map<string, NameCount>();
+  for (const r of rows.results) for (const name of splitCreators(r.creators)) countName(counts, name, r.mediaType);
+  return sortNames([...counts.values()]);
+}
+
+/** Every publisher (a record's label), with how many items of each kind: grouped in SQL, one row per name and kind. */
+export async function listPublishers(d1: D1Database): Promise<NameCount[]> {
+  const rows = await d1
+    .prepare(
+      `SELECT min(trim(publisher)) AS name, media_type AS mediaType, count(*) AS n FROM items
+       WHERE publisher IS NOT NULL AND trim(publisher) <> ''
+       GROUP BY lower(trim(publisher)), media_type`,
+    )
+    .all<{ name: string; mediaType: MediaType; n: number }>();
+  const counts = new Map<string, NameCount>();
+  for (const r of rows.results) for (let i = 0; i < r.n; i++) countName(counts, r.name, r.mediaType);
+  return sortNames([...counts.values()]);
+}
+
+export type ByNameRow = Item & { finishedByMe: boolean };
+
+/**
+ * Every item one creator is named on, by title, with whether the viewer has finished it. The column holds several
+ * people in one string, so SQL narrows to rows that contain the name and TypeScript keeps those where the split names
+ * it exactly, without case: "Ann Leckie" is not on "Ann Leckie Jr."'s page, and "Le Guin, Ursula K." is on Ursula K.
+ * Le Guin's. Reads only the rows that contain the name.
+ */
+export async function itemsByCreator(d1: D1Database, name: string, viewer: number): Promise<ByNameRow[]> {
+  const key = nameKey(name);
+  if (!key) return [];
+  const rows = await db(d1)
+    .select({ item: s.items, finished: finishedByViewer(viewer) })
+    .from(s.items)
+    .where(sql`instr(lower(${s.items.creators}), ${key.split(' ').at(-1)}) > 0`)
+    .orderBy(asc(s.items.title), asc(s.items.id));
+  return rows
+    .filter((r) => splitCreators(r.item.creators).some((n) => nameKey(n) === key))
+    .map((r) => ({ ...r.item, finishedByMe: !!r.finished }));
+}
+
+/** Every item one publisher put out, by title, with whether the viewer has finished it. An exact name, without case. */
+export async function itemsByPublisher(d1: D1Database, name: string, viewer: number): Promise<ByNameRow[]> {
+  const key = nameKey(name);
+  if (!key) return [];
+  const rows = await db(d1)
+    .select({ item: s.items, finished: finishedByViewer(viewer) })
+    .from(s.items)
+    .where(sql`lower(trim(${s.items.publisher})) = ${key}`)
+    .orderBy(asc(s.items.title), asc(s.items.id));
+  return rows.filter((r) => nameKey(r.item.publisher ?? '') === key).map((r) => ({ ...r.item, finishedByMe: !!r.finished }));
+}
+
+/** Whether the viewer has a finished read of the item — as seriesWithVolumes() asks it. */
+const finishedByViewer = (viewer: number) =>
+  sql<number>`EXISTS (SELECT 1 FROM reads r WHERE r.item_id = "items"."id" AND r.reader_id = ${viewer} AND r.status = 'completed')`.as(
+    'finished_by_me',
+  );
