@@ -29,7 +29,9 @@ only for deploying, remote migrations, and backups.
 
 [ARCH.md](ARCH.md) is the source of truth for architecture, and §16 is a decision log with
 the reasoning behind each choice. If a change alters a decision, update ARCH.md in the same
-PR. [CLAUDE.md](CLAUDE.md) holds the working conventions in short form.
+PR. [CLAUDE.md](CLAUDE.md) holds the working conventions in short form; their long forms are in
+[docs/privacy.md](docs/privacy.md), [docs/conventions.md](docs/conventions.md) and
+[docs/layout.md](docs/layout.md).
 
 ## Things that will get a PR sent back
 
