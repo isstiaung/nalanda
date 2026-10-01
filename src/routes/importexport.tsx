@@ -133,6 +133,7 @@ importexport.get('/import', async (c) => {
       </section>
       <script src="/import.js" defer></script>
     </>,
+    libs, // the sidebar's list too (§16 #68)
   );
 });
 

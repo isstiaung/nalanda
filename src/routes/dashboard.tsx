@@ -213,6 +213,7 @@ dashboard.get('/', async (c) => {
         )}
       </section>
     </>,
+    libraries, // the sidebar's list too: read above, in this request (§16 #68)
   );
 });
 

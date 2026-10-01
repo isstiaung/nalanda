@@ -702,8 +702,9 @@ describe('D1 calls', () => {
     const list = await calls((app) => app.get('/recommendations', cookie));
     console.info(`recommendation D1 calls: ${JSON.stringify({ withSection, withoutHouseholds, connectionsOff, send, receive, list })}`);
     // the section's households and signing name ride in the reading log's batch: the item page costs what it did on
-    // main before recommendations — 14 with connections on, form or no form, and 11 with them off
-    expect({ withSection, withoutHouseholds, connectionsOff }).toEqual({ withSection: 14, withoutHouseholds: 14, connectionsOff: 11 });
+    // main before recommendations — 14 with connections on, form or no form, and 11 with them off; one fewer each since
+    // the sidebar's shelves and their counts became one statement (§16 #68)
+    expect({ withSection, withoutHouseholds, connectionsOff }).toEqual({ withSection: 13, withoutHouseholds: 13, connectionsOff: 10 });
     for (const n of [withSection, send, receive, list]) expect(n).toBeLessThanOrEqual(50);
     expect(receive).toBeLessThanOrEqual(8);
   });

@@ -397,9 +397,9 @@ describe('D1 calls', () => {
     const { asha, g } = await household();
     const paths = ['/play', '/play?players=4&time=60&weight=light', '/play?pick=1', `/play?players=2&pick=1&not=${g.ticket.id}`];
     const small = await Promise.all(paths.map(async (p) => [await calls(asha, p), await calls(asha, p, true)]));
-    // the whole page: the session, the sidebar's shelves and their counts (two), the results; for htmx, the session and
-    // the results
-    for (const [full, partial] of small) expect([full, partial]).toEqual([4, 2]);
+    // the whole page: the session, the sidebar's shelves with their counts (one statement, §16 #68), the results; for
+    // htmx, the session and the results
+    for (const [full, partial] of small) expect([full, partial]).toEqual([3, 2]);
 
     await env.DB.prepare(
       `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 300)
@@ -414,7 +414,7 @@ describe('D1 calls', () => {
     )
       .bind(asha.id)
       .run();
-    for (const p of paths) expect([await calls(asha, p), await calls(asha, p, true)]).toEqual([4, 2]);
+    for (const p of paths) expect([await calls(asha, p), await calls(asha, p, true)]).toEqual([3, 2]);
   });
 
   it('reads the last play from the plays index', async () => {

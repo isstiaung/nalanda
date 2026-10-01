@@ -131,6 +131,7 @@ add.get('/add', async (c) => {
       <script src="/scanner.js" defer></script>
       <script src="/scan-review.js" defer></script>
     </>,
+    libs, // the sidebar's list too (§16 #68)
   );
 });
 
