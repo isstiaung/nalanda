@@ -24,14 +24,15 @@ import {
 import type { AppEnv } from '../env';
 import { hashApiToken, isApiToken } from '../lib/auth';
 import { VERSION } from '../version';
-import { page as _page, todayOf } from '../views/layout';
+import { todayOf } from '../views/layout';
 import { parseReadBy, parseShelfQuery } from './libraries';
-
-void _page; // the layout is for pages; the API answers JSON — the import keeps todayOf's module in one place
 
 const api = new Hono<AppEnv>();
 
-const refuse = (c: Context<AppEnv>, status: 401 | 403 | 404 | 405 | 400, error: string) => c.json({ error }, status);
+const refuse = (c: Context<AppEnv>, status: 401 | 403 | 404 | 405 | 400, error: string) => {
+  if (status === 401) c.header('www-authenticate', 'Bearer realm="Nalanda"'); // RFC 6750: what kind of credential is wanted
+  return c.json({ error }, status);
+};
 
 /** The token, then the account it still signs in — the same checks a session passes (sessionMatches), in one call. */
 api.use('/api/v1/*', async (c, next) => {

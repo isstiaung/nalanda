@@ -36,6 +36,7 @@ async function get(path: string, token?: string, init: { method?: string; cookie
 async function mint(who: Member, name = 'the blog'): Promise<string> {
   const res = await as(who, '/account/tokens', { body: { name } });
   expect(res.status).toBe(200);
+  expect(res.headers.get('cache-control')).toBe('no-store'); // the page the secret is on, never from a cache
   const page = await res.text();
   const token = page.match(/class="mono break-anywhere token-secret">(nal_[A-Za-z0-9_-]{43})</)?.[1];
   if (!token) throw new Error('no token on the page');
@@ -85,6 +86,7 @@ describe('making and revoking tokens', () => {
     const t2 = await mint(ravi, 'laptop');
     await setPassword(env.DB, ravi.id, await hashPassword('new-password-123'), false);
     expect((await get('/api/v1/me', t2)).status).toBe(401);
+    expect(await rows('SELECT id FROM api_tokens WHERE user_id = ?1', ravi.id)).toEqual([]); // gone with the password change too
     // the member is removed and a newcomer takes their id: the row cascades, the newcomer is nobody's token
     const t3 = await mint(await member('ravi2'), 'tablet');
     const ravi2 = (await rows<{ id: number }>("SELECT id FROM users WHERE username = 'ravi2'"))[0]!.id;
@@ -107,6 +109,9 @@ describe('what the API refuses', () => {
     expect((await get('/api/v1/items', token, { method: 'POST' })).status).toBe(405);
     expect((await get('/api/v1/nothing', token)).status).toBe(404);
     expect((await get('/api/v1/me', token)).headers.get('cache-control')).toBe('no-store');
+    expect((await get('/api/v1/me')).headers.get('www-authenticate')).toBe('Bearer realm="Nalanda"');
+    // a revoke with nonsense for an id is a redirect, not an error
+    expect((await as(ravi, '/account/tokens/abc/revoke', { body: {} })).status).toBe(302);
     // a token signs nobody into the app's pages either
     expect((await get('/account', token)).status).toBe(302);
     // must change password: refused with a reason

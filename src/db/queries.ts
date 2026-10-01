@@ -286,13 +286,18 @@ export async function setPassword(
   passwordHash: string,
   mustChangePassword: boolean,
 ): Promise<{ id: number; sessionKey: string; sessionGeneration: number } | null> {
-  const row = await d1
-    .prepare(
-      `UPDATE users SET password_hash = ?2, must_change_password = ?3, session_generation = session_generation + 1
-       WHERE id = ?1 RETURNING id, session_key AS sessionKey, session_generation AS sessionGeneration`,
-    )
-    .bind(id, passwordHash, mustChangePassword ? 1 : 0)
-    .first<{ id: number; sessionKey: string; sessionGeneration: number }>();
+  // their API tokens go too (§16 #88), as with "Sign out other devices": the generation would refuse them anyway, and
+  // a dead token must not sit in the list or count towards the cap — one batch, both or neither
+  const [moved] = await d1.batch([
+    d1
+      .prepare(
+        `UPDATE users SET password_hash = ?2, must_change_password = ?3, session_generation = session_generation + 1
+         WHERE id = ?1 RETURNING id, session_key AS sessionKey, session_generation AS sessionGeneration`,
+      )
+      .bind(id, passwordHash, mustChangePassword ? 1 : 0),
+    d1.prepare('DELETE FROM api_tokens WHERE user_id = ?1').bind(id),
+  ]);
+  const row = moved?.results?.[0] as { id: number; sessionKey: string; sessionGeneration: number } | undefined;
   return row ?? null;
 }
 
@@ -339,25 +344,20 @@ export async function createApiToken(d1: D1Database, user: { id: number; session
   return row?.id ?? null;
 }
 
-/** A member's tokens, oldest first, each with whether it still works: made for this key and generation. */
-export async function listApiTokens(d1: D1Database, user: { id: number; sessionKey: string; sessionGeneration: number }): Promise<Array<{ id: number; name: string; createdAt: string; valid: boolean }>> {
-  const rows = (await d1.prepare('SELECT id, name, created_at AS createdAt, session_key AS sessionKey, generation FROM api_tokens WHERE user_id = ?1 ORDER BY id').bind(user.id).all<{ id: number; name: string; createdAt: string; sessionKey: string; generation: number }>()).results;
-  return rows.map((r) => ({ id: r.id, name: r.name, createdAt: r.createdAt, valid: r.sessionKey === user.sessionKey && r.generation === user.sessionGeneration }));
+/** A member's tokens, oldest first. Every path that moves the account's generation on deletes them, so each listed one works. */
+export async function listApiTokens(d1: D1Database, userId: number): Promise<Array<{ id: number; name: string; createdAt: string }>> {
+  return (await d1.prepare('SELECT id, name, created_at AS createdAt FROM api_tokens WHERE user_id = ?1 ORDER BY id').bind(userId).all<{ id: number; name: string; createdAt: string }>()).results;
 }
 
 /** The Account page's reads in one call (§16 #88): the member's row and their tokens, so the page costs what it did. */
-export async function userWithTokens(
-  d1: D1Database,
-  user: { id: number; sessionKey: string; sessionGeneration: number },
-): Promise<{ row: User | null; tokens: Array<{ id: number; name: string; createdAt: string; valid: boolean }> }> {
+export async function userWithTokens(d1: D1Database, userId: number): Promise<{ row: User | null; tokens: Array<{ id: number; name: string; createdAt: string }> }> {
   const [u, t] = await d1.batch([
-    d1.prepare('SELECT * FROM users WHERE id = ?1').bind(user.id),
-    d1.prepare('SELECT id, name, created_at AS createdAt, session_key AS sessionKey, generation FROM api_tokens WHERE user_id = ?1 ORDER BY id').bind(user.id),
+    d1.prepare('SELECT * FROM users WHERE id = ?1').bind(userId),
+    d1.prepare('SELECT id, name, created_at AS createdAt FROM api_tokens WHERE user_id = ?1 ORDER BY id').bind(userId),
   ]);
-  const rows = (t?.results ?? []) as Array<{ id: number; name: string; createdAt: string; sessionKey: string; generation: number }>;
   return {
     row: ((u?.results ?? [])[0] as User | undefined) ?? null,
-    tokens: rows.map((r) => ({ id: r.id, name: r.name, createdAt: r.createdAt, valid: r.sessionKey === user.sessionKey && r.generation === user.sessionGeneration })),
+    tokens: (t?.results ?? []) as Array<{ id: number; name: string; createdAt: string }>,
   };
 }
 

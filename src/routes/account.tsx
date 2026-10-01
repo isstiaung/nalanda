@@ -58,7 +58,7 @@ const DevicesForm = ({ done }: { done?: boolean }) => (
  * A member's read-only API tokens (§16 #88): made here, shown once — on this page, never in a URL — and revoked here.
  * One that no longer signs in (made before "Sign out other devices" or a password change) says so.
  */
-const TokensForm = ({ tokens, fresh, error }: { tokens: Array<{ id: number; name: string; createdAt: string; valid: boolean }>; fresh?: { name: string; token: string } | null; error?: string }) => (
+const TokensForm = ({ tokens, fresh, error }: { tokens: Array<{ id: number; name: string; createdAt: string }>; fresh?: { name: string; token: string } | null; error?: string }) => (
   <article class="panel form-card account-card" id="tokens">
     <p class="eyebrow">API tokens</p>
     {fresh ? (
@@ -70,7 +70,7 @@ const TokensForm = ({ tokens, fresh, error }: { tokens: Array<{ id: number; name
           <code class="mono break-anywhere token-secret">{fresh.token}</code>
         </p>
         <p class="muted">
-          Send it as <code>Authorization: Bearer {'<token>'}</code> to <code>/api/v1/…</code> — what it reads is what you see here, and it can change nothing.
+          Send it as <code>Authorization: Bearer {'<token>'}</code> to <code>/api/v1/…</code>. It reads what you see here — private notes, locations, prices, who has what on loan — and can change nothing. Keep it as you keep your password.
         </p>
       </div>
     ) : null}
@@ -85,7 +85,6 @@ const TokensForm = ({ tokens, fresh, error }: { tokens: Array<{ id: number; name
           <li>
             <span>
               <strong>{t.name}</strong> <small class="muted">· made {ledgerDate(t.createdAt)}</small>
-              {t.valid ? null : <small class="muted"> · no longer signs in — made before other devices were signed out</small>}
             </span>
             <form method="post" action={`/account/tokens/${t.id}/revoke`} class="inline-form">
               <button type="submit" class="btn-danger">
@@ -96,7 +95,7 @@ const TokensForm = ({ tokens, fresh, error }: { tokens: Array<{ id: number; name
         ))}
       </ul>
     ) : (
-      <p class="muted">No tokens. One lets a script or another app read your library — the shelves with their filters, an item with its reads and reviews, search, loans, your want list and goals — as JSON, and change nothing. See <a href="https://github.com/isstiaung/nalanda/blob/main/runbooks/api.md">runbooks/api.md</a>.</p>
+      <p class="muted">No tokens. One lets a script or another app read your library as JSON — the shelves with their filters, an item with its reads and reviews, search, loans, your want list and goals — exactly as you see it, private notes and locations included, and change nothing. Keep one as you keep your password. See <a href="https://github.com/isstiaung/nalanda/blob/main/runbooks/api.md">runbooks/api.md</a>.</p>
     )}
     {tokens.length < MAX_API_TOKENS ? (
       <form method="post" action="/account/tokens" class="inline-form">
@@ -132,7 +131,7 @@ const Form = ({
   displayName?: string | null;
   nameSaved?: boolean;
   devicesDone?: boolean;
-  tokens?: Array<{ id: number; name: string; createdAt: string; valid: boolean }>; // none on a refused password change: the section is below it
+  tokens?: Array<{ id: number; name: string; createdAt: string }>; // none on a refused password change: the section is below it
   freshToken?: { name: string; token: string } | null;
   tokenError?: string;
 }) => (
@@ -180,7 +179,7 @@ const Form = ({
 /** The Account page, with the member's tokens — and, right after one is made, the token itself, this once (§16 #88). */
 async function accountPage(c: Parameters<typeof page>[0], extras: { freshToken?: { name: string; token: string } | null; tokenError?: string } = {}) {
   const user = c.get('user');
-  const { row, tokens } = await userWithTokens(c.env.DB, user); // one call, as getUserById was
+  const { row, tokens } = await userWithTokens(c.env.DB, user.id); // one call, as getUserById was
   return page(
     c,
     'Account',
@@ -209,11 +208,13 @@ account.post('/account/tokens', async (c) => {
   const token = newApiToken();
   const id = await createApiToken(c.env.DB, user, name, await hashApiToken(token));
   if (id === null) return accountPage(c, { tokenError: `You have ${MAX_API_TOKENS} tokens — revoke one to make another.` });
+  c.header('cache-control', 'no-store'); // shown this once: never from the back button's cache either
   return accountPage(c, { freshToken: { name, token } });
 });
 
 account.post('/account/tokens/:id/revoke', async (c) => {
-  await revokeApiToken(c.env.DB, c.get('user').id, Number(c.req.param('id')));
+  const id = c.req.param('id');
+  if (/^\d{1,15}$/.test(id)) await revokeApiToken(c.env.DB, c.get('user').id, Number(id));
   return c.redirect('/account#tokens');
 });
 
