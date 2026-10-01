@@ -237,8 +237,8 @@ shares.post('/shares', async (c) => {
     status: (ITEM_STATUSES as readonly string[]).includes(str('status')) ? (str('status') as ItemStatus) : null,
     owned: str('owned') === '1' ? true : str('owned') === '0' ? false : null,
     sort:
-      str('sort') === 'added' || str('sort') === 'rating' || str('sort') === 'completed'
-        ? (str('sort') as 'added' | 'rating' | 'completed')
+      str('sort') === 'added' || str('sort') === 'author' || str('sort') === 'rating' || str('sort') === 'completed'
+        ? (str('sort') as 'added' | 'author' | 'rating' | 'completed')
         : 'title',
   });
   return c.redirect(lib ? `/libraries/${lib.id}` : `/tags/${encodeURIComponent(tag)}`);

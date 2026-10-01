@@ -858,6 +858,7 @@ is a section of this document and "#N" another decision.
 | 80 | 2026-10-01 | [Search operators: seven prefixes on the search box, applied inside the one id query; anything else is text](docs/decisions/080-search-operators.md) |
 | 81 | 2026-10-01 | [Saved views are the household's: a shelf's filter bar under a name, two decluttering presets, in the app only](docs/decisions/081-saved-views.md) |
 | 82 | 2026-10-01 | [Borrowed from someone not on Nalanda: an item not owned, with a borrow record — the mirror of a loan, private like one](docs/decisions/082-borrowed-from-someone.md) |
+| 83 | 2026-10-01 | [Author A–Z sorts a shelf by the first creator's surname, in SQL, by the same rule as the creators pages](docs/decisions/083-author-sort.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
