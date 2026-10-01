@@ -349,14 +349,18 @@ export async function listApiTokens(d1: D1Database, userId: number): Promise<Arr
   return (await d1.prepare('SELECT id, name, created_at AS createdAt FROM api_tokens WHERE user_id = ?1 ORDER BY id').bind(userId).all<{ id: number; name: string; createdAt: string }>()).results;
 }
 
-/** The Account page's reads in one call (§16 #88): the member's row and their tokens, so the page costs what it did. */
-export async function userWithTokens(d1: D1Database, userId: number): Promise<{ row: User | null; tokens: Array<{ id: number; name: string; createdAt: string }> }> {
+/**
+ * What the Account page shows of the member beside their tokens (§16 #88): the display name, and every token, in one
+ * call — the two statements as one batch, as getUserById was one. Columns are aliased to their names in code: a raw
+ * row keeps SQL's names (display_name), which the page would read past.
+ */
+export async function userWithTokens(d1: D1Database, userId: number): Promise<{ displayName: string | null; tokens: Array<{ id: number; name: string; createdAt: string }> }> {
   const [u, t] = await d1.batch([
-    d1.prepare('SELECT * FROM users WHERE id = ?1').bind(userId),
+    d1.prepare('SELECT display_name AS displayName FROM users WHERE id = ?1').bind(userId),
     d1.prepare('SELECT id, name, created_at AS createdAt FROM api_tokens WHERE user_id = ?1 ORDER BY id').bind(userId),
   ]);
   return {
-    row: ((u?.results ?? [])[0] as User | undefined) ?? null,
+    displayName: ((u?.results ?? [])[0] as { displayName: string | null } | undefined)?.displayName ?? null,
     tokens: (t?.results ?? []) as Array<{ id: number; name: string; createdAt: string }>,
   };
 }

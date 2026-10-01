@@ -179,14 +179,14 @@ const Form = ({
 /** The Account page, with the member's tokens — and, right after one is made, the token itself, this once (§16 #88). */
 async function accountPage(c: Parameters<typeof page>[0], extras: { freshToken?: { name: string; token: string } | null; tokenError?: string } = {}) {
   const user = c.get('user');
-  const { row, tokens } = await userWithTokens(c.env.DB, user.id); // one call, as getUserById was
+  const { displayName, tokens } = await userWithTokens(c.env.DB, user.id); // one call, as getUserById was
   return page(
     c,
     'Account',
     <Form
       mustChange={user.mustChangePassword}
       ok={c.req.query('ok') === '1'}
-      displayName={row?.displayName ?? null}
+      displayName={displayName}
       nameSaved={c.req.query('name') === 'saved'}
       devicesDone={c.req.query('devices') === 'out'}
       tokens={tokens}
