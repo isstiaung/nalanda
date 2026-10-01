@@ -1557,3 +1557,8 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .pill.borrowed { border-color: var(--stamp); color: var(--stamp); }
 .borrowed-from { display: grid; gap: 0.5rem; }
 .borrow-history { margin: 0; padding-left: 1.1rem; font-size: 13px; }
+
+/* item history (ARCH.md §16 #84): the admin's table under Circulation */
+.item-history { margin-top: 1rem; }
+.item-history .data-table { margin-top: 0.5rem; }
+.history-value { max-width: 18rem; overflow-wrap: anywhere; font-size: 12.5px; }
