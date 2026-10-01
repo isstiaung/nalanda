@@ -107,7 +107,7 @@ const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: bo
           <meta property="og:description" content={preview.description} />
           <meta property="og:url" content={preview.url} />
           {preview.image ? <meta property="og:image" content={preview.image} /> : null}
-          {preview.image ? <meta property="og:image:alt" content={`Cover of ${preview.title}`} /> : null}
+          {preview.image && preview.imageAlt ? <meta property="og:image:alt" content={`Cover of ${preview.imageAlt}`} /> : null}
           <meta name="twitter:card" content="summary" />
         </>
       ) : null}
@@ -182,11 +182,11 @@ function renderShare(
 /** An absolute URL on this instance, as a preview needs: a chat app fetches it from elsewhere. */
 const absolute = (c: Context<AppEnv>, path: string) => new URL(path, c.req.url).toString();
 
-/** The first cover a listing shows, as the preview's picture; none when no item on the page has one. */
-const firstCover = (c: Context<AppEnv>, items: Array<{ coverKey: string | null }>): string | null => {
-  const key = items.find((i) => i.coverKey)?.coverKey;
-  return key ? absolute(c, `/covers/${key}`) : null;
-};
+/** The first cover a listing shows, as the preview's picture, and whose it is; none when no item on the page has one. */
+function firstCover(c: Context<AppEnv>, items: Array<{ coverKey: string | null; title: string }>): Pick<LinkPreview, 'image' | 'imageAlt'> {
+  const first = items.find((i) => i.coverKey);
+  return first?.coverKey ? { image: absolute(c, `/covers/${first.coverKey}`), imageAlt: first.title } : { image: null, imageAlt: null };
+}
 
 /** "12 items · a shared shelf from a Nalanda home library": the count the page's eyebrow shows, and what kind of page. */
 const countLine = (total: number, kind: string) => `${total} ${total === 1 ? 'item' : 'items'} · ${kind} from a Nalanda home library`;
@@ -248,7 +248,7 @@ async function giftListPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
   const preview: LinkPreview = {
     title,
     description: countLine(total, 'a want list shared'),
-    image: firstCover(c, gifts),
+    ...firstCover(c, gifts),
     url: absolute(c, `/share/${token}`),
   };
   return renderShare(
@@ -283,6 +283,7 @@ async function giftItemPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
     title: gift.title,
     description: itemLine(gift, title),
     image: gift.coverKey ? absolute(c, `/covers/${gift.coverKey}`) : null,
+    imageAlt: gift.coverKey ? gift.title : null,
     url: absolute(c, `/share/${token}/items/${gift.id}`),
   };
   return renderShare(
@@ -379,7 +380,7 @@ share.get('/:token', async (c) => {
   const preview: LinkPreview = {
     title: view.name,
     description: countLine(total, view.tag !== null ? 'a shared tag' : 'a shared shelf'),
-    image: firstCover(c, publicItems),
+    ...firstCover(c, publicItems),
     url: absolute(c, `/share/${token}`),
   };
 
@@ -435,6 +436,7 @@ share.get('/:token/items/:id', async (c) => {
     title: pub.title,
     description: itemLine(pub, view.name),
     image: pub.coverKey ? absolute(c, `/covers/${pub.coverKey}`) : null,
+    imageAlt: pub.coverKey ? pub.title : null,
     url: absolute(c, `/share/${token}/items/${pub.id}`),
   };
 

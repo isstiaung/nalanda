@@ -38,6 +38,8 @@ describe('previewText', () => {
     expect(cut.endsWith('word…')).toBe(true);
     expect(previewText('a'.repeat(80), 20)).toBe(`${'a'.repeat(19)}…`); // no word to cut at: cut anyway
     expect(previewText('Hello there, friends and all', 14)).toBe('Hello there…'); // not "Hello there,…"
+    // cut by code point: an emoji is never left as half a surrogate pair
+    expect(previewText('🙂'.repeat(30), 10)).toBe(`${'🙂'.repeat(9)}…`);
   });
 });
 
@@ -61,7 +63,7 @@ describe('a shared shelf', () => {
       'og:url': `http://nalanda.test/share/${token}`,
       // the first item in the page's order with a cover: Aardvark has none, so Piranesi's (sorted by title)
       'og:image': 'http://nalanda.test/covers/cover-piranesi',
-      'og:image:alt': 'Cover of Our fiction',
+      'og:image:alt': 'Cover of Piranesi', // whose cover it is, not the shelf's name
       'twitter:card': 'summary',
     });
   });

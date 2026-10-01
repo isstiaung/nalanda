@@ -17,7 +17,8 @@ decided** to add it.
   its eyebrow shows ("12 items · a shared shelf from a Nalanda home library"; "a shared tag"),
   and the first cover on the page, in the page's own order. An item previews as its title,
   then its creators, its type, which page it is on and the start of its description, cut at a
-  word (`previewText()`), with its own cover. A gift list previews as the title its page has —
+  word, by code point (`previewText()`), with its own cover; `og:image:alt` names whose cover the
+  picture is — on a listing, the first item's. A gift list previews as the title its page has —
   "A want list", or the display name only while `names_on_shares` is on (#53) — and a count.
   Every value comes from `toPublicItem()` or `toGiftItem()`, so the whitelist (§9) holds
   for the preview as for the page: never notes, a location, copies, a loan, money, a grade,
