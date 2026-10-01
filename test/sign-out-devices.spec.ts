@@ -3,16 +3,16 @@
 // password change and an admin's reset move it on, and the device acting re-issues its own cookie so it stays in.
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
-import { createUser, getUserById } from '../src/db/queries';
-import { b64url, createSessionToken, hashPassword, SESSION_COOKIE, sessionMatches, verifySessionToken } from '../src/lib/auth';
+import { createApiToken, createUser, getUserById } from '../src/db/queries';
+import { b64url, createSessionToken, hashApiToken, hashPassword, newApiToken, SESSION_COOKIE, sessionMatches, verifySessionToken } from '../src/lib/auth';
 import app from '../src/index';
-import { member } from './member-helpers';
+import { member, rows } from './member-helpers';
 
 const ORIGIN = 'http://nalanda.test';
 const now = () => Math.floor(Date.now() / 1000);
 
-async function send(path: string, cookie: string, form?: Record<string, string>): Promise<Response> {
-  const headers: Record<string, string> = { origin: ORIGIN, cookie };
+async function send(path: string, cookie: string, form?: Record<string, string>, extra: Record<string, string> = {}): Promise<Response> {
+  const headers: Record<string, string> = { origin: ORIGIN, cookie, ...extra };
   let body: string | undefined;
   if (form) {
     headers['content-type'] = 'application/x-www-form-urlencoded';
@@ -126,6 +126,22 @@ describe('Sign out other devices', () => {
     expect(await signedIn(admin.cookie)).toBe(true); // the admin's own session is untouched
   });
 
+  it('is not offered on the admin’s own row, which points at Account instead, and a stray self-reset is refused', async () => {
+    const admin = await member('admin', 'admin');
+    const dee = await member('dee');
+    const members = await (await send('/settings/users', admin.cookie)).text();
+    expect(members).toContain(`action="/settings/users/${dee.id}/reset"`);
+    expect(members).not.toContain(`action="/settings/users/${admin.id}/reset"`);
+    expect(members).toContain('href="/account"');
+    const res = await send(`/settings/users/${admin.id}/reset`, admin.cookie, {});
+    expect(res.status).toBe(400);
+    expect(await res.text()).toContain('Change your own password under Account');
+    expect(await signedIn(admin.cookie)).toBe(true); // this device is still in
+    const row = (await getUserById(env.DB, admin.id))!;
+    expect(row.sessionGeneration).toBe(0);
+    expect(row.mustChangePassword).toBe(false); // no temporary password minted
+  });
+
   it('a refused password change signs nothing out', async () => {
     const user = await createUser(env.DB, { username: 'eve', passwordHash: await hashPassword('old-password'), role: 'member', mustChangePassword: false });
     const phone = await cookieFor(user);
@@ -141,5 +157,42 @@ describe('Sign out other devices', () => {
     expect(await (await send('/account', ann.cookie)).text()).toContain('action="/account/sign-out-others"');
     const temp = await createUser(env.DB, { username: 'fay', passwordHash: await hashPassword('temp'), role: 'member', mustChangePassword: true });
     expect(await (await send('/account', await cookieFor(temp))).text()).not.toContain('action="/account/sign-out-others"');
+  });
+});
+
+describe('a session that must still change its temporary password', () => {
+  it('reaches the Account page and the password change only: every other Account action is sent back, and changes nothing', async () => {
+    const temp = await createUser(env.DB, { username: 'fay', passwordHash: await hashPassword('temp-pass'), role: 'member', mustChangePassword: true });
+    // a token of theirs — one made before the reset would have gone with it; this one stands in, to see revoke refused
+    const tokenId = await createApiToken(env.DB, temp, 'the blog', await hashApiToken(newApiToken()));
+    const cookie = await cookieFor(temp);
+    expect((await send('/account', cookie)).status).toBe(200);
+    expect((await send('/account?ok=1', cookie)).status).toBe(200);
+    const refused: Array<[string, Record<string, string>]> = [
+      ['/account/display-name', { displayName: 'Fay' }],
+      ['/account/sign-out-others', {}],
+      ['/account/tokens', { name: 'script' }],
+      [`/account/tokens/${tokenId}/revoke`, {}],
+    ];
+    for (const [path, form] of refused) {
+      const res = await send(path, cookie, form);
+      expect(res.status, path).toBe(302);
+      expect(res.headers.get('location'), path).toBe('/account');
+      expect(setCookie(res), path).toBeNull();
+    }
+    // htmx is told why, and where to go
+    const htmx = await send('/account/display-name', cookie, { displayName: 'Fay' }, { 'HX-Request': 'true' });
+    expect(htmx.status).toBe(403);
+    expect(htmx.headers.get('hx-redirect')).toBe('/account');
+    const row = (await getUserById(env.DB, temp.id))!;
+    expect(row.displayName).toBeNull(); // nothing to go out on a share page with names on
+    expect(row.sessionGeneration).toBe(0); // nobody signed out
+    expect(await rows('SELECT id FROM api_tokens WHERE user_id = ?1', temp.id)).toEqual([{ id: tokenId }]); // none made, none revoked
+    // the password change itself goes through, and the member is in
+    const changed = await send('/account/password', cookie, { current: 'temp-pass', next: 'my own password', confirm: 'my own password' });
+    expect(changed.status).toBe(302);
+    expect(changed.headers.get('location')).toBe('/');
+    expect(await signedIn(setCookie(changed)!)).toBe(true);
+    expect((await send('/account/display-name', setCookie(changed)!, { displayName: 'Fay' })).headers.get('location')).toBe('/account?name=saved#display-name');
   });
 });

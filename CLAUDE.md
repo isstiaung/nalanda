@@ -136,7 +136,9 @@ the code that enforces it and why — read its section before changing anything 
   and leaves `/share/*` alone. Offline scans hold a barcode and a time only and belong to the
   signed-in account (another account's pages or logout empty the queue; POST /items refuses
   anyone else's held scan via `scanOwner`). Bump `VERSION` in sw.js when `STATIC` or its behaviour
-  changes.
+  changes. The browser keeps no signed-in answer either: every response behind the session
+  middleware is `Cache-Control: no-store` (set in `src/index.ts`) and logout sends
+  `Clear-Site-Data: "cache"`; `/share/*`, covers, static files and the login page cache as before.
 
 ## Commands
 ```
@@ -210,7 +212,11 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   `users.session_key` (set in every user insert, never changed); anything that remembers a person
   across time binds `accountIdentity()`, never the bare id. Beside it, `users.session_generation`
   (ARCH.md §16 #70) is which sessions still count: the cookie names it, and "Sign out other
-  devices", a password change and a reset each add one — never rotate the key for that.
+  devices", a password change and a reset each add one — never rotate the key for that. Login and
+  the current-password check are throttled by `recordLoginAttempt()`: ten failures in ten minutes
+  per IP and per account, counted in the statement that checks, *before* the password is verified,
+  answered 429; an unknown username is checked against `DUMMY_HASH`. A temporary-password session
+  reaches only `GET /account` and `POST /account/password` (`mustChangeMayReach()`).
 - Never hand-edit drizzle-generated migrations (hand-written SQL goes in `--custom` ones); never
   edit a migration that has been applied anywhere.
 - Barcode routing (`src/metadata/index.ts`): EAN-13 `978`/`979` → book providers (merged); an

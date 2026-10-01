@@ -47,6 +47,14 @@ export async function verifyPassword(password: string, stored: string): Promise<
 }
 
 /**
+ * The hash a password is checked against when the username names nobody: made once from 32 random bytes that were
+ * never kept, so no password verifies against it — but the check costs the same 100k iterations a real one does.
+ * Without it an unknown name answered in the time of one D1 read and a known one in that plus PBKDF2, and the
+ * difference said which usernames exist before a single guess was spent on them.
+ */
+export const DUMMY_HASH = 'pbkdf2$100000$DMuk-QhtQIG9za9uqBwsKw$nG2uIPkg5UIX9fpsow2Uo5ZXFGjISmFUkisGOwKrKew';
+
+/**
  * A session secret that can sign anything: set, and not blank. Missing, empty and whitespace-only all count as
  * none — an empty key makes WebCrypto throw, and a blank one would sign cookies anyone could forge. Without one
  * nobody can be signed in, and setup and login say so before writing anything.

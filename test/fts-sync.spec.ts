@@ -1,4 +1,4 @@
-// The search index's update trigger (migrations/0053): it fires only when one of the six indexed columns — title,
+// The search index's update trigger (migrations/0054): it fires only when one of the six indexed columns — title,
 // creators, description, notes, location, original_title — changes. Before, every UPDATE of an item deleted and
 // re-inserted its index row, so a refreshReadState() over items whose reading hadn't moved wrote three rows per item
 // for one of use, against D1's rows-written-a-day on the free tier. The index must still follow each of the six.

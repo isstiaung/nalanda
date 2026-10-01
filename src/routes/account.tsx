@@ -1,9 +1,21 @@
 import { Hono } from 'hono';
-import { createApiToken, getUserById, MAX_API_TOKENS, MAX_TOKEN_NAME, revokeApiToken, setDisplayName, setPassword, signOutOtherDevices, userWithTokens } from '../db/queries';
+import {
+  createApiToken,
+  forgetLoginAttempt,
+  getUserById,
+  MAX_API_TOKENS,
+  MAX_TOKEN_NAME,
+  recordLoginAttempt,
+  revokeApiToken,
+  setDisplayName,
+  setPassword,
+  signOutOtherDevices,
+  userWithTokens,
+} from '../db/queries';
 import type { AppEnv } from '../env';
 import { hasSessionSecret, hashApiToken, hashPassword, newApiToken, verifyPassword } from '../lib/auth';
 import { ledgerDate } from '../lib/dates';
-import { signIn } from './auth';
+import { clientIp, signIn, TOO_MANY_ATTEMPTS } from './auth';
 import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
 import { VERSION } from '../version';
 import { invalid } from '../views/components';
@@ -233,9 +245,18 @@ account.post('/account/password', async (c) => {
   const next = String(body['next'] ?? '');
   const confirm = String(body['confirm'] ?? '');
 
+  // The current password is checked under login's throttle (ARCH.md §8), by address and by this account: whoever
+  // holds a session cookie could otherwise guess at the password itself without limit, and a right guess would sign
+  // the owner out everywhere. Counted before the check, as at login; a right password takes its row back.
+  const attempt = await recordLoginAttempt(c.env.DB, clientIp(c), user.username);
+  if (!attempt) {
+    c.status(429);
+    return page(c, 'Account', <Form mustChange={user.mustChangePassword} error={TOO_MANY_ATTEMPTS} />);
+  }
   if (!(await verifyPassword(current, user.passwordHash))) {
     return page(c, 'Account', <Form mustChange={user.mustChangePassword} error="Current password is wrong." errorField="current" />);
   }
+  await forgetLoginAttempt(c.env.DB, attempt);
   if (next.length < 8) {
     return page(c, 'Account', (
       <Form mustChange={user.mustChangePassword} error="New password must be at least 8 characters." errorField="next" />

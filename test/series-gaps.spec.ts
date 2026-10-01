@@ -1,11 +1,13 @@
 // A series' missing volumes from Open Library (ARCH.md §16 #79): one request on a click, sorted against the
 // household's own numbering, which always wins.
-import { env } from 'cloudflare:test';
+import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createLibrary, updateItemWithTags, updateSeries } from '../src/db/queries';
+import { budgeted } from '../src/federation/budget';
+import app from '../src/index';
 import { clearSeriesFindCache } from '../src/routes/series';
 import { activateFetchMock, assertNoPendingInterceptors, intercept, json } from './fetch-mock';
-import { as, book, html, member, rows } from './member-helpers';
+import { as, book, html, member, rows, type Member } from './member-helpers';
 
 const OL = 'https://openlibrary.org';
 beforeEach(() => activateFetchMock());
@@ -74,5 +76,33 @@ describe('finding a series’ gaps', () => {
     intercept(OL, (p) => p.startsWith('/search.json?q=Expanse&'), json({ docs: [doc('Leviathan Wakes', '1', '9780316129084')] }));
     expect(await (await as(asha, `/series/${seriesId}/find`)).text()).toContain('lists nothing for this series that isn’t here already');
     expect((await as(asha, '/series/999999/find')).status).toBe(404);
+  });
+});
+
+// ---------- the D1 budget ----------
+
+describe('D1 calls', () => {
+  async function calls(who: Member, path: string) {
+    const budget = { left: 1000 };
+    const ctx = createExecutionContext();
+    const res = await app.fetch(new Request(`http://nalanda.test${path}`, { headers: { cookie: who.cookie } }), { ...env, DB: budgeted(env.DB, budget) }, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(res.status, path).toBe(200);
+    await res.text();
+    return 1000 - budget.left;
+  }
+
+  it('read the series and its volumes once for a look-up, and the shelves once, for the cards and the sidebar both', async () => {
+    const { asha, seriesId } = await expanse();
+    // the session, the series with its volumes (one batch), the flags, the sidebar's shelves
+    expect(await calls(asha, `/series/${seriesId}`)).toBe(4);
+    intercept(OL, (p) => p.startsWith('/search.json?q=The%20Expanse&'), json({ docs: [doc('Caliban’s War', '2'), doc('Cibola Burn', '4', '9780316217620')] }));
+    // and for a look-up with cards: the catalog by ISBN, the shelves and the shelf each type starts on — not the series
+    // again for the page, nor the shelves again for the sidebar (8 before)
+    expect(await calls(asha, `/series/${seriesId}/find`)).toBe(6);
+    // when Open Library doesn't answer there are no cards, so no shelves are read for them (7 before)
+    clearSeriesFindCache();
+    intercept(OL, (p) => p.startsWith('/search.json?q=The%20Expanse&'), { status: 503, body: 'busy' });
+    expect(await calls(asha, `/series/${seriesId}/find`)).toBe(4);
   });
 });

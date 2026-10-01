@@ -23,10 +23,12 @@ household's, not per member, with the two decluttering views shipped as presets,
   (`parseReadBy()` resolves `me` for whoever is looking). A view naming a member by id — "Read by
   ravi" — loses that filter in `deleteUser()`'s batch (`viewsWithoutReader()`): ids are reused (#56),
   and a saved view is persistent and shared where a URL was transient, so a newcomer given the id
-  must inherit nothing (review on #120).
+  must inherit nothing (review on #120). The id is stored as the menu writes it (`readByValue()`:
+  `02` is `2`) and the rewrite compares as numbers, so a value typed with a leading zero — which
+  `parseReadBy()` reads as that member — can't name them and yet escape the rewrite.
 - **Where they show, at no extra call.** Every shelf's views come back in `shelvesWithTotals()`'s
   batch (#68), which the shelf page and the Overview already read, so neither page's D1 count moves
-  (the budget tests still pin 7). Under the shelf's filter bar, a row of pills — the presets, then the
+  (the budget tests still pinned 7; 6 since the loan stats joined that batch). Under the shelf's filter bar, a row of pills — the presets, then the
   shelf's saved views by name — with the open one marked (`aria-current`) and "Delete view" beside
   it; on the Overview, under each shelf's name. Opening one is `?saved=<id>`, and the bar's
   checkboxes show its filters, so a view is a starting point: change anything and Apply, and the

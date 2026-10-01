@@ -65,7 +65,7 @@ never does, so no stamp is a valid session signature.
 
 *Headers:* `secureHeaders()` sets no CSP and no Permissions-Policy, so the worker, the manifest,
 the camera and IndexedDB need nothing; static files never pass through the Worker anyway.
-Signed-in pages keep sending no Cache-Control, as before. `wrangler.jsonc` sets
+Signed-in pages kept sending no Cache-Control, as before (amended below). `wrangler.jsonc` sets
 `html_handling: "none"`: Cloudflare otherwise redirects `/offline.html` to `/offline`, which
 the worker can't store as a navigation answer, and a missing `/offline` would reach the login
 redirect; `MISSING_ASSET` now covers `.html`, so a missing one 404s.
@@ -82,3 +82,14 @@ re-rendering the 192/512 tiles, whose corners were white; a manifest shortcut to
 offline page refuses to hold scans when nobody is signed in on the device; "add all" skips
 entries with no match; `/offline.html` rather than `/offline`. The §14 non-goal "offline sync"
 stands: nothing is synced — the phone holds barcodes until a person reviews them.
+
+**Amended 2026-10-01 — the browser's own cache too.** This decision kept the service worker from
+storing a page; the browser's HTTP cache and back-forward cache were left as they were, and on a
+family phone A's logout followed by B's Back could show A's pages — notes, locations, borrowers,
+a temporary password minted on the Members page. Every answer served behind the session middleware
+now carries `Cache-Control: no-store` (set in `src/index.ts` after the handler runs, so a page, a
+partial and a redirect all get it), and `POST /auth/logout` sends `Clear-Site-Data: "cache"` for
+whatever a browser kept anyway. Share pages, covers, static files and the login page are served
+before that middleware and cache as before — the share-page cache (§16 #19) is untouched. The
+service worker's rule stands: it still never stores a page or an API answer, and `no-store` on a
+page is the same rule stated to the browser. Tests: `test/browser-cache.spec.ts`.
