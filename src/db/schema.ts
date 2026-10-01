@@ -121,6 +121,10 @@ export const items = sqliteTable(
     addedBy: integer('added_by').references(() => users.id),
     addedAt: text('added_at').notNull().default(now),
     updatedAt: text('updated_at').notNull().default(now),
+    // The row's own time (§16 #90), which its stamp to connections is taken from (itemStamp()): NULL while it is
+    // added_at, as it is for every row until an import re-dates the item from its file's "date added" — the one write
+    // that moves added_at, and it keeps the time it moved from here, so a stamp a connection holds stays good.
+    createdAt: text('created_at'),
     // Its series and its number in it (§16 #52): 3, or 2.5 for a novella between two books; NULL = in the series,
     // number not known. Added by ALTER TABLE, so the reference carries no ON DELETE (§16 #35): a series is deleted
     // only once nothing points at it (pruneSeries()).

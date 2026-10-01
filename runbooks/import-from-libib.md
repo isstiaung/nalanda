@@ -38,6 +38,7 @@ so a do-over is just delete-and-retry.
 | `media_condition` / `sleeve_condition`, if you added them (a record's grades: `VG+`, or Discogs' wording such as `Near Mint (NM or M-)`) | the record's media and sleeve grade — private, never in details; a value off the scale is dropped |
 | `price` | the purchase price, in the household currency — when an admin has set one (**Members → Household currency**) before the import and the cell is a plain number like `12.99`; otherwise it stays in details. Either way it is never on share pages or to connections (ARCH.md §16 #61) |
 | `purchase_price` / `purchase_currency`, if the file has them (a Nalanda export) | the purchase price, in that currency — never in details |
+| `added` (the day libib catalogued it) | the item's date added, which newest-first order and "Unread for years" count from (ARCH.md §16 #90) |
 | anything else (`ensemble`, `esrb`, `aspect_ratio`, …) | kept losslessly in the item's details JSON |
 
 Rows without a title are skipped and counted; nothing is silently dropped.

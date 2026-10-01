@@ -65,9 +65,10 @@ importexport.get('/import', async (c) => {
         don't recognize are kept losslessly in each item's details. Goodreads rows that match a book
         already on your shelves (by ISBN, then title + author) merge their rating, review, shelves,
         and read date onto it — Goodreads wins. The rest are added as “Not owned” reading-log
-        entries. Reads, ratings and reviews a file brings are yours, the signed-in member's; a
-        Nalanda export keeps each one with the member of the same name here, and brings back every
-        loan, open and returned.
+        entries, dated when Goodreads says they were added; tick the box below to date the matched
+        books that way too. Reads, ratings and reviews a file brings are yours, the signed-in
+        member's; a Nalanda export keeps each one with the member of the same name here, and brings
+        back every loan, open and returned.
       </p>
       <form id="import-form" onsubmit="return false" class="panel form-card">
         <label>
@@ -97,6 +98,11 @@ importexport.get('/import', async (c) => {
         <label>
           <input type="checkbox" id="import-music-as-vinyl" checked />
           Treat libib “music” items as vinyl
+        </label>
+        <label>
+          <input type="checkbox" id="import-dates" />
+          Also set the date added of books already here from the file{' '}
+          <small class="muted">(Goodreads’ Date Added; a book the file adds always takes it)</small>
         </label>
         <div class="inline-form">
           <button type="button" id="import-preview" class="btn">
@@ -179,6 +185,7 @@ type ImportBody = {
   dryRun?: boolean;
   defaultType?: string;
   musicAsVinyl?: boolean;
+  dates?: boolean; // the box: a matched book's date added from the file too (§16 #90)
   rows?: Array<Record<string, string>>;
 };
 
@@ -215,6 +222,7 @@ importexport.post('/api/import', async (c) => {
   // our own export first: its columns are specific enough that it can't be mistaken for either of the others
   const format = looksLikeNalandaExport(headers) ? 'nalanda' : looksLikeGoodreads(headers) ? 'goodreads' : 'libib';
   const isGoodreads = format === 'goodreads';
+  const dates = body.dates === true;
 
   const mapped = [];
   let skipped = sent.length - rows.length;
@@ -240,7 +248,7 @@ importexport.post('/api/import', async (c) => {
   if (body.dryRun) {
     const byType: Record<string, number> = {};
     for (const m of mapped) byType[m.item.mediaType ?? 'book'] = (byType[m.item.mediaType ?? 'book'] ?? 0) + 1;
-    const match = isGoodreads ? await mergeImportItems(c.env.DB, withOwners, true) : null;
+    const match = isGoodreads ? await mergeImportItems(c.env.DB, withOwners, true, undefined, dates) : null;
     const nameOf = (id: number | null) => (id === null ? null : (people.find((p) => p.id === id)?.username ?? null));
     return c.json({
       format,
@@ -251,6 +259,8 @@ importexport.post('/api/import', async (c) => {
       fresh: match?.inserted ?? 0,
       // a libib row carries no reads of its own: the tally counted what importItems will derive from its status and dates
       reads: match?.reads ?? [...tally.values()].reduce((n, t) => n + t.reads, 0),
+      // matched books the file dates differently (§16 #90): what the box would set, or will
+      dated: match?.dated ?? 0,
       // a Nalanda export's loans, and how many of them are still out (§16 #57)
       loans: mapped.reduce((n, m) => n + (m.loans?.length ?? 0), 0),
       loansOut: mapped.reduce((n, m) => n + (m.loans?.filter((l) => l.returnedOn === null).length ?? 0), 0),
@@ -283,8 +293,8 @@ importexport.post('/api/import', async (c) => {
   }
 
   if (isGoodreads) {
-    const { inserted, merged, reads } = await mergeImportItems(c.env.DB, withOwners, false, writerOf(c));
-    return c.json({ inserted, merged, reads, skipped });
+    const { inserted, merged, reads, dated } = await mergeImportItems(c.env.DB, withOwners, false, writerOf(c), dates);
+    return c.json({ inserted, merged, reads, skipped, dated: dates ? dated : 0 });
   }
   const inserted = await importItems(c.env.DB, withOwners);
   return c.json({ inserted, merged: 0, skipped });

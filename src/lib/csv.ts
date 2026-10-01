@@ -355,6 +355,9 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
   const own = cellPrice(r['purchase_price'], r['purchase_currency'], opts.currency);
   const libibPrice = own ? null : cellPrice(r['price'], undefined, opts.currency);
   const price = own ?? libibPrice;
+  // libib's `added`, the day it was catalogued there, dates the item here (§16 #90) when it reads as a date; a known
+  // column, so it never lands in details
+  const added = addedAtOf(r['added']);
   const details: Record<string, string> = {};
   for (const [k, v] of Object.entries(r)) {
     if (!KNOWN_COLUMNS.has(k) && v && !(k === 'price' && libibPrice)) details[k] = v;
@@ -391,6 +394,7 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
       copies: Number.isFinite(copiesNum) && copiesNum >= 0 ? copiesNum : 1, // 0 = cataloged, not owned
       beganOn: r['began'] || null,
       completedOn: r['completed'] || null,
+      ...added,
       details: Object.keys(details).length ? JSON.stringify(details) : '{}',
       ...rowGrades(mediaType, r['media_condition'], r['sleeve_condition']),
       ...(price ?? { purchasePrice: null, purchaseCurrency: null }),
@@ -625,6 +629,8 @@ const KNOWN_GOODREADS = new Set([
   // reading: read_count and date_started become reads (ARCH.md §16 #41), so they no longer land in details
   'read_count',
   'date_started',
+  // when the book joined the collection over there is when it did here (§16 #90), so it no longer lands in details
+  'date_added',
   // not a Goodreads column, but private if a file carried one: never into details (§16 #55, #61)
   'media_condition',
   'sleeve_condition',
@@ -645,6 +651,16 @@ function unguard(raw: string | undefined): string {
 function isoDate(raw: string | undefined): string | null {
   const v = (raw ?? '').trim().replaceAll('/', '-');
   return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+}
+
+/**
+ * A file's "date added" as the item's `added_at` (§16 #90): that day at midnight, in the column's own datetime form,
+ * so a book is dated when it joined the collection over there rather than when the file was imported. Nothing when
+ * the cell isn't a date, and the row then takes the time of its import as before.
+ */
+function addedAtOf(raw: string | undefined): { addedAt: string } | Record<string, never> {
+  const day = isoDate(raw);
+  return day ? { addedAt: `${day} 00:00:00` } : {};
 }
 
 function goodreadsStatus(exclusive: string, shelves: string[]): ItemStatus {
@@ -726,6 +742,7 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
       copies: Number.isFinite(ownedNum) && ownedNum > 0 ? ownedNum : 0, // default: reading log, not owned
       beganOn: state.beganOn,
       completedOn: state.completedOn,
+      ...addedAtOf(r['date_added']),
       details: Object.keys(details).length ? JSON.stringify(details) : '{}',
     },
     reads,

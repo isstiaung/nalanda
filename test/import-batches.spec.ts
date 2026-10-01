@@ -15,6 +15,7 @@ const page = {
   run: undefined as Handler | undefined,
   preview: undefined as Handler | undefined,
   picked: undefined as (() => void) | undefined, // the file input's change: a new file drops the rows parsed before
+  dates: { checked: false }, // the box: a matched book's date added from the file too (§16 #90)
 };
 const button = (name: 'run' | 'preview') => ({
   disabled: false,
@@ -30,6 +31,7 @@ beforeAll(async () => {
     'import-library': page.library,
     'import-default-type': { value: 'book' },
     'import-music-as-vinyl': { checked: true },
+    'import-dates': page.dates,
   };
   Object.assign(globalThis, {
     document: { getElementById: (id: string) => elements[id] ?? null, querySelector: () => null },
@@ -110,5 +112,33 @@ describe('importing a Nalanda export with many loans', () => {
     const lines = ['item_type,title', ...Array.from({ length: 450 }, (_, i) => `book,Book ${i}`)];
     const posted = await importFile(lines.join('\n'), cookie);
     expect(posted.map((b) => b.rows)).toEqual([200, 200, 50]);
+  });
+});
+
+describe('a Goodreads re-import with "also set the date added" ticked (§16 #90)', () => {
+  it('dates a new book from the file always, a book already here only when asked, and says how many', async () => {
+    const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
+    const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;
+    const shelf = await createLibrary(env.DB, 'Main');
+    page.library.value = String(shelf.id);
+    await createItem(env.DB, { libraryId: shelf.id, title: 'Piranesi', creators: 'Susanna Clarke', isbn13: '9781635575637', details: '{}' });
+    const csv = ['Title,Author,ISBN13,Exclusive Shelf,Date Added', 'Piranesi,Susanna Clarke,9781635575637,to-read,2019/03/12', 'Jonathan Strange & Mr Norrell,Susanna Clarke,9781582344164,to-read,2017/06/01'].join('\n');
+    const dates = async () => (await env.DB.prepare('SELECT title, added_at AS at, created_at AS made FROM items ORDER BY id').all<{ title: string; at: string; made: string | null }>()).results;
+
+    page.dates.checked = false;
+    await importFile(csv, cookie);
+    expect(page.status.textContent).toMatch(/^Done: 1 item added, 1 merged onto existing items, 0 rows skipped/);
+    let rows = await dates();
+    expect(rows[0]!.at).not.toBe('2019-03-12 00:00:00'); // the box was clear: the book here keeps its date
+    expect(rows[0]!.made).toBeNull();
+    expect(rows[1]).toEqual({ title: 'Jonathan Strange & Mr Norrell', at: '2017-06-01 00:00:00', made: null }); // new: the file's
+    const before = rows[0]!.at;
+
+    page.dates.checked = true;
+    await importFile(csv, cookie);
+    expect(page.status.textContent).toMatch(/^Done: 0 items added, 2 merged onto existing items \(1 dated from the file\), 0 rows skipped/);
+    rows = await dates();
+    expect(rows[0]).toEqual({ title: 'Piranesi', at: '2019-03-12 00:00:00', made: before });
+    page.dates.checked = false;
   });
 });

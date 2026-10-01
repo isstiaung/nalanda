@@ -90,6 +90,7 @@
 
   // picking a different file invalidates previously parsed rows
   fileInput.addEventListener('change', () => { rows = null; });
+  const dateBox = () => document.getElementById('import-dates');
 
   const say = (msg) => { status.textContent = msg; };
   const append = (msg) => { status.textContent += `\n${msg}`; };
@@ -142,6 +143,7 @@
         libraryId: Number(document.getElementById('import-library').value),
         defaultType: document.getElementById('import-default-type').value,
         musicAsVinyl: document.getElementById('import-music-as-vinyl').checked,
+        dates: dateBox()?.checked === true, // a matched book's date added from the file too (ARCH.md §16 #90)
         dryRun,
         rows: batch,
       }),
@@ -178,6 +180,12 @@
     } else if (data.format === 'goodreads') {
       append(`Goodreads export detected: ${data.merged} match books already here (rating/review/shelves will merge onto them — Goodreads wins), ${data.fresh} are new (added as “Not owned” reading-log entries).`);
       append(`Reading history: ${data.reads ?? 0} reads to add or date from shelves, Date Read and Read Count — reads already recorded here are never removed, and a second import adds nothing.`);
+      // the file's Date Added (ARCH.md §16 #90): a new book always takes it; a matched one only with the box ticked
+      if (data.dated) {
+        append(dateBox()?.checked
+          ? `Date added ${inSample}: ${plural(data.dated, 'book')} already here will take the file’s Date Added.`
+          : `Date added ${inSample}: ${plural(data.dated, 'book')} already here ${data.dated === 1 ? 'has' : 'have'} a different Date Added in the file — tick “Also set the date added…” to set it. New books take it either way.`);
+      }
       if (data.importer) append(`These reads, ratings and reviews become yours (${data.importer}); everyone else's stay as they are.`);
     } else {
       append(`Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
@@ -203,6 +211,7 @@
     let inserted = 0;
     let merged = 0;
     let skipped = 0;
+    let dated = 0;
     say(`Importing ${plural(rows.length, 'row')}…`);
     for (const [i, end] of batches(rows)) {
       const res = await fetch('/api/import', options(false, rows.slice(i, end)));
@@ -215,10 +224,11 @@
       inserted += data.inserted;
       merged += data.merged ?? 0;
       skipped += data.skipped;
+      dated += data.dated ?? 0;
       say(`Importing… ${end}/${rows.length} (${inserted} added${merged ? `, ${merged} merged` : ''})`);
     }
     say(
-      `Done: ${plural(inserted, 'item')} added${merged ? `, ${merged} merged onto existing items` : ''}, ${plural(skipped, 'row')} skipped (no title).` +
+      `Done: ${plural(inserted, 'item')} added${merged ? `, ${merged} merged onto existing items${dated ? ` (${dated} dated from the file)` : ''}` : ''}, ${plural(skipped, 'row')} skipped (no title).` +
       (inserted ? ' New items arrive without covers — reload this page and run the cover backfill.' : ''),
     );
     previewBtn.disabled = false;
