@@ -185,6 +185,9 @@ And a lamp-lit dark mode that follows the system setting:
 Screenshots come from seeded demo data — `npm run dev:demo` and `npm run seed:demo` will
 reproduce them on your own machine.
 
+A **read-only demo** of the same seeded data is published to GitHub Pages on each release — see
+[runbooks/demo.md](runbooks/demo.md) for the address and how it is built; sign in with `demo` / `demo`.
+
 ## Local development
 
 ```sh
@@ -256,6 +259,7 @@ lists them for you to add to a shelf or drop. Logging out clears anything still 
 | [api.md](runbooks/api.md) | Reading your library as JSON with a token of your own |
 | [import-from-storygraph.md](runbooks/import-from-storygraph.md) | Bringing your StoryGraph library over |
 | [import-from-librarything.md](runbooks/import-from-librarything.md) | Bringing your LibraryThing catalog over |
+| [demo.md](runbooks/demo.md) | The read-only demo on GitHub Pages: how it is built and published |
 | [import-from-libib.md](runbooks/import-from-libib.md) | Migrating your libib collection |
 | [metadata-backfill.md](runbooks/metadata-backfill.md) | Filling in covers and descriptions for a large catalog, from your machine |
 | [record-covers.md](runbooks/record-covers.md) | Replacing record covers stored from Discogs with the Cover Art Archive's (a one-off) |

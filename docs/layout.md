@@ -87,7 +87,8 @@ test/              auth, csv/libib mapping, barcode routing, share whitelist, FT
                    any test that logs an error it didn't capture and check (console.ts),
                    and fetch-mock.ts stubs outbound fetch (see §16 #25); public/ is bound
                    as ASSETS for tests only, to read static files as served (§16 #48)
-scripts/           vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp config),
+scripts/           demo-build.mjs + demo-static.mjs (+ its .d.mts, for the test under tsc) (the static demo: a seeded scratch instance crawled into
+                   demo/ for GitHub Pages — ARCH.md §16 #89; the pure parts tested), vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp config),
                    backup.mjs + backup-dir.mjs (a same-day backup never overwrites),
                    wrangler-remote.mjs + remote-config.mjs (real db id → temp config),
                    seed-demo.mjs, hash-password.mjs, federation-keygen.mjs,

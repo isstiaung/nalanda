@@ -1,0 +1,64 @@
+name: Demo
+
+# Builds the static demo (scripts/demo-build.mjs, ARCH.md §16 #89) and publishes it to GitHub Pages: on each release
+# tag, and by hand. It needs no secret and touches no Cloudflare account: the build runs a scratch `wrangler dev` on
+# the runner, seeds it offline (no provider tokens; book covers come from Open Library, which is keyless), crawls it
+# and uploads the files. The only credential is the job's own GITHUB_TOKEN, allowed to write Pages. Pages must be set
+# to "GitHub Actions" as its source once, in the repository's settings (runbooks/demo.md).
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+# the build job — npm ci, wrangler, the seed — holds nothing but a read of the repository; only the deploy job may
+# write Pages (as actions/deploy-pages' own example has it)
+permissions:
+  contents: read
+
+concurrency:
+  group: demo
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # pages: read lets configure-pages ask where the site is served (its base path); it can deploy nothing
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # where Pages will serve the site: under /<repo>/ on github.io, or at the root of a custom domain — the build
+      # writes every link and asset for that base, so the same workflow serves both
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      - run: npm run demo:build -- --base=${{ steps.pages.outputs.base_path }}
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: demo
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
