@@ -230,28 +230,127 @@ view hourly (24 pulls and 24 removal checks).
 The Overview is 38% of the day (10 × 22,397), shelves 41%. The free plan would take about eight such
 days a day; it's nowhere near binding, but the cost is concentrated in a few pages that are easy to fix.
 
+## What changed, and what it saved
+
+Implemented in the commits after this report; ARCH.md §16 #68 records the decision.
+
+| Change | Where it saves (production's data, per view) |
+|---|---|
+| **Migration 0040**, seven indexes: `items (library_id, added_at)`, `(library_id, title)`, `(added_at)`, `(library_id, media_type)`, partial `idx_items_paid` (priced items only), `item_tags (tag_id)`, `reads (status, ended_on)` | a shelf's page of items 3,995 → 60; recent items 4,000 → 13; totals by type 3,995 → 1,998; paid totals 2,000 → 0; a year's finishes become a range |
+| `listLibraries()` is one statement, and a page that read it hands it to `page()` | 1 call on every signed-in page; 2,005 rows + 2 calls on Add, Search, Shares, Import, Recommendations, Connections, item edit |
+| `shelvesWithTotals()`: shelves, counts, totals and holdings by type in one batch, one pass | Overview −8,000 rows and −3 calls; shelf −2,000 and −1 |
+| An unfiltered shelf takes its count from the shelves' (`listItems(…, knownTotal)`) | 1,998 rows + 1 call per unfiltered shelf view |
+| Tag, want-list and Read-by filters as `IN`, not correlated `EXISTS` | a tag page 11,197 → 4,309; a tag's share page 8,954 → 2,064; Wants 6,024 → 2,032; a gift list 4,007 → 13 |
+| "Read next" keeps the least random key with `min()`, no sort | 3,996 → 2,377, on the Overview and every "Another" |
+| Year in review: the picker's years by index skip-scan; tags grouped by id before their names | years 770 → ~30 (synthetic 4,146 → 36); tags −2,300 synthetic |
+
+### Pages, before → after
+
+Production's data. HTML byte-identical on all 66 measured pages, with the random "Read next" card and the
+test key's fingerprint on Connections masked; the synthetic household's pages too, apart from Play tonight's
+random 60 and the export's seeding timestamps, which differ between two runs of unchanged code as well.
+
+| Page | Calls | Rows read | Saved |
+|---|---:|---:|---:|
+| Overview | 13 → 8 | 22,397 → 4,785 | 79% |
+| Overview: "Another" | 2 → 2 | 3,997 → 2,378 | 41% |
+| Shelf (default, htmx alike) | 14 → 8 | 16,483 → 2,551 | 85% |
+| Shelf, by title | 14 → 8 | 16,594 → 2,662 | 84% |
+| Shelf, covers | 13 → 7 | 16,370 → 2,438 | 85% |
+| Shelf, page 10 | 14 → 8 | 16,649 → 3,257 | 80% |
+| Shelf, Completed | 14 → 9 | 15,075 → 4,910 | 67% |
+| Shelf, by rating | 14 → 8 | 16,795 → 6,798 | 60% |
+| Shelf, Read by me / being read by me | 14 → 9 | 15,837 / 14,072 → 4,796 / 4,082 | 70% |
+| Tags | 5 → 4 | 5,976 → 4,056 | 32% |
+| A tag | 8 → 7 | 11,197 → 4,309 | 62% |
+| Item page (book, game, record) | 14 → 13 | 2,046 → 2,048 | — |
+| Item edit | 12 → 9 | 4,039 → 2,036 | 50% |
+| Search | 10 → 7 | 4,466 → 2,463 | 45% |
+| Year in review, 2024 | 5 → 4 | 6,762 → 3,171 | 53% |
+| Year in review, 2024 (synthetic) | 4 → 3 | 54,918 → 40,064 | 27% |
+| Year in review, this year (synthetic) | 4 → 3 | 18,253 → 2,151 | 88% |
+| Wants | 10 → 9 | 6,024 → 2,032 | 66% |
+| Shares (admin) | 9 → 6 | 14,344 → 5,010 | 65% |
+| Add / Import / Recommendations | 9 / 7 / 9 → 6 / 4 / 6 | about 2,000 less each | 33–50% |
+| Share page (a shelf) | 3 → 3 | 4,313 → 3,740 | 13% |
+| Share page (a tag) | 4 → 4 | 8,954 → 2,064 | 77% |
+| Share page (a gift list) | 4 → 4 | 4,007 → 13 | 100% |
+| Every other signed-in page | one call fewer | about the same | — |
+| Peer endpoints | unchanged | unchanged | — |
+
+The shelf's share page saves least: it lists owned books newest first, and owned books are the older ones, so
+the index walk passes 1,700 newer unowned items before it has 60. That is still cheaper than sorting the shelf.
+
+### A realistic day, after
+
+| | Before | After | Of 5M |
+|---|---:|---:|---:|
+| Production's data | 589,000 | **170,000** | 11.8% → 3.4% |
+| Synthetic household (no peers) | 611,000 | 208,000 | 12.2% → 4.2% |
+
+The Overview is still the largest share (10 × 4,785), then item pages, whose 2,048 rows are almost all the
+sidebar's shelf counts (proposal A).
+
+### Writes and the migration
+
+- **Writes:** the indexes are written with every row they cover. An item insert now writes 9 rows instead of 5,
+  a tag link 3 instead of 2, a read 4 instead of 3, and a title edit 4 instead of 3. A 2,000-item import writes
+  about 8,000 more rows of the 100,000 a day.
+- **Building them** on production's data writes about 10,300 rows once and reads about 22,700.
+- **Rehearsed** on another local copy of the backup, with wrangler's local D1 in its own `--persist-to` state:
+  migrations 0000–0039 applied, the backup loaded in `scripts/backup.mjs`'s order, every table snapshotted,
+  0040 applied, then snapshotted again.
+  - All 40 of the app's tables are identical, row for row.
+  - The schema gained exactly the seven indexes, and nothing else changed or went.
+  - `PRAGMA integrity_check` is ok and `foreign_key_check` clean, before and after.
+  - Only bookkeeping moved: `d1_migrations` gained 0040's row, its `sqlite_sequence` entry went from 40 to 41,
+    and D1's own `_cf_METADATA` counter changed.
+
+### Guarding it
+
+`test/query-cost.spec.ts` holds the busiest pages to a rows-read budget per catalogue item on a 2,000-item
+household, measured with D1's own `rows_read`. Every budget sits under what the page read before, measured on
+the same household:
+
+| Page | Before | Budget | Now |
+|---|---:|---:|---:|
+| Overview | 11.0 | 3 | 2.2 |
+| A shelf | 8.2 | 2 | 1.2 |
+| A tag | 5.6 | 3 | 2.2 |
+| Wants | 3.0 | 1.5 | 1.0 |
+| A shelf's share page | 2.5 | 1.5 | 1.05 |
+
+New tests also check that the years skip-scan lists exactly what the old query did, odd dates included, and
+that the Overview's holdings equal `holdingsByType()`'s, ties included.
+
 ## Proposals not implemented
 
-These would change output, or the shape of the data, so they are the owner's call:
-
-- **A. Keep each shelf's item count on the shelf.** Even after this work, every signed-in page reads
-  about 2,000 rows to count the items on each shelf for the sidebar: the floor of every page, and about
-  100,000 rows on the day above.
-  - **The change:** a `libraries.item_count` column kept by triggers on `items` (insert, delete,
-    `library_id` change).
-  - **Saving:** about 2,000 rows a page, on every page.
-  - **Cost:** a data migration and backfill, three triggers that every write path (imports, bulk
-    moves, cascades) has to keep in step, and one extra row written per item insert or move.
-- **B. Break ties in the Overview's "by type" line explicitly.** `holdingsByType` orders by count
-  only; ties come out in whatever order the plan produces ("1 vinyl · 1 board game"). An index on
-  `media_type` halves its cost (4,001 → 1,999) and makes Play tonight read 2 rows instead of 2,012, but
-  turns that line into "1 board game · 1 vinyl".
-  - **The change:** add `media_type` as a second sort key, then the index.
-  - **Effect:** a visible change on the Overview, only for types with equal counts.
-- **C. Year in review in fewer, cheaper statements.** The seven reading statements each rebuild and
-  re-scan the year's finishes (about 2,000 rows each on the synthetic household before any grouping).
-  - **The change:** one statement that materializes them once and returns every list as tagged rows
-    would save roughly another 12,000 rows on the synthetic household. The years picker could
-    skip-scan years on the new index instead of reading every dated finish (4,146 → tens).
-  - **Cost:** both rewrite §16 #59's batch and its parsing. They are worth it only if the page turns
-    out to be visited often.
+- **A. Keep each shelf's item count on the shelf.** Every signed-in page still reads about 2,000 rows to count
+  the items on each shelf for the sidebar. It is now the floor of every page, and about 100,000 rows of the
+  170,000 day.
+  - **The change:** a `libraries.item_count` column kept by triggers on `items` (insert, delete, `library_id`
+    change).
+  - **Saving:** about 2,000 rows a page.
+  - **Why not now:** it changes the shape of the data. It needs a data migration with a backfill, and triggers
+    every write path has to keep in step. A restore would double every count: the backup carries
+    `item_count`, and the items inserted after it fire the triggers. So the backup runbook would need a
+    recount step. Owner's call.
+- **B. (Done another way.)** The Overview's "by type" line had no explicit tiebreak. Its current order turned out
+  to be exactly descending type order for every pattern of ties, so that order is now written into
+  `holdingsByType()`. The Overview reads the same from the shared pass, with no index on `media_type`.
+  - **Still possible:** an index on `media_type` would make Play tonight read 2 rows instead of 2,012, at one
+    more row written per item insert. Left out as a rare page.
+- **C. Year in review in one statement.** The seven reading statements each rebuild and re-scan the year's
+  finishes. One statement sharing one materialization would save about 6,000 more rows on the synthetic
+  household, and next to nothing on production's data, whose year holds a dozen finishes. Not worth rewriting
+  §16 #59's batch and its parsing.
+- **D. Count a goal's year by range.** `goalCountSql()` compares `CAST(substr(ended_on, 1, 4) AS INTEGER)`, which
+  no index serves: 379 rows on the Overview and Goals today, growing with reads. A range would use
+  `idx_reads_status_ended`, but it counts malformed dates differently ("2024" alone), and migration 0036's
+  triggers carry that expression word for word. That would be a change in what counts.
+- **E. Smaller things, left alone:**
+  - Filtered shelf views still count their matches (about 2,000 rows); indexes for every filter would cost
+    writes for rare views.
+  - The layout's unread counts could share the sidebar's batch, saving one call a page; calls are far from the
+    budget.
+  - Peer endpoints are cheap, and `/federation/views` is cached.
