@@ -3764,3 +3764,16 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
   }
   return { inserted: inserts.length, merged: merges.length, reads: readChanges };
 }
+
+/**
+ * Points an item at a cover, or at none (§16 #73): the key it had before, so the caller can delete that object. One
+ * batch — a RETURNING clause sees the row as updated, so the old key is read in the statement before the write.
+ */
+export async function setCover(d1: D1Database, id: number, coverKey: string | null): Promise<{ before: string | null } | null> {
+  const [was, did] = await d1.batch([
+    d1.prepare('SELECT cover_key AS before FROM items WHERE id = ?1').bind(id),
+    d1.prepare(`UPDATE items SET cover_key = ?2, updated_at = datetime('now') WHERE id = ?1`).bind(id, coverKey),
+  ]);
+  const row = (was?.results?.[0] as { before: string | null } | undefined) ?? null;
+  return row && did?.meta?.changes ? row : null;
+}

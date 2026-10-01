@@ -105,6 +105,45 @@ export async function storeCover(
   }
 }
 
+/** What an upload may be, and how large: a phone's photo, resized in the browser (public/app.js) to a few hundred KB. */
+export const UPLOAD_MAX_BYTES = 8 * 1024 * 1024;
+export const UPLOAD_MIN_BYTES = 500;
+
+/**
+ * The raster type the bytes say they are, or null: JPEG, PNG, GIF, WebP or AVIF by their magic numbers. What a browser
+ * declares for an upload is never trusted — an SVG renamed .jpg would be served from this origin as "image/jpeg", and
+ * the type is what it says it is, not the extension. Anything else is no cover.
+ */
+export function sniffImageType(bytes: Uint8Array): string | null {
+  const at = (i: number) => bytes[i] ?? -1;
+  const ascii = (start: number, text: string) => [...text].every((ch, i) => at(start + i) === ch.charCodeAt(0));
+  if (at(0) === 0xff && at(1) === 0xd8 && at(2) === 0xff) return 'image/jpeg';
+  if (at(0) === 0x89 && ascii(1, 'PNG') && at(4) === 0x0d && at(5) === 0x0a && at(6) === 0x1a && at(7) === 0x0a) return 'image/png';
+  if (ascii(0, 'GIF87a') || ascii(0, 'GIF89a')) return 'image/gif';
+  if (ascii(0, 'RIFF') && ascii(8, 'WEBP')) return 'image/webp';
+  if (ascii(4, 'ftyp') && (ascii(8, 'avif') || ascii(8, 'avis'))) return 'image/avif';
+  return null;
+}
+
+/**
+ * A cover someone uploaded — a photo taken on the phone, or a file picked (ARCH.md §16 #73) — stored as it came, under
+ * a new key: no resizing here (10 ms CPU; the browser shrank it), the type from the bytes, never from the upload, and
+ * the same raster-only rule as a fetched cover. Null for anything that isn't a raster image of a plausible size.
+ */
+export async function storeUploadedCover(covers: R2Bucket, file: Blob | null | undefined): Promise<string | null> {
+  if (!file || file.size < UPLOAD_MIN_BYTES || file.size > UPLOAD_MAX_BYTES) return null;
+  try {
+    const body = await file.arrayBuffer();
+    const contentType = sniffImageType(new Uint8Array(body, 0, Math.min(16, body.byteLength)));
+    if (!contentType || !COVER_TYPES.has(contentType)) return null;
+    const key = crypto.randomUUID();
+    await covers.put(key, body, { httpMetadata: { contentType } });
+    return key;
+  } catch {
+    return null;
+  }
+}
+
 export async function deleteCover(covers: R2Bucket, key: string | null | undefined): Promise<void> {
   if (!key) return;
   try {

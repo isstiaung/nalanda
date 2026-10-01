@@ -15,6 +15,7 @@ import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
 import { DiscogsAttribution, DiscogsCredit, discogsLink, discogsUrl } from './attribution';
 import { ledgerDate, ledgerDateTime } from '../lib/dates';
+import { CoverPhotoField } from './cover-photo';
 
 export const MEDIA_LABEL: Record<MediaType, string> = {
   book: 'Book',
@@ -1242,7 +1243,7 @@ export const ItemForm: FC<{
   const reviewedIn = Array.isArray(details['reviewed_in']) ? (details['reviewed_in'] as string[]) : [];
   delete details['reviewed_in'];
   return (
-  <form method="post" action={action} class="form-card">
+  <form method="post" action={action} class="form-card" enctype="multipart/form-data">
     {/* the form refuses only a read that doesn't add up: status and dates point at the reason */}
     {error ? (
       <p class="error" role="alert" id="item-form-error">
@@ -1433,6 +1434,7 @@ export const ItemForm: FC<{
       Cover image URL <small>(fetched once into storage on save)</small>
       <input name="coverUrl" placeholder="https://…" value={coverUrl ?? ''} {...invalid(coverError && error, 'item-form-error')} />
     </label>
+    <CoverPhotoField />
     {item?.coverKey ? (
       <label>
         <input type="checkbox" name="removeCover" value="1" checked={!!removeCover} /> Remove current cover

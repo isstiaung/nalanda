@@ -45,7 +45,8 @@ src/federation/    connections between instances (docs/proposals/connections.md)
                    comments in routes/comments, recommendations in routes/recommendations,
                    shelves/requests/Borrowed and the Loans-page section in routes/borrowing,
                    in-app notifications in routes/notifications (recorded in src/db/federation.ts)
-public/            app.css, scanner.js, import.js, app.js, covers.js (swaps a cover that fails to
+public/            app.css, scanner.js, import.js, app.js (also shrinks a chosen cover photo before the form
+                   sends it, ARCH.md §16 #73), covers.js (swaps a cover that fails to
                    load for its media-icon box; app and share pages) + vendor/ (htmx, zxing, eczar fonts)
                    + the installed app (ARCH.md §16 #48): manifest.webmanifest, icons/, sw.js (keeps
                    only static files — never a page or API answer, never touches /share), offline.html

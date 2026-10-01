@@ -82,6 +82,9 @@ manuscripts.
   and invite-only, never a network or the fediverse; off unless you give the instance a key.
   **Notifications** count connection requests, borrowing and comments, and Feed counts what's
   new, per person in the household.
+- **A cover from your camera**: under any item's cover, take a photo or pick a file and make it
+  the cover — shrunk in the browser before it's sent, so a phone photo goes up in a second. For
+  the old paperback, the Indian edition, the small-press game nobody has an image of.
 - **Series**: give a book its series and number ("The Expanse", #3 — or #2.5 for the novella
   between), filled in from Open Library when it knows. Each series shows its volumes in order,
   the numbers you're missing ("#4, #6–9" once you set how many there are), and your own

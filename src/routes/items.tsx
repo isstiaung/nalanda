@@ -47,11 +47,12 @@ import {
   type Actor,
   type ReadEntry,
   type ReviewEntry,
+  setCover,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { scanQueueOwner } from '../lib/auth';
 import { isRecord, parseGrade } from '../lib/condition';
-import { deleteCover, isDiscogsUrl, storeCover } from '../lib/covers';
+import { deleteCover, isDiscogsUrl, storeCover, storeUploadedCover } from '../lib/covers';
 import { bggIdOf, fillGame, type GameFill } from '../lib/games';
 import { isPlayable, MAX_PLAYS_PER_ITEM, playDateProblem } from '../lib/plays';
 import { fillPressing, recordBarcode, releaseIdOf, type Filled } from '../lib/pressing';
@@ -97,6 +98,7 @@ import {
   WantedPill,
 } from '../views/components';
 import { page, todayOf } from '../views/layout';
+import { CoverPhotoForm } from '../views/cover-photo';
 import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
 import { recommendOnItemPage } from './recommendations';
@@ -166,6 +168,7 @@ type ParsedForm = {
   values: Omit<NewItem, 'libraryId'> & { libraryId: number };
   tags: string[];
   coverUrl: string;
+  photo: File | null; // a picture taken or picked on a multipart form (§16 #73)
   removeCover: boolean;
   // the item's series (§16 #52): null for none. `seriesSent` is the typed text, for a refused form to give back, and
   // `seriesProblem` why it can't be saved.
@@ -314,6 +317,8 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
     },
     tags: str('tags').split(',').map((t) => t.trim()).filter(Boolean),
     coverUrl: str('coverUrl'),
+    // a photo taken or a file picked (§16 #73): a File from a multipart form, else nothing
+    photo: body['photo'] instanceof File && body['photo'].size > 0 ? body['photo'] : null,
     removeCover: str('removeCover') === '1',
     ...parseSeriesFields(str('seriesName'), str('seriesNumber')),
     seriesSent: { name: str('seriesName'), number: str('seriesNumber') },
@@ -441,7 +446,9 @@ items.post('/items', async (c) => {
   // A record from a Discogs result takes its cover from the Cover Art Archive, or has none: never the image the result
   // showed, which is Discogs' Restricted Data (§16 #67). A cover URL typed into the form is the person's own.
   const coverKey =
-    body['source'] === 'discogs' && isRecord(parsed.values.mediaType)
+    parsed.photo
+      ? await storeUploadedCover(c.env.COVERS, parsed.photo)
+      : body['source'] === 'discogs' && isRecord(parsed.values.mediaType)
       ? (
           await recordCover(
             {
@@ -727,6 +734,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
     <article class="item-detail">
       <div class="item-detail-cover">
         <Cover coverKey={item.coverKey} title={item.title} mediaType={item.mediaType} />
+        <CoverPhotoForm itemId={item.id} hasCover={!!item.coverKey} error={c.req.query('cover') === 'refused'} />
       </div>
       <div class="item-detail-body">
         <hgroup>
@@ -1612,7 +1620,10 @@ items.post('/items/:id', async (c) => {
 
   let coverKey = existing.coverKey;
   if (parsed.removeCover) coverKey = null;
-  if (parsed.coverUrl) coverKey = (await storeCover(c.env.COVERS, parsed.coverUrl)) ?? coverKey;
+  // a photo on the form takes the place of a URL beside it — it's the one the person just took, and the URL isn't
+  // fetched (§16 #73)
+  if (parsed.photo) coverKey = (await storeUploadedCover(c.env.COVERS, parsed.photo)) ?? coverKey;
+  else if (parsed.coverUrl) coverKey = (await storeCover(c.env.COVERS, parsed.coverUrl)) ?? coverKey;
 
   try {
     await updateItemWithTags(
@@ -1633,6 +1644,34 @@ items.post('/items/:id', async (c) => {
   // Only now is the old cover unreferenced. Deleted before the save, as it was, a failed save left the item
   // pointing at a cover that was gone.
   if (coverKey !== existing.coverKey) c.executionCtx.waitUntil(deleteCover(c.env.COVERS, existing.coverKey));
+  return c.redirect(`/items/${id}`);
+});
+
+/**
+ * A cover from the phone's camera, or a file (§16 #73): any member, as any catalog edit is. The browser resized it;
+ * here it is only sniffed and stored, and the item pointed at it, the old object deleted once nothing points at it. A
+ * file that isn't a raster image, or is empty or past the size limit, is refused back to the page with the reason.
+ * `action=remove` clears the cover instead.
+ */
+items.post('/items/:id/cover', async (c) => {
+  const id = Number(c.req.param('id'));
+  const item = await getItem(c.env.DB, id);
+  if (!item) return c.notFound();
+  const body = await c.req.parseBody();
+  if (body['action'] === 'remove') {
+    const was = await setCover(c.env.DB, id, null);
+    c.executionCtx.waitUntil(deleteCover(c.env.COVERS, was?.before));
+    return c.redirect(`/items/${id}`);
+  }
+  const photo = body['photo'] instanceof File && body['photo'].size > 0 ? body['photo'] : null;
+  const key = await storeUploadedCover(c.env.COVERS, photo);
+  if (!key) return c.redirect(`/items/${id}?cover=refused`);
+  const was = await setCover(c.env.DB, id, key);
+  if (!was) {
+    c.executionCtx.waitUntil(deleteCover(c.env.COVERS, key)); // the item went while the photo was stored
+    return c.notFound();
+  }
+  if (was.before !== key) c.executionCtx.waitUntil(deleteCover(c.env.COVERS, was.before));
   return c.redirect(`/items/${id}`);
 });
 

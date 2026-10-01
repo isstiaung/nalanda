@@ -1498,3 +1498,9 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 /* "More results" under a page of Add-page search results; the next page takes its place */
 .results-more { margin: 0.25rem 0 1rem; }
 .results-page:focus { outline: none; }
+
+/* a cover from the camera (ARCH.md §16 #73): the small form under an item's cover */
+.cover-photo { margin-top: 0.75rem; display: grid; gap: 0.5rem; }
+.cover-photo label { font-size: 12.5px; margin: 0; }
+.cover-photo input[type='file'] { font-size: 12.5px; max-width: 100%; }
+.cover-photo-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
