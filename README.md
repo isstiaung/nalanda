@@ -211,15 +211,17 @@ lists them for you to add to a shelf or drop. Logging out clears anything still 
 | [import-from-goodreads.md](runbooks/import-from-goodreads.md) | Bringing your Goodreads history over (and leaving) |
 | [import-from-libib.md](runbooks/import-from-libib.md) | Migrating your libib collection |
 | [metadata-backfill.md](runbooks/metadata-backfill.md) | Filling in covers and descriptions for a large catalog, from your machine |
+| [record-covers.md](runbooks/record-covers.md) | Replacing record covers stored from Discogs with the Cover Art Archive's (a one-off) |
 | [troubleshooting.md](runbooks/troubleshooting.md) | Scanner, lookups, deploys, logs |
 
 ## Data sources
 
-Metadata and covers come from Open Library, Google Books, BoardGameGeek and Discogs, each under
-its own terms; if you run an instance, you are the one using their APIs
-([THIRD-PARTY.md](THIRD-PARTY.md)). Their terms ask for credit beside their data, so a board
-game's page carries BoardGameGeek's "Powered by BGG" logo, and a record whose pressing came
-from Discogs says "Data provided by Discogs.", linked to that release on discogs.com.
+Metadata and covers come from Open Library, Google Books, BoardGameGeek, Discogs and, for
+records' covers, MusicBrainz's Cover Art Archive, each under its own terms; if you run an
+instance, you are the one using their APIs ([THIRD-PARTY.md](THIRD-PARTY.md)). Their terms ask
+for credit beside their data, so a board game's page carries BoardGameGeek's "Powered by BGG"
+logo, and a record whose pressing came from Discogs says "Data provided by Discogs.", linked to
+that release on discogs.com. Discogs' images are never stored: its terms restrict them.
 
 This application uses Discogs’ API but is not affiliated with, sponsored or endorsed by Discogs. ‘Discogs’ is a trademark of Zink Media, LLC.
 

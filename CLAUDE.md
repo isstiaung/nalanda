@@ -27,7 +27,9 @@ shape from this file.
 - R2 for cover art. Metadata providers behind `src/metadata/provider.ts`:
   Open Library + Google Books (books, both keyless-capable), BoardGameGeek XML API2 (board
   games — no barcode lookup, name search only, needs `BGG_TOKEN` — BGG went registration-only in 2025), Discogs (vinyl, **has** barcode search,
-  needs `DISCOGS_TOKEN`).
+  needs `DISCOGS_TOKEN`). A record's stored cover comes only from the Cover Art Archive via MusicBrainz
+  (`recordCover()`, keyless, one request a second) — **never a Discogs image**, which its terms make Restricted
+  Data (ARCH.md §16 #67); `fetchCover()` in `src/lib/covers.ts` refuses discogs.com hosts on every path.
 - Styling is the hand-written design system in `public/app.css` — no CSS framework. The
   visual identity is "the manuscript ledger" (ARCH.md §16 #16), grounded in Nalanda's
   Pala-era scriptorium: palm-leaf buff paper, lampblack ink, indigo working accent,
@@ -253,6 +255,10 @@ npm run backfill:remote -- <step>  # covers + descriptions for production, run f
                            # with the app's own src/metadata (Node's native TS): rehearse |
                            # export | enrich | upload | apply | status — rehearse first;
                            # apply wants a backup < 12 h old (runbooks/metadata-backfill.md)
+npm run record-covers:remote -- <step>  # one-off: replace record covers stored from Discogs with the
+                           # Cover Art Archive's, or drop them — rehearse | export | enrich | upload | apply |
+                           # status; rehearse --backup on a local copy first; apply wants a backup < 12 h old
+                           # (runbooks/record-covers.md, ARCH.md §16 #67)
 npm run vendor             # re-copy vendored assets after bumping htmx/zxing/font versions
 npm run federation:keygen  # Ed25519 identity for connections → FEDERATION_PRIVATE_KEY
                            # (printed once, never written to disk)
@@ -289,7 +295,8 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    from BGG" may fill; the filtering SQL is gamesForTonight in queries.ts, the page
                    routes/play.tsx, ARCH.md §16 #60),
                    money.ts (purchase prices: minor units, parsing, exact formatting, currency codes —
-                   ARCH.md §16 #61)
+                   ARCH.md §16 #61), record-covers.ts (the one-off of §16 #67: which stored record covers
+                   came from Discogs, and the batched SQL that swaps or drops them)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments, borrowing and recommendations
@@ -319,9 +326,11 @@ scripts/           vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp
                    wrangler-remote.mjs + remote-config.mjs (real db id → temp config),
                    seed-demo.mjs, hash-password.mjs, federation-keygen.mjs,
                    backfill-remote.mjs + ts-resolve.mjs (runs src/metadata under Node),
+                   record-covers.mjs (the one-off replacing Discogs covers, §16 #67),
                    a11y.mjs (the runtime accessibility audit; eslint.config.mjs is the static one)
 runbooks/          operational guides: deploy, updating (for self-hosters), backup/restore, accounts,
-                   connections, libib import, goodreads import, metadata backfill, troubleshooting —
+                   connections, libib import, goodreads import, metadata backfill, record covers,
+                   troubleshooting —
                    update when ops procedures change
 .github/           CI (typecheck + lint + test, and the a11y audit as its own job; no secrets,
                    never pull_request_target), release (on a vX.Y.Z tag: publishes that
@@ -395,7 +404,7 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
 
 ## Ops guardrails
 - Develop against local D1. `--remote` is for deploy, remote migrate, backup, and
-  `backfill:remote` only.
+  `backfill:remote` / `record-covers:remote` only.
 - Any destructive remote operation (dropping data, hand-run `wrangler d1 execute --remote`)
   requires a fresh `npm run backup` first.
 - Secrets (`SESSION_SECRET`, `DISCOGS_TOKEN`, `BGG_TOKEN`, optional `GOOGLE_BOOKS_KEY`, optional
