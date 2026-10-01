@@ -19,6 +19,7 @@ import {
   todayUtc,
 } from '../lib/reads';
 import { countName, nameKey, sortNames, splitCreators, type NameCount } from '../lib/creators';
+import { MAX_EDITIONS_PER_ITEM, type EditionDraft } from '../lib/formats';
 import { FEWEST_PLAYERS, WEIGHT_BANDS, type GameFilters } from '../lib/games';
 import { MAX_LINKS_PER_ITEM, type LinkDraft } from '../lib/links';
 import { MAX_LOANS_PER_CELL, type LoanDraft } from '../lib/loans';
@@ -552,6 +553,8 @@ export type ItemFilters = {
   owned?: boolean; // true = copies > 0, false = copies = 0 (reading-log entries)
   q?: string; // title/creators/location substring, case-insensitive — the signed-in shelf's only, never a view's
   tag?: string; // only items carrying this tag (tags are stored lowercase)
+  // held in any of these formats (§16 #75) — the shelf's filter only: share links don't capture it (shareFilters)
+  formats?: string[];
   // only items on this member's want list (§16 #53) — what a gift list captures, and the want-list page shows
   wantedBy?: number;
   // 'wanted': newest on the want list first — only with wantedBy
@@ -596,6 +599,10 @@ function itemFilterWhere(libraryId: number | null, f: ItemFilters, reader?: Read
   if (f.mediaTypes?.length) conds.push(inArray(s.items.mediaType, f.mediaTypes));
   if (f.statuses?.length) conds.push(statusWhere(f.statuses)!);
   if (f.owned !== undefined) conds.push(f.owned ? gt(s.items.copies, 0) : eq(s.items.copies, 0));
+  if (f.formats?.length) {
+    // the column is a comma-joined set; a code matches between commas, so "cd" never matches "cdr"
+    conds.push(or(...f.formats.map((code) => sql`(',' || ${s.items.formats} || ',') LIKE ${`%,${code},%`}`))!);
+  }
   // The tag's and the want list's items as IN, not a correlated EXISTS: the same set (neither item_id is ever NULL), but
   // SQLite starts from the tag's links (idx_item_tags_tag) or the member's wants (their primary key) instead of probing
   // every item in the catalogue — 829 rows read rather than 4,274 to count a tag of 276 items (§16 #68).
@@ -1184,7 +1191,7 @@ export async function createItemWithTags(
   values: NewItem,
   names: string[],
   series: SeriesDraft | null = null,
-  opts: { wantedBy?: number; before?: D1PreparedStatement[]; after?: D1PreparedStatement[] } = {},
+  opts: { wantedBy?: number; before?: D1PreparedStatement[]; after?: D1PreparedStatement[]; editions?: EditionDraft[] } = {},
 ): Promise<number> {
   const reads = readsFromColumns(values.status ?? 'not_started', values.beganOn, values.completedOn);
   const reviews = stampReviews(reviewsFromColumns(values));
@@ -1205,6 +1212,7 @@ export async function createItemWithTags(
     ...reviewInsertStatements(d1, 'newest', reviews, values.addedBy ?? null),
     refreshReviewState(d1, 'newest'),
     ...(opts.wantedBy !== undefined ? wantInsertStatements(d1, 'newest', [{ userId: opts.wantedBy, at: null }]) : []),
+    ...editionInsertStatements(d1, 'newest', opts.editions ?? []),
     ...(opts.after ?? []),
   ]);
   const row = results[before.length + upsert.length]?.results[0] as { id: number } | undefined;
@@ -1239,6 +1247,7 @@ export async function updateItemWithTags(
   person: number | null = null,
   formReview?: FormReview,
   series?: SeriesDraft | null, // undefined leaves the item's series as it is; null takes it out of one (§16 #52)
+  editions?: EditionDraft[], // undefined leaves "also held as" as it is; a list replaces it (§16 #75)
 ): Promise<void> {
   // reading state and the rating and review come from reads and reviews alone; the series only from `series`
   const {
@@ -1266,6 +1275,7 @@ export async function updateItemWithTags(
     ...(series === undefined ? [] : [pruneSeries(d1)]),
     d1.prepare('DELETE FROM item_tags WHERE item_id = ?1').bind(id),
     ...tagLinkStatements(d1, id, names),
+    ...(editions ? [d1.prepare('DELETE FROM editions WHERE item_id = ?1').bind(id), ...editionInsertStatements(d1, id, editions)] : []),
     ...(formRead ? formReadStatements(d1, id, person, formRead) : []),
     refreshReadState(d1, [id]),
     // reads first, as everywhere: a rating given with a finish is dated by it inside an import (§16 #40)
@@ -1586,17 +1596,17 @@ export async function pastLoansForItem(
  */
 export async function lendIfFree(
   d1: D1Database,
-  values: { itemId: number; borrower: string; loanedOn?: string; contact: string | null; dueOn: string | null },
+  values: { itemId: number; borrower: string; loanedOn?: string; contact: string | null; dueOn: string | null; edition?: string | null },
 ): Promise<boolean> {
   const row = await d1
     .prepare(
-      `INSERT INTO loans (item_id, borrower, loaned_on, contact, due_on)
-       SELECT ?1, ?2, ?5, ?3, ?4
+      `INSERT INTO loans (item_id, borrower, loaned_on, contact, due_on, edition)
+       SELECT ?1, ?2, ?5, ?3, ?4, ?6
        WHERE (SELECT copies FROM items WHERE id = ?1)
            > (SELECT count(*) FROM loans WHERE item_id = ?1 AND returned_on IS NULL)
        RETURNING id`,
     )
-    .bind(values.itemId, values.borrower, values.contact, values.dueOn, values.loanedOn ?? todayUtc())
+    .bind(values.itemId, values.borrower, values.contact, values.dueOn, values.loanedOn ?? todayUtc(), values.edition ?? null)
     .first<{ id: number }>();
   return !!row;
 }
@@ -1625,7 +1635,7 @@ function loansRangeStatement(d1: D1Database, fromId: number, toId: number, libra
   return d1
     .prepare(
       `SELECT l.item_id AS itemId, l.borrower, l.loaned_on AS loanedOn, l.due_on AS dueOn, l.returned_on AS returnedOn,
-              l.contact, l.note
+              l.contact, l.note, l.edition
        FROM loans l
        WHERE l.item_id BETWEEN ?1 AND ?2 ${scoped}
        ORDER BY l.item_id, l.id
@@ -1656,10 +1666,10 @@ function loanInsertStatements(d1: D1Database, loans: LoanDraft[]): D1PreparedSta
   return [
     d1
       .prepare(
-        `INSERT INTO loans (item_id, borrower, loaned_on, due_on, returned_on, contact, note)
+        `INSERT INTO loans (item_id, borrower, loaned_on, due_on, returned_on, contact, note, edition)
          SELECT (SELECT max(id) FROM items), json_extract(value, '$.borrower'), json_extract(value, '$.loanedOn'),
                 json_extract(value, '$.dueOn'), json_extract(value, '$.returnedOn'), json_extract(value, '$.contact'),
-                json_extract(value, '$.note')
+                json_extract(value, '$.note'), json_extract(value, '$.edition')
          FROM json_each(?1) ORDER BY key`,
       )
       .bind(json),
@@ -2003,11 +2013,21 @@ export async function itemPageLog(
   entries: ProgressEntry[];
   reviews: ReviewEntry[];
   want: { wanters: Array<{ id: number; username: string; at: string }>; links: Array<{ id: number; label: string; url: string }> };
+  editions: EditionDraft[]; // "also held as" (§16 #75), in the same call
   extra: D1Result[];
 }> {
-  const own = [...readingLogStatements(d1, itemId), ...wantsAndLinksStatements(d1, itemId)];
+  const own = [
+    ...readingLogStatements(d1, itemId),
+    ...wantsAndLinksStatements(d1, itemId),
+    d1.prepare('SELECT format, isbn, publisher, year FROM editions WHERE item_id = ?1 ORDER BY id').bind(itemId),
+  ];
   const results = await d1.batch([...own, ...extra]);
-  return { ...readingLogOf(results), want: wantsAndLinksOf(results.slice(3)), extra: results.slice(own.length) };
+  return {
+    ...readingLogOf(results),
+    want: wantsAndLinksOf(results.slice(3)),
+    editions: (results[own.length - 1]?.results ?? []) as EditionDraft[],
+    extra: results.slice(own.length),
+  };
 }
 
 function readingLogStatements(d1: D1Database, itemId: number): D1PreparedStatement[] {
@@ -2745,17 +2765,28 @@ export async function catalogMatches(d1: D1Database, candidates: CatalogProbe[])
          OR (media_type IN ('vinyl', 'music') AND (isbn10_upc IN (SELECT value FROM json_each(?2)) OR isbn13 IN (SELECT value FROM json_each(?2))))
          OR (media_type IN ('vinyl', 'music') AND CAST(json_extract(details, '$.discogs_id') AS TEXT) IN (SELECT value FROM json_each(?3)))
          OR (media_type = 'boardgame' AND CAST(json_extract(details, '$.bgg_id') AS TEXT) IN (SELECT value FROM json_each(?4)))
+         OR id IN (SELECT item_id FROM editions WHERE isbn IN (SELECT value FROM json_each(?1)) OR isbn IN (SELECT value FROM json_each(?2)))
        ORDER BY id`,
     )
     .bind(list('isbn'), list('barcode'), list('discogs'), list('bgg'))
     .all<{ id: number; mediaType: MediaType; isbn13: string | null; isbn10Upc: string | null; discogs: string | null; bgg: string | null }>();
+  // another edition's identifier finds the same item (§16 #75): one more call, only when something matched at all
+  const alsoHeld = results.length
+    ? (
+        await d1
+          .prepare(`SELECT item_id AS id, isbn FROM editions WHERE item_id IN (SELECT value FROM json_each(?1)) AND isbn IS NOT NULL`)
+          .bind(JSON.stringify(results.map((r) => r.id)))
+          .all<{ id: number; isbn: string }>()
+      ).results
+    : [];
+  const heldAs = (r: { id: number }, code: string) => alsoHeld.some((e) => e.id === r.id && e.isbn === code);
   const music = (t: MediaType) => t === 'vinyl' || t === 'music';
   return keys.map(
     (k) =>
       results.find(
         (r) =>
-          (k.isbn !== null && r.isbn13 === k.isbn) ||
-          (k.barcode !== null && music(r.mediaType) && (r.isbn10Upc === k.barcode || r.isbn13 === k.barcode)) ||
+          (k.isbn !== null && (r.isbn13 === k.isbn || heldAs(r, k.isbn))) ||
+          (k.barcode !== null && music(r.mediaType) && (r.isbn10Upc === k.barcode || r.isbn13 === k.barcode || heldAs(r, k.barcode))) ||
           (k.discogs !== null && music(r.mediaType) && r.discogs === k.discogs) ||
           (k.bgg !== null && r.mediaType === 'boardgame' && r.bgg === k.bgg),
       )?.id ?? null,
@@ -2772,6 +2803,7 @@ export async function existingForWant(d1: D1Database, c: CatalogProbe): Promise<
          OR (?2 IS NOT NULL AND media_type IN ('vinyl', 'music') AND (isbn10_upc = ?2 OR isbn13 = ?2))
          OR (?3 IS NOT NULL AND media_type IN ('vinyl', 'music') AND CAST(json_extract(details, '$.discogs_id') AS TEXT) = ?3)
          OR (?4 IS NOT NULL AND media_type = 'boardgame' AND CAST(json_extract(details, '$.bgg_id') AS TEXT) = ?4)
+         OR id IN (SELECT item_id FROM editions WHERE (?1 IS NOT NULL AND isbn = ?1) OR (?2 IS NOT NULL AND isbn = ?2))
        ORDER BY id LIMIT 1`,
     )
     .bind(isbn, barcode, discogs, bgg)
@@ -2791,6 +2823,7 @@ export type ExportCells = {
   series: Map<number, Series>; // every series an item in the range belongs to, by id (§16 #52)
   wants: Map<number, Array<{ by: string; at: string }>>; // each want's member by username (§16 #53)
   links: Map<number, LinkDraft[]>;
+  editions: Map<number, EditionDraft[]>; // "also held as" (§16 #75)
 };
 
 /**
@@ -2834,6 +2867,7 @@ export async function exportCellsForIdRange(
        WHERE w.item_id BETWEEN ?1 AND ?2 ${scoped('w.item_id')} ORDER BY w.item_id, w.created_at, u.id`,
     ),
     bind(`SELECT item_id AS itemId, label, url FROM purchase_links WHERE item_id BETWEEN ?1 AND ?2 ${scoped('item_id')} ORDER BY item_id, id`),
+    bind(`SELECT item_id AS itemId, format, isbn, publisher, year FROM editions WHERE item_id BETWEEN ?1 AND ?2 ${scoped('item_id')} ORDER BY item_id, id`),
   ]);
   const rowsOf = <T,>(i: number) => (results[i]?.results ?? []) as Array<T & { itemId: number }>;
   const group = <T, U>(rows: Array<T & { itemId: number }>, pick: (r: T & { itemId: number }) => U) => {
@@ -2853,6 +2887,7 @@ export async function exportCellsForIdRange(
     series: new Map(((results[6]?.results ?? []) as Series[]).map((r) => [r.id, r])),
     wants: group(rowsOf<{ by: string; at: string }>(7), (r) => ({ by: r.by, at: r.at })),
     links: group(rowsOf<LinkDraft>(8), (r) => ({ label: r.label, url: r.url })),
+    editions: group(rowsOf<EditionDraft>(9), (r) => ({ format: r.format, isbn: r.isbn, publisher: r.publisher, year: r.year })),
   };
 }
 
@@ -3552,7 +3587,29 @@ export type ImportRow = {
   links?: LinkDraft[];
   // the pages recorded, each with the read it belonged to — only a restore from the trash brings these (§16 #74)
   progress?: ProgressDraft[];
+  // "also held as" (§16 #75): a Nalanda export's, or the trash's
+  editions?: EditionDraft[];
 };
+
+/** Inserts an item's editions — its id, or 'newest' for one inserted earlier in the batch — at most MAX_EDITIONS_PER_ITEM. */
+function editionInsertStatements(d1: D1Database, item: number | 'newest', editions: EditionDraft[]): D1PreparedStatement[] {
+  if (!editions.length) return [];
+  const itemRef = item === 'newest' ? '(SELECT max(id) FROM items)' : '?2';
+  const json = JSON.stringify(editions.slice(0, MAX_EDITIONS_PER_ITEM));
+  const stmt = d1.prepare(
+    `INSERT INTO editions (item_id, format, isbn, publisher, year)
+     SELECT ${itemRef}, json_extract(value, '$.format'), json_extract(value, '$.isbn'), json_extract(value, '$.publisher'), json_extract(value, '$.year')
+     FROM json_each(?1) ORDER BY key`,
+  );
+  return [item === 'newest' ? stmt.bind(json) : stmt.bind(json, item)];
+}
+
+/** An item's "also held as" lines, in the order they were entered. */
+export async function editionsOf(d1: D1Database, itemId: number): Promise<EditionDraft[]> {
+  return (
+    await d1.prepare('SELECT format, isbn, publisher, year FROM editions WHERE item_id = ?1 ORDER BY id').bind(itemId).all<EditionDraft>()
+  ).results;
+}
 
 /** A page recorded, as the trash keeps it: its read named by what it was, since ids are new on restore. */
 export type ProgressDraft = { page: number; at: string; addedBy: number | null; read: PersonRead | null };
@@ -3614,6 +3671,7 @@ export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1Pr
       ...wantInsertStatements(d1, 'newest', r.wants ?? []),
       ...linkInsertStatements(d1, 'newest', r.links ?? []),
       ...progressInsertStatements(d1, r.progress ?? []),
+      ...editionInsertStatements(d1, 'newest', r.editions ?? []),
     );
   }
   const results = await d1.batch(asImport(d1, [...writes, ...extra]));
@@ -3905,10 +3963,11 @@ function trashPayloadSql(): string {
     'series', json((SELECT json_object('name', sr.name, 'number', i.series_number, 'total', sr.total) FROM series sr WHERE sr.id = i.series_id)),
     'reads', ${jsonRows("'status', status, 'beganOn', began_on, 'endedOn', ended_on, 'readerId', reader_id", 'reads WHERE item_id = i.id')},
     'reviews', ${jsonRows("'userId', user_id, 'rating', rating, 'review', review, 'reviewedAt', reviewed_at, 'ratedAt', rated_at", 'reviews WHERE item_id = i.id')},
-    'loans', ${jsonRows("'borrower', borrower, 'loanedOn', loaned_on, 'dueOn', due_on, 'returnedOn', returned_on, 'contact', contact, 'note', note", 'loans WHERE item_id = i.id')},
+    'loans', ${jsonRows("'borrower', borrower, 'loanedOn', loaned_on, 'dueOn', due_on, 'returnedOn', returned_on, 'contact', contact, 'note', note, 'edition', edition", 'loans WHERE item_id = i.id')},
     'plays', ${jsonRows("'playedOn', played_on, 'loggedBy', logged_by", 'plays WHERE item_id = i.id')},
     'wants', ${jsonRows("'userId', user_id, 'at', created_at", 'wants WHERE item_id = i.id', 'created_at, user_id')},
     'links', ${jsonRows("'label', label, 'url', url", 'purchase_links WHERE item_id = i.id')},
+    'editions', ${jsonRows("'format', format, 'isbn', isbn, 'publisher', publisher, 'year', year", 'editions WHERE item_id = i.id')},
     'people', json((SELECT coalesce(json_group_object(id, session_key), '{}') FROM users)),
     'progress', json((SELECT coalesce(json_group_array(json_object(
         'page', page, 'at', at, 'addedBy', added_by,
@@ -3995,6 +4054,7 @@ export type TrashPayload = {
   wants: Array<{ userId: number; at: string | null }>;
   links: LinkDraft[];
   progress: ProgressDraft[];
+  editions?: EditionDraft[];
   /** every member at the time, id to session key (§16 #56): an id is a person only while it still has that key */
   people: Record<string, string>;
 };
@@ -4032,6 +4092,7 @@ export async function restoreFromTrash(d1: D1Database, trashId: number, members:
     plays: (p.plays ?? []).map((pl) => ({ playedOn: pl.playedOn, loggedBy: who(pl.loggedBy) })),
     wants: (p.wants ?? []).filter((w) => who(w.userId) !== null),
     links: p.links ?? [],
+    editions: p.editions ?? [],
     progress: (p.progress ?? []).map((pr) => ({
       page: pr.page,
       at: pr.at,

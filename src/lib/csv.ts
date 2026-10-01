@@ -19,6 +19,7 @@ import {
   type ReadRow,
 } from './reads';
 import { formatLinksCell, formatWantsCell, parseLinksCell, parseWantsCell, type CellWant, type LinkDraft } from './links';
+import { formatEditionsCell, formatFormatsCell, parseEditionsCell, parseFormatsCell, type EditionDraft } from './formats';
 import { formatLoansCell, parseLoansCell, type LoanDraft } from './loans';
 import { formatPlaysCell, parsePlaysCell, type CellPlay, type PersonPlay } from './plays';
 import { formatReviewsCell, parseReviewsCell, summarizeReviews, type CellReview, type PersonReview } from './reviews';
@@ -61,6 +62,8 @@ export const EXPORT_COLUMNS = [
   'progress_history',
   'wanted_by',
   'purchase_links',
+  'formats', // the forms it is held in (§16 #75): codes, comma-joined
+  'editions', // "also held as": the other editions' format, ISBN, publisher, year, as JSON
   'details',
 ] as const;
 
@@ -109,6 +112,7 @@ export function itemToCsvLine(
   series: { name: string; total: number | null } | null = null,
   wants: Array<{ by: string; at: string }> = [],
   links: LinkDraft[] = [],
+  editions: EditionDraft[] = [],
 ): string {
   const ordered = inDisplayOrder(reads);
   const position = new Map(ordered.map((r, i) => [r.id, i + 1]));
@@ -148,6 +152,8 @@ export function itemToCsvLine(
     progressHistoryCell(progress, position),
     formatWantsCell(wants),
     formatLinksCell(links),
+    formatFormatsCell(item.formats ?? ''),
+    formatEditionsCell(editions),
     item.details === '{}' ? '' : item.details,
   ]);
 }
@@ -193,6 +199,8 @@ export type MappedRow = {
   // a Nalanda export's `wanted_by` and `purchase_links` (§16 #53)
   wants?: CellWant[];
   links?: LinkDraft[];
+  // "also held as" (§16 #75), a Nalanda export's `editions` column
+  editions?: EditionDraft[];
   // a Goodreads row's reading, which a merge reconciles with the reads already here
   goodreads?: GoodreadsReading;
   // a Nalanda export's `loans`, restored onto the item the row makes (§16 #57); libib and Goodreads have none
@@ -223,6 +231,9 @@ const KNOWN_COLUMNS = new Set([
   // fall into details, which every share page renders
   'wanted_by',
   'purchase_links',
+  // formats and editions (§16 #75) map to their own places: the editions' ISBNs are as private as the main one
+  'formats',
+  'editions',
   // and what was paid (§16 #61): money is never published. libib's own `price` is mapped below, and stays in details
   // — which published pages strip of money — only when it can't be read as a price in the household's currency
   'purchase_price',
@@ -460,6 +471,7 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
       completedOn: state.completedOn,
       ...(SQL_DATETIME.test(r['added_at'] ?? '') ? { addedAt: r['added_at'] } : {}),
       details,
+      formats: parseFormatsCell(mediaType, r['formats']),
       ...rowGrades(mediaType, r['media_condition'], r['sleeve_condition']),
       // what was paid, in the currency the file says (§16 #61); one it doesn't say is the household's
       ...rowPrice(r['purchase_price'], r['purchase_currency'], household),
@@ -471,6 +483,7 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
     ...(plays.length ? { plays } : {}),
     wants: parseWantsCell(r['wanted_by']),
     links: parseLinksCell(r['purchase_links']),
+    editions: parseEditionsCell(mediaType, r['editions']),
     tags: (r['tags'] ?? '')
       .split(',')
       .map((t) => t.trim())

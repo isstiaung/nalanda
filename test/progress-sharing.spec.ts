@@ -52,6 +52,7 @@ const reading: Item = {
   seriesNumber: null,
   purchasePrice: null,
   purchaseCurrency: null,
+  formats: '',
 };
 
 describe('the whitelist', () => {

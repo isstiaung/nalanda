@@ -9,6 +9,7 @@ import {
 import type { AppEnv } from '../env';
 import { isIsoDate } from '../lib/reads';
 import { page, todayOf } from '../views/layout';
+import { formatLabel, formatsOf } from '../lib/formats';
 import { loanRequestsSection } from './borrowing';
 
 const loans = new Hono<AppEnv>();
@@ -65,6 +66,7 @@ loans.get('/loans', async (c) => {
                       </td>
                       <td data-label="Borrower">
                         {l.borrower}
+                        {l.edition ? <small class="muted"> · {formatLabel(l.edition).toLowerCase()}</small> : null}
                         {l.contact ? <small class="muted"> · {l.contact}</small> : null}
                       </td>
                       <td class="date hide-sm" data-label="Since">
@@ -141,9 +143,12 @@ loans.post('/items/:id/loan', async (c) => {
   const body = await c.req.parseBody();
   const borrower = String(body['borrower'] ?? '').trim();
   if (borrower) {
+    // which copy went out (§16 #75): only one of the item's own formats
+    const edition = String(body['edition'] ?? '').trim();
     const lent = await lendIfFree(c.env.DB, {
       itemId,
       borrower,
+      edition: formatsOf(item).includes(edition) ? edition : null,
       loanedOn: todayOf(c), // the device's day, not the server's (§16 #69)
       contact: String(body['contact'] ?? '').trim() || null,
       // a calendar date or none, as a connection's lend takes it: anything else couldn't round-trip through the export
