@@ -25,8 +25,10 @@ import {
   shareFilters,
   toGiftItem,
   toPublicItem,
+  previewText,
   wantListTitle,
   type GiftItem,
+  type LinkPreview,
   type PublicItem,
 } from '../lib/share';
 import { BggCredit, fromBgg } from '../views/attribution';
@@ -80,11 +82,12 @@ share.use('*', async (c, next) => {
  * `bgg`: the page shows a board game, so BoardGameGeek's logo is owed in the footer (ARCH.md §16 #44). `mark`: what
  * kind of page it is, above its name — a gift list says so (§16 #53).
  */
-const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: boolean; mark?: string }>> = ({
+const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: boolean; mark?: string; preview?: LinkPreview }>> = ({
   title,
   shelf,
   bgg,
   mark = 'Nalanda · shared shelf',
+  preview,
   children,
 }) => (
   <html lang="en">
@@ -95,6 +98,19 @@ const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: bo
       <meta name="theme-color" content="#f6f2e7" media="(prefers-color-scheme: light)" />
       <meta name="theme-color" content="#171310" media="(prefers-color-scheme: dark)" />
       <title>{title}</title>
+      {/* the link preview a chat app draws (§16 #71): what the page shows, nothing more; noindex above still holds */}
+      {preview ? (
+        <>
+          <meta property="og:type" content="website" />
+          <meta property="og:site_name" content="Nalanda" />
+          <meta property="og:title" content={preview.title} />
+          <meta property="og:description" content={preview.description} />
+          <meta property="og:url" content={preview.url} />
+          {preview.image ? <meta property="og:image" content={preview.image} /> : null}
+          {preview.image && preview.imageAlt ? <meta property="og:image:alt" content={`Cover of ${preview.imageAlt}`} /> : null}
+          <meta name="twitter:card" content="summary" />
+        </>
+      ) : null}
       <link rel="icon" href="/logo.svg" type="image/svg+xml" />
       <link rel="stylesheet" href="/app.css" />
       {/* a cover that fails to load falls back to its media icon */}
@@ -151,8 +167,35 @@ const PublicCard: FC<{ item: PublicItem; token: string }> = ({ item, token }) =>
   </a>
 );
 
-function renderShare(c: Context<AppEnv>, title: string, shelf: string, body: Child, opts: { bgg?: boolean; mark?: string } = {}) {
-  return c.html(`<!doctype html>${ShareLayout({ title, shelf, bgg: opts.bgg, mark: opts.mark, children: body })}`);
+function renderShare(
+  c: Context<AppEnv>,
+  title: string,
+  shelf: string,
+  body: Child,
+  opts: { bgg?: boolean; mark?: string; preview?: LinkPreview } = {},
+) {
+  return c.html(`<!doctype html>${ShareLayout({ title, shelf, bgg: opts.bgg, mark: opts.mark, preview: opts.preview, children: body })}`);
+}
+
+// ---------- link previews (ARCH.md §16 #71) ----------
+
+/** An absolute URL on this instance, as a preview needs: a chat app fetches it from elsewhere. */
+const absolute = (c: Context<AppEnv>, path: string) => new URL(path, c.req.url).toString();
+
+/** The first cover a listing shows, as the preview's picture, and whose it is; none when no item on the page has one. */
+function firstCover(c: Context<AppEnv>, items: Array<{ coverKey: string | null; title: string }>): Pick<LinkPreview, 'image' | 'imageAlt'> {
+  const first = items.find((i) => i.coverKey);
+  return first?.coverKey ? { image: absolute(c, `/covers/${first.coverKey}`), imageAlt: first.title } : { image: null, imageAlt: null };
+}
+
+/** "12 items · a shared shelf from a Nalanda home library": the count the page's eyebrow shows, and what kind of page. */
+const countLine = (total: number, kind: string) => `${total} ${total === 1 ? 'item' : 'items'} · ${kind} from a Nalanda home library`;
+
+/** An item page's line: its creators and type, which page it's on, and the start of its description. */
+function itemLine(item: { creators: string | null; mediaType: PublicItem['mediaType']; description: string | null }, on: string): string {
+  const head = [item.creators, MEDIA_LABEL[item.mediaType], `on ${on}`].filter(Boolean).join(' · ');
+  const more = previewText(item.description, 140);
+  return more ? `${head} — ${more}` : head;
 }
 
 // ---------- gift lists: a member's want list, published (ARCH.md §16 #53) ----------
@@ -202,6 +245,12 @@ async function giftListPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
   );
   const gifts = items.map((i) => toGiftItem(i, links.get(i.id) ?? []));
   const title = wantListTitle(owner);
+  const preview: LinkPreview = {
+    title,
+    description: countLine(total, 'a want list shared'),
+    ...firstCover(c, gifts),
+    url: absolute(c, `/share/${token}`),
+  };
   return renderShare(
     c,
     title,
@@ -221,7 +270,7 @@ async function giftListPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
       )}
       <Pagination page={current} pages={pages} makeHref={(p) => `/share/${token}?page=${p}`} />
     </>,
-    { bgg: gifts.some(fromBgg), mark: GIFT_MARK },
+    { bgg: gifts.some(fromBgg), mark: GIFT_MARK, preview },
   );
 }
 
@@ -230,6 +279,13 @@ async function giftItemPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
   const { owner, links } = await giftExtras(c.env.DB, view.wantUserId, [item.id]);
   const gift = toGiftItem(item, links.get(item.id) ?? []);
   const title = wantListTitle(owner);
+  const preview: LinkPreview = {
+    title: gift.title,
+    description: itemLine(gift, title),
+    image: gift.coverKey ? absolute(c, `/covers/${gift.coverKey}`) : null,
+    imageAlt: gift.coverKey ? gift.title : null,
+    url: absolute(c, `/share/${token}/items/${gift.id}`),
+  };
   return renderShare(
     c,
     `${gift.title} · ${title}`,
@@ -287,7 +343,7 @@ async function giftItemPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
         </p>
       </div>
     </article>,
-    { bgg: fromBgg(gift), mark: GIFT_MARK },
+    { bgg: fromBgg(gift), mark: GIFT_MARK, preview },
   );
 }
 
@@ -321,6 +377,12 @@ share.get('/:token', async (c) => {
     items.filter((i) => i.copies === 0).map((i) => i.id),
   );
   const publicItems = items.map((i) => toPublicItem(i, { wanted: wanted.has(i.id) }));
+  const preview: LinkPreview = {
+    title: view.name,
+    description: countLine(total, view.tag !== null ? 'a shared tag' : 'a shared shelf'),
+    ...firstCover(c, publicItems),
+    url: absolute(c, `/share/${token}`),
+  };
 
   return renderShare(
     c,
@@ -337,7 +399,7 @@ share.get('/:token', async (c) => {
       </div>
       <Pagination page={current} pages={pages} makeHref={(p) => `/share/${token}?page=${p}`} />
     </>,
-    { bgg: publicItems.some(fromBgg), mark: shareMark(view) },
+    { bgg: publicItems.some(fromBgg), mark: shareMark(view), preview },
   );
 });
 
@@ -370,6 +432,13 @@ share.get('/:token/items/:id', async (c) => {
   const reviews = settings.namesOnShares ? named : undefined;
   // §16 #53: the "Wanted" badge, from the wanters the guard already read — a boolean, never whose
   const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews, plays, series, wanted: wanters.length > 0 });
+  const preview: LinkPreview = {
+    title: pub.title,
+    description: itemLine(pub, view.name),
+    image: pub.coverKey ? absolute(c, `/covers/${pub.coverKey}`) : null,
+    imageAlt: pub.coverKey ? pub.title : null,
+    url: absolute(c, `/share/${token}/items/${pub.id}`),
+  };
 
   return renderShare(
     c,
@@ -529,7 +598,7 @@ share.get('/:token/items/:id', async (c) => {
         </p>
       </div>
     </article>,
-    { bgg: fromBgg(pub), mark: shareMark(view) },
+    { bgg: fromBgg(pub), mark: shareMark(view), preview },
   );
 });
 
