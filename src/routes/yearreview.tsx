@@ -6,7 +6,6 @@ import { Hono } from 'hono';
 import type { FC } from 'hono/jsx';
 import { yearInReview } from '../db/queries';
 import type { AppEnv } from '../env';
-import { todayUtc } from '../lib/reads';
 import {
   barPercent,
   MONTH_NAMES,
@@ -22,7 +21,7 @@ import {
   type YearStats,
 } from '../lib/yearreview';
 import { stars } from '../views/components';
-import { page } from '../views/layout';
+import { page, todayOf } from '../views/layout';
 
 const yearReview = new Hono<AppEnv>();
 
@@ -367,7 +366,7 @@ const YearPage: FC<{ review: YearReview; today: string }> = ({ review, today }) 
 };
 
 yearReview.get('/year-in-review', async (c) => {
-  const today = todayUtc();
+  const today = todayOf(c);
   const year = parseYear(c.req.query('year')) ?? Number(today.slice(0, 4));
   const review = await yearInReview(c.env.DB, c.get('user').id, year);
   return page(c, `Year in review · ${year}`, <YearPage review={review} today={today} />);

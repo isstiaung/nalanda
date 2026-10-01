@@ -6,9 +6,8 @@ import type { FC } from 'hono/jsx';
 import { deleteGoal, getGoal, getSiteSettings, getUserById, goalsOf, listPeople, setGoal, type GoalProgress } from '../db/queries';
 import type { AppEnv } from '../env';
 import { MAX_GOAL_TARGET, parseGoalTarget, settableYears } from '../lib/goals';
-import { todayUtc } from '../lib/reads';
 import { GoalMeter } from '../views/components';
-import { page } from '../views/layout';
+import { page, todayOf } from '../views/layout';
 
 const goals = new Hono<AppEnv>();
 
@@ -154,7 +153,7 @@ async function render(c: Context<AppEnv>, memberId: number, extra: Pick<PageProp
       admin={admin}
       people={people}
       list={list}
-      today={todayUtc()}
+      today={todayOf(c)}
       shared={shared}
       {...extra}
     />,
@@ -174,7 +173,7 @@ goals.post('/goals', async (c) => {
   const year = Number(body['year']);
   const rawTarget = typeof body['target'] === 'string' ? body['target'] : '';
   const target = parseGoalTarget(rawTarget);
-  if (!settableYears(todayUtc()).includes(year)) {
+  if (!settableYears(todayOf(c)).includes(year)) {
     return render(c, memberId, { error: 'A goal can be set for this year or next.', target: rawTarget }, 400);
   }
   if (target === null) {

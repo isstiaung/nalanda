@@ -195,6 +195,8 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   versions, or any manual step must be in its **Upgrading** block. After it merges, tag main
   `vX.Y.Z`; the release workflow publishes that file (only for tags on main).
 - One handler, two renders: a full page normally, a partial when `HX-Request` is present.
+- Today is the device's day (ARCH.md §16 #69): `todayOf(c)` reads its `tz` cookie; a route never takes a
+  day from `new Date()` or SQL's `date('now')` — a handler given no date passes `todayOf(c)` to the query.
 - Accessibility (ARCH.md §18): WCAG 2.2 AA in both themes. `hx-*` only on forms, buttons and links;
   every field labelled; errors `role="alert"` (+ `invalid()`); colour never the only signal; a new
   page or htmx swap joins `scripts/a11y.mjs`; `npm run lint` + `npm run a11y` pass.

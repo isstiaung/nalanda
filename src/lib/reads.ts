@@ -121,6 +121,10 @@ export function isIsoDate(v: unknown): v is string {
   return day <= (month === 2 && leap ? 29 : MONTH_DAYS[month - 1]!);
 }
 
+/**
+ * The server's day, UTC. Pages and handlers don't use it: a device's own day is `todayOf(c)` (src/views/layout.tsx,
+ * ARCH.md §16 #69). It remains for what has no device — tests, and the bound on how late a date may be, below.
+ */
 export const todayUtc = () => new Date().toISOString().slice(0, 10);
 
 /**

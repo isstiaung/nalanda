@@ -1,5 +1,6 @@
 import type { Context } from 'hono';
 import { getCookie } from 'hono/cookie';
+import { todayFor, TZ_COOKIE } from '../lib/dates';
 import type { Child, FC, PropsWithChildren } from 'hono/jsx';
 import type { Library } from '../db/schema';
 import { listLibraries } from '../db/queries';
@@ -108,6 +109,9 @@ const NONE_UNREAD: Unread = { notifications: 0, feed: 0 };
 export const NAV_SECTIONS = ['library', 'shelves', 'reading', 'lending', 'sharing', 'settings'] as const;
 export type NavSectionId = (typeof NAV_SECTIONS)[number];
 export const NAV_COOKIE = 'nav';
+
+/** Today where the request's device is (ARCH.md §16 #69): its `tz` cookie's zone, else UTC. */
+export const todayOf = (c: Context<AppEnv>): string => todayFor(getCookie(c, TZ_COOKIE));
 
 /**
  * The sections a `nav` cookie asks to keep open. The browser writes it, so it is only ever a filter over the known

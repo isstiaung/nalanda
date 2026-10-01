@@ -1906,6 +1906,7 @@ export async function lendToConnection(
   d1: D1Database,
   request: BorrowRequestRow,
   borrower: string,
+  loanedOn: string,
   dueOn: string | null,
   message: { id: string },
 ): Promise<number | null> {
@@ -1919,7 +1920,10 @@ export async function lendToConnection(
     request.connectionId,
     message,
     [
-      statement(d1, sql`INSERT INTO loans (item_id, borrower, due_on) SELECT ${itemId}, ${borrower}, ${dueOn} WHERE ${go} RETURNING id`),
+      statement(
+        d1,
+        sql`INSERT INTO loans (item_id, borrower, loaned_on, due_on) SELECT ${itemId}, ${borrower}, ${loanedOn}, ${dueOn} WHERE ${go} RETURNING id`,
+      ),
       // the loan just made is the newest: rowids only grow, and nothing else writes inside this batch
       statement(
         d1,
