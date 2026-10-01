@@ -9,9 +9,15 @@ import { fetchWithTimeout, USER_AGENT } from '../env';
  */
 const COVER_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif']);
 
+/**
+ * A host name as DNS reads it, for every host check here: lower case, and without the trailing dot of a fully
+ * qualified name — `i.discogs.com.` is `i.discogs.com`, and a check that compared the spelling let it through.
+ */
+const normalHost = (hostname: string): string => hostname.toLowerCase().replace(/\.+$/, '');
+
 const hostOf = (url: string): string | null => {
   try {
-    return new URL(url).hostname.toLowerCase();
+    return normalHost(new URL(url).hostname);
   } catch {
     return null;
   }
@@ -25,6 +31,17 @@ const hostOf = (url: string): string | null => {
 export function isDiscogsUrl(url: string | null | undefined): boolean {
   const host = url ? hostOf(url) : null;
   return !!host && (host === 'discogs.com' || host.endsWith('.discogs.com'));
+}
+
+/**
+ * Whether a URL names its host by IP number — `http://10.0.0.5/…`, `http://[::1]/…`, or a form the URL parser reads
+ * as one — rather than by name. A cover URL someone types is refused with that host: no image anyone would paste
+ * lives at a bare address, and a Worker's fetch is not for reaching into networks by number. Not a rule of
+ * fetchCover() itself — a connection in development is `http://127.0.0.1`, and its covers come by this path.
+ */
+export function isIpLiteralUrl(url: string | null | undefined): boolean {
+  const host = url ? hostOf(url) : null;
+  return !!host && (host.startsWith('[') || /^\d{1,3}(\.\d{1,3}){3}$/.test(host));
 }
 
 /** The Cover Art Archive and the Internet Archive, where its images live: the only hosts its redirects may lead to. */
@@ -41,7 +58,7 @@ async function fetchFromArchive(url: string): Promise<Response | null> {
   let next = url;
   for (let hop = 0; hop <= ARCHIVE_HOPS; hop++) {
     const at = new URL(next);
-    if (!isArchiveHost(at.hostname.toLowerCase()) || (at.protocol !== 'https:' && at.protocol !== 'http:')) return null;
+    if (!isArchiveHost(normalHost(at.hostname)) || (at.protocol !== 'https:' && at.protocol !== 'http:')) return null;
     at.protocol = 'https:';
     const res = await fetchWithTimeout(at.href, { headers: { 'User-Agent': USER_AGENT }, redirect: 'manual' });
     if (res.status < 300 || res.status > 399) return res;
