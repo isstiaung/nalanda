@@ -33,6 +33,8 @@ for a surface before changing anything it shows to someone outside the household
   the main ISBN, never a key of `toPublicItem()` or `toConnectionItem()`. The shelf's Format filter is
   the shelf's own: `shareFilters()` doesn't capture it. A loan's `edition` is circulation detail, private
   like the borrower.
+- **Language and original title are public** (ARCH.md §16 #76), like the publisher: `language` and
+  `originalTitle` are keys of `toPublicItem()`, on gift lists, and to connections.
 - **Link previews** (ARCH.md §16 #71): every share page's Open Graph tags are a `LinkPreview` its
   route builds from `toPublicItem()`/`toGiftItem()` values and the page's own name and count —
   never a field the whitelist keeps back, never a display name while `names_on_shares` is off, and

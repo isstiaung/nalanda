@@ -346,10 +346,12 @@ export function recommendIds(details: Record<string, unknown>): RecommendIds {
 /** One member's rating and review on a connection's item page (§16 #45): by display name, or unsigned (null). */
 export type NamedReview = { by: string | null; rating: number | null; review: string | null };
 
-export type ItemDetail = Omit<ConnectionItem, 'details' | 'readCount' | 'formats'> & {
+export type ItemDetail = Omit<ConnectionItem, 'details' | 'readCount' | 'formats' | 'language' | 'originalTitle'> & {
   details: Record<string, string | number | boolean>;
   readCount: number | null; // null from a household on an older version
   formats?: string[]; // the forms it is held in (§16 #75); absent from a household on an older version
+  language?: string | null; // §16 #76; absent from a household on an older version
+  originalTitle?: string | null;
   available: boolean;
   tags: string[];
   stamp: string;
@@ -497,6 +499,9 @@ export function parseItemDetail(value: unknown): ItemDetail | null {
     ...(Array.isArray(v.formats) && v.formats.length <= 12 && v.formats.every((f) => typeof f === 'string' && /^[a-z0-9-]{1,20}$/.test(f))
       ? { formats: v.formats as string[] }
       : {}),
+    // language and original title (§16 #76): short text or null; absent from an older household, left out when malformed
+    ...(v.language === null || (typeof v.language === 'string' && /^[a-z]{2}$/.test(v.language)) ? { language: v.language as string | null } : {}),
+    ...(v.originalTitle === null || isText(v.originalTitle, MAX_SHORT_TEXT) ? { originalTitle: v.originalTitle as string | null } : {}),
   };
 }
 

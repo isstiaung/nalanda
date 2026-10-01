@@ -49,6 +49,7 @@ import {
   type ReviewEntry,
   setCover,
   editionsOf,
+  getLibraryAndSettings,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { scanQueueOwner } from '../lib/auth';
@@ -98,11 +99,13 @@ import {
   WantBar,
   WantedPill,
   FormatPills,
+  LanguagePill,
 } from '../views/components';
 import { page, todayOf } from '../views/layout';
 import { CreatorLinks } from '../views/creators';
 import { CoverPhotoForm, PHOTO_REFUSED } from '../views/cover-photo';
 import { cleanEdition, FORMATS, formatLabel, formatsFromPressing, formatsOf, MAX_EDITIONS_PER_ITEM, normalizeFormats, type EditionDraft } from '../lib/formats';
+import { isLanguageCode } from '../lib/language';
 import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
 import { recommendOnItemPage } from './recommendations';
@@ -329,6 +332,9 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
       notes: orNull(str('notes')),
       // where it lives (§16 #51): free text, one line — a pasted line break would only hide half of it
       location: orNull(str('location').replace(/\s+/g, ' ')),
+      // its language (§16 #76): a code of ours, else null here and the household's in the handler; the original title as written
+      language: isLanguageCode(str('language')) ? str('language') : null,
+      originalTitle: orNull(str('originalTitle').replace(/\s+/g, ' ')),
       copies: Number.isFinite(copiesNum) && copiesNum >= 0 ? copiesNum : 1, // 0 = cataloged, not owned
       beganOn: orNull(str('beganOn')),
       completedOn: orNull(str('completedOn')),
@@ -392,8 +398,11 @@ items.post('/items', async (c) => {
   }
   const parsed = parseItemForm(body);
   if (!parsed) return c.text('Title and shelf are required.', 400);
-  const lib = await getLibrary(c.env.DB, parsed.values.libraryId);
+  // the shelf and the household's settings in one call: every added item takes the household's language unless the
+  // form or its source said (§16 #76), and a price is read in the household's currency
+  const { library: lib, settings: site } = await getLibraryAndSettings(c.env.DB, parsed.values.libraryId);
   if (!lib) return c.text('No such shelf.', 400);
+  parsed.values.language ??= site.language;
 
   // "Log — not owned" on scan/search results: a copies=0 reading-log entry,
   // landing on the edit form so rating/review/status go in immediately.
@@ -420,7 +429,7 @@ items.post('/items', async (c) => {
   }
 
   // a price is read only from a form that has the field: a scan's or a search result's add costs no extra call
-  const household = 'purchasePrice' in body ? (await getSiteSettings(c.env.DB)).currency : null;
+  const household = 'purchasePrice' in body ? site.currency : null;
   const price = formPrice(body, household, null);
   if (price.values) Object.assign(parsed.values, price.values);
   const photoProblem = await photoProblemOf(parsed);
@@ -432,7 +441,7 @@ items.post('/items', async (c) => {
       listPeople(c.env.DB),
       seriesNames(c.env.DB),
       // read above only when the form had a price field; the form shown back always has one
-      'purchasePrice' in body ? household : getSiteSettings(c.env.DB).then((st) => st.currency),
+      'purchasePrice' in body ? household : site.currency,
     ]);
     c.status(400);
     return page(
@@ -457,6 +466,7 @@ items.post('/items', async (c) => {
           seriesNames={names}
           money={priceField(c, currency, price)}
           editions={parsed.editions}
+          language={site.language}
         />
       </>,
       libs, // nothing was written: the sidebar's list too (§16 #68)
@@ -783,6 +793,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
       <div class="item-detail-body">
         <hgroup>
           <h1>{item.title}</h1>
+          {item.originalTitle ? <p class="original-title muted">{item.originalTitle}</p> : null}
           {item.creators ? <CreatorLinks creators={item.creators} /> : null}
         </hgroup>
         {tags.length ? (
@@ -803,7 +814,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           <dd>{lib ? <a href={`/libraries/${lib.id}`}>{lib.name}</a> : '—'}</dd>
           <dt>Type</dt>
           <dd>
-            {MEDIA_LABEL[item.mediaType]} <FormatPills formats={formatsOf(item)} />
+            {MEDIA_LABEL[item.mediaType]} <FormatPills formats={formatsOf(item)} /> <LanguagePill language={item.language} household={log.householdLanguage} />
           </dd>
           {editions.length ? (
             <>
@@ -1089,6 +1100,7 @@ items.get('/items/:id/edit', async (c) => {
         seriesNames={names}
         money={priceField(c, settings.currency)}
         editions={editions}
+        language={settings.language}
       />
     </>,
     libs, // the sidebar's list too (§16 #68)
@@ -1695,6 +1707,8 @@ items.post('/items/:id', async (c) => {
     );
   }
 
+  // a form without a language of ours keeps the item's own (§16 #76): never a NULL written over a code
+  parsed.values.language ??= existing.language ?? settings.language;
   let coverKey = existing.coverKey;
   if (parsed.removeCover) coverKey = null;
   // a photo on the form takes the place of a URL beside it — it's the one the person just took, and the URL isn't
