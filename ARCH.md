@@ -861,6 +861,8 @@ is a section of this document and "#N" another decision.
 | 83 | 2026-10-01 | [Author A–Z sorts a shelf by the first creator's surname, in SQL, by the same rule as the creators pages](docs/decisions/083-author-sort.md) |
 | 84 | 2026-10-01 | [Item history: triggers record each change to an item's own fields with who made it; admins read it on the item page; 90 days](docs/decisions/084-item-history.md) |
 | 85 | 2026-10-01 | [A share link's QR code is drawn in the browser from its address — the mark under the vermilion rule, level H — and nothing new is published](docs/decisions/085-share-qr.md) |
+| 86 | 2026-10-01 | [A share link has an Atom and an RSS feed of its newest additions — the page's whitelist, dated by the addition, never by a read](docs/decisions/086-share-feeds.md) |
+| 87 | 2026-10-01 | [StoryGraph and LibraryThing exports import as Goodreads' does: matched and merged, the importer's own reads and reviews](docs/decisions/087-storygraph-librarything.md) |
 | 90 | 2026-10-01 | [An import dates a book by the file's "date added"; a re-import re-dates the books already here only when asked, the row's own time kept for the stamp connections hold](docs/decisions/090-import-date-added.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React

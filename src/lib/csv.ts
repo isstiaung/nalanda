@@ -16,16 +16,18 @@ import {
   type CellRead,
   type GoodreadsReading,
   type PersonRead,
+  type ReadDraft,
   type ReadRow,
 } from './reads';
 import { formatLinksCell, formatWantsCell, parseLinksCell, parseWantsCell, type CellWant, type LinkDraft } from './links';
-import { formatEditionsCell, formatFormatsCell, parseEditionsCell, parseFormatsCell, type EditionDraft } from './formats';
+import { formatEditionsCell, formatFormatsCell, parseEditionsCell, parseFormatsCell, type EditionDraft, normalizeFormats } from './formats';
 import { DEFAULT_LANGUAGE, languageFromProvider } from './language';
 import { formatQuotesCell, parseQuotesCell, type CellQuote } from './quotes';
 import { formatLoansCell, parseLoansCell, type LoanDraft } from './loans';
 import { formatPlaysCell, parsePlaysCell, type CellPlay, type PersonPlay } from './plays';
 import { formatReviewsCell, parseReviewsCell, summarizeReviews, type CellReview, type PersonReview } from './reviews';
 import { cleanSeriesName, formatSeriesNumber, parseSeriesNumber, parseSeriesTotal, parseTitleSeries, type SeriesDraft } from './series';
+import { languageCode } from './search';
 
 export const EXPORT_COLUMNS = [
   'library',
@@ -626,6 +628,15 @@ const KNOWN_GOODREADS = new Set([
   'my_review',
   'private_notes',
   'owned_copies',
+  // the older export's columns about the household's copy — when and where it was bought, its condition, who it was
+  // recommended by — are as private as the copy (§16 #55, #61): never into details (review on #127)
+  'original_purchase_date',
+  'original_purchase_location',
+  'condition',
+  'condition_description',
+  'bcid',
+  'recommended_for',
+  'recommended_by',
   // reading: read_count and date_started become reads (ARCH.md §16 #41), so they no longer land in details
   'read_count',
   'date_started',
@@ -670,6 +681,330 @@ function goodreadsStatus(exclusive: string, shelves: string[]): ItemStatus {
   if (exclusive === 'currently-reading') return 'in_progress';
   if (shelves.some(dnf)) return 'abandoned';
   return 'not_started'; // to-read and anything unrecognized
+}
+
+// ---------- StoryGraph and LibraryThing (ARCH.md §16 #87) ----------
+//
+// Two more match-and-merge importers beside Goodreads': each row becomes the importer's own reads, rating and review
+// on the book already here that matches (ISBN, then title and author — mergeImportItems) or a new Not owned entry.
+// A column name as these files write it, lower-cased, with every run of other characters as one underscore:
+// "ISBN/UID" → isbn_uid, "Owned?" → owned, "Character- or Plot-Driven?" → character_or_plot_driven.
+const columnKey = (h: string) => h.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+const keyed = (row: Record<string, string>): Record<string, string> => {
+  const r: Record<string, string> = {};
+  for (const [k, v] of Object.entries(row)) {
+    const key = columnKey(k);
+    if (key) r[key] = (v ?? '').trim();
+  }
+  return r;
+};
+
+/** A StoryGraph export is recognised by its Read Status and Dates Read columns, which no other file has. */
+export function looksLikeStoryGraph(headers: string[]): boolean {
+  const have = new Set(headers.map(columnKey));
+  return have.has('read_status') && have.has('dates_read');
+}
+
+/** A LibraryThing export is recognised by its Primary Author column beside Entry Date or Book ID. */
+export function looksLikeLibraryThing(headers: string[]): boolean {
+  const have = new Set(headers.map(columnKey));
+  return have.has('primary_author') && (have.has('entry_date') || have.has('book_id'));
+}
+
+/** A 0–5 rating with halves or quarters ("4.25", "5.0") as our 1–10, or null when blank, zero or not a number. */
+function starsToRating(raw: string | undefined): number | null {
+  const n = Number.parseFloat((raw ?? '').trim());
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.min(10, Math.max(1, Math.round(n * 2)));
+}
+
+/** A book's format as these files name it, as one of ours — or none. */
+function bookFormat(raw: string | undefined): string | null {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (!v) return null;
+  if (/audio/.test(v)) return 'audiobook';
+  if (/ebook|e-book|kindle|digital|epub/.test(v)) return 'ebook';
+  if (/paperback|softcover|mass market|trade/.test(v)) return 'paperback';
+  if (/hardcover|hardback|cloth/.test(v)) return 'hardcover';
+  return null;
+}
+
+/** "2022/01/19" or "2022-01-19" as our date, else null. */
+const dateOf = (raw: string | undefined): string | null => isoDate(raw);
+
+const KNOWN_STORYGRAPH = new Set([
+  'title',
+  'authors',
+  'isbn_uid',
+  'format',
+  'read_status',
+  'date_added',
+  'last_date_read',
+  'dates_read',
+  'read_count',
+  'star_rating',
+  'review',
+  'tags',
+  'owned',
+  // not StoryGraph columns, but private if a file carried them: never into details (§16 #55, #61)
+  'media_condition',
+  'sleeve_condition',
+  'purchase_price',
+  'purchase_currency',
+]);
+
+/** The reader's impressions StoryGraph exports, as the private notes word them. */
+const STORYGRAPH_IMPRESSIONS: ReadonlyArray<readonly [string, string]> = [
+  ['moods', 'moods'],
+  ['pace', 'pace'],
+  ['character_or_plot_driven', 'driven by'],
+  ['strong_character_development', 'strong character development'],
+  ['loveable_characters', 'loveable characters'],
+  ['diverse_characters', 'diverse characters'],
+  ['flawed_characters', 'flawed characters'],
+  ['content_warnings', 'content warnings'],
+  ['content_warning_description', 'content warning description'],
+];
+const STORYGRAPH_PRIVATE = new Set(STORYGRAPH_IMPRESSIONS.map(([k]) => k));
+
+function storyGraphStatus(raw: string | undefined): ItemStatus {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (v === 'read') return 'completed';
+  if (v === 'currently-reading') return 'in_progress';
+  if (v === 'did-not-finish' || v === 'dnf') return 'abandoned';
+  return 'not_started'; // to-read, and anything else
+}
+
+/**
+ * StoryGraph's "Dates Read": each read as "start-end", several joined by commas, either side possibly blank —
+ * "2022/01/04-2022/01/19, -2023/03/02". Dates are written with slashes there (and the dash is the range's), so a
+ * range is split on its first dash between two dates; a file with dashed dates is read by the same rule.
+ */
+function storyGraphRanges(raw: string | undefined): Array<{ start: string | null; end: string | null }> {
+  const out: Array<{ start: string | null; end: string | null }> = [];
+  for (const part of (raw ?? '').split(',')) {
+    const span = part.trim();
+    if (!span) continue;
+    const m = /^(\d{4}[/-]\d{2}[/-]\d{2})?\s*-\s*(\d{4}[/-]\d{2}[/-]\d{2})?$/.exec(span);
+    if (!m) continue;
+    const start = dateOf(m[1]);
+    const end = dateOf(m[2]);
+    if (start || end) out.push({ start, end });
+  }
+  return out;
+}
+
+/**
+ * Maps one StoryGraph-export row (ARCH.md §16 #87) onto our item shape; null if unusable. Every dated read in "Dates
+ * Read" becomes a read of its own; the row's status, last read and count make the `goodreads` reading a merge
+ * reconciles with the reads already here. Owned? says whether it is a copy; Format says which. Moods, pace and the
+ * rest stay in details.
+ */
+export function mapStoryGraphRow(row: Record<string, string>): MappedRow | null {
+  const r = keyed(row);
+  const title = r['title'];
+  if (!title) return null;
+  const rawUid = (r['isbn_uid'] ?? '').trim();
+  const uid = rawUid.replace(/[^0-9Xx]/g, '');
+  const isbn13 = /^\d{13}$/.test(uid) ? uid : null;
+  const isbn10 = /^\d{9}[\dXx]$/.test(uid) ? uid.toUpperCase() : null;
+  const status = storyGraphStatus(r['read_status']);
+  const ranges = storyGraphRanges(r['dates_read']);
+  const last = ranges.at(-1);
+  const countRaw = (r['read_count'] ?? '').trim();
+  const goodreads: GoodreadsReading = {
+    shelf: status,
+    dateRead: status === 'in_progress' ? (ranges.filter((x) => x.end).at(-1)?.end ?? null) : (last?.end ?? dateOf(r['last_date_read'])),
+    dateStarted: last?.start ?? null,
+    readCount: /^\d+$/.test(countRaw) ? Number(countRaw) : ranges.length || null,
+  };
+  // the dated reads the file lists, as they are; without any, the same rules a merge applies, from none
+  const dated = ranges.filter((x) => x.start || x.end);
+  const reads: ReadDraft[] = dated.length
+    ? dated.map((x, i) => {
+        const lastOne = i === dated.length - 1;
+        if (lastOne && status === 'in_progress' && !x.end) return { status: 'in_progress', beganOn: x.start, endedOn: null };
+        if (lastOne && status === 'abandoned') return { status: 'abandoned', beganOn: x.start, endedOn: x.end };
+        return { status: 'completed', beganOn: x.start, endedOn: x.end };
+      })
+    : reconcileGoodreads([], goodreads).map((op) => op.read);
+  if (dated.length && status === 'in_progress' && !reads.some((x) => x.status === 'in_progress')) reads.push({ status: 'in_progress', beganOn: null, endedOn: null });
+  const state = summarizeReads(reads);
+  // the reader's own impressions — moods, pace, what drove the story, the content warnings — are opinions, closer to a
+  // review than to catalogue data, so they go to the private notes and never to details, which share pages publish;
+  // what is left over (contributors, say) is catalogue data and stays in details
+  const impressions = STORYGRAPH_IMPRESSIONS.map(([key, label]) => (r[key] ? `${label}: ${r[key]}` : null)).filter((x): x is string => x !== null);
+  const details: Record<string, string> = {};
+  for (const [k, v] of Object.entries(r)) if (!KNOWN_STORYGRAPH.has(k) && !STORYGRAPH_PRIVATE.has(k) && v) details[k] = v;
+  if (r['date_added']) details['storygraph_date_added'] = r['date_added']; // the day only, as a feed dates an addition (§16 #86)
+  if (rawUid && !isbn13 && !isbn10) details['storygraph_uid'] = rawUid; // StoryGraph's own id, kept as it is
+  const split = parseTitleSeries(title);
+  const format = bookFormat(r['format']);
+  return {
+    series: split?.series ?? null,
+    item: {
+      mediaType: 'book',
+      title: split?.title ?? title,
+      creators: r['authors'] || null,
+      isbn13,
+      isbn10Upc: isbn10,
+      publisher: null,
+      published: null,
+      description: null,
+      length: null,
+      status: state.status,
+      rating: starsToRating(r['star_rating']),
+      review: r['review'] || null,
+      notes: impressions.length ? `StoryGraph — ${impressions.join('; ')}` : null,
+      copies: /^(yes|true|y)$/i.test(r['owned'] ?? '') ? 1 : 0,
+      beganOn: state.beganOn,
+      completedOn: state.completedOn,
+      formats: format ? normalizeFormats('book', [format]) : '',
+      details: Object.keys(details).length ? JSON.stringify(details) : '{}',
+    },
+    reads,
+    goodreads,
+    tags: (r['tags'] ?? '').split(',').map((t) => t.trim()).filter(Boolean),
+  };
+}
+
+const KNOWN_LIBRARYTHING = new Set([
+  'book_id',
+  'title',
+  'sort_character',
+  'primary_author',
+  'primary_author_role',
+  'secondary_author',
+  'secondary_author_role',
+  'secondary_author_roles',
+  'publication',
+  'date',
+  'review',
+  'rating',
+  'comment',
+  'private_comment',
+  'summary',
+  'media',
+  'page_count',
+  'date_started',
+  'date_read',
+  'tags',
+  'collections',
+  'languages',
+  'isbn',
+  'isbns',
+  'copies',
+  'entry_date',
+  'series',
+  'volume',
+  'original_publication_year',
+  'barcode',
+  'bcid',
+  'lending_patron',
+  'lending_status',
+  'lending_start',
+  'lending_end',
+  'reading_dates',
+  // the household's copy and what it cost (§16 #55, #61), and where it is kept (§16 #51): never into details, which
+  // share pages publish — Other Call Number maps to location; the rest are dropped
+  'list_price',
+  'value',
+  'condition',
+  'acquired',
+  'date_acquired',
+  'from_where',
+  'source',
+  'other_call_number',
+  'purchase_price',
+  // not LibraryThing columns, but private if a file carried them (§16 #55, #61)
+  'media_condition',
+  'sleeve_condition',
+  'purchase_currency',
+]);
+
+/** "Mander, Jerry" as "Jerry Mander" — LibraryThing writes one person surname first; several are kept apart by "|". */
+function turnedRound(raw: string | undefined): string[] {
+  return (raw ?? '')
+    .split('|')
+    .map((name) => {
+      const m = /^([^,]+),\s*([^,]+)$/.exec(name.trim());
+      return m ? `${m[2]!.trim()} ${m[1]!.trim()}` : name.trim();
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Maps one LibraryThing-export row (ARCH.md §16 #87) onto our item shape; null if unusable. Date Read is a finish
+ * and Date Started a start, as Goodreads' are; the collections say the rest — Currently reading, To read, Wishlist,
+ * Read but unowned (read, and not a copy). Media is the format, Comment and Private Comment the notes.
+ */
+export function mapLibraryThingRow(row: Record<string, string>): MappedRow | null {
+  const r = keyed(row);
+  const title = r['title'];
+  if (!title) return null;
+  const codes = `${r['isbns'] ?? ''} ${r['isbn'] ?? ''}`.replace(/[[\]]/g, ' ').split(/[\s,]+/).map((x) => x.replace(/[^0-9Xx]/g, '')).filter(Boolean);
+  const isbn13 = codes.find((x) => /^\d{13}$/.test(x)) ?? null;
+  const isbn10 = codes.find((x) => /^\d{9}[\dXx]$/.test(x))?.toUpperCase() ?? null;
+  const collections = (r['collections'] ?? '').split(/[|,]/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+  const has = (name: string) => collections.includes(name);
+  const dateRead = dateOf(r['date_read']);
+  const dateStarted = dateOf(r['date_started']);
+  const status: ItemStatus = dateRead
+    ? 'completed'
+    : has('currently reading')
+      ? 'in_progress'
+      : collections.some((c) => /did not finish|abandoned|dnf/.test(c))
+        ? 'abandoned'
+        : has('read') || has('read but unowned')
+          ? 'completed'
+          : 'not_started'; // to read, wishlist, and a book merely catalogued
+  const goodreads: GoodreadsReading = { shelf: status, dateRead, dateStarted, readCount: null };
+  const reads = reconcileGoodreads([], goodreads).map((op) => op.read);
+  const state = summarizeReads(reads);
+  const copiesNum = Number.parseInt((r['copies'] ?? '').replace(/\D/g, ''), 10);
+  const owned = !has('read but unowned') && !has('wishlist');
+  const publication = r['publication'] ?? '';
+  const publisher = publication.split(/\s*\(/)[0]?.trim() || null;
+  const year = r['date'] || r['original_publication_year'] || /\((\d{4})\)/.exec(publication)?.[1] || null;
+  const pages = Number.parseInt((r['page_count'] ?? '').replace(/\D/g, ''), 10);
+  const language = languageCode((r['languages'] ?? '').split(/[|,]/)[0] ?? '');
+  const details: Record<string, string> = {};
+  for (const [k, v] of Object.entries(r)) if (!KNOWN_LIBRARYTHING.has(k) && v) details[k] = v;
+  if (r['book_id']) details['librarything_book_id'] = r['book_id'];
+  if (r['entry_date']) details['librarything_entry_date'] = r['entry_date']; // the day only, as a feed dates an addition (§16 #86)
+  const split = parseTitleSeries(title);
+  const volume = Number.parseFloat(r['volume'] ?? '');
+  const series = r['series'] ? { name: r['series'], number: Number.isFinite(volume) ? volume : null, total: null } : (split?.series ?? null);
+  const format = bookFormat(r['media']);
+  return {
+    series,
+    item: {
+      mediaType: 'book',
+      title: r['series'] ? title : (split?.title ?? title),
+      creators: [...turnedRound(r['primary_author']), ...turnedRound(r['secondary_author'])].join(', ') || null,
+      isbn13,
+      isbn10Upc: isbn10,
+      publisher,
+      published: year,
+      description: null,
+      length: Number.isFinite(pages) && pages > 0 ? pages : null,
+      status: state.status,
+      rating: starsToRating(r['rating']),
+      review: r['review'] || null,
+      notes: [r['comment'], r['private_comment']].filter(Boolean).join('\n\n') || null,
+      // the household's own shelf mark, which is what the column is used for: where it is kept, never published (§16 #51)
+      location: r['other_call_number'] || null,
+      copies: owned ? (Number.isFinite(copiesNum) && copiesNum > 0 ? copiesNum : 1) : 0,
+      beganOn: state.beganOn,
+      completedOn: state.completedOn,
+      formats: format ? normalizeFormats('book', [format]) : '',
+      ...(language ? { language } : {}),
+      details: Object.keys(details).length ? JSON.stringify(details) : '{}',
+    },
+    reads,
+    goodreads,
+    tags: (r['tags'] ?? '').split(/[|,]/).map((t) => t.trim()).filter(Boolean),
+  };
 }
 
 /** A Goodreads export is recognized by its mandatory Exclusive Shelf column. */

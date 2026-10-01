@@ -177,8 +177,9 @@
           append(`  · ${who}: ${brings(p)} ${as}`);
         }
       }
-    } else if (data.format === 'goodreads') {
-      append(`Goodreads export detected: ${data.merged} match books already here (rating/review/shelves will merge onto them — Goodreads wins), ${data.fresh} are new (added as “Not owned” reading-log entries).`);
+    } else if (data.format === 'goodreads' || data.format === 'storygraph' || data.format === 'librarything') {
+      const source = { goodreads: 'Goodreads', storygraph: 'StoryGraph', librarything: 'LibraryThing' }[data.format];
+      append(`${source} export detected: ${data.merged} match books already here (rating/review/shelves will merge onto them — ${source} wins), ${data.fresh} are new (added as “Not owned” reading-log entries).`);
       append(`Reading history: ${data.reads ?? 0} reads to add or date from shelves, Date Read and Read Count — reads already recorded here are never removed, and a second import adds nothing.`);
       // the file's Date Added (ARCH.md §16 #90): a new book always takes it; a matched one only with the box ticked
       if (data.dated) {

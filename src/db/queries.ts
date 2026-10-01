@@ -1964,6 +1964,26 @@ export async function deleteSavedView(d1: D1Database, libraryId: number, id: num
   return res.meta.changes > 0;
 }
 
+// ---------- share feeds (ARCH.md §16 #86) ----------
+
+/** A share link's feed: the newest items among those it exposes, each with when it was added — never a read's date. */
+export async function feedItems(d1: D1Database, libraryId: number | null, f: ItemFilters, limit: number): Promise<Array<{ item: Item; at: string }>> {
+  const rows = await db(d1).select().from(s.items).where(itemFilterWhere(libraryId, f)).orderBy(desc(s.items.addedAt), desc(s.items.id)).limit(limit);
+  return rows.map((item) => ({ item, at: item.addedAt }));
+}
+
+/** A gift list's feed (§16 #53): the member's newest wants among the items the list exposes, each dated by the want. */
+export async function wantFeedItems(d1: D1Database, userId: number, f: ItemFilters, limit: number): Promise<Array<{ item: Item; at: string }>> {
+  const rows = await db(d1)
+    .select({ item: s.items, at: s.wants.createdAt })
+    .from(s.wants)
+    .innerJoin(s.items, eq(s.items.id, s.wants.itemId))
+    .where(and(eq(s.wants.userId, userId), itemFilterWhere(null, f)))
+    .orderBy(desc(s.wants.createdAt), desc(s.items.id))
+    .limit(limit);
+  return rows.map((r) => ({ item: r.item, at: r.at }));
+}
+
 // ---------- full-text search ----------
 
 /**
@@ -4344,16 +4364,19 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
       // review only when they differ — the item then moves only if the household's summary of them did.
       const touched = ids.filter((id) => work.get(id)?.some((r) => r.changed));
       const untouched = ids.filter((id) => !touched.includes(id));
+      // the household's notes are kept, and the file's added (§16 #87): empty takes them; ones already holding the text
+      // stay as they are — a re-import changes nothing, and an unchanged row isn't re-dated — else a blank line and the text
       const notes = merges
         .filter((m) => m.set.notes)
-        .map((m) => {
-          const q = dbi
-            .update(s.items)
-            .set({ notes: m.set.notes, updatedAt: sql`(datetime('now'))` })
-            .where(and(eq(s.items.id, m.id), sql`${s.items.notes} IS NOT ${m.set.notes}`))
-            .toSQL();
-          return d1.prepare(q.sql).bind(...q.params);
-        });
+        .map((m) =>
+          d1
+            .prepare(
+              `UPDATE items SET notes = CASE WHEN notes IS NULL OR notes = '' THEN ?2 ELSE notes || char(10) || char(10) || ?2 END,
+                 updated_at = datetime('now')
+               WHERE id = ?1 AND (notes IS NULL OR instr(notes, ?2) = 0)`,
+            )
+            .bind(m.id, m.set.notes),
+        );
       const reviews = merges
         .filter((m) => m.set.rating != null || m.set.review)
         .flatMap((m) => reviewWriteStatements(d1, m.id, person, { rating: m.set.rating ?? null, review: m.set.review ?? null }, 'merge'));
