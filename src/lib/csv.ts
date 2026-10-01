@@ -19,6 +19,7 @@ import {
   type ReadRow,
 } from './reads';
 import { formatLinksCell, formatWantsCell, parseLinksCell, parseWantsCell, type CellWant, type LinkDraft } from './links';
+import { DEFAULT_LANGUAGE, languageFromProvider } from './language';
 import { formatLoansCell, parseLoansCell, type LoanDraft } from './loans';
 import { formatPlaysCell, parsePlaysCell, type CellPlay, type PersonPlay } from './plays';
 import { formatReviewsCell, parseReviewsCell, summarizeReviews, type CellReview, type PersonReview } from './reviews';
@@ -61,6 +62,8 @@ export const EXPORT_COLUMNS = [
   'progress_history',
   'wanted_by',
   'purchase_links',
+  'language', // ISO 639-1 (§16 #76); blank reads as the household's default on import
+  'original_title',
   'details',
 ] as const;
 
@@ -148,6 +151,8 @@ export function itemToCsvLine(
     progressHistoryCell(progress, position),
     formatWantsCell(wants),
     formatLinksCell(links),
+    item.language,
+    item.originalTitle,
     item.details === '{}' ? '' : item.details,
   ]);
 }
@@ -223,6 +228,9 @@ const KNOWN_COLUMNS = new Set([
   // fall into details, which every share page renders
   'wanted_by',
   'purchase_links',
+  // its language and original title (§16 #76) map to their columns
+  'language',
+  'original_title',
   // and what was paid (§16 #61): money is never published. libib's own `price` is mapped below, and stays in details
   // — which published pages strip of money — only when it can't be read as a price in the household's currency
   'purchase_price',
@@ -382,7 +390,7 @@ const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
  * columns. The shelf is the one chosen on the import form — `library` only names where a row came from — and
  * columns this format doesn't define are dropped, not kept in details (reading progress among them).
  */
-export function mapNalandaRow(row: Record<string, string>, household: string | null = null): MappedRow | null {
+export function mapNalandaRow(row: Record<string, string>, household: string | null = null, language: string = DEFAULT_LANGUAGE): MappedRow | null {
   const r: Record<string, string> = {};
   for (const [k, v] of Object.entries(row)) r[k.trim().toLowerCase()] = (v ?? '').trim();
 
@@ -460,6 +468,9 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
       completedOn: state.completedOn,
       ...(SQL_DATETIME.test(r['added_at'] ?? '') ? { addedAt: r['added_at'] } : {}),
       details,
+      // its language (§16 #76): the file's code when it is one, else the household's; and the original title as written
+      language: languageFromProvider(r['language']) ?? language,
+      originalTitle: oneLine(r['original_title']),
       ...rowGrades(mediaType, r['media_condition'], r['sleeve_condition']),
       // what was paid, in the currency the file says (§16 #61); one it doesn't say is the household's
       ...rowPrice(r['purchase_price'], r['purchase_currency'], household),

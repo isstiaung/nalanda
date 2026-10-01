@@ -1,6 +1,7 @@
 // Google Books works keyless (lower quota); GOOGLE_BOOKS_KEY raises it.
 // It usually contributes the description Open Library's search API lacks.
 import { fetchWithTimeout, USER_AGENT } from '../env';
+import { languageFromProvider } from '../lib/language';
 import { cleanDescription, type Candidate, type MetadataProvider } from './provider';
 
 type Volume = {
@@ -11,6 +12,7 @@ type Volume = {
     publishedDate?: string;
     description?: string;
     pageCount?: number;
+    language?: string; // 'en', 'en-US'
     imageLinks?: { thumbnail?: string };
     industryIdentifiers?: Array<{ type: string; identifier: string }>;
     // Deliberately unread (ARCH.md §16 #52). Checked 2026-09-30: most volumes, the Expanse and Harry Potter among them,
@@ -45,6 +47,7 @@ export function googleBooks(apiKey?: string): MetadataProvider {
           isbn13,
           isbn10Upc: isbn10,
           coverUrl: info.imageLinks?.thumbnail?.replace(/^http:/, 'https:'),
+          ...(languageFromProvider(info.language) ? { language: languageFromProvider(info.language)! } : {}),
           details: {},
           provider: 'googlebooks',
         };

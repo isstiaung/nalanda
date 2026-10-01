@@ -16,6 +16,7 @@ import type { Candidate } from '../metadata';
 import { DiscogsAttribution, DiscogsCredit, discogsLink, discogsUrl } from './attribution';
 import { ledgerDate, ledgerDateTime } from '../lib/dates';
 import { CoverPhotoField } from './cover-photo';
+import { DEFAULT_LANGUAGE, LANGUAGES, languageName } from '../lib/language';
 
 export const MEDIA_LABEL: Record<MediaType, string> = {
   book: 'Book',
@@ -1226,7 +1227,9 @@ export const ItemForm: FC<{
   seriesNames?: string[];
   // the purchase price field (§16 #61): the household's currency (null: none set yet) and whether the viewer can set one
   money?: PriceFieldProps;
-}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverError, photoError, coverUrl, removeCover, perMember, series, seriesNames, money }) => {
+  // the household's default language (§16 #76): what a new item's Language field starts on, and what a NULL reads as
+  language?: string;
+}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverError, photoError, coverUrl, removeCover, perMember, series, seriesNames, money, language }) => {
   // a book being read again: status and dates describe its last finish, and the re-read is managed on its page
   const readingLocked = item?.mediaType === 'book' && !!item?.rereading;
   // a game or record takes plays, not reads: its form shows no status or reading dates (the Add form's type is picked
@@ -1316,6 +1319,20 @@ export const ItemForm: FC<{
       </label>
     </div>
     <div class="grid">
+      <label>
+        Language
+        <select name="language">
+          {LANGUAGES.map((l) => (
+            <option value={l.code} selected={l.code === (item?.language ?? language ?? DEFAULT_LANGUAGE)}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Original title <small>(as first published, in any script)</small>
+        <input name="originalTitle" value={item?.originalTitle ?? ''} />
+      </label>
       <label>
         Publisher / label
         <input name="publisher" value={item?.publisher ?? ''} />
@@ -1469,6 +1486,8 @@ const CandidateFields: FC<{ candidate: Candidate }> = ({ candidate }) => (
     {/* Discogs' image is shown above, from Discogs, and goes no further: a record's cover is the Cover Art Archive's,
         looked up on save (§16 #67) */}
     <input type="hidden" name="coverUrl" value={candidate.provider === 'discogs' ? '' : (candidate.coverUrl ?? '')} />
+    {/* its language, when the provider said (§16 #76); blank takes the household's */}
+    <input type="hidden" name="language" value={candidate.language ?? ''} />
     <input type="hidden" name="details" value={JSON.stringify(candidate.details)} />
     {/* a Discogs result's release is fetched once on save, for its tracklist and full pressing (§16 #55) */}
     {candidate.provider === 'discogs' ? <input type="hidden" name="source" value="discogs" /> : null}
@@ -2201,3 +2220,9 @@ export const BuySection: FC<{
     </details>
   </div>
 );
+
+// ---------- language (ARCH.md §16 #76) ----------
+
+/** An item's language as a pill — only when it differs from the household's, so a shelf of one language stays plain. */
+export const LanguagePill: FC<{ language: string | null; household: string }> = ({ language, household }) =>
+  language && language !== household ? <span class="pill language">{languageName(language)}</span> : null;

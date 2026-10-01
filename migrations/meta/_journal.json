@@ -302,6 +302,20 @@
       "when": 1790838684417,
       "tag": "0042_item-trash",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "6",
+      "when": 1790846104241,
+      "tag": "0043_language-and-original-title",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "6",
+      "when": 1790846121828,
+      "tag": "0044_original-title-fts",
+      "breakpoints": true
     }
   ]
 }

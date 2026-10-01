@@ -106,7 +106,7 @@ describe('where it lives: search', () => {
     // an external-content index whose deletes didn't match what it holds fails this
     await env.DB.prepare("INSERT INTO items_fts(items_fts) VALUES('integrity-check')").run();
     const cols = await rows<{ name: string }>("SELECT name FROM pragma_table_info('items_fts')");
-    expect(cols.map((c) => c.name)).toEqual(['title', 'creators', 'description', 'notes', 'location']);
+    expect(cols.map((c) => c.name)).toEqual(['title', 'creators', 'description', 'notes', 'location', 'original_title']);
   });
 
   it('finds items by location in a shelf’s search box', async () => {

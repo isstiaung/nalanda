@@ -44,6 +44,8 @@ const item: Item = {
   // what was paid (§16 #61): private, like copies — the whitelist test below proves it stays out
   purchasePrice: 49900,
   purchaseCurrency: 'INR',
+  language: null,
+  originalTitle: null,
 };
 
 describe('share whitelist', () => {
@@ -69,6 +71,8 @@ describe('share whitelist', () => {
       rating: 10,
       review: 'A favorite.',
       inCollection: true,
+      language: null,
+      originalTitle: null,
       details: { series: 'Earthsea' },
     });
   });

@@ -19,6 +19,7 @@ import {
   todayUtc,
 } from '../lib/reads';
 import { countName, nameKey, sortNames, splitCreators, type NameCount } from '../lib/creators';
+import { DEFAULT_LANGUAGE, isLanguageCode } from '../lib/language';
 import { FEWEST_PLAYERS, WEIGHT_BANDS, type GameFilters } from '../lib/games';
 import { MAX_LINKS_PER_ITEM, type LinkDraft } from '../lib/links';
 import { MAX_LOANS_PER_CELL, type LoanDraft } from '../lib/loans';
@@ -455,6 +456,32 @@ function readShelfTotals([types, money, setting]: D1Result[]): Totals {
   const currency = ((setting?.results ?? [])[0] as { currency: string | null } | undefined)?.currency ?? SITE_DEFAULTS.currency;
   return { shelves: out, currency };
 }
+
+/** A shelf and the household's settings in one call (§16 #76): what an add needs before it writes. */
+export async function getLibraryAndSettings(d1: D1Database, id: number): Promise<{ library: Library | null; settings: SiteSettings }> {
+  const [lib, site] = await d1.batch([
+    d1.prepare('SELECT * FROM libraries WHERE id = ?1').bind(id),
+    d1.prepare('SELECT * FROM site_settings WHERE id = 1'),
+  ]);
+  const row = (site?.results?.[0] ?? null) as Record<string, unknown> | null;
+  const settings: SiteSettings = row
+    ? {
+        progressOnShares: !!row['progress_on_shares'],
+        progressToConnections: !!row['progress_to_connections'],
+        namesOnShares: !!row['names_on_shares'],
+        namesToConnections: !!row['names_to_connections'],
+        goalsToConnections: !!row['goals_to_connections'],
+        currency: (row['currency'] as string | null) ?? null,
+        language: isLanguageCode(row['language']) ? (row['language'] as string) : DEFAULT_LANGUAGE,
+      }
+    : { ...SITE_DEFAULTS };
+  const l = (lib?.results?.[0] ?? null) as Record<string, unknown> | null;
+  return { library: l ? libraryFromRow(l) : null, settings };
+}
+
+/** A libraries row as D1 hands it back, as Drizzle would name it. */
+const libraryFromRow = (r: Record<string, unknown>): Library =>
+  ({ id: r['id'], name: r['name'], position: r['position'], createdAt: r['created_at'] }) as Library;
 
 export async function getLibrary(d1: D1Database, id: number): Promise<Library | null> {
   const [l] = await db(d1).select().from(s.libraries).where(eq(s.libraries.id, id));
@@ -1768,6 +1795,7 @@ export type SiteSettings = {
   namesToConnections: boolean; // §16 #45 — per-person feed entries and reviews, with display names, to connections
   goalsToConnections: boolean; // §16 #49 — members' reading goals as per-person entries; only while namesToConnections
   currency: string | null; // §16 #61 — the household's ISO 4217 code, what purchase prices are entered in; null until an admin sets it
+  language: string; // §16 #76 — the household's default language, ISO 639-1: what an added item takes unless told otherwise
 };
 /**
  * What a new instance starts with (§16 #49): names on share pages and to connections, and goals to connections, on;
@@ -1782,6 +1810,7 @@ const SITE_DEFAULTS: SiteSettings = {
   namesToConnections: true,
   goalsToConnections: true,
   currency: null,
+  language: DEFAULT_LANGUAGE,
 };
 
 /** One row, id 1. Absent means defaults — only ever on a new instance — so it needs no setup step. */
@@ -1795,6 +1824,7 @@ export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
         namesToConnections: row.namesToConnections,
         goalsToConnections: row.goalsToConnections,
         currency: row.currency,
+        language: row.language,
       }
     : { ...SITE_DEFAULTS };
 }
@@ -2003,11 +2033,22 @@ export async function itemPageLog(
   entries: ProgressEntry[];
   reviews: ReviewEntry[];
   want: { wanters: Array<{ id: number; username: string; at: string }>; links: Array<{ id: number; label: string; url: string }> };
+  householdLanguage: string; // the household's default (§16 #76), read in the same call, for the language pill
   extra: D1Result[];
 }> {
-  const own = [...readingLogStatements(d1, itemId), ...wantsAndLinksStatements(d1, itemId)];
+  const own = [
+    ...readingLogStatements(d1, itemId),
+    ...wantsAndLinksStatements(d1, itemId),
+    d1.prepare('SELECT language FROM site_settings WHERE id = 1'),
+  ];
   const results = await d1.batch([...own, ...extra]);
-  return { ...readingLogOf(results), want: wantsAndLinksOf(results.slice(3)), extra: results.slice(own.length) };
+  const lang = (results[own.length - 1]?.results?.[0] as { language?: string } | undefined)?.language;
+  return {
+    ...readingLogOf(results),
+    want: wantsAndLinksOf(results.slice(3)),
+    householdLanguage: isLanguageCode(lang) ? lang : DEFAULT_LANGUAGE,
+    extra: results.slice(own.length),
+  };
 }
 
 function readingLogStatements(d1: D1Database, itemId: number): D1PreparedStatement[] {

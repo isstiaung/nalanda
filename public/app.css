@@ -1508,3 +1508,7 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .cover-photo label { font-size: 12.5px; margin: 0; }
 .cover-photo input[type='file'] { font-size: 12.5px; max-width: 100%; }
 .cover-photo-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+/* language (ARCH.md §16 #76) */
+.pill.language { background: var(--surface-2); margin-left: 0.4rem; }
+.original-title { margin: -0.25rem 0 0.35rem; font-style: italic; }

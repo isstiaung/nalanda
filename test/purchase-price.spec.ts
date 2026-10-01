@@ -556,7 +556,8 @@ describe('purchase price: D1 calls', () => {
     await updateSiteSettings(env.DB, { currency: 'INR' });
     const withoutField = await post({});
     const withField = await post({ purchasePrice: '10', purchaseCurrency: 'INR' });
-    expect(withField).toBe(withoutField + 1);
+    // the settings ride in the shelf's call for every add since the language default (§16 #76): a price costs nothing more
+    expect(withField).toBe(withoutField);
   });
 });
 

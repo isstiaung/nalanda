@@ -346,9 +346,11 @@ export function recommendIds(details: Record<string, unknown>): RecommendIds {
 /** One member's rating and review on a connection's item page (§16 #45): by display name, or unsigned (null). */
 export type NamedReview = { by: string | null; rating: number | null; review: string | null };
 
-export type ItemDetail = Omit<ConnectionItem, 'details' | 'readCount'> & {
+export type ItemDetail = Omit<ConnectionItem, 'details' | 'readCount' | 'language' | 'originalTitle'> & {
   details: Record<string, string | number | boolean>;
   readCount: number | null; // null from a household on an older version
+  language?: string | null; // §16 #76; absent from a household on an older version
+  originalTitle?: string | null;
   available: boolean;
   tags: string[];
   stamp: string;
@@ -492,6 +494,9 @@ export function parseItemDetail(value: unknown): ItemDetail | null {
     details: plainDetails(details),
     tags: v.tags as string[],
     readCount: readCount as number | null,
+    // language and original title (§16 #76): short text or null; absent from an older household, left out when malformed
+    ...(v.language === null || (typeof v.language === 'string' && /^[a-z]{2}$/.test(v.language)) ? { language: v.language as string | null } : {}),
+    ...(v.originalTitle === null || isText(v.originalTitle, MAX_SHORT_TEXT) ? { originalTitle: v.originalTitle as string | null } : {}),
   };
 }
 

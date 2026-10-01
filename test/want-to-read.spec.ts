@@ -532,7 +532,7 @@ describe('a gift list', () => {
     expect(Object.keys(toConnectionItem(b)).filter((k) => /link|want|buy/i.test(k))).toEqual([]);
     // and the gift whitelist is exactly its fields
     expect(Object.keys(toGiftItem(b, [])).sort()).toEqual(
-      ['coverKey', 'creators', 'description', 'id', 'inCollection', 'length', 'mediaType', 'publisher', 'published', 'purchaseLinks', 'title'].sort(),
+      ['coverKey', 'creators', 'description', 'id', 'inCollection', 'language', 'length', 'mediaType', 'originalTitle', 'publisher', 'published', 'purchaseLinks', 'title'].sort(),
     );
   });
 

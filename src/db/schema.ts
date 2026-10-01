@@ -133,6 +133,11 @@ export const items = sqliteTable(
     // connections.
     purchasePrice: integer('purchase_price'),
     purchaseCurrency: text('purchase_currency'),
+    // Its language (§16 #76), ISO 639-1: every item added takes the household's default (site_settings.language) unless
+    // the provider or the file said; NULL only on rows from before the column, which read as the household's. Public,
+    // like the publisher. And the title it was first published under, in any script, optional and public.
+    language: text('language'),
+    originalTitle: text('original_title'),
   },
   (t) => [
     index('idx_items_library').on(t.libraryId),
@@ -252,6 +257,9 @@ export const siteSettings = sqliteTable('site_settings', {
   // The household's currency (§16 #61), an ISO 4217 code an admin sets: what purchase prices are entered in. NULL
   // until one is set — the item form then asks for it rather than guessing. Never leaves the app.
   currency: text('currency'),
+  // The household's default language (§16 #76), ISO 639-1: what an added item takes unless told otherwise; English
+  // until an admin picks another. Also what the interface will follow (queue 15).
+  language: text('language').notNull().default('en'),
   updatedAt: text('updated_at').notNull().default(now),
 });
 
