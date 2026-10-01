@@ -20,8 +20,8 @@ filter could express.
 **Shared links** in the sidebar lists everything published — each link's scope, the number of items
 it exposes right now, its address and its QR code — with rotate and remove. A shelf reads *Shared*
 only when a filterless link exposes it entire; slices read "2 views shared". Public pages are
-cached for up to an hour per Cloudflare location, so a rotated or removed link can keep answering
-from an untouched location for that long ([#19](../decisions/019-share-pages-burst-shielded-per.md)).
+cached for up to an hour per Worker isolate, in memory, so a rotated or removed link can keep
+answering from an untouched isolate for that long ([#19](../decisions/019-share-pages-burst-shielded-per.md)).
 With the `HOME_SHARE_TOKEN` secret set, a signed-out visit to `/` opens that share
 ([#21](../decisions/021-front-door-via-home-share.md)).
 
@@ -34,7 +34,7 @@ rating and latest review with no author, and a **Not owned** badge, with **Wante
 someone wants the item. A book's own page adds "Read N times" from two finishes on — only while it
 is owned; a Not owned item never claims a read — its series name and number, and the quotes a member
 chose to share; a game's or record's page adds "Played N times"; reading progress appears only
-while an admin has switched **Reading progress on share pages** on, and only for a book being read
+while an admin has switched **Reading progress on share pages** on, and only for an owned book being read
 now. A record whose pressing came from Discogs carries its credit; a page showing a board game,
 BGG's logo. Share pages carry `noindex`, and the site's `robots.txt` disallows everything.
 
