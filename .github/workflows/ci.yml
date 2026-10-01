@@ -80,7 +80,7 @@ jobs:
       # libraries it needs are installed every time (they live outside the cache)
       - id: playwright
         run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: chromium
         with:
           path: ~/.cache/ms-playwright
