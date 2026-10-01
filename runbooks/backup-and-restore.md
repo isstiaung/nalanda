@@ -82,8 +82,7 @@ for t in users acting api_tokens libraries shares saved_views site_settings seri
         reads reading_progress reviews plays reading_goals wants purchase_links tags item_tags loans \
         borrows item_history federation_settings connection_invites connections connection_views \
         activity_log member_activity feed_subscriptions remote_activities comments outbox \
-        borrow_requests connection_loans borrowed_items recommendations notifications quotes trash \
-        wrangler; do
+        borrow_requests connection_loans borrowed_items recommendations notifications quotes trash; do
   npm run wrangler:remote -- d1 execute nalanda --remote --file=backups/remote-<date>/$t.sql
 done
 ```
