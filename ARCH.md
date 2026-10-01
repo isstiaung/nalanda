@@ -1721,8 +1721,8 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       `goalCountSql()` works it out when asked, so a read added, corrected, moved or deleted counts at
       once. The Overview shows the signed-in member's goal for this year — "14 of 24", a pace pill ("on
       pace", "3 behind pace", "2 ahead of pace", reached) and a bar with a tick where a year-long pace
-      stands today, explained in words under the bar ("Pace runs from 1 January: the mark is where a
-      year-long pace is today") since the bar is hidden from assistive tech. Pace is linear from
+      stands today, explained in words under the bar ("The mark shows where you'd be reading evenly
+      since 1 January") since the bar is hidden from assistive tech. Pace is linear from
       1 January, whenever the goal was set: by the end of day d of a D-day year, d/D of the target,
       rounded down, so a goal is on pace until it is a whole book behind or past. (1.6.0 said "on track"
       and "3 behind"; a goal set on 30 September read "7 behind" with nothing saying behind what — the

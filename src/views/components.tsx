@@ -1165,9 +1165,9 @@ export const GoalMeter: FC<{ count: number; target: number; year: number; today:
         <div class="progress-track">
           <div class="progress-fill" style={`width:${goalPercent(count, target)}%`} />
         </div>
-        {tick !== null ? <span class="goal-pace" style={`left:${tick}%`} title="Where a year-long pace is today" /> : null}
+        {tick !== null ? <span class="goal-pace" style={`left:${tick}%`} title="Where you'd be reading evenly since 1 January" /> : null}
       </div>
-      {tick !== null ? <p class="goal-note">Pace runs from 1 January: the mark is where a year-long pace is today.</p> : null}
+      {tick !== null ? <p class="goal-note">The mark shows where you'd be reading evenly since 1 January.</p> : null}
     </div>
   );
 };
