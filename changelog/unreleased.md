@@ -3,6 +3,7 @@
 <!-- Each pull request adds its entries here (### Added, ### Changed, ### Fixed, and ### Upgrading for what a host must do; link runbooks as ../runbooks/…); a release commit renames this file to vX.Y.Z.md and starts a fresh one (ARCH.md §16 #42). -->
 
 ### Added
+- **Share links preview where you paste them.** A share link dropped into WhatsApp, iMessage, Signal or anywhere that draws link cards now shows what it is: a shelf's name, how many items, and its first cover; an item's title, creators, type and the start of its description, with its cover; a gift list under the title its page has. The tags carry only what the page already shows — never notes, where things are kept, loans, prices or names the switches keep off — and share pages stay out of search engines as before.
 - **Sign out other devices.** Account has a **Devices** card with one button: every other device signed in to your account is signed out at once, and the one you pressed it on stays in. A phone that went missing, a browser left signed in somewhere: no admin needed. Changing your password now does the same, and an admin's **Reset password** signs that member out everywhere as well as handing them a temporary password — so a reset is the remedy for someone else's lost phone. Nobody else's sessions are touched, and nothing needs a deploy or a secret.
 
 ### Changed

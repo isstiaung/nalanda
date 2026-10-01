@@ -217,6 +217,30 @@ export function toGiftItem(item: Item, links: Array<{ label: string; url: string
  * A gift list's public title (§16 #53): the member's display name only while an admin has names on for share pages,
  * and they have one — never a username. Otherwise it names nobody.
  */
+/**
+ * What a link to a share page says about itself where it's pasted (ARCH.md §16 #71): the Open Graph tags a chat app or
+ * a feed reads to draw the preview. Only what the page itself shows — its name, a count, an item's title and creators,
+ * a cover already served at /covers/ — and never a token-free way in, a name the switches keep off, or anything the
+ * whitelist keeps back. Built by the share routes, from public items only.
+ */
+export type LinkPreview = {
+  title: string;
+  description: string;
+  /** An absolute URL of a cover the page shows, or null: a preview then has no picture, which is fine. */
+  image: string | null;
+  /** The page's own URL, the token included: whoever has the link has the token already. */
+  url: string;
+};
+
+/** Text for a preview's one line: whitespace collapsed, cut at a word before `max` characters with an ellipsis. */
+export function previewText(text: string | null | undefined, max = 160): string {
+  const flat = (text ?? '').replace(/\s+/g, ' ').trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max - 1);
+  const atWord = cut.lastIndexOf(' ');
+  return `${(atWord > max / 2 ? cut.slice(0, atWord) : cut).replace(/[\s,;:—–-]+$/, '')}…`;
+}
+
 export function wantListTitle(displayName: string | null): string {
   return displayName ? `${displayName}’s want list` : 'A want list';
 }
