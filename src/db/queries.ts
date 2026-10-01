@@ -457,31 +457,18 @@ function readShelfTotals([types, money, setting]: D1Result[]): Totals {
   return { shelves: out, currency };
 }
 
-/** A shelf and the household's settings in one call (§16 #76): what an add needs before it writes. */
+/**
+ * A shelf and the household's settings in one call (§16 #76): what an add needs before it writes. Both reads are
+ * Drizzle's, so the settings come through settingsOf() as getSiteSettings()'s do.
+ */
 export async function getLibraryAndSettings(d1: D1Database, id: number): Promise<{ library: Library | null; settings: SiteSettings }> {
-  const [lib, site] = await d1.batch([
-    d1.prepare('SELECT * FROM libraries WHERE id = ?1').bind(id),
-    d1.prepare('SELECT * FROM site_settings WHERE id = 1'),
+  const dbi = db(d1);
+  const [libs, rows] = await dbi.batch([
+    dbi.select().from(s.libraries).where(eq(s.libraries.id, id)),
+    dbi.select().from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
   ]);
-  const row = (site?.results?.[0] ?? null) as Record<string, unknown> | null;
-  const settings: SiteSettings = row
-    ? {
-        progressOnShares: !!row['progress_on_shares'],
-        progressToConnections: !!row['progress_to_connections'],
-        namesOnShares: !!row['names_on_shares'],
-        namesToConnections: !!row['names_to_connections'],
-        goalsToConnections: !!row['goals_to_connections'],
-        currency: (row['currency'] as string | null) ?? null,
-        language: isLanguageCode(row['language']) ? (row['language'] as string) : DEFAULT_LANGUAGE,
-      }
-    : { ...SITE_DEFAULTS };
-  const l = (lib?.results?.[0] ?? null) as Record<string, unknown> | null;
-  return { library: l ? libraryFromRow(l) : null, settings };
+  return { library: libs[0] ?? null, settings: settingsOf(rows[0]) };
 }
-
-/** A libraries row as D1 hands it back, as Drizzle would name it. */
-const libraryFromRow = (r: Record<string, unknown>): Library =>
-  ({ id: r['id'], name: r['name'], position: r['position'], createdAt: r['created_at'] }) as Library;
 
 export async function getLibrary(d1: D1Database, id: number): Promise<Library | null> {
   const [l] = await db(d1).select().from(s.libraries).where(eq(s.libraries.id, id));
@@ -1816,6 +1803,14 @@ const SITE_DEFAULTS: SiteSettings = {
 /** One row, id 1. Absent means defaults — only ever on a new instance — so it needs no setup step. */
 export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
   const [row] = await db(d1).select().from(s.siteSettings).where(eq(s.siteSettings.id, 1));
+  return settingsOf(row);
+}
+
+/**
+ * The settings a row holds — the one place that reads the row, so every reader (getSiteSettings, the add path's
+ * getLibraryAndSettings) says the same thing, and a setting added later is mapped once or not at all.
+ */
+function settingsOf(row: typeof s.siteSettings.$inferSelect | undefined): SiteSettings {
   return row
     ? {
         progressOnShares: row.progressOnShares,
@@ -1824,7 +1819,7 @@ export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
         namesToConnections: row.namesToConnections,
         goalsToConnections: row.goalsToConnections,
         currency: row.currency,
-        language: row.language,
+        language: isLanguageCode(row.language) ? row.language : DEFAULT_LANGUAGE,
       }
     : { ...SITE_DEFAULTS };
 }

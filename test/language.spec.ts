@@ -135,3 +135,16 @@ describe('on the pages', () => {
     expect(mapNalandaRow({ title: 'X', media_type: 'book', language: 'English' }, null, 'ta')?.item.language).toBe('en');
   });
 });
+
+describe('the add path’s settings', () => {
+  it('say exactly what getSiteSettings() says, with every setting off its default', async () => {
+    const { getLibraryAndSettings, getSiteSettings, createLibrary: mk, updateSiteSettings: up } = await import('../src/db/queries');
+    const shelf = await mk(env.DB, 'Fiction');
+    await up(env.DB, { progressOnShares: true, progressToConnections: false, namesOnShares: false, namesToConnections: false, goalsToConnections: false, currency: 'INR', language: 'ta' });
+    const { library, settings } = await getLibraryAndSettings(env.DB, shelf.id);
+    expect(library?.name).toBe('Fiction');
+    expect(settings).toEqual(await getSiteSettings(env.DB));
+    expect(settings.language).toBe('ta');
+    expect((await getLibraryAndSettings(env.DB, 999)).library).toBeNull();
+  });
+});

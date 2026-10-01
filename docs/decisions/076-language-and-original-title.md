@@ -28,6 +28,13 @@ Both fields are public catalogue data like the publisher: in `toPublicItem()` (`
 (older households drop the keys; `ItemDetail` carries them optionally). Both round-trip
 through the CSV; a blank or unknown `language` on import takes the household's.
 
+**Two limits, stated:** FTS5's `unicode61` tokenizer splits on spaces and punctuation, so an
+original title in Chinese, Japanese or Thai, written without spaces, is one token — found by its
+whole run or a prefix with `*`, not by a word inside it; scripts with spaces (Tamil, Devanagari,
+Cyrillic, Arabic) search by word. A trigram tokenizer would change every search, so not here. And
+every kind of item takes the household's language, games and records included — a record has a
+language as a book does — not books alone.
+
 **What it rules out:** inferring a "normal" language from the catalogue (a setting is
 simpler, and the owner wanted one); a per-member language; transliterated search; a language
 filter on the shelf for now (`lang:` comes with the search operators, queue 6).
