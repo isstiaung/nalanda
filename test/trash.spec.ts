@@ -124,7 +124,7 @@ describe('deleting an item', () => {
       { userId: ravi.id, rating: 7, review: null },
     ]);
     expect(p.reviews[0]!.reviewedAt).toMatch(/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/);
-    expect(p.loans).toEqual([{ borrower: 'Priya', loanedOn: '2026-03-01', dueOn: '2026-04-01', returnedOn: null, contact: 'priya@example.com', note: 'Birthday' }]);
+    expect(p.loans).toEqual([{ borrower: 'Priya', loanedOn: '2026-03-01', dueOn: '2026-04-01', returnedOn: null, contact: 'priya@example.com', note: 'Birthday', edition: null }]);
     expect(p.plays).toEqual([]);
     expect(p.wants).toEqual([{ userId: ravi.id, at: expect.any(String) }]);
     expect(p.links).toEqual([{ label: 'Bookshop', url: 'https://bookshop.example/piranesi' }]);

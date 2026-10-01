@@ -19,8 +19,7 @@ inferred the household's language from its catalogue:
    household's from the item page's existing batch (`itemPageLog`), not a call of its own.
 3. **Original title** is optional free text in whatever script the person types, shown in
    italics under the title. No rule about its language.
-4. **Search matches text as written**: the original title joins the FTS index (migration
-   0044, a rebuild as 0032 was), so கடல் is found by typing கடல். No transliteration, no
+4. **Search matches text as written**: the original title joins the FTS index (migration 0045, a rebuild as 0032 was), so கடல் is found by typing கடல். No transliteration, no
    cross-script matching, by the owner's decision.
 
 Both fields are public catalogue data like the publisher: in `toPublicItem()` (`language`,

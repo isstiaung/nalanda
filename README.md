@@ -82,6 +82,9 @@ manuscripts.
   and invite-only, never a network or the fediverse; off unless you give the instance a key.
   **Notifications** count connection requests, borrowing and comments, and Feed counts what's
   new, per person in the household.
+- **Formats and editions**: say which forms you hold a work in — hardcover and audiobook, LP and
+  CD — filter a shelf by them, and list the other editions' ISBNs so a scan of any of them finds
+  the one item. Lending asks which copy went out. One item per work; its reads and reviews stay one.
 - **Language and original title**: a household language that every added book takes unless its
   source says otherwise, changeable per item; a pill when a book's differs; and the title a work
   was first published under, in any script, searchable as written.

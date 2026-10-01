@@ -33,7 +33,7 @@ import {
 } from '../lib/share';
 import { BggCredit, fromBgg } from '../views/attribution';
 import { languageName } from '../lib/language';
-import { BuyLinks, DetailsList, LENGTH_UNIT, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, RecordDetails, stars, WantedPill } from '../views/components';
+import { BuyLinks, DetailsList, FormatPills, LENGTH_UNIT, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, RecordDetails, stars, WantedPill } from '../views/components';
 
 const share = new Hono<AppEnv>();
 
@@ -303,7 +303,9 @@ async function giftItemPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
         </hgroup>
         <dl class="props">
           <dt>Type</dt>
-          <dd>{MEDIA_LABEL[gift.mediaType]}</dd>
+          <dd>
+            {MEDIA_LABEL[gift.mediaType]} <FormatPills formats={gift.formats} />
+          </dd>
           {gift.language ? (
             <>
               <dt>Language</dt>
@@ -475,7 +477,9 @@ share.get('/:token/items/:id', async (c) => {
         ) : null}
         <dl class="props">
           <dt>Type</dt>
-          <dd>{MEDIA_LABEL[pub.mediaType]}</dd>
+          <dd>
+            {MEDIA_LABEL[pub.mediaType]} <FormatPills formats={pub.formats} />
+          </dd>
           {pub.language ? (
             <>
               <dt>Language</dt>

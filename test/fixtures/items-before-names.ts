@@ -231,7 +231,7 @@ export function toShelfItem(item: Item, available: boolean, stamp: string): Shel
 }
 
 /** One item in full, for its page on a connection's instance: the share-page fields, availability and tags. */
-export type ItemDetail = Omit<ConnectionItem, 'details' | 'readCount' | 'language' | 'originalTitle'> & {
+export type ItemDetail = Omit<ConnectionItem, 'details' | 'readCount' | 'formats' | 'language' | 'originalTitle'> & {
   details: Record<string, string | number | boolean>;
   readCount: number | null; // null from a household on an older version
   available: boolean;
