@@ -64,15 +64,15 @@ importexport.get('/import', async (c) => {
       </div>
       <div id="export-status" class="prewrap muted mono" aria-live="polite"></div>
       <p class="muted">
-        Export your libib collection or Goodreads library as CSV — or a Nalanda export, to restore or
-        move a catalog — and drop it here; the format is auto-detected. The file is parsed in your browser and uploaded in small batches; columns we
-        don't recognize are kept losslessly in each item's details. Goodreads rows that match a book
-        already on your shelves (by ISBN, then title + author) merge their rating, review, shelves,
-        and read date onto it — Goodreads wins. The rest are added as “Not owned” reading-log
-        entries, dated when Goodreads says they were added; tick the box below to date the matched
-        books that way too. Reads, ratings and reviews a file brings are yours, the signed-in
-        member's; a Nalanda export keeps each one with the member of the same name here, and brings
-        back every loan, open and returned.
+        Export your libib collection or Goodreads, StoryGraph or LibraryThing library as CSV — or a
+        Nalanda export, to restore or move a catalog — and drop it here; the format is auto-detected. The file is parsed in your browser and uploaded in small batches; columns we
+        don't recognize are kept losslessly in each item's details. Reading-site rows that match a
+        book already on your shelves (by ISBN, then title + author) merge their rating, review,
+        shelves, and read date onto it — the file wins. The rest are added as “Not owned”
+        reading-log entries, dated when the file says they were added; tick the box below to date
+        the matched books that way too. Reads, ratings and reviews a file brings are yours, the
+        signed-in member's; a Nalanda export keeps each one with the member of the same name here,
+        and brings back every loan, open and returned.
       </p>
       <form id="import-form" onsubmit="return false" class="panel form-card">
         <label>
@@ -106,7 +106,7 @@ importexport.get('/import', async (c) => {
         <label>
           <input type="checkbox" id="import-dates" />
           Also set the date added of books already here from the file{' '}
-          <small class="muted">(Goodreads’ Date Added; a book the file adds always takes it)</small>
+          <small class="muted">(Goodreads’ and StoryGraph’s Date Added, LibraryThing’s Entry Date; a book the file adds always takes it)</small>
         </label>
         <div class="inline-form">
           <button type="button" id="import-preview" class="btn">

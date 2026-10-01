@@ -131,7 +131,8 @@ describe('a Goodreads re-import with "also set the date added" ticked (§16 #90)
     let rows = await dates();
     expect(rows[0]!.at).not.toBe('2019-03-12 00:00:00'); // the box was clear: the book here keeps its date
     expect(rows[0]!.made).toBeNull();
-    expect(rows[1]).toEqual({ title: 'Jonathan Strange & Mr Norrell', at: '2017-06-01 00:00:00', made: null }); // new: the file's
+    expect(rows[1]).toMatchObject({ title: 'Jonathan Strange & Mr Norrell', at: '2017-06-01 00:00:00' }); // new: the file's
+    expect(rows[1]!.made).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/); // and its own time, for its stamp
     const before = rows[0]!.at;
 
     page.dates.checked = true;

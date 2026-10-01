@@ -184,8 +184,8 @@
       // the file's Date Added (ARCH.md §16 #90): a new book always takes it; a matched one only with the box ticked
       if (data.dated) {
         append(dateBox()?.checked
-          ? `Date added ${inSample}: ${plural(data.dated, 'book')} already here will take the file’s Date Added.`
-          : `Date added ${inSample}: ${plural(data.dated, 'book')} already here ${data.dated === 1 ? 'has' : 'have'} a different Date Added in the file — tick “Also set the date added…” to set it. New books take it either way.`);
+          ? `Date added ${inSample}: ${plural(data.dated, 'book')} already here will take the file’s date added.`
+          : `Date added ${inSample}: ${plural(data.dated, 'book')} already here ${data.dated === 1 ? 'has' : 'have'} a different date added in the file — tick “Also set the date added…” to set it. New books take it either way.`);
       }
       if (data.importer) append(`These reads, ratings and reviews become yours (${data.importer}); everyone else's stay as they are.`);
     } else {

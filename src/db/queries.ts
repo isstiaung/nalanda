@@ -4179,9 +4179,12 @@ export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1Pr
     const person = r.item.addedBy ?? null;
     const reads = oneOpenReadEach(r.reads ?? readsFromColumns(r.item.status ?? 'not_started', r.item.beganOn, r.item.completedOn), person).reads;
     const reviews = stampReviews(r.reviews ?? reviewsFromColumns(r.item));
+    // A row dated by its file (§16 #90) keeps the time of its insert in created_at, so its stamp to connections is
+    // still the second it was made here: ids are reused, and two books added over there on one day are the common case.
+    const values = withSeries(withReviewState(withReadState(r.item, reads), reviews), r.series);
     const q = db(d1)
       .insert(s.items)
-      .values(withSeries(withReviewState(withReadState(r.item, reads), reviews), r.series))
+      .values(r.item.addedAt ? { ...values, createdAt: sql`(datetime('now'))` } : values)
       .returning({ id: s.items.id })
       .toSQL();
     writes.push(...seriesUpsert(d1, r.series));

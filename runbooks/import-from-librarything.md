@@ -48,7 +48,8 @@ run and merge instead of duplicating.
 | Languages (the first) | Language |
 | Series, Volume | Series and number |
 | Other Call Number | Location (where it is kept — never on a share page) |
-| Book ID, Entry Date, Subjects, LCCN, Dewey, OCLC, Work id… | Details (kept) |
+| Entry Date | The book's date added — always for a new entry, for a matched one only with the Import page's box ticked (ARCH.md §16 #90) |
+| Book ID, Subjects, LCCN, Dewey, OCLC, Work id… | Details (kept) |
 | List Price, Value, Condition, Acquired, From Where, Source, Lending columns | Dropped — money, the copy's state and provenance are never published, and a loan here is the household's |
 
 ## Matching and merge rules

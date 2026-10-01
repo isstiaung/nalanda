@@ -665,9 +665,10 @@ function isoDate(raw: string | undefined): string | null {
 }
 
 /**
- * A file's "date added" as the item's `added_at` (§16 #90): that day at midnight, in the column's own datetime form,
- * so a book is dated when it joined the collection over there rather than when the file was imported. Nothing when
- * the cell isn't a date, and the row then takes the time of its import as before.
+ * A file's "date added" — Goodreads' and StoryGraph's Date Added, LibraryThing's Entry Date, libib's `added` — as the
+ * item's `added_at` (§16 #90): that day at midnight, in the column's own datetime form, so a book is dated when it
+ * joined the collection over there rather than when the file was imported. Nothing when the cell isn't a date, and the
+ * row then takes the time of its import as before.
  */
 function addedAtOf(raw: string | undefined): { addedAt: string } | Record<string, never> {
   const day = isoDate(raw);
@@ -836,7 +837,6 @@ export function mapStoryGraphRow(row: Record<string, string>): MappedRow | null 
   const impressions = STORYGRAPH_IMPRESSIONS.map(([key, label]) => (r[key] ? `${label}: ${r[key]}` : null)).filter((x): x is string => x !== null);
   const details: Record<string, string> = {};
   for (const [k, v] of Object.entries(r)) if (!KNOWN_STORYGRAPH.has(k) && !STORYGRAPH_PRIVATE.has(k) && v) details[k] = v;
-  if (r['date_added']) details['storygraph_date_added'] = r['date_added']; // the day only, as a feed dates an addition (§16 #86)
   if (rawUid && !isbn13 && !isbn10) details['storygraph_uid'] = rawUid; // StoryGraph's own id, kept as it is
   const split = parseTitleSeries(title);
   const format = bookFormat(r['format']);
@@ -859,6 +859,7 @@ export function mapStoryGraphRow(row: Record<string, string>): MappedRow | null 
       copies: /^(yes|true|y)$/i.test(r['owned'] ?? '') ? 1 : 0,
       beganOn: state.beganOn,
       completedOn: state.completedOn,
+      ...addedAtOf(r['date_added']), // when it joined the collection there is when it did here (§16 #90)
       formats: format ? normalizeFormats('book', [format]) : '',
       details: Object.keys(details).length ? JSON.stringify(details) : '{}',
     },
@@ -971,7 +972,6 @@ export function mapLibraryThingRow(row: Record<string, string>): MappedRow | nul
   const details: Record<string, string> = {};
   for (const [k, v] of Object.entries(r)) if (!KNOWN_LIBRARYTHING.has(k) && v) details[k] = v;
   if (r['book_id']) details['librarything_book_id'] = r['book_id'];
-  if (r['entry_date']) details['librarything_entry_date'] = r['entry_date']; // the day only, as a feed dates an addition (§16 #86)
   const split = parseTitleSeries(title);
   const volume = Number.parseFloat(r['volume'] ?? '');
   const series = r['series'] ? { name: r['series'], number: Number.isFinite(volume) ? volume : null, total: null } : (split?.series ?? null);
@@ -997,6 +997,7 @@ export function mapLibraryThingRow(row: Record<string, string>): MappedRow | nul
       copies: owned ? (Number.isFinite(copiesNum) && copiesNum > 0 ? copiesNum : 1) : 0,
       beganOn: state.beganOn,
       completedOn: state.completedOn,
+      ...addedAtOf(r['entry_date']), // when it joined the collection there is when it did here (§16 #90)
       formats: format ? normalizeFormats('book', [format]) : '',
       ...(language ? { language } : {}),
       details: Object.keys(details).length ? JSON.stringify(details) : '{}',
