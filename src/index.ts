@@ -61,7 +61,8 @@ app.use(secureHeaders({ referrerPolicy: 'strict-origin-when-cross-origin' }));
 // referrer-policy quirks); the Origin comparison is the legacy fallback.
 app.use(async (c, next) => {
   const method = c.req.method;
-  if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
+  const mutation = method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+  if (mutation) {
     const site = c.req.header('sec-fetch-site');
     const origin = c.req.header('origin');
     const allowed = site
@@ -76,8 +77,10 @@ app.use(async (c, next) => {
   await next();
   // Writes invalidate, coarsely: any successful mutation clears this isolate's
   // share-page cache so edits/rotations go public here immediately. Other
-  // isolates converge within the cache TTL (ARCH.md §16 #19).
-  if (method !== 'GET' && c.res.status < 400) clearSharePageCache();
+  // isolates converge within the cache TTL (ARCH.md §16 #19). Only the methods
+  // that can write: an anonymous HEAD or OPTIONS changes nothing, and used to
+  // empty the cache all the same.
+  if (mutation && c.res.status < 400) clearSharePageCache();
 });
 
 // ---- public: setup/login/logout, share links, cover images ----
