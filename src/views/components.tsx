@@ -1,7 +1,7 @@
 import { HISTORY_DAYS, type HistoryEntry } from '../db/queries';
 import type { FC } from 'hono/jsx';
 import type { PastLoan } from '../db/queries';
-import type { Borrow, Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
+import type { Borrow, CustomField, CustomKind, Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_GRADES, MEDIA_TYPES, SLEEVE_GRADES } from '../db/schema';
 import { GRADE_NAME, isRecord } from '../lib/condition';
 import { releaseIdOf, splitPressing, trackCount, type Track } from '../lib/pressing';
@@ -13,6 +13,7 @@ import { isPlayable } from '../lib/plays';
 import { latestReadDate, ordinal, summarizeReads, type ReadDraft, type ReadRow } from '../lib/reads';
 import { formatSeriesNumber } from '../lib/series';
 import { parseDetails } from '../lib/share';
+import { CUSTOM_FORM_MARKER, customInputName, MAX_CUSTOM_TEXT, type CustomValue, type CustomValues } from '../lib/custom';
 import type { Candidate } from '../metadata';
 import { DiscogsAttribution, DiscogsCredit, discogsLink, discogsUrl } from './attribution';
 import { ledgerDate, ledgerDateTime } from '../lib/dates';
@@ -143,6 +144,7 @@ const HISTORY_FIELD: Record<string, string> = {
   media_condition: 'Media condition',
   sleeve_condition: 'Sleeve condition',
   details: 'Details',
+  custom: 'Fields', // the custom fields' values (§16 #95), as the column holds them
 };
 
 /**
@@ -1368,7 +1370,12 @@ export const ItemForm: FC<{
   editions?: EditionDraft[];
   // the household's default language (§16 #76): what a new item's Language field starts on, and what a NULL reads as
   language?: string;
-}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverError, photoError, coverUrl, removeCover, perMember, series, seriesNames, money, editions, language }) => {
+  // the household's custom fields (§16 #95), the item's values (or what a refused form sent back), and the field a
+  // refusal names
+  customFields?: CustomField[];
+  custom?: CustomValues;
+  customErrorField?: number | null;
+}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverError, photoError, coverUrl, removeCover, perMember, series, seriesNames, money, editions, language, customFields, custom, customErrorField }) => {
   // a book being read again: status and dates describe its last finish, and the re-read is managed on its page
   const readingLocked = item?.mediaType === 'book' && !!item?.rereading;
   // a game or record takes plays, not reads: its form shows no status or reading dates (the Add form's type is picked
@@ -1569,6 +1576,7 @@ export const ItemForm: FC<{
       Location <small>(where it lives — never shown on share pages)</small>
       <input name="location" value={item?.location ?? ''} placeholder="Study, 2nd shelf" autocomplete="off" />
     </label>
+    <CustomFieldInputs fields={customFields ?? []} values={custom ?? {}} error={error} errorField={customErrorField ?? null} />
     {money ? <PriceField {...money} item={item} /> : null}
     <label>
       {perMember ? 'Your review' : 'Review'}
@@ -1609,6 +1617,67 @@ export const ItemForm: FC<{
   </form>
   );
 };
+
+/**
+ * The household's custom fields on the item form (§16 #95), each labelled by its name: a text input, a checkbox or a
+ * date input by its kind. The hidden marker says the form carried them, so a form without it — a scan's or a search
+ * result's add, one opened before any field existed — leaves an item's values as they are. Nothing when there are none.
+ */
+export const CustomFieldInputs: FC<{ fields: CustomField[]; values: CustomValues; error?: string; errorField: number | null }> = ({ fields, values, error, errorField }) => {
+  if (!fields.length) return null;
+  return (
+    <fieldset class="custom-fields">
+      <legend>
+        Fields <small class="muted">(the household's own; private unless a field is switched on for share pages)</small>
+      </legend>
+      <input type="hidden" name={CUSTOM_FORM_MARKER} value="1" />
+      {fields.map((f) => {
+        const v = values[String(f.id)];
+        const mark = invalid(errorField === f.id && error, 'item-form-error');
+        const shared = f.onShares ? <small> (on share pages)</small> : null;
+        if (f.kind === 'bool') {
+          return (
+            <label class="inline-check">
+              <input type="checkbox" name={customInputName(f.id)} value="1" checked={v === true} {...mark} /> {f.name}
+              {shared}
+            </label>
+          );
+        }
+        return (
+          <label>
+            {f.name}
+            {shared}
+            {f.kind === 'date' ? (
+              <input type="date" name={customInputName(f.id)} value={typeof v === 'string' ? v : ''} {...mark} />
+            ) : (
+              <input name={customInputName(f.id)} value={typeof v === 'string' ? v : ''} maxlength={MAX_CUSTOM_TEXT} autocomplete="off" {...mark} />
+            )}
+          </label>
+        );
+      })}
+    </fieldset>
+  );
+};
+
+/**
+ * An item's custom values (§16 #95), each by its field's name, in the `.props` ledger: on the item page every field
+ * with a value; on a share page only what toPublicItem() let through — the fields switched on for share pages.
+ * A ticked yes/no reads "Yes"; a date is data, so monospace. Nothing when there are none.
+ */
+export const CustomProps: FC<{ entries: Array<{ name: string; kind: CustomKind; value: CustomValue }> }> = ({ entries }) =>
+  entries.length ? (
+    <div class="detail-section custom-props">
+      <p class="eyebrow">Fields</p>
+      <dl class="props">
+        {entries.map((e) => (
+          <>
+            <dt>{e.name}</dt>
+            <dd class={e.kind === 'date' ? 'mono' : undefined}>{e.value === true ? 'Yes' : e.value}</dd>
+          </>
+        ))}
+      </dl>
+    </div>
+  ) : null;
 
 /** What a candidate's save form posts to POST /items: its details as the provider gave them. */
 const CandidateFields: FC<{ candidate: Candidate }> = ({ candidate }) => (

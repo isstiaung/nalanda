@@ -443,6 +443,24 @@ async function furnish(admin, member) {
   // this year's reading goal for the admin: the Overview's goal card and /goals show it
   await post(admin, '/goals', { userId: String(adminId), year: today().slice(0, 4), target: '12' });
 
+  // the household's custom fields (ARCH.md §16 #95): one of each kind on the Members panel and every item form, one
+  // switched on for share pages; a book added with values, so its page — and its share page — has a Fields section
+  await post(admin, '/settings/custom-fields', { name: 'Gifted by', kind: 'text' });
+  await post(admin, '/settings/custom-fields', { name: 'Signed', kind: 'bool', onShares: '1' });
+  await post(admin, '/settings/custom-fields', { name: 'Bought on', kind: 'date' });
+  const fieldIds = [...(await html(admin, '/settings/users')).matchAll(/action="\/settings\/custom-fields\/(\d+)"/g)].map((m) => m[1]);
+  if (fieldIds.length !== 3) throw new Error(`furnishing: found ${fieldIds.length} custom fields on /settings/users`);
+  await post(admin, '/items', {
+    title: 'A Wizard of Earthsea',
+    creators: 'Ursula K. Le Guin',
+    libraryId: String(shelves.books),
+    mediaType: 'book',
+    customForm: '1',
+    [`custom-${fieldIds[0]}`]: 'Priya',
+    [`custom-${fieldIds[1]}`]: '1',
+    [`custom-${fieldIds[2]}`]: daysAgo(30),
+  });
+
   // names and progress on share pages, so their fullest form is audited; a tag share and a board-game share too
   await post(admin, '/shares/settings', { setting: 'progress', progressOnShares: 'on' });
   await post(admin, '/shares/settings', { setting: 'names', namesOnShares: 'on' });
