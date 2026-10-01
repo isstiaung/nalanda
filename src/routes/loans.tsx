@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import {
   activeLoans,
+  activeLoansForItem,
   borrowIfNotOwned,
   getItem,
   lendIfFree,
@@ -178,7 +179,11 @@ loans.post('/items/:id/borrow', async (c) => {
       dueOn: isIsoDate(String(body['dueOn'] ?? '').trim()) ? String(body['dueOn']).trim() : null,
       note: String(body['note'] ?? '').trim().slice(0, 500) || null,
     });
-    if (!recorded) return c.text('Already recorded as borrowed — mark it returned first.', 409);
+    if (!recorded) {
+      // never lent and borrowed at once: a copy out on loan is ours, whatever the count says meanwhile
+      const lent = (await activeLoansForItem(c.env.DB, itemId)).length > 0;
+      return c.text(lent ? 'A copy of this is out on loan — mark it returned first.' : 'Already recorded as borrowed — mark it returned first.', 409);
+    }
   }
   return c.redirect(`/items/${itemId}`);
 });

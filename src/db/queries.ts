@@ -1442,6 +1442,11 @@ export type FormReview = { rating: number | null; review: string | null };
  * rating and review are theirs. items.status, rating and their neighbours are then recomputed from everyone's reads
  * and reviews, never written from the form. "Not started" writes no read: the route refuses it for a book with
  * reads. `person` is who is editing: the reads and review are theirs whoever else has any.
+ *
+ * A `copies` given never goes below what is out on loan (§16 #13), and never counts a copy while a borrow is open
+ * (§16 #82) — both checked in the statement: it sets NULL instead, the column's NOT NULL fails the whole batch, and
+ * D1 rolls a batch back, so a refused count saves nothing of the form — tags, reads and review included — rather
+ * than everything but the count. False then: the route reads what refused it and says so.
  */
 export async function updateItemWithTags(
   d1: D1Database,
@@ -1454,7 +1459,7 @@ export async function updateItemWithTags(
   series?: SeriesDraft | null, // undefined leaves the item's series as it is; null takes it out of one (§16 #52)
   editions?: EditionDraft[], // undefined leaves "also held as" as it is; a list replaces it (§16 #75)
   who?: Writer, // who is saving, for the item's history (§16 #84)
-): Promise<void> {
+): Promise<boolean> {
   // reading state and the rating and review come from reads and reviews alone; the series only from `series`
   const {
     status: _s,
@@ -1469,27 +1474,52 @@ export async function updateItemWithTags(
     seriesNumber: _k,
     ...rest
   } = values;
+  const copies = rest.copies;
+  const guarded: Partial<NewItem> =
+    copies === undefined || copies === null
+      ? rest
+      : {
+          ...rest,
+          // an SQL value where the row's shape says a number, as withSeries does for the series' id
+          copies: sql`CASE WHEN ${copies} >= (SELECT count(*) FROM loans WHERE item_id = ${s.items.id} AND returned_on IS NULL)
+                 AND (${copies} = 0 OR NOT EXISTS (SELECT 1 FROM borrows WHERE item_id = ${s.items.id} AND returned_on IS NULL))
+            THEN ${copies} ELSE NULL END` as unknown as number,
+        };
   const q = db(d1)
     .update(s.items)
-    .set({ ...(series === undefined ? rest : withSeries(rest, series)), updatedAt: sql`(datetime('now'))` })
+    .set({ ...(series === undefined ? guarded : withSeries(guarded, series)), updatedAt: sql`(datetime('now'))` })
     .where(eq(s.items.id, id))
     .toSQL();
-  await d1.batch(asWriter(d1, who, [
-    ...seriesUpsert(d1, series),
-    d1.prepare(q.sql).bind(...q.params),
-    // the series it left, if this was that series' last volume
-    ...(series === undefined ? [] : [pruneSeries(d1)]),
-    d1.prepare('DELETE FROM item_tags WHERE item_id = ?1').bind(id),
-    ...tagLinkStatements(d1, id, names),
-    ...(editions ? [d1.prepare('DELETE FROM editions WHERE item_id = ?1').bind(id), ...editionInsertStatements(d1, id, editions)] : []),
-    ...(formRead ? formReadStatements(d1, id, person, formRead) : []),
-    refreshReadState(d1, [id]),
-    // reads first, as everywhere: a rating given with a finish is dated by it inside an import (§16 #40)
-    ...(formReview ? reviewWriteStatements(d1, id, person, formReview, 'replace') : []),
-    refreshReviewState(d1, [id]),
-    redateReviewActivity(d1, [id]),
-  ]));
+  try {
+    await d1.batch(asWriter(d1, who, [
+      ...seriesUpsert(d1, series),
+      d1.prepare(q.sql).bind(...q.params),
+      // the series it left, if this was that series' last volume
+      ...(series === undefined ? [] : [pruneSeries(d1)]),
+      d1.prepare('DELETE FROM item_tags WHERE item_id = ?1').bind(id),
+      ...tagLinkStatements(d1, id, names),
+      ...(editions ? [d1.prepare('DELETE FROM editions WHERE item_id = ?1').bind(id), ...editionInsertStatements(d1, id, editions)] : []),
+      ...(formRead ? formReadStatements(d1, id, person, formRead) : []),
+      refreshReadState(d1, [id]),
+      // reads first, as everywhere: a rating given with a finish is dated by it inside an import (§16 #40)
+      ...(formReview ? reviewWriteStatements(d1, id, person, formReview, 'replace') : []),
+      refreshReviewState(d1, [id]),
+      redateReviewActivity(d1, [id]),
+    ]));
+  } catch (err) {
+    if (refusedBy(err, 'items.copies')) return false;
+    throw err;
+  }
+  return true;
 }
+
+/**
+ * Whether a batch failed on the NOT NULL constraint of `column` — the one way a statement in a batch can refuse the
+ * whole of it: a guard that sets NULL where a value isn't allowed, so nothing in the batch lands (D1 rolls it back).
+ * Anything else that failed is still an error.
+ */
+const refusedBy = (err: unknown, column: string): boolean =>
+  String(err instanceof Error ? err.message : err).includes(`NOT NULL constraint failed: ${column}`);
 
 export async function tagsForItem(d1: D1Database, itemId: number): Promise<string[]> {
   const rows = await db(d1)
@@ -1652,10 +1682,12 @@ export async function bulkMove(d1: D1Database, ids: number[], libraryId: number,
 export async function bulkSetOwned(d1: D1Database, ids: number[], owned: boolean, who?: Writer): Promise<BulkResult> {
   const json = JSON.stringify(ids);
   const [from, to] = owned ? [0, 1] : [1, 0];
-  // an item borrowed from someone (§16 #82) is theirs until marked returned: "Mark owned" skips it, as the toggle refuses
+  // an item borrowed from someone (§16 #82) is theirs until marked returned: "Mark owned" skips it, as the toggle refuses;
+  // a copy out on loan is still ours (§16 #13): "Mark not owned" skips it, as the toggle refuses
   const borrowed = 'EXISTS (SELECT 1 FROM borrows b WHERE b.item_id = items.id AND b.returned_on IS NULL)';
-  const changes = owned ? `copies = ?2 AND NOT ${borrowed}` : 'copies = ?2';
-  const skips = owned ? `copies >= 2 OR (copies = 0 AND ${borrowed})` : 'copies >= 2';
+  const lent = 'EXISTS (SELECT 1 FROM loans l WHERE l.item_id = items.id AND l.returned_on IS NULL)';
+  const changes = owned ? `copies = ?2 AND NOT ${borrowed}` : `copies = ?2 AND NOT ${lent}`;
+  const skips = owned ? `copies >= 2 OR (copies = 0 AND ${borrowed})` : `copies >= 2 OR (copies = 1 AND ${lent})`;
   const results = await d1.batch(asWriter(d1, who, [
     d1.prepare(`SELECT count(*) AS found, sum(${changes}) AS changed, sum(${skips}) AS skipped FROM items WHERE ${SELECTED}`).bind(json, from),
     d1.prepare(`UPDATE items SET copies = ?3, updated_at = datetime('now') WHERE ${SELECTED} AND ${changes}`).bind(json, from, to),
@@ -1904,8 +1936,8 @@ export async function activeLoanItemIds(d1: D1Database, itemIds: number[]): Prom
 const BORROW_COLUMNS = 'id, item_id AS itemId, lender, contact, borrowed_on AS borrowedOn, due_on AS dueOn, returned_on AS returnedOn, note';
 
 /**
- * Records a borrow — only on an item not owned (copies = 0), and only one open at a time, both checked in the
- * statement. True when recorded.
+ * Records a borrow — only on an item not owned (copies = 0), only one open at a time, and never while a copy of it is
+ * out on loan (an item is never lent and borrowed at once), all checked in the statement. True when recorded.
  */
 export async function borrowIfNotOwned(
   d1: D1Database,
@@ -1917,6 +1949,7 @@ export async function borrowIfNotOwned(
        SELECT ?1, ?2, ?3, ?4, ?5, ?6
        WHERE (SELECT copies FROM items WHERE id = ?1) = 0
          AND NOT EXISTS (SELECT 1 FROM borrows WHERE item_id = ?1 AND returned_on IS NULL)
+         AND NOT EXISTS (SELECT 1 FROM loans WHERE item_id = ?1 AND returned_on IS NULL)
        RETURNING id`,
     )
     .bind(values.itemId, values.lender, values.contact, values.borrowedOn, values.dueOn, values.note)
@@ -1938,6 +1971,21 @@ export async function markOwnedUnlessBorrowed(d1: D1Database, id: number, who?: 
   const stmt = d1
     .prepare(
       `UPDATE items SET copies = 1, updated_at = datetime('now') WHERE id = ?1 AND copies = 0 AND NOT EXISTS (SELECT 1 FROM borrows WHERE item_id = ?1 AND returned_on IS NULL)`,
+    )
+    .bind(id);
+  const results = await d1.batch(asWriter(d1, who, [stmt]));
+  return (results[who ? 1 : 0]?.meta.changes ?? 0) > 0;
+}
+
+/**
+ * The Holding toggle's other half: copies 1 → 0, unless the copy is out on loan — a lent copy is still ours, and Not
+ * owned means not lendable (§16 #13) — and only the single copy the toggle knows (§16 #27), both checked in the
+ * statement, so a count saved on the form meanwhile is never zeroed. True when it changed.
+ */
+export async function markNotOwnedUnlessLent(d1: D1Database, id: number, who?: Writer): Promise<boolean> {
+  const stmt = d1
+    .prepare(
+      `UPDATE items SET copies = 0, updated_at = datetime('now') WHERE id = ?1 AND copies = 1 AND NOT EXISTS (SELECT 1 FROM loans WHERE item_id = ?1 AND returned_on IS NULL)`,
     )
     .bind(id);
   const results = await d1.batch(asWriter(d1, who, [stmt]));

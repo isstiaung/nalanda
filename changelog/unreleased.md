@@ -16,6 +16,7 @@ for what a host must do; link runbooks as ../runbooks/…); a release commit ren
 
 ### Fixed
 - **Deleting a shelf is an admin's, and its items go to the trash.** Any member could delete a whole shelf, and everything on it went for good — the one delete that skipped the trash. Now only an admin sees and can use **Delete shelf**, and the shelf's items wait in the trash for 30 days like any deleted item, restorable onto a shelf made again under the same name. The shelf itself is not restored.
+- **A copy out on loan is still yours.** The Holding toggle could mark a lent book Not owned, bulk edit could do the same, the edit form could save fewer copies than were out — and a Not owned book with a loan out then took a **Borrowed from** record on top. Each is now refused where it writes, with the reason: the toggle and bulk edit's "Mark not owned" leave a lent copy alone (bulk counts it as skipped), the edit form won't save copies below what is out on loan — and saves nothing else of the form when it refuses — and a borrow is never recorded while a loan is open. The toggle also zeroes only a count of exactly 1, and the form's "borrowed, so not yours" check is made by the statement that writes, so neither can be raced by a save made meanwhile.
 
 ### Upgrading
 - **One migration, 0051: a new `api_tokens` table, no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. The backup's table order gains `api_tokens`.

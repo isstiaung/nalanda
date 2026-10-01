@@ -40,7 +40,6 @@ import {
   seriesWithVolumes,
   startRead,
   tagsForItem,
-  updateItem,
   updateItemWithTags,
   updateRead,
   updateReview,
@@ -54,6 +53,7 @@ import {
   getQuote,
   updateQuote,
   deleteQuote,
+  markNotOwnedUnlessLent,
   markOwnedUnlessBorrowed,
   openBorrowLender,
   historyOf,
@@ -1720,7 +1720,23 @@ items.post('/items/:id/mark-not-owned', async (c) => {
   // left alone even for a hand-rolled POST — zeroing it would silently discard a
   // number that round-trips through /export.csv.
   if (item.copies > 1) return c.html(<CopiesPill copies={item.copies} />);
-  if (item.copies === 1) await updateItem(c.env.DB, id, { copies: 0 }, writerOf(c));
+  if (item.copies === 1 && !(await markNotOwnedUnlessLent(c.env.DB, id, writerOf(c)))) {
+    // the copy is out on loan — still ours until it is back (§16 #13) — or the count changed since the page was drawn
+    const now = await getItem(c.env.DB, id);
+    if (!now) return c.notFound();
+    if (now.copies > 1) return c.html(<CopiesPill copies={now.copies} />);
+    if (now.copies === 1) {
+      const [loan] = await activeLoansForItem(c.env.DB, id);
+      return c.html(
+        <>
+          <MarkNotOwnedButton id={id} />{' '}
+          <small class="error" role="alert">
+            Out on loan{loan ? ` to ${loan.borrower}` : ''} — mark it returned first.
+          </small>
+        </>,
+      );
+    }
+  }
   return c.html(<MarkOwnedButton id={id} />);
 });
 
@@ -1748,18 +1764,7 @@ items.post('/items/:id', async (c) => {
   const unchanged =
     sent.status === mine.status && sent.beganOn === (mine.beganOn || null) && sent.completedOn === (mine.completedOn || null);
   const photoProblem = await photoProblemOf(parsed);
-  // borrowed from someone (§16 #82): theirs until marked returned, so the form can't count a copy as yours either
-  const borrowedFrom = existing.copies === 0 && (parsed.values.copies ?? 1) > 0 ? await openBorrowLender(c.env.DB, id) : null;
-  const problem = (borrowedFrom ? `Borrowed from ${borrowedFrom} — mark it returned before counting a copy as yours.` : null) ?? formProblem(
-    locked
-      ? 'status' in body && !unchanged
-        ? 'This book is being read again: its reads are started, finished and corrected on its page, not here.'
-        : null
-      : formReadProblem(mine, sent),
-    parsed,
-    photoProblem,
-  ) ?? price.problem;
-  if (problem) {
+  const refused = async (problem: string) => {
     const [libs, names] = await Promise.all([listLibraries(c.env.DB), seriesNames(c.env.DB)]);
     c.status(400);
     return page(
@@ -1792,7 +1797,17 @@ items.post('/items/:id', async (c) => {
       </>,
       libs, // nothing was written: the sidebar's list too (§16 #68)
     );
-  }
+  };
+  const problem = formProblem(
+    locked
+      ? 'status' in body && !unchanged
+        ? 'This book is being read again: its reads are started, finished and corrected on its page, not here.'
+        : null
+      : formReadProblem(mine, sent),
+    parsed,
+    photoProblem,
+  ) ?? price.problem;
+  if (problem) return refused(problem);
 
   // a form without a language of ours keeps the item's own (§16 #76): never a NULL written over a code
   parsed.values.language ??= existing.language ?? settings.language;
@@ -1803,8 +1818,9 @@ items.post('/items/:id', async (c) => {
   if (parsed.photo) coverKey = (await storeUploadedCover(c.env.COVERS, parsed.photo)) ?? coverKey;
   else if (parsed.coverUrl) coverKey = (await storeCover(c.env.COVERS, parsed.coverUrl)) ?? coverKey;
 
+  let saved: boolean;
   try {
-    await updateItemWithTags(
+    saved = await updateItemWithTags(
       c.env.DB,
       id,
       { ...parsed.values, coverKey },
@@ -1821,6 +1837,18 @@ items.post('/items/:id', async (c) => {
   } catch (err) {
     if (coverKey !== existing.coverKey) c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // the new one: unused
     throw err;
+  }
+  if (!saved) {
+    // the count was refused in the statement, and nothing of the form was saved: a copy can't be counted as yours while
+    // a borrow is open (§16 #82), nor can copies go below what is out on loan (§16 #13) — say which held it
+    if (coverKey !== existing.coverKey) c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // the new one: unused
+    const lender = (parsed.values.copies ?? 1) > 0 ? await openBorrowLender(c.env.DB, id) : null;
+    const out = (await activeLoansForItem(c.env.DB, id)).length;
+    return refused(
+      lender
+        ? `Borrowed from ${lender} — mark it returned before counting a copy as yours.`
+        : `${out} ${out === 1 ? 'copy is' : 'copies are'} out on loan — mark ${out === 1 ? 'it' : 'them'} returned before counting fewer.`,
+    );
   }
   // Only now is the old cover unreferenced. Deleted before the save, as it was, a failed save left the item
   // pointing at a cover that was gone.
