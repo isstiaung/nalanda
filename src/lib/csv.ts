@@ -511,7 +511,8 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
     links: parseLinksCell(r['purchase_links']),
     editions: parseEditionsCell(mediaType, r['editions']),
     quotes: parseQuotesCell(r['quotes']),
-    borrows: parseLoansCell(r['borrowed']),
+    // an owned row keeps only the borrows given back: a copy of yours is never also someone's (§16 #82), whatever a hand-edited cell says
+    borrows: parseLoansCell(r['borrowed']).filter((b) => (copies ?? 1) === 0 || b.returnedOn !== null),
     tags: (r['tags'] ?? '')
       .split(',')
       .map((t) => t.trim())

@@ -39,7 +39,8 @@ becomes the one place for both kinds of borrowing.
   Holding toggle (`markOwnedUnlessBorrowed()`, the guard in the statement) and the edit form's
   copies field both refuse with the lender's name — "mark it returned first" — so an item is never
   owned and borrowed at once, which would have left it lendable and badged Borrowed while the
-  Holding filter dropped it (review on #121). A borrow from a connected household stays a
+  Holding filter dropped it (review on #121); the import keeps the rule too — an owned row's
+  open borrows are dropped and its returned ones kept as history. A borrow from a connected household stays a
   `borrowed_items` row, made by a request, with its own section.
 
 **What it rules out:** tags for borrowing (no date, no lender); a borrow on an owned item; two
