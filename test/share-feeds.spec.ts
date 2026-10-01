@@ -26,10 +26,13 @@ const get = async (path: string) => {
 describe('the XML', () => {
   it('escapes every character that could break it, and writes the dates both ways', () => {
     expect(xmlEscape(`Tom & Jerry's <"Book">`)).toBe('Tom &amp; Jerry&#39;s &lt;&quot;Book&quot;&gt;');
-    expect(rfc3339('2026-10-01 11:28:05')).toBe('2026-10-01T11:28:05Z');
+    expect(rfc3339('2026-10-01 11:28:05')).toBe('2026-10-01T00:00:00Z'); // the day: a feed never says the time of day
+    expect(rfc3339('2026-10-01 11:28:05', true)).toBe('2026-10-01T11:28:05Z');
     expect(rfc3339('2026-10-01')).toBe('2026-10-01T00:00:00Z');
     expect(rfc3339('nonsense')).toBe('1970-01-01T00:00:00Z');
-    expect(rfc822('2026-10-01 11:28:05')).toBe('Thu, 01 Oct 2026 11:28:05 GMT');
+    expect(rfc822('2026-10-01 11:28:05')).toBe('Thu, 01 Oct 2026 11:28:05 GMT'); // RSS keeps what it is given; the route gives days
+    // what XML 1.0 forbids even escaped is taken out, so one pasted control character can't break the whole feed
+    expect(xmlEscape('a\u000bb\u0000c\u001fd\te\nf\uFFFEg' + '\uD800' + 'h')).toBe('abcd\te\nfgh');
     const html = entryHtml({ image: 'http://x/covers/k', title: 'A <Title>', creators: 'Someone & Co', rating: 8, review: 'Good <3' });
     expect(html).toBe('<p><img src="http://x/covers/k" alt="Cover of A &lt;Title&gt;"></p><p>Someone &amp; Co</p><p>Rated 8/10</p><p>Good &lt;3</p>');
     const meta = { title: 'T & T', link: 'http://x/share/t', self: 'http://x/share/t/feed.atom', updated: '2026-10-01T11:28:05Z', description: 'd' };
@@ -53,7 +56,7 @@ describe('a share link’s feed', () => {
     const older = await item({ title: 'Older', creators: 'Someone' });
     const unread = await item({ title: 'Unread, filtered out', status: 'not_started' });
     const elsewhere = await createItem(env.DB, { libraryId: (await createLibrary(env.DB, 'Games')).id, mediaType: 'boardgame', details: '{}', title: 'On another shelf' });
-    await added(newest.id, '2026-09-30 10:00:00');
+    await added(newest.id, '2026-09-28 10:00:00');
     await added(older.id, '2026-09-01 10:00:00');
     await added(unread.id, '2026-09-29 10:00:00');
     await added(elsewhere.id, '2026-09-30 12:00:00');
@@ -68,7 +71,8 @@ describe('a share link’s feed', () => {
     expect(atom.body).toContain(`<link href="${ORIGIN}/share/${token}"/>`);
     expect(atom.body).toContain('<title>Newest &amp; &lt;best&gt;</title>');
     expect(atom.body).toContain(`<id>${ORIGIN}/share/${token}/items/${newest.id}</id>`);
-    expect(atom.body).toContain('<updated>2026-09-30T10:00:00Z</updated>'); // when it was added — never when it was read
+    expect(atom.body).toContain('<updated>2026-09-28T00:00:00Z</updated>'); // the day it was added — never the time, never when it was read
+    expect(atom.body).not.toContain('T10:00:00Z');
     expect(atom.body).toContain('<summary>Ursula K. Le Guin · Rated 9/10</summary>');
     expect(atom.body).toContain(xmlEscape(`<p><img src="${ORIGIN}/covers/cover-key-1" alt="Cover of Newest &amp; &lt;best&gt;"></p>`));
     expect(atom.body).toContain(xmlEscape('<p>A marvel</p>'));
@@ -76,10 +80,10 @@ describe('a share link’s feed', () => {
     expect(atom.body).not.toContain('Unread, filtered out');
     expect(atom.body).not.toContain('On another shelf');
     // nothing private, and no reading
-    for (const secret of ['private note', 'loft shelf', 'secret-tag', 'ravi', 'copies', 'completedOn', '2026-09-30T00:00:00Z', 'Finished', 'read']) expect(atom.body).not.toContain(secret);
+    for (const secret of ['private note', 'loft shelf', 'secret-tag', 'ravi', 'copies', 'completedOn', '2026-09-30', 'Finished', 'read']) expect(atom.body).not.toContain(secret);
     const rss = await get(`/share/${token}/feed.rss`);
     expect(rss.type).toBe('application/rss+xml; charset=utf-8');
-    expect(rss.body).toContain('<pubDate>Wed, 30 Sep 2026 10:00:00 GMT</pubDate>');
+    expect(rss.body).toContain('<pubDate>Mon, 28 Sep 2026 00:00:00 GMT</pubDate>');
     expect(rss.body).toContain(`<guid isPermaLink="true">${ORIGIN}/share/${token}/items/${newest.id}</guid>`);
     // the page points a reader at both
     const page = (await get(`/share/${token}`)).body;
@@ -116,7 +120,9 @@ describe('a share link’s feed', () => {
     const body = (await get(`/share/${token}/feed.atom`)).body;
     expect(body).toContain('<title>A want list</title>'); // names off: never a username
     expect(body).not.toContain('ravi');
-    expect(body).toContain('<updated>2026-09-20T09:00:00Z</updated>');
+    // every entry dated by the day of the newest want: the list's last change, never when each was wanted
+    expect(body.match(/<updated>2026-09-20T00:00:00Z<\/updated>/g)).toHaveLength(3); // the feed's, and both entries'
+    expect(body).not.toContain('2026-09-01');
     expect(body.indexOf('Wanted later')).toBeLessThan(body.indexOf('Wanted first'));
     expect(body).not.toContain('Not wanted');
     expect(body).toContain('A want list shared from a Nalanda home library');

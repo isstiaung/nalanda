@@ -21,14 +21,19 @@ never progress, twenty entries, cached with the page.
   were left out, because a feed entry needs a date and a read's date is on the list of what a share
   page never carries (#41, [privacy](../privacy.md)): a page says "Read N times" from two on and
   never when. So entries are the link's twenty newest items by `added_at` (`feedItems()`), each
-  dated by that — the one new datum a feed adds, that the household added the item then, which
-  the Shared links page already dates a link by. A gift list's feed is the member's twenty newest
-  wants by the want's `created_at` (`wantFeedItems()`), titled as the page is titled ("A want
-  list", or the display name only while names are on, #45).
+  **dated by the day it was added, never the time** — the one new datum a feed adds (a share page
+  orders by it but shows no date), and the day alone, so a feed never publishes the household's
+  hours (review on #125). A gift list's feed is the member's twenty newest wants by the want's
+  `created_at` (`wantFeedItems()`), ordered by it but **all dated by the day of the newest want**:
+  the list's last change, never when one member wanted each thing. Titled as the page is titled
+  ("A want list", or the display name only while names are on, #45). The owner can widen either to
+  the time of day; the stricter reading is the default.
 - **Twenty, newest first**, one query each; `rfc3339()` and `rfc822()` write D1's UTC
-  timestamps for the two formats; everything is XML-escaped (`xmlEscape()`), the entry's HTML
-  twice over (escaped into `<content type="html">` and `<description>`), so a title can say
-  anything.
+  timestamps for the two formats, the day alone; everything is XML-escaped (`xmlEscape()`), the
+  entry's HTML twice over (escaped into `<content type="html">` and `<description>`), so a title
+  can say anything — and the characters XML 1.0 forbids even escaped (a pasted vertical tab, a
+  NUL, a lone surrogate) are taken out first, since one would make the whole feed malformed
+  (review on #125).
 
 **What it rules out:** finish entries (above); progress (never on a feed, whatever
 `progress_on_shares` says — it is "being read now", not news); per-member entries or names even

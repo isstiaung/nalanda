@@ -23,21 +23,34 @@ export type FeedMeta = {
   description: string;
 };
 
-/** Text as XML character data — `&`, `<`, `>` and both quotes, so a title can say anything. */
+/**
+ * Text as XML character data — `&`, `<`, `>` and both quotes, so a title can say anything — with the characters XML
+ * 1.0 forbids even escaped (controls but tab, newline and return; U+FFFE, U+FFFF; a lone surrogate) taken out first:
+ * one pasted vertical tab in a review would otherwise make the whole feed malformed, and a reader rejects all of it.
+ */
 export function xmlEscape(text: string): string {
-  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+  return text
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
-/** A stored time ("2026-10-01 11:28:05", the UTC D1 writes) or day ("2026-10-01") as RFC 3339 in UTC. */
-export function rfc3339(at: string): string {
+/**
+ * A stored time ("2026-10-01 11:28:05", the UTC D1 writes) or day ("2026-10-01") as RFC 3339 in UTC — the day alone
+ * unless `withTime`: a feed dates an entry by the day the item was added, never the time of day (ARCH.md §16 #86).
+ */
+export function rfc3339(at: string, withTime = false): string {
   const m = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}:\d{2}))?/.exec(at);
   if (!m) return '1970-01-01T00:00:00Z';
-  return `${m[1]}T${m[2] ?? '00:00:00'}Z`;
+  return `${m[1]}T${withTime ? (m[2] ?? '00:00:00') : '00:00:00'}Z`;
 }
 
-/** The same instant as RSS 2.0 wants it (RFC 822): "Thu, 01 Oct 2026 11:28:05 GMT". */
+/** The same instant as RSS 2.0 wants it (RFC 822): "Thu, 01 Oct 2026 11:28:05 GMT" — the time kept, if the caller gave one. */
 export function rfc822(at: string): string {
-  const d = new Date(rfc3339(at));
+  const d = new Date(rfc3339(at, true));
   return Number.isNaN(d.getTime()) ? 'Thu, 01 Jan 1970 00:00:00 GMT' : d.toUTCString();
 }
 

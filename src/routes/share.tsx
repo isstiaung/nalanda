@@ -438,6 +438,9 @@ async function feed(c: Context<AppEnv>, token: string, kind: 'atom' | 'rss') {
     : await feedItems(c.env.DB, view.libraryId, shareFilters(view), FEED_ENTRIES);
   const wanted = gift ? new Set<number>() : await wantedAmong(c.env.DB, found.filter((x) => x.item.copies === 0).map((x) => x.item.id));
   const title = gift ? wantListTitle((await giftExtras(c.env.DB, view.wantUserId, [])).owner) : view.name;
+  // what a feed dates by (§16 #86): a shelf's entry by the day — never the time — its item was added; a gift list's
+  // entries all by the day of the newest want, so one member's wanting is never dated item by item
+  const newest = found[0]?.at;
   const entries: FeedEntry[] = found.map(({ item, at }) => {
     const pub = gift ? toGiftItem(item, []) : toPublicItem(item, { wanted: wanted.has(item.id) });
     const link = absolute(c, `/share/${token}/items/${pub.id}`);
@@ -445,7 +448,8 @@ async function feed(c: Context<AppEnv>, token: string, kind: 'atom' | 'rss') {
     const rating = 'rating' in pub ? pub.rating : null;
     const review = 'review' in pub ? pub.review : null;
     const summary = [pub.creators, rating !== null ? `Rated ${rating}/10` : null].filter(Boolean).join(' · ');
-    return { id: link, title: pub.title, link, updated: rfc3339(at), summary, html: entryHtml({ image, title: pub.title, creators: pub.creators, rating, review }), image };
+    const updated = rfc3339(gift ? (newest ?? at) : at);
+    return { id: link, title: pub.title, link, updated, summary, html: entryHtml({ image, title: pub.title, creators: pub.creators, rating, review }), image };
   });
   const meta = {
     title,
