@@ -1,6 +1,6 @@
 # §16 #59 — A year in review is one page, in the app only, counted in SQL in one D1 batch: the member's year beside the household's, and the household's plays once
 
-**Decided:** 2026-09-30 (year in review). Cited as `ARCH.md §16 #59`; "§N" is a section of [ARCH.md](../../ARCH.md), "#N" another decision here.
+**Decided:** 2026-09-30 (year in review). **Amended 2026-10-02:** #62 (2026-09-30) moved the page's link to the sidebar's Reading section; the "Catalog group" in the "chosen without asking" line below is where it first sat; and since #69 "this year" and the picker's current year are the device's day's (`todayOf(c)`), not UTC's. Cited as `ARCH.md §16 #59`; "§N" is a section of [ARCH.md](../../ARCH.md), "#N" another decision here.
 
 The owner decided the shape: `/year-in-review`, a
 labelled year picker, and four groups of figures for the chosen year — books finished (re-reads count)

@@ -123,12 +123,22 @@ have leaked.
 - **Reading the shelf badges**: a shelf reads *Shared* only when a link exposes it
   entire. If you've only published slices of it, it reads "2 views shared" instead —
   the shelf itself is not reachable, just those views.
-- **What's exposed**: title, creators, cover, publisher, date, description, media details,
-  tags, rating, review, and the "Not owned" badge. **Never**: private notes, where it lives,
-  loans/borrowers, copy counts, who added it. A gift list shows less — title, creators,
-  cover, type, publisher, date, length, description, "On the shelves" for something you
-  already have — plus its purchase links, which appear on no other public page. A link can't be browsed beyond its
-  filters, even by guessing item URLs. Pages carry `noindex`.
+- **What's exposed** (`toPublicItem()` in `src/lib/share.ts`): title, creators, cover, type,
+  publisher, date, length, description, media details (money stripped), tags, formats, language
+  and original title, the household's average rating and latest review with no author, the
+  "Not owned" badge and "Wanted" beside it while someone wants the item; on a book's own page,
+  "Read N times" from two finishes on (only while it's owned), its series name and number, and
+  the quotes a member marked shared; on a game's or record's page, "Played N times"; reading
+  progress only while **Reading progress on share pages** is on, and only for a book being read
+  now; and, with **Names on share pages** on, each member's rating and review under their
+  display name. **Never**: private notes, where it lives, loans/borrowers, what's borrowed from
+  whom, copy counts, a record's condition, what was paid, who added it, usernames, reads or
+  their dates, who read what, item history, another edition's ISBN, a series' gaps or anyone's
+  next up, reading goals, a play's date or who logged it. A gift list shows less — title,
+  creators, cover, type, publisher, date, length, description, formats, language, "On the
+  shelves" for something you already have — plus its purchase links, which appear on no other
+  public page. A link can't be browsed beyond its filters, even by guessing item URLs. Pages
+  carry `noindex`. [docs/privacy.md](../docs/privacy.md) has every rule with the code that holds it.
 - **Rotate** if a link spread further than intended — a new URL is minted immediately.
   Public pages are cached up to 1 hour per Cloudflare location; any edit you make in
   the app refreshes the location that served you instantly, but a rotated/removed
