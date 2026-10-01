@@ -62,9 +62,28 @@ export function clearSharePageCache(): void {
   pageCache.clear();
 }
 
+/** The listing's page number from its query string — the one query parameter any share route reads. */
+const pageOf = (c: Context<AppEnv>) => Number.parseInt(c.req.query('page') ?? '1', 10) || 1;
+
+/** A listing: `/share/<token>` alone — the item pages and feeds hang below it, and none of them reads a query. */
+const LISTING = /^\/share\/[^/]+\/?$/;
+
+/**
+ * The cache key: the canonical path — with the host, since feeds and link previews write absolute URLs — plus the
+ * page number on a listing, and nothing else. The routes read no other query parameter, so `?junk=1` is the same
+ * page, not a slot of its own: keyed by the whole URL, two hundred variants of one token's address evicted every
+ * real page in the isolate.
+ */
+function cacheKey(c: Context<AppEnv>): string {
+  const url = new URL(c.req.url);
+  return LISTING.test(url.pathname) ? `${url.origin}${url.pathname}?page=${pageOf(c)}` : `${url.origin}${url.pathname}`;
+}
+
 share.use('*', async (c, next) => {
+  // search engines never index a share page or its feeds: the header says so where a feed has no <head> for the meta
+  c.header('X-Robots-Tag', 'noindex');
   if (c.req.method !== 'GET') return next();
-  const key = c.req.url;
+  const key = cacheKey(c);
   const hit = pageCache.get(key);
   if (hit && hit.expires > Date.now()) {
     return new Response(hit.body, { headers: [...hit.headers, ['x-cache', 'hit']] });
@@ -386,7 +405,7 @@ share.get('/:token', async (c) => {
   const token = c.req.param('token');
   const view = await getShareByToken(c.env.DB, token);
   if (!view) return c.notFound();
-  const pageNum = Number.parseInt(c.req.query('page') ?? '1', 10) || 1;
+  const pageNum = pageOf(c);
   if (isWantListShare(view)) return giftListPage(c, view, token, pageNum);
   const { items, total, page: current, pages } = await listItems(c.env.DB, view.libraryId, {
     ...shareFilters(view),

@@ -247,7 +247,10 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   never in code, `wrangler.jsonc`, or git. Local values go in `.dev.vars` (gitignored).
 - **`FEDERATION_PRIVATE_KEY`** is this instance's identity to its connections: a runtime secret,
   never in git or D1, so not in backups — losing it means reconnecting with every household.
-  Unset, connections are disabled and every connections route 404s.
+  Unset, connections are disabled and every connections route 404s. A **restored copy** of a
+  production database sets `FEDERATION_OFFLINE=1` (a plain variable, never a secret, never in
+  production) before its first page load, or it contacts the real households (§16 #92;
+  runbooks/backup-and-restore.md).
 - **No Cloudflare resource ids in the repo** (ARCH.md §16 #24): `database_id` stays the all-zero
   placeholder, deploys supply `D1_DATABASE_ID`. Don't "helpfully" fill it in — miniflare keys
   local D1 state by it, so editing it orphans the local database (§16 #20).

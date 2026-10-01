@@ -19,6 +19,7 @@ import {
   tagsForIdRange,
   wantedAmong,
   updateItem,
+  updateSiteSettings,
   addProgress,
   addPastRead,
   createItemWithTags,
@@ -39,7 +40,7 @@ import { clearSharePageCache } from '../src/routes/share';
 import app from '../src/index';
 import * as before from './fixtures/items-before-names';
 import { answerOutbound, connectPeer, instanceA, json, makeKeys, makePeer, setUpA, sqlAgo, type Peer } from './federation-helpers';
-import { as, book, html, member, rows } from './member-helpers';
+import { as, book, html, member, rows, summaryOf } from './member-helpers';
 
 const BADGE = '<span class="pill wanted">Wanted</span>';
 
@@ -137,13 +138,34 @@ describe('the Wanted badge on share pages', () => {
       { item: { libraryId: s.shelf.id, title: 'To read someday', creators: 'A. Writer', status: 'not_started', copies: 0, details: '{}', addedBy: s.asha.id }, tags: [], goodreads: { shelf: 'not_started', dateRead: null, dateStarted: null, readCount: null } },
     ]);
     const toRead = (await rows<{ id: number }>("SELECT id FROM items WHERE title = 'To read someday'"))[0]!.id;
+    // a library book the household read twice and is reading again, on page 50 — with progress switched on for shares
+    await addPastRead(env.DB, s.plain.id, { status: 'completed', beganOn: '2026-01-01', endedOn: '2026-01-10' }, s.asha.id);
+    await addPastRead(env.DB, s.plain.id, { status: 'completed', beganOn: '2026-02-01', endedOn: '2026-02-10' }, s.ravi.id);
+    await startRead(env.DB, s.plain.id, '2026-09-01', s.asha.id);
+    await addProgress(env.DB, s.plain.id, 50, s.asha.id);
+    await updateSiteSettings(env.DB, { progressOnShares: true });
+    expect(await summaryOf(s.plain.id)).toMatchObject({ readCount: 2, rereading: 1, progressPage: 50 }); // negative control: there is reading to claim
     for (const id of [toRead, s.plain.id]) {
       clearSharePageCache();
       const page = await (await as(null, `/share/${shelfShare.token}/items/${id}`)).text();
       expect(page).toContain('in the catalogue, not on these shelves');
       expect(page).not.toMatch(/read, not on these shelves/i);
       expect(page).not.toContain('pill wanted');
+      // nothing about its reads: not how often, not how far (§16 #13)
+      expect(page).not.toContain('<dt>Read</dt>');
+      expect(page).not.toContain('times</dd>');
+      expect(page).not.toContain('<dt>Reading</dt>');
+      expect(page).not.toContain('p. 50');
     }
+    clearSharePageCache();
+    const list = await (await as(null, `/share/${shelfShare.token}`)).text();
+    expect(list).not.toContain('read 2×');
+    // owned, the same reading shows: the rule is about ownership, not the reads
+    await updateItem(env.DB, s.plain.id, { copies: 1 });
+    clearSharePageCache();
+    const owned = await (await as(null, `/share/${shelfShare.token}/items/${s.plain.id}`)).text();
+    expect(owned).toContain('<dd class="mono">2 times</dd>');
+    expect(owned).toContain('p. 50');
   });
 
   it('adds nothing to toPublicItem unless asked, and only `wanted: true` then', async () => {

@@ -22,7 +22,7 @@ import {
 import type { Bindings } from '../src/env';
 import { budgeted } from '../src/federation/budget';
 import { MEMBER_ACTIVITY_BASE } from '../src/federation/config';
-import { parseFeedEntry, parseItemDetail, type ItemFeedEntry } from '../src/federation/items';
+import { keepForKind, parseFeedEntry, parseItemDetail, toFeedItem, type ItemFeedEntry } from '../src/federation/items';
 
 /** An entry about an item — every kind these tests send is one (goal entries, §16 #49, have none). */
 const parseItemEntry = (v: unknown) => parseFeedEntry(v) as ItemFeedEntry | null;
@@ -274,7 +274,7 @@ describe('connections with names on', () => {
     id: number;
     kind: string;
     published: string;
-    item: { by?: string; rating: number | null; review: string | null; progress: { page: number } | null; readCount: number };
+    item: { by?: string; rating: number | null; review: string | null; progress: { page: number } | null; readCount: number; completedOn: string | null };
   };
   const pull = async (since = 0) =>
     (await (await a.signedGet(`/federation/feed?view=${viewId}&since=${since}`, peer)).json()) as { latest: number; entries: Entry[] };
@@ -303,6 +303,25 @@ describe('connections with names on', () => {
     const text = JSON.stringify(page);
     for (const login of LOGINS) expect(text).not.toContain(login);
     expectNoLoginsOrReadDates(text);
+  });
+
+  it('carry no completedOn on a member’s entry — that would be their read’s date — while the household’s own still does', async () => {
+    const { item } = await scene();
+    await upgradedSwitches();
+    // the household's stream: its finished entry says when the book was last finished, as it always has (connections.md §7)
+    expect((await pull()).entries.find((e) => e.kind === 'finished')?.item.completedOn).toBe(today());
+    await updateSiteSettings(env.DB, { namesToConnections: true });
+    const named = (await pull()).entries.filter((e) => e.kind === 'finished');
+    expect(named.map((e) => [e.item.by, e.item.completedOn]).sort()).toEqual([
+      ['Asha', null],
+      ['Ravi K', null],
+    ]);
+    // the rule as the owner serves it and the receiver keeps it
+    const person = { by: 'Ravi K', rating: null, review: null, readCount: 1 };
+    expect(toFeedItem(item, 'finished', '0123456789abcdef', null, 0, person).completedOn).toBeNull();
+    expect(toFeedItem(item, 'finished', '0123456789abcdef', null, 0, { ...person, by: null }).completedOn).toBeNull(); // unnamed, still one member's
+    expect(toFeedItem(item, 'finished', '0123456789abcdef').completedOn).toBe(today());
+    expect(keepForKind({ ...toFeedItem(item, 'finished', '0123456789abcdef'), by: 'Ravi K' }, 'finished').completedOn).toBeNull();
   });
 
   it('record a past read added later, or a rating of 0, as nothing — and leave a 0 off the item page', async () => {

@@ -8,6 +8,7 @@ import { cellPrice, isStoredPrice, minorToDecimal } from './money';
 import {
   formatReadsCell,
   inDisplayOrder,
+  isIsoDate,
   parseReadsCell,
   readsFromColumns,
   reconcileGoodreads,
@@ -22,7 +23,7 @@ import {
 import { formatLinksCell, formatWantsCell, parseLinksCell, parseWantsCell, type CellWant, type LinkDraft } from './links';
 import { formatEditionsCell, formatFormatsCell, parseEditionsCell, parseFormatsCell, type EditionDraft, normalizeFormats } from './formats';
 import { DEFAULT_LANGUAGE, languageFromProvider } from './language';
-import { formatQuotesCell, parseQuotesCell, type CellQuote } from './quotes';
+import { formatQuotesCell, parseQuotesCell, type CellQuote, type PersonQuote } from './quotes';
 import { formatLoansCell, parseLoansCell, type LoanDraft } from './loans';
 import { formatPlaysCell, parsePlaysCell, type CellPlay, type PersonPlay } from './plays';
 import { formatReviewsCell, parseReviewsCell, summarizeReviews, type CellReview, type PersonReview } from './reviews';
@@ -72,11 +73,22 @@ export const EXPORT_COLUMNS = [
   'original_title',
   'quotes', // quotes and highlights (§16 #77): JSON, each with its writer's username
   'borrowed', // borrowed from someone not on Nalanda (§16 #82): as the loans cell, the lender in the borrower's place
+  'added_by', // who added it, by username as the reads cell names people; empty for a member removed since
   'details',
 ] as const;
 
+/**
+ * A text cell that a spreadsheet would read as a formula — one starting with `=`, `+`, `-`, `@`, a tab or a carriage
+ * return — goes out with a `'` in front, the spreadsheets' own text marker (ARCH.md §16 #91): a title a connection sent
+ * is the one place untrusted text reaches the export without passing a form. So that the round trip stays exact, a
+ * cell that starts with `'` is guarded the same way, and mapNalandaRow strips one leading `'` only where it guards such a
+ * character — an export from before the guard never wrote one, so a title that really begins with an apostrophe keeps it.
+ * Numbers are never guarded: nothing a number says is a formula.
+ */
+const FORMULA_LEAD = /^[=+\-@\t\r']/;
+
 export function csvEscape(value: unknown): string {
-  const str = value === null || value === undefined ? '' : String(value);
+  const str = value === null || value === undefined ? '' : typeof value === 'string' && FORMULA_LEAD.test(value) ? `'${value}` : String(value);
   return /[",\n\r]/.test(str) ? `"${str.replaceAll('"', '""')}"` : str;
 }
 
@@ -106,7 +118,8 @@ export function progressHistoryCell(
  * everyone's, and `reads` names each read's reader, so a re-import gives every member back their own. `loans` is
  * every loan, open and returned (§16 #57), and `plays` is the household's play log, oldest first, each date with
  * who logged it (§16 #54). `wanted_by` names whose want list it is on and since when, and `purchase_links` holds its
- * links (§16 #53).
+ * links (§16 #53). `addedBy` is the username of whoever added it — shown on the item's page, so it round-trips —
+ * or null for a member removed since.
  */
 export function itemToCsvLine(
   item: Item,
@@ -123,6 +136,7 @@ export function itemToCsvLine(
   editions: EditionDraft[] = [],
   quotes: CellQuote[] = [],
   borrows: LoanDraft[] = [],
+  addedBy: string | null = null,
 ): string {
   const ordered = inDisplayOrder(reads);
   const position = new Map(ordered.map((r, i) => [r.id, i + 1]));
@@ -168,6 +182,7 @@ export function itemToCsvLine(
     item.originalTitle,
     formatQuotesCell(quotes),
     formatLoansCell(borrows),
+    addedBy,
     item.details === '{}' ? '' : item.details,
   ]);
 }
@@ -225,9 +240,90 @@ export type MappedRow = {
   loans?: LoanDraft[];
   // its series (§16 #52): a Nalanda export's columns, libib's "group", or the suffix a Goodreads title carries
   series?: SeriesDraft | null;
+  // who added it, by username, as a Nalanda export names them; absent when the file names nobody (a former member,
+  // an older export, any other format) — then the importer's, as every row's added_by was before
+  addedBy?: string;
 };
 
-/** Columns we map onto real item fields; everything else lands in `details` (lossless). */
+/**
+ * Columns no mapper lets fall through into `details`, which share pages and connections render (§9), under every
+ * name a file might carry them: Nalanda's own export missing a column and so read as libib's, or one of these added
+ * to a Goodreads, StoryGraph or LibraryThing file before import. Where it lives and the notes on it (§16 #51), everyone's
+ * reading and its dates (§16 #41, #43), loans and borrows (§16 #57, #82), when a game was played (§16 #54), who wants
+ * what and where to buy it (§16 #53), the editions' identifiers (§16 #75), quotes (§16 #77), the copy's grades and
+ * what it cost (§16 #55, #61), the copies count, and who added it. Each mapper maps what it can of these onto their own
+ * columns (`location` and `notes` everywhere); the rest is dropped, never kept.
+ */
+export const PRIVATE_COLUMNS: ReadonlySet<string> = new Set([
+  'location',
+  'notes',
+  'private_notes',
+  'comment',
+  'private_comment',
+  'other_call_number',
+  'began',
+  'completed',
+  'began_on',
+  'completed_on',
+  'date_read',
+  'date_started',
+  'last_date_read',
+  'dates_read',
+  'reading_dates',
+  'read_count',
+  'reads',
+  'reviews',
+  'progress_page',
+  'progress_history',
+  'loans',
+  'borrowed',
+  'lending_patron',
+  'lending_status',
+  'lending_start',
+  'lending_end',
+  'plays',
+  'wanted_by',
+  'purchase_links',
+  'editions',
+  'quotes',
+  'media_condition',
+  'sleeve_condition',
+  'condition',
+  'condition_description',
+  'purchase_price',
+  'purchase_currency',
+  'list_price',
+  'value',
+  'original_purchase_date',
+  'original_purchase_location',
+  'acquired',
+  'date_acquired',
+  'from_where',
+  'source',
+  'copies',
+  'owned_copies',
+  'owned',
+  'added_by',
+  'recommended_for',
+  'recommended_by',
+  'barcode',
+  'bcid',
+]);
+
+/**
+ * A row's leftover columns, for `details`: what the mapper doesn't know by name, never a private column
+ * (PRIVATE_COLUMNS), never an empty cell, and none `skip` names.
+ */
+function leftover(r: Record<string, string>, known: ReadonlySet<string>, skip: (key: string) => boolean = () => false): Record<string, string> {
+  const details: Record<string, string> = {};
+  for (const [k, v] of Object.entries(r)) if (v && !known.has(k) && !PRIVATE_COLUMNS.has(k) && !skip(k)) details[k] = v;
+  return details;
+}
+
+/**
+ * Columns we map onto real item fields; everything else lands in `details` (lossless) — except a private column by any
+ * name, which PRIVATE_COLUMNS keeps out whatever the mapper.
+ */
 const KNOWN_COLUMNS = new Set([
   // Nalanda's own export: reading progress is private and must never fall through into `details`,
   // which share pages and connections render. Re-importing a Nalanda export doesn't restore it.
@@ -269,6 +365,13 @@ const KNOWN_COLUMNS = new Set([
   'isbn13',
   'upc_isbn10',
   'isbn10',
+  // a Nalanda export that lost a column reads as libib: its type and UPC still map, and what names its shelf, its
+  // time added or a series' size says nothing about the item
+  'media_type',
+  'isbn10_upc',
+  'library',
+  'added_at',
+  'series_total',
   'title',
   'creators',
   'first_name',
@@ -348,7 +451,7 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
 
   const creators = r['creators'] || [r['first_name'], r['last_name']].filter(Boolean).join(' ') || undefined;
   const isbn13 = digits(r['ean_isbn13'] ?? r['isbn13']);
-  const isbn10Upc = (r['upc_isbn10'] ?? r['isbn10'] ?? '').trim();
+  const isbn10Upc = (r['upc_isbn10'] ?? r['isbn10'] ?? r['isbn10_upc'] ?? '').trim();
   const lengthNum = Number.parseInt(digits(r['length']), 10);
   const copiesNum = Number.parseInt(digits(r['copies']), 10);
 
@@ -360,22 +463,22 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
   // libib's `added`, the day it was catalogued there, dates the item here (§16 #90) when it reads as a date; a known
   // column, so it never lands in details
   const added = addedAtOf(r['added']);
-  const details: Record<string, string> = {};
-  for (const [k, v] of Object.entries(r)) {
-    if (!KNOWN_COLUMNS.has(k) && v && !(k === 'price' && libibPrice)) details[k] = v;
-  }
+  // libib's price stays in details only when it couldn't be read as one; published pages strip it there (§16 #61)
+  const details = leftover(r, KNOWN_COLUMNS, (k) => k === 'price' && !!libibPrice);
 
   const tags = (r['tags'] ?? '')
     .split(',')
     .map((t) => t.trim())
     .filter(Boolean);
-  if (r['group']) tags.push(r['group']); // libib "group" becomes a tag, as it always has
+  // libib "group" becomes a tag, as it always has — split on commas like every other tag cell, so a group of
+  // "sci-fi, classics" isn't one tag the export writes and the next import splits
+  tags.push(...(r['group'] ?? '').split(',').map((t) => t.trim()).filter(Boolean));
   // …and, since libib documents it as "what series an item belongs to", the item's series (§16 #52). libib keeps no
   // number; a file with a series column of its own is taken at its word first.
   const seriesName = cleanSeriesName(r['series'] || r['group']);
   const series = seriesName ? { name: seriesName, number: parseSeriesNumber(r['series_number']) ?? null } : null;
 
-  const mediaType = mapMediaType(r['item_type'] ?? r['type'], opts);
+  const mediaType = mapMediaType(r['item_type'] ?? r['type'] ?? r['media_type'], opts);
   return {
     series,
     item: {
@@ -394,8 +497,9 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
       notes: r['notes'] || null,
       location: oneLine(r['location']),
       copies: Number.isFinite(copiesNum) && copiesNum >= 0 ? copiesNum : 1, // 0 = cataloged, not owned
-      beganOn: r['began'] || null,
-      completedOn: r['completed'] || null,
+      // libib's dates, or a Nalanda export's that lost a column and is read as libib (its reads cell is not read)
+      beganOn: r['began'] || r['began_on'] || null,
+      completedOn: r['completed'] || r['completed_on'] || null,
       ...added,
       details: Object.keys(details).length ? JSON.stringify(details) : '{}',
       ...rowGrades(mediaType, r['media_condition'], r['sleeve_condition']),
@@ -413,7 +517,13 @@ export function looksLikeNalandaExport(headers: string[]): boolean {
   return ['media_type', 'isbn10_upc', 'began_on', 'completed_on', 'added_at', 'details'].every((c) => have.has(c));
 }
 
-const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+const SQL_DATETIME = /^(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}):(\d{2})$/;
+
+/** A datetime as SQLite writes one, and a real one: a calendar date (isIsoDate) and a time of day — never 2024-13-45 00:00:00. */
+function isSqlDatetime(v: string | undefined): v is string {
+  const m = SQL_DATETIME.exec(v ?? '');
+  return m !== null && isIsoDate(m[1]) && Number(m[2]) < 24 && Number(m[3]) < 60 && Number(m[4]) < 60;
+}
 
 /**
  * A row of our own export, mapped back exactly — the round trip every column promises (CLAUDE.md). Unlike a
@@ -424,7 +534,9 @@ const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
  */
 export function mapNalandaRow(row: Record<string, string>, household: string | null = null, language: string = DEFAULT_LANGUAGE): MappedRow | null {
   const r: Record<string, string> = {};
-  for (const [k, v] of Object.entries(row)) r[k.trim().toLowerCase()] = (v ?? '').trim();
+  // the export's formula guard off (§16 #91): one leading `'` only where it stands before a character the guard covers,
+  // so an export from before the guard — which never wrote one — keeps a title that begins with an apostrophe
+  for (const [k, v] of Object.entries(row)) r[k.trim().toLowerCase()] = (v ?? '').replace(/^'(?=[=+\-@\t\r'])/, '').trim();
 
   const title = r['title'];
   if (!title) return null;
@@ -434,7 +546,7 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
     const n = Number(raw);
     return Number.isSafeInteger(n) && n <= max ? n : null;
   };
-  const date = (raw: string | undefined) => (/^\d{4}-\d{2}-\d{2}$/.test(raw ?? '') ? raw! : null);
+  const date = (raw: string | undefined) => (isIsoDate(raw) ? raw : null); // a calendar date, as every read's is
   const status = (ITEM_STATUSES as readonly string[]).includes(r['status'] ?? '') ? (r['status'] as ItemStatus) : 'not_started';
   const rating = int(r['rating'], 10);
   const length = int(r['length'], 100_000);
@@ -498,7 +610,7 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
       copies: copies ?? 1,
       beganOn: state.beganOn,
       completedOn: state.completedOn,
-      ...(SQL_DATETIME.test(r['added_at'] ?? '') ? { addedAt: r['added_at'] } : {}),
+      ...(isSqlDatetime(r['added_at']) ? { addedAt: r['added_at'] } : {}),
       details,
       formats: parseFormatsCell(mediaType, r['formats']),
       // its language (§16 #76): the file's code when it is one, else the household's; and the original title as written
@@ -519,6 +631,7 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
     quotes: parseQuotesCell(r['quotes']),
     // an owned row keeps only the borrows given back: a copy of yours is never also someone's (§16 #82), whatever a hand-edited cell says
     borrows: parseLoansCell(r['borrowed']).filter((b) => (copies ?? 1) === 0 || b.returnedOn !== null),
+    ...(r['added_by'] ? { addedBy: r['added_by'] } : {}),
     tags: (r['tags'] ?? '')
       .split(',')
       .map((t) => t.trim())
@@ -541,6 +654,7 @@ export type PeopleTally = Map<string | null | undefined, { reads: number; review
  * names (`keepNames`): members change only their own reading, so a member's import is theirs, whatever the file says
  * — it can't make reads or reviews in anyone else's name, or ones only an admin could then change. Two reviews that
  * land on one person keep the one written last, as a person has one review. `tally` counts it all for the preview.
+ * Who added the item (`addedBy`) follows the same rule, and is the importer when the file names nobody.
  */
 export function attributePeople(
   m: MappedRow,
@@ -548,7 +662,7 @@ export function attributePeople(
   importer: number,
   tally?: PeopleTally,
   keepNames = true,
-): { reads?: PersonRead[]; reviews?: PersonReview[]; plays?: PersonPlay[]; wants?: Array<{ userId: number; at: string | null }> } {
+): { reads?: PersonRead[]; reviews?: PersonReview[]; plays?: PersonPlay[]; wants?: Array<{ userId: number; at: string | null }>; quotes?: PersonQuote[]; addedBy: number } {
   const resolve = (name: string | null | undefined): number | null =>
     !keepNames || name === undefined ? importer : name === null ? null : (members.get(name) ?? importer);
   const count = (name: string | null | undefined, what: 'reads' | 'reviews' | 'wants', n = 1) => {
@@ -600,7 +714,9 @@ export function attributePeople(
   }
   // Quotes (§16 #77) resolve as a review's writer does; a former member's stay nobody's
   const quotes = m.quotes?.map(({ by, ...quote }) => ({ ...quote, userId: resolve(by) }));
-  return { ...(reads ? { reads } : {}), ...(reviews ? { reviews } : {}), ...(plays ? { plays } : {}), ...(wants ? { wants } : {}), ...(quotes ? { quotes } : {}) };
+  // and who added it: a name resolves to a member or the importer, never to nobody — an item is always someone's to add
+  const addedBy = (m.addedBy ? resolve(m.addedBy) : null) ?? importer;
+  return { ...(reads ? { reads } : {}), ...(reviews ? { reviews } : {}), ...(plays ? { plays } : {}), ...(wants ? { wants } : {}), ...(quotes ? { quotes } : {}), addedBy };
 }
 
 // ---------- Goodreads import mapping ----------
@@ -658,10 +774,22 @@ function unguard(raw: string | undefined): string {
   return v.startsWith('=') ? v.slice(1).replace(/^"|"$/g, '') : v;
 }
 
-/** Goodreads dates are 2024/01/15; we store 2024-01-15. */
+/** A cell as an ISBN-13 — 13 digits once hyphens and spaces are gone — or null: never the digits of something else. */
+function isbn13Of(raw: string): string | null {
+  const v = raw.replace(/[-\s]/g, '');
+  return /^\d{13}$/.test(v) ? v : null;
+}
+
+/** A cell as an ISBN-10 — nine digits and a check digit, X allowed — upper-cased, or null. */
+function isbn10Of(raw: string): string | null {
+  const v = raw.replace(/[-\s]/g, '').toUpperCase();
+  return /^\d{9}[\dX]$/.test(v) ? v : null;
+}
+
+/** Goodreads dates are 2024/01/15; we store 2024-01-15 — and only a calendar date (isIsoDate): 2024/13/45 is none. */
 function isoDate(raw: string | undefined): string | null {
   const v = (raw ?? '').trim().replaceAll('/', '-');
-  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+  return isIsoDate(v) ? v : null;
 }
 
 /**
@@ -797,46 +925,45 @@ function storyGraphRanges(raw: string | undefined): Array<{ start: string | null
 
 /**
  * Maps one StoryGraph-export row (ARCH.md §16 #87) onto our item shape; null if unusable. Every dated read in "Dates
- * Read" becomes a read of its own; the row's status, last read and count make the `goodreads` reading a merge
- * reconciles with the reads already here. Owned? says whether it is a copy; Format says which. Moods, pace and the
- * rest stay in details.
+ * Read" becomes a read of its own, and Read Count tops them up with undated finishes, as it does a book with no dates
+ * and as a merge does; the row's status, last read and count make the `goodreads` reading a merge reconciles with the
+ * reads already here (every earlier dated range too — readingsOf in queries.ts). Owned? says whether it is a copy;
+ * Format says which. Moods, pace and the rest stay in details.
  */
 export function mapStoryGraphRow(row: Record<string, string>): MappedRow | null {
   const r = keyed(row);
   const title = r['title'];
   if (!title) return null;
   const rawUid = (r['isbn_uid'] ?? '').trim();
-  const uid = rawUid.replace(/[^0-9Xx]/g, '');
-  const isbn13 = /^\d{13}$/.test(uid) ? uid : null;
-  const isbn10 = /^\d{9}[\dXx]$/.test(uid) ? uid.toUpperCase() : null;
+  const isbn13 = isbn13Of(rawUid);
+  const isbn10 = isbn10Of(rawUid);
   const status = storyGraphStatus(r['read_status']);
   const ranges = storyGraphRanges(r['dates_read']);
   const last = ranges.at(-1);
   const countRaw = (r['read_count'] ?? '').trim();
+  // the dated reads the file lists, as they are: the last one open while currently reading, or stopped on a DNF
+  const dated: ReadDraft[] = ranges.map((x, i) => {
+    const lastOne = i === ranges.length - 1;
+    if (lastOne && status === 'in_progress' && !x.end) return { status: 'in_progress', beganOn: x.start, endedOn: null };
+    if (lastOne && status === 'abandoned') return { status: 'abandoned', beganOn: x.start, endedOn: x.end };
+    return { status: 'completed', beganOn: x.start, endedOn: x.end };
+  });
   const goodreads: GoodreadsReading = {
     shelf: status,
     dateRead: status === 'in_progress' ? (ranges.filter((x) => x.end).at(-1)?.end ?? null) : (last?.end ?? dateOf(r['last_date_read'])),
     dateStarted: last?.start ?? null,
-    readCount: /^\d+$/.test(countRaw) ? Number(countRaw) : ranges.length || null,
+    // the file's count, else the finished reads it dates — an open or stopped range is never counted as a finish
+    readCount: /^\d+$/.test(countRaw) ? Number(countRaw) : dated.filter((x) => x.status === 'completed').length || null,
   };
-  // the dated reads the file lists, as they are; without any, the same rules a merge applies, from none
-  const dated = ranges.filter((x) => x.start || x.end);
-  const reads: ReadDraft[] = dated.length
-    ? dated.map((x, i) => {
-        const lastOne = i === dated.length - 1;
-        if (lastOne && status === 'in_progress' && !x.end) return { status: 'in_progress', beganOn: x.start, endedOn: null };
-        if (lastOne && status === 'abandoned') return { status: 'abandoned', beganOn: x.start, endedOn: x.end };
-        return { status: 'completed', beganOn: x.start, endedOn: x.end };
-      })
-    : reconcileGoodreads([], goodreads).map((op) => op.read);
+  // the dated reads, topped up to Read Count with undated finishes; without any, the same rules a merge applies, from none
+  const reads: ReadDraft[] = dated.length ? topUpReads(dated, goodreads.readCount) : reconcileGoodreads([], goodreads).map((op) => op.read);
   if (dated.length && status === 'in_progress' && !reads.some((x) => x.status === 'in_progress')) reads.push({ status: 'in_progress', beganOn: null, endedOn: null });
   const state = summarizeReads(reads);
   // the reader's own impressions — moods, pace, what drove the story, the content warnings — are opinions, closer to a
   // review than to catalogue data, so they go to the private notes and never to details, which share pages publish;
   // what is left over (contributors, say) is catalogue data and stays in details
   const impressions = STORYGRAPH_IMPRESSIONS.map(([key, label]) => (r[key] ? `${label}: ${r[key]}` : null)).filter((x): x is string => x !== null);
-  const details: Record<string, string> = {};
-  for (const [k, v] of Object.entries(r)) if (!KNOWN_STORYGRAPH.has(k) && !STORYGRAPH_PRIVATE.has(k) && v) details[k] = v;
+  const details = leftover(r, KNOWN_STORYGRAPH, (k) => STORYGRAPH_PRIVATE.has(k));
   if (rawUid && !isbn13 && !isbn10) details['storygraph_uid'] = rawUid; // StoryGraph's own id, kept as it is
   const split = parseTitleSeries(title);
   const format = bookFormat(r['format']);
@@ -855,7 +982,9 @@ export function mapStoryGraphRow(row: Record<string, string>): MappedRow | null 
       status: state.status,
       rating: starsToRating(r['star_rating']),
       review: r['review'] || null,
-      notes: impressions.length ? `StoryGraph — ${impressions.join('; ')}` : null,
+      // a notes column someone added to the file, then the impressions; a location column likewise (never details)
+      notes: [r['notes'], impressions.length ? `StoryGraph — ${impressions.join('; ')}` : null].filter(Boolean).join('\n\n') || null,
+      location: oneLine(r['location']),
       copies: /^(yes|true|y)$/i.test(r['owned'] ?? '') ? 1 : 0,
       beganOn: state.beganOn,
       completedOn: state.completedOn,
@@ -943,9 +1072,9 @@ export function mapLibraryThingRow(row: Record<string, string>): MappedRow | nul
   const r = keyed(row);
   const title = r['title'];
   if (!title) return null;
-  const codes = `${r['isbns'] ?? ''} ${r['isbn'] ?? ''}`.replace(/[[\]]/g, ' ').split(/[\s,]+/).map((x) => x.replace(/[^0-9Xx]/g, '')).filter(Boolean);
-  const isbn13 = codes.find((x) => /^\d{13}$/.test(x)) ?? null;
-  const isbn10 = codes.find((x) => /^\d{9}[\dXx]$/.test(x))?.toUpperCase() ?? null;
+  const codes = `${r['isbns'] ?? ''} ${r['isbn'] ?? ''}`.replace(/[[\]]/g, ' ').split(/[\s,]+/).filter(Boolean);
+  const isbn13 = codes.map(isbn13Of).find((x) => x !== null) ?? null;
+  const isbn10 = codes.map(isbn10Of).find((x) => x !== null) ?? null;
   const collections = (r['collections'] ?? '').split(/[|,]/).map((x) => x.trim().toLowerCase()).filter(Boolean);
   const has = (name: string) => collections.includes(name);
   const dateRead = dateOf(r['date_read']);
@@ -969,8 +1098,7 @@ export function mapLibraryThingRow(row: Record<string, string>): MappedRow | nul
   const year = r['date'] || r['original_publication_year'] || /\((\d{4})\)/.exec(publication)?.[1] || null;
   const pages = Number.parseInt((r['page_count'] ?? '').replace(/\D/g, ''), 10);
   const language = languageCode((r['languages'] ?? '').split(/[|,]/)[0] ?? '');
-  const details: Record<string, string> = {};
-  for (const [k, v] of Object.entries(r)) if (!KNOWN_LIBRARYTHING.has(k) && v) details[k] = v;
+  const details = leftover(r, KNOWN_LIBRARYTHING);
   if (r['book_id']) details['librarything_book_id'] = r['book_id'];
   const split = parseTitleSeries(title);
   const volume = Number.parseFloat(r['volume'] ?? '');
@@ -991,9 +1119,10 @@ export function mapLibraryThingRow(row: Record<string, string>): MappedRow | nul
       status: state.status,
       rating: starsToRating(r['rating']),
       review: r['review'] || null,
-      notes: [r['comment'], r['private_comment']].filter(Boolean).join('\n\n') || null,
-      // the household's own shelf mark, which is what the column is used for: where it is kept, never published (§16 #51)
-      location: r['other_call_number'] || null,
+      notes: [r['comment'], r['private_comment'], r['notes']].filter(Boolean).join('\n\n') || null,
+      // a location column someone added, else the household's own shelf mark, which is what Other Call Number is used
+      // for: where it is kept, never published (§16 #51)
+      location: oneLine(r['location'] || r['other_call_number']),
       copies: owned ? (Number.isFinite(copiesNum) && copiesNum > 0 ? copiesNum : 1) : 0,
       beganOn: state.beganOn,
       completedOn: state.completedOn,
@@ -1024,8 +1153,12 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
   const title = r['title'];
   if (!title) return null;
 
-  const isbn13 = unguard(r['isbn13']).replace(/\D/g, '');
-  const isbn10 = unguard(r['isbn']).replace(/[^0-9Xx]/g, '');
+  // an ISBN is one or nothing: hyphens and spaces aside, 13 digits, or 9 and a check digit. Reducing "n/a 1" to its
+  // digits made junk cells match each other on a later batch; a cell that isn't one is kept in details, as text
+  const isbn13Raw = unguard(r['isbn13']);
+  const isbn10Raw = unguard(r['isbn']);
+  const isbn13 = isbn13Of(isbn13Raw);
+  const isbn10 = isbn10Of(isbn10Raw);
   const ratingNum = Number.parseInt(r['my_rating'] ?? '', 10); // 0–5 whole stars, 0 = unrated
   const pages = Number.parseInt(r['number_of_pages'] ?? '', 10);
   const ownedNum = Number.parseInt(r['owned_copies'] ?? '', 10);
@@ -1037,11 +1170,10 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
   const tagShelves = new Set(shelves);
   if (exclusive) tagShelves.add(exclusive);
 
-  const details: Record<string, string> = {};
-  for (const [k, v] of Object.entries(r)) {
-    if (!KNOWN_GOODREADS.has(k) && v) details[k] = v;
-  }
+  const details = leftover(r, KNOWN_GOODREADS);
   if (r['book_id']) details['goodreads_book_id'] = r['book_id'];
+  if (isbn13Raw && !isbn13) details['isbn13'] = isbn13Raw;
+  if (isbn10Raw && !isbn10) details['isbn'] = isbn10Raw;
 
   // Read Count: a whole number, or nothing — "abc" isn't a count of anything
   const countRaw = (r['read_count'] ?? '').trim();
@@ -1065,8 +1197,8 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
       mediaType: 'book',
       title: split?.title ?? title,
       creators: [r['author'], r['additional_authors']].filter(Boolean).join(', ') || null,
-      isbn13: isbn13.length === 13 ? isbn13 : null,
-      isbn10Upc: isbn10 || null,
+      isbn13,
+      isbn10Upc: isbn10,
       publisher: r['publisher'] || null,
       published: r['year_published'] || r['original_publication_year'] || null,
       description: null,
@@ -1074,7 +1206,9 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
       status: state.status,
       rating: Number.isFinite(ratingNum) && ratingNum >= 1 && ratingNum <= 5 ? ratingNum * 2 : null,
       review: r['my_review'] ? r['my_review'].replace(/<br\s*\/?>/gi, '\n') : null,
-      notes: r['private_notes'] || null,
+      // Private Notes, then a notes column someone added to the file; a location column likewise (never details)
+      notes: [r['private_notes'], r['notes']].filter(Boolean).join('\n\n') || null,
+      location: oneLine(r['location']),
       copies: Number.isFinite(ownedNum) && ownedNum > 0 ? ownedNum : 0, // default: reading log, not owned
       beganOn: state.beganOn,
       completedOn: state.completedOn,

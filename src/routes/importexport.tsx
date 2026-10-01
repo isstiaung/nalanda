@@ -263,8 +263,10 @@ importexport.post('/api/import', async (c) => {
   const members = new Map(people.map((p) => [p.username, p.id]));
   const tally: PeopleTally = new Map();
   const withOwners = mapped.map((m) => {
-    const { reads, reviews, plays, wants } = attributePeople(m, members, user.id, tally, keepNames);
-    return { ...m, reads, reviews, plays, wants, item: { ...m.item, libraryId, addedBy: user.id } };
+    // quotes too (§16 #77): left as the file names them, every one would be the importer's (quoteInsertStatements);
+    // and who added it, from a Nalanda export's added_by, by the same rule — the importer when the file names nobody
+    const { reads, reviews, plays, wants, quotes, addedBy } = attributePeople(m, members, user.id, tally, keepNames);
+    return { ...m, reads, reviews, plays, wants, quotes, item: { ...m.item, libraryId, addedBy } };
   });
 
   if (body.dryRun) {
@@ -314,12 +316,13 @@ importexport.post('/api/import', async (c) => {
     });
   }
 
+  // `format` too: after a failed batch the page says what a re-run would do, which depends on it (public/import.js)
   if (isGoodreads) {
     const { inserted, merged, reads, dated } = await mergeImportItems(c.env.DB, withOwners, false, writerOf(c), dates);
-    return c.json({ inserted, merged, reads, skipped, dated: dates ? dated : 0 });
+    return c.json({ inserted, merged, reads, skipped, dated: dates ? dated : 0, format });
   }
   const inserted = (await importItems(c.env.DB, withOwners)).length;
-  return c.json({ inserted, merged: 0, skipped });
+  return c.json({ inserted, merged: 0, skipped, format });
 });
 
 /**
@@ -438,7 +441,7 @@ export const EXPORT_LOANS = 1000;
  * Items after `afterId` as CSV lines, with their tags, reads, reviews, loans, reading logs, plays, series, wants and
  * purchase links: two D1 calls, the items and one batch for everything beside them (§16 #53). With `loanLimit`, a page
  * ends before it would carry more loans than that, and an item with more of its own goes out alone, for a third call.
- * `more` says another page may follow.
+ * `more` says another page may follow. `people` names each item's adder (`added_by`), read once per request.
  */
 async function exportRows(
   d1: D1Database,
@@ -446,6 +449,7 @@ async function exportRows(
   afterId: number,
   limit: number,
   libNames: Map<number, string>,
+  people: Map<number, string>,
   loanLimit?: number,
 ): Promise<{ csv: string; count: number; lastId: number; more: boolean }> {
   let items = await pageItems(d1, { libraryId: scope, afterId, limit });
@@ -484,6 +488,7 @@ async function exportRows(
       cells.editions.get(item.id) ?? [],
       cells.quotes.get(item.id) ?? [],
       cells.borrows.get(item.id) ?? [],
+      item.addedBy === null ? null : (people.get(item.addedBy) ?? null),
     );
   }
   return { csv, count: items.length, lastId: items.at(-1)!.id, more };
@@ -494,8 +499,10 @@ importexport.get('/export.csv', async (c) => {
   const scope = Number.isInteger(libraryId) ? libraryId : undefined;
   const after = c.req.query('after');
   if (after !== undefined && !/^\d{1,15}$/.test(after)) return c.text('after must be an item id', 400);
-  const libs = await listLibraries(c.env.DB);
+  // the shelves' names and the members' (for added_by), once for every page of the export
+  const [libs, members] = await Promise.all([listLibraries(c.env.DB), listPeople(c.env.DB)]);
   const libNames = new Map(libs.map((l) => [l.id, l.name]));
+  const people = new Map(members.map((m) => [m.id, m.username]));
   const today = todayOf(c);
   const headers = {
     'content-type': 'text/csv; charset=utf-8',
@@ -508,7 +515,7 @@ importexport.get('/export.csv', async (c) => {
     // one file. The header row leads the first page only; `x-export-next` names where the next page starts,
     // and is missing once a page comes back short — short of items, not ended early for its loans.
     const afterId = Number(after);
-    const page = await exportRows(c.env.DB, scope, afterId, EXPORT_PAGE, libNames, EXPORT_LOANS);
+    const page = await exportRows(c.env.DB, scope, afterId, EXPORT_PAGE, libNames, people, EXPORT_LOANS);
     return new Response((afterId === 0 ? csvLine([...EXPORT_COLUMNS]) : '') + page.csv, {
       headers: {
         ...headers,
@@ -540,7 +547,7 @@ importexport.get('/export.csv', async (c) => {
           return;
         }
         // no loan limit: the whole stream is one invocation, so smaller pages would spend queries and save no CPU
-        const page = await exportRows(d1, scope, afterId, PAGE, libNames);
+        const page = await exportRows(d1, scope, afterId, PAGE, libNames, people);
         if (!page.count) return controller.close();
         controller.enqueue(encoder.encode(page.csv));
         afterId = page.lastId;

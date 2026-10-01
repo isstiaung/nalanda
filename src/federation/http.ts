@@ -11,6 +11,7 @@ import {
   PROTOCOL,
   PROTOCOL_VERSION,
 } from './config';
+import { cleanVisibleText } from '../lib/names';
 import { isPublicJwk, type Identity, type PublicJwk } from './keys';
 import { signRequest } from './signatures';
 
@@ -118,8 +119,22 @@ export function parseJson(bytes: Uint8Array | null): unknown {
   }
 }
 
+/**
+ * A household's name as any instance may send it — this one's own, typed into Connections, or a peer's from its
+ * descriptor or connect request: a string of at most MAX_HOUSEHOLD_NAME characters with something left once
+ * `cleanHouseholdName()` has been over it. Every name from another instance is kept cleaned, never as sent.
+ */
 export function isHouseholdName(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0 && value.length <= MAX_HOUSEHOLD_NAME;
+  return typeof value === 'string' && value.length <= MAX_HOUSEHOLD_NAME && cleanHouseholdName(value) !== null;
+}
+
+/**
+ * The name as it is kept: control and format characters — a bidi override that would reorder the text around it on
+ * the Connections page, in a notification or a loan's borrower — taken out as from a display name typed here
+ * (`cleanVisibleText`), whitespace collapsed, cut to MAX_HOUSEHOLD_NAME characters. Null when nothing is left.
+ */
+export function cleanHouseholdName(value: string): string | null {
+  return cleanVisibleText(value, MAX_HOUSEHOLD_NAME);
 }
 
 export function isDescriptor(value: unknown): value is Descriptor {
@@ -155,7 +170,8 @@ export async function fetchDescriptor(baseUrl: string): Promise<Descriptor | nul
     return null;
   }
   const data = parseJson(await readLimited(res, MAX_DESCRIPTOR_BYTES));
-  return isDescriptor(data) && data.url === baseUrl ? data : null;
+  // the name cleaned on the way in: isDescriptor has already found something in it
+  return isDescriptor(data) && data.url === baseUrl ? { ...data, name: cleanHouseholdName(data.name)! } : null;
 }
 
 /** A signed request to another instance. Null if it couldn't be reached at all. */

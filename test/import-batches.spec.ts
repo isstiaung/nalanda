@@ -16,11 +16,9 @@ const page = {
   preview: undefined as Handler | undefined,
   picked: undefined as (() => void) | undefined, // the file input's change: a new file drops the rows parsed before
   dates: { checked: false }, // the box: a matched book's date added from the file too (§16 #90)
+  buttons: { run: { disabled: false }, preview: { disabled: false } }, // Import and Preview, as the script enables and disables them
 };
-const button = (name: 'run' | 'preview') => ({
-  disabled: false,
-  addEventListener: (_type: string, handler: Handler) => (page[name] = handler),
-});
+const button = (name: 'run' | 'preview') => Object.assign(page.buttons[name], { addEventListener: (_type: string, handler: Handler) => (page[name] = handler) });
 
 beforeAll(async () => {
   const elements: Record<string, unknown> = {
@@ -41,15 +39,20 @@ beforeAll(async () => {
   await import('../public/import.js');
 });
 
-/** Presses Import with `csv` as the chosen file; returns each batch's rows and loans as posted. */
-async function importFile(csv: string, cookie: string) {
+/**
+ * Presses Import with `csv` as the chosen file; returns each batch's rows and loans as posted. With `failAt`, that batch
+ * (counting from 0) is answered with a 500 instead of reaching the app, as a batch the server refused would be.
+ */
+async function importFile(csv: string, cookie: string, failAt?: number) {
   page.file.text = async () => csv;
   page.picked!();
   const posted: Array<{ rows: number; loans: number }> = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const body = JSON.parse(String(init.body)) as { rows: Array<Record<string, string>> };
+    const n = posted.length;
     posted.push({ rows: body.rows.length, loans: body.rows.reduce((n, r) => n + (r.loans ? r.loans.split(';').length : 0), 0) });
+    if (n === failAt) return new Response('{"error":"refused"}', { status: 500, headers: { 'content-type': 'application/json' } });
     const ctx = createExecutionContext();
     const res = await app.fetch(
       new Request(new URL(String(input), 'http://nalanda.test'), { ...init, headers: { ...(init.headers as object), cookie, origin: 'http://nalanda.test' } }),
@@ -141,5 +144,41 @@ describe('a Goodreads re-import with "also set the date added" ticked (§16 #90)
     rows = await dates();
     expect(rows[0]).toEqual({ title: 'Piranesi', at: '2019-03-12 00:00:00', made: before });
     page.dates.checked = false;
+  });
+});
+
+describe('a batch that fails partway', () => {
+  it('says what a re-run would do for the format — only the reading-site imports merge — and leaves Import pressable', async () => {
+    const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
+    const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;
+    page.library.value = String((await createLibrary(env.DB, 'Main')).id);
+    const count = async () => (await env.DB.prepare('SELECT count(*) AS n FROM items').first<{ n: number }>())!.n;
+
+    // a libib file, three batches, the second refused: the first 200 rows landed, and a re-run would add them again
+    const libib = ['item_type,title', ...Array.from({ length: 450 }, (_, i) => `book,Book ${i}`)].join('\n');
+    expect((await importFile(libib, cookie, 1)).map((b) => b.rows)).toEqual([200, 200]); // stopped there
+    expect(page.status.textContent).toContain('Batch at row 200 failed (500) — stopped. 200 rows added so far, from the first 200 rows of the file; re-running the whole file would add them again');
+    expect(page.status.textContent).not.toContain('merge');
+    expect(page.buttons.run.disabled).toBe(false); // it stayed greyed out before
+    expect(page.buttons.preview.disabled).toBe(false);
+    expect(await count()).toBe(200);
+
+    // a Goodreads file: the rows that landed match on a re-run, so it says so
+    const goodreads = ['Title,Author,Exclusive Shelf', ...Array.from({ length: 250 }, (_, i) => `Read ${i},Someone,to-read`)].join('\n');
+    await importFile(goodreads, cookie, 1);
+    expect(page.status.textContent).toContain('Batch at row 200 failed (500) — stopped. 200 rows added and 0 merged so far; re-run after fixing — rows already imported match and merge rather than duplicate.');
+    expect(page.buttons.run.disabled).toBe(false);
+    expect(await count()).toBe(400);
+
+    // the first batch refused: nothing landed, whatever the format
+    await importFile(goodreads, cookie, 0);
+    expect(page.status.textContent).toContain('Batch at row 0 failed (500) — stopped. Nothing was imported; re-run after fixing.');
+    expect(page.buttons.run.disabled).toBe(false);
+    expect(await count()).toBe(400);
+
+    // and a run that goes through still ends with both pressable
+    await importFile(goodreads, cookie);
+    expect(page.status.textContent).toMatch(/^Done: 50 items added, 200 merged onto existing items/);
+    expect(page.buttons.run.disabled).toBe(false);
   });
 });

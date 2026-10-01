@@ -35,8 +35,11 @@ is a row with no ISBN *and* a title/author spelled differently between runs.
 ## Matching and merge rules
 
 A row is matched to an existing item by, in order: **ISBN-13 → ISBN-10 → normalized
-title + first-author surname** (series suffixes like "(The Broken Earth, #1)",
-subtitles after ":", and initials spacing are ignored). On a match:
+title + first author** (series suffixes like "(The Broken Earth, #1)", subtitles after ":",
+and initials are ignored; titles in any script count; the surname and then the whole name
+must agree, written either way round — "Ursula Le Guin", "Ursula K. Le Guin" and "Le Guin,
+Ursula K." are one person, but Brian Herbert's *Dune: House Atreides* never merges onto Frank
+Herbert's *Dune*). On a match:
 
 - **Goodreads wins** for *your* rating and review, and for the book's private notes — but a
   field Goodreads has no value for never blanks what's already in Nalanda. Another member's
@@ -84,7 +87,7 @@ time, not its history — and connections keep every reference they hold.
 |---|---|
 | `Title`, `Author` + `Additional Authors`, `Publisher` | title, creators, publisher |
 | a `Title`'s series suffix, e.g. "The Gunslinger (The Dark Tower, #1)" | a new book's series and number — the title keeps the rest ("The Gunslinger"). Only the first of several series; an omnibus "#1-4" gets the series without a number. A book the row merges into keeps its own title and series |
-| `ISBN13` / `ISBN` (Excel guard `="…"` stripped) | `isbn13` / `isbn10_upc` |
+| `ISBN13` / `ISBN` (Excel guard `="…"` stripped) | `isbn13` / `isbn10_upc` — only when the cell is one (13 digits, or nine and a check digit, hyphens aside); anything else stays in details as text and is never matched on |
 | `My Rating` (0–5 whole stars, 0 = unrated) | your half-star rating (×2) |
 | `Exclusive Shelf` | reads, and so status: read → a finished read, currently-reading → an open read, a dnf/abandoned shelf → a stopped read, to-read → none |
 | `My Review` (`<br/>` → line breaks) | your review |
@@ -97,6 +100,7 @@ time, not its history — and connections keep every reference they hold.
 | `Owned Copies` | copies — 0 (the Goodreads default) = "Not owned" reading-log entry |
 | `Date Added` | the book's date added — always for a new entry, for a matched one only with the box ticked |
 | `Book Id` | `goodreads_book_id` in details |
+| `Location`, `Notes`, if you added them — or any column of a Nalanda export (`loans`, `reads`, the dates, grades, prices…) | the private location and notes; everything else private is dropped — nothing of it ever lands in details, which share pages show |
 | anything else (`Average Rating`, `Binding`, …) | kept losslessly in the item's details JSON |
 
 Rows without a title are skipped and counted; nothing is silently dropped.

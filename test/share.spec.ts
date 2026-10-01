@@ -101,6 +101,18 @@ describe('share whitelist', () => {
     for (const forbidden of ['rereading', 'reads', 'beganOn', 'completedOn', 'status']) expect(twice).not.toHaveProperty(forbidden);
   });
 
+  it('never claims a read of a Not owned item: no read count, no progress, whatever the household read (§16 #13)', () => {
+    const notOwned = { ...item, copies: 0, readCount: 3, status: 'in_progress' as const, rereading: true, progressPage: 50 };
+    const pub = toPublicItem(notOwned, { progress: true }) as Record<string, unknown>;
+    expect(pub.inCollection).toBe(false);
+    expect(pub).not.toHaveProperty('readCount');
+    expect(pub).not.toHaveProperty('progress');
+    // negative control: owned, the same item says both
+    const owned = toPublicItem({ ...notOwned, copies: 1 }, { progress: true });
+    expect(owned.readCount).toBe(3);
+    expect(owned.progress).toMatchObject({ page: 50 });
+  });
+
   it('tolerates broken details JSON', () => {
     expect(toPublicItem({ ...item, details: 'not json{' }).details).toEqual({});
   });

