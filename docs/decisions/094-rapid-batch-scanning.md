@@ -38,12 +38,26 @@ requests in a row.
   lands: added and already-here entries leave the device's queue and become a line with the title;
   an unknown barcode **stays on the list** with **Add by hand**, which opens the manual form with
   the barcode filled in (`GET /add?barcode=…`). The status line (`aria-live`) reports "N added, M
-  already here, K not found" and points at the cover backfill.
+  already here, P maybe already here, K not found" and points at the cover backfill.
+- **Maybe already here — held, never added.** A fifth of a catalogue's books carry no number at
+  all (Goodreads reading-log entries, mostly) and would be added again by their barcode. A found
+  book that no number matched is met against the catalog's ISBN-less books by title and author —
+  `isbnlessBookIndex()`, the `TitleIndex` the Goodreads-style imports and the Kindle import match
+  with (stem and surname, then the whole first-author name, so Brian Herbert's *Dune: House
+  Atreides* never meets Frank Herbert's *Dune*) — one more query, loaded only when such a book is in
+  the batch. A hit is **held, not added**: the report counts it as the third number, the entry
+  names the catalog's copy, linked, "(Not owned)" when it is — its page's Holding toggle is then the
+  likely next step — and keeps **Look up** to decide; the review entry gains no new control for it.
+  Beside that, a book catalogued with only its **ISBN-10** is found when its EAN-13 is scanned:
+  `catalogMatches()` carries the ISBN-10 a 978 EAN stands for (`isbn10OfEan()`, the inverse of
+  `isbn13Of()`) as one more key in its one query, hyphens and case aside; a 979 EAN has none.
 - **Why 20.** A Worker invocation may make 50 outbound requests. Twenty codes × two book providers
   is 40, a record's single Discogs request fewer, and nothing else in the request goes outside — so
   a batch stays under the cap with room to spare, whatever mix of books and records it holds.
   D1: the session, the shelf with the household's settings, the catalog check (two calls when
-  something matched), the insert — four or five calls for twenty items.
+  something matched), the ISBN-less index (only when a found book matched no number), the matched
+  titles (only when something matched), the insert — four to six calls for twenty items, pinned in
+  the tests.
 - **Bare records, by design.** What the lookup's JSON carries and nothing fetched for it: title,
   creators, publisher, published, ISBNs, length, a description when Google Books' answer had one,
   the series Open Library names, the household's language unless the provider said (#76), a
@@ -68,12 +82,15 @@ online scans (one shape, one owner stamp, one "Add all"); looking the whole list
 (what #48 did, two at a time — now only on **Look up** or **Add all**, so an open list costs
 nothing); more than twenty a request, or a server-side loop over the list (one request's budget);
 adding anything unseen beyond what the report names — every item added is listed by title, and is
-an item the trash takes back.
+an item the trash takes back; adding on a title match (a maybe is only ever named — the imports
+merge on one, a run of scans doesn't).
 
 Tests: `test/scan-batch.spec.ts` (the endpoint: owner mismatch, the caps, bare records in one
-batch with their writer, already-here by ISBN-13, ISBN-10 and a record's barcode, a twin in one
-run, not-found reported and nothing inserted, nothing fetched but the providers, a full twenty in
-four D1 calls, the page's box, status line and prefill) and `test/scan-batch-browser.spec.ts` (the
+batch with their writer, already-here by ISBN-13, by ISBN-10, by a record's barcode and for an
+ISBN-10-only book by its EAN-13, a twin in one run, a maybe held with nothing inserted and the
+index asked once — the same title by another author added — the call counts pinned, not-found
+reported and nothing inserted, nothing fetched but the providers, a full twenty in five D1 calls,
+the page's box, status line and prefill) and `test/scan-batch-browser.spec.ts` (the
 browser loop against the Worker: twenty a request, a repeat once, stopping at a refused batch, a
 lapsed session read as signed out). Amends #48: its review list no longer looks each entry up on
 load.
