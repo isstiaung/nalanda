@@ -69,6 +69,9 @@ for a surface before changing anything it shows to someone outside the household
   (`toPublicItem()` and `toConnectionItem()` have no key for them), the Borrowed pill is inside the
   app, and the Holding filter's Borrowed choice rides in `StaleFilter`, outside `ItemFilters`, so no
   share link can capture it.
+- **Item history** (ARCH.md §16 #84) is admin-only and inside the app: `item_history` holds before and
+  after values of an item's own fields — notes and location among them — and who changed them; no
+  whitelist has a key for it, and a share page's bytes are unchanged by it.
 
 ## Gift lists, want lists and purchase links
 
