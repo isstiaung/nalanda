@@ -3536,6 +3536,7 @@ export async function existingForWant(d1: D1Database, c: CatalogProbe): Promise<
 }
 
 export type ExportCells = {
+  customFields: CustomField[]; // the household's fields (§16 #95), read in the same batch: their names key each line's `custom` cell
   tags: Map<number, string[]>;
   progress: Map<number, ProgressEntry[]>;
   reads: Map<number, Array<ReadRow & { reader: string | null }>>;
@@ -3602,6 +3603,7 @@ export async function exportCellsForIdRange(
       `SELECT item_id AS itemId, lender AS borrower, borrowed_on AS loanedOn, due_on AS dueOn, returned_on AS returnedOn, contact, note
        FROM borrows WHERE item_id BETWEEN ?1 AND ?2 ${scoped('item_id')} ORDER BY item_id, id`,
     ),
+    customFieldsStatement(d1),
   ]);
   const rowsOf = <T,>(i: number) => (results[i]?.results ?? []) as Array<T & { itemId: number }>;
   const group = <T, U>(rows: Array<T & { itemId: number }>, pick: (r: T & { itemId: number }) => U) => {
@@ -3632,6 +3634,7 @@ export async function exportCellsForIdRange(
       source: r.source,
     })),
     borrows: group(rowsOf<LoanDraft>(11), (r) => ({ borrower: r.borrower, loanedOn: r.loanedOn, dueOn: r.dueOn, returnedOn: r.returnedOn, contact: r.contact, note: r.note })),
+    customFields: customFieldsOf(results[12]),
   };
 }
 
@@ -5166,6 +5169,16 @@ const customFieldsOf = (res: D1Result | undefined): CustomField[] =>
 
 export async function listCustomFields(d1: D1Database): Promise<CustomField[]> {
   return customFieldsOf(await customFieldsStatement(d1).all());
+}
+
+/** The household's settings and its custom fields in one call, for the Members page, which shows both. */
+export async function getSiteSettingsAndCustomFields(d1: D1Database): Promise<{ settings: SiteSettings; customFields: CustomField[] }> {
+  const dbi = db(d1);
+  const [rows, fields] = await dbi.batch([
+    dbi.select().from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
+    dbi.select().from(s.customFields).orderBy(asc(s.customFields.position), asc(s.customFields.id)),
+  ]);
+  return { settings: settingsOf(rows[0]), customFields: fields };
 }
 
 /**

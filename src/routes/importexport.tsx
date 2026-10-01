@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { writerOf } from './items';
 import { cleanKindleBook, MAX_KINDLE_BOOKS_PER_REQUEST, MAX_KINDLE_HIGHLIGHTS_PER_REQUEST, type KindleBook } from '../lib/quotes';
-import type { CustomField, MediaType, NewItem } from '../db/schema';
+import type { MediaType, NewItem } from '../db/schema';
 import { MEDIA_TYPES } from '../db/schema';
 import {
   countBackfillable,
@@ -459,7 +459,6 @@ async function exportRows(
   limit: number,
   libNames: Map<number, string>,
   people: Map<number, string>,
-  customFields: CustomField[], // the household's fields (§16 #95), whose names key each line's `custom` cell
   loanLimit?: number,
 ): Promise<{ csv: string; count: number; lastId: number; more: boolean }> {
   let items = await pageItems(d1, { libraryId: scope, afterId, limit });
@@ -499,7 +498,7 @@ async function exportRows(
       cells.quotes.get(item.id) ?? [],
       cells.borrows.get(item.id) ?? [],
       item.addedBy === null ? null : (people.get(item.addedBy) ?? null),
-      customFields,
+      cells.customFields, // the household's fields (§16 #95), read in the cells' batch: their names key the `custom` cell
     );
   }
   return { csv, count: items.length, lastId: items.at(-1)!.id, more };
@@ -510,8 +509,8 @@ importexport.get('/export.csv', async (c) => {
   const scope = Number.isInteger(libraryId) ? libraryId : undefined;
   const after = c.req.query('after');
   if (after !== undefined && !/^\d{1,15}$/.test(after)) return c.text('after must be an item id', 400);
-  // the shelves' names, the members' (for added_by) and the custom fields' (for `custom`, §16 #95), once for every page of the export
-  const [libs, members, customFields] = await Promise.all([listLibraries(c.env.DB), listPeople(c.env.DB), listCustomFields(c.env.DB)]);
+  // the shelves' names and the members' (for added_by), once for every page of the export
+  const [libs, members] = await Promise.all([listLibraries(c.env.DB), listPeople(c.env.DB)]);
   const libNames = new Map(libs.map((l) => [l.id, l.name]));
   const people = new Map(members.map((m) => [m.id, m.username]));
   const today = todayOf(c);
@@ -526,7 +525,7 @@ importexport.get('/export.csv', async (c) => {
     // one file. The header row leads the first page only; `x-export-next` names where the next page starts,
     // and is missing once a page comes back short — short of items, not ended early for its loans.
     const afterId = Number(after);
-    const page = await exportRows(c.env.DB, scope, afterId, EXPORT_PAGE, libNames, people, customFields, EXPORT_LOANS);
+    const page = await exportRows(c.env.DB, scope, afterId, EXPORT_PAGE, libNames, people, EXPORT_LOANS);
     return new Response((afterId === 0 ? csvLine([...EXPORT_COLUMNS]) : '') + page.csv, {
       headers: {
         ...headers,
@@ -558,7 +557,7 @@ importexport.get('/export.csv', async (c) => {
           return;
         }
         // no loan limit: the whole stream is one invocation, so smaller pages would spend queries and save no CPU
-        const page = await exportRows(d1, scope, afterId, PAGE, libNames, people, customFields);
+        const page = await exportRows(d1, scope, afterId, PAGE, libNames, people);
         if (!page.count) return controller.close();
         controller.enqueue(encoder.encode(page.csv));
         afterId = page.lastId;

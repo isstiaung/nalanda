@@ -7,9 +7,8 @@ import {
   createUser,
   deleteCustomField,
   deleteUser,
-  getSiteSettings,
+  getSiteSettingsAndCustomFields,
   getUserById,
-  listCustomFields,
   listUsers,
   setDisplayName,
   setPassword,
@@ -342,7 +341,8 @@ type UsersPageExtras = Partial<Pick<Parameters<typeof UsersPage>[0], 'minted' | 
 
 /** The Members page with everything it lists — the members, the household's settings and its custom fields — read in parallel; `status` for a refusal shown on it. */
 async function membersPage(c: Context<AppEnv>, extras: UsersPageExtras = {}, status?: ContentfulStatusCode) {
-  const [users, site, fields] = await Promise.all([listUsers(c.env.DB), getSiteSettings(c.env.DB), listCustomFields(c.env.DB)]);
+  // the settings and the custom fields in one call (§16 #95): the page makes the calls it did before fields existed
+  const [users, { settings: site, customFields: fields }] = await Promise.all([listUsers(c.env.DB), getSiteSettingsAndCustomFields(c.env.DB)]);
   if (status) c.status(status);
   return page(c, 'Members', <UsersPage users={users} self={c.get('user').id} currency={site.currency} language={site.language} fields={fields} {...extras} />);
 }
