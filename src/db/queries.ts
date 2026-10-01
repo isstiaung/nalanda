@@ -1797,6 +1797,26 @@ export async function deleteSavedView(d1: D1Database, libraryId: number, id: num
   return res.meta.changes > 0;
 }
 
+// ---------- share feeds (ARCH.md §16 #86) ----------
+
+/** A share link's feed: the newest items among those it exposes, each with when it was added — never a read's date. */
+export async function feedItems(d1: D1Database, libraryId: number | null, f: ItemFilters, limit: number): Promise<Array<{ item: Item; at: string }>> {
+  const rows = await db(d1).select().from(s.items).where(itemFilterWhere(libraryId, f)).orderBy(desc(s.items.addedAt), desc(s.items.id)).limit(limit);
+  return rows.map((item) => ({ item, at: item.addedAt }));
+}
+
+/** A gift list's feed (§16 #53): the member's newest wants among the items the list exposes, each dated by the want. */
+export async function wantFeedItems(d1: D1Database, userId: number, f: ItemFilters, limit: number): Promise<Array<{ item: Item; at: string }>> {
+  const rows = await db(d1)
+    .select({ item: s.items, at: s.wants.createdAt })
+    .from(s.wants)
+    .innerJoin(s.items, eq(s.items.id, s.wants.itemId))
+    .where(and(eq(s.wants.userId, userId), itemFilterWhere(null, f)))
+    .orderBy(desc(s.wants.createdAt), desc(s.items.id))
+    .limit(limit);
+  return rows.map((r) => ({ item: r.item, at: r.at }));
+}
+
 // ---------- full-text search ----------
 
 /**
