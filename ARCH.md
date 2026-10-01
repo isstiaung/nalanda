@@ -250,10 +250,11 @@ CREATE TABLE login_attempts (   -- login throttling (§8); old rows pruned oppor
   attempted_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Full-text search (D1 supports FTS5); kept in sync with items via triggers.
+-- Full-text search (D1 supports FTS5); kept in sync with items via triggers — the update trigger
+-- fires only for these columns (0054), so an update of anything else writes no index rows.
 -- Lives in a hand-written custom migration alongside the drizzle-generated ones.
 CREATE VIRTUAL TABLE items_fts USING fts5(
-  title, creators, description, notes, location,   -- location since 0029 (§16 #51)
+  title, creators, description, notes, location, original_title,   -- location since 0029 (§16 #51), original_title 0045 (§16 #76)
   content='items', content_rowid='id'
 );
 ```

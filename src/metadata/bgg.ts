@@ -56,6 +56,10 @@ const parser = new XMLParser({
   ignoreAttributes: false,
   attributeNamePrefix: '@_',
   isArray: (name) => name === 'item' || name === 'link' || name === 'name',
+  // Every element's text stays text. Left to the parser's default, a description that is all digits — the game
+  // "1830" describes itself as "1830" — came back as a number, the string methods decoding it threw, and that one
+  // game failed the whole search page. Attributes (ids, years, values) are text already; num() reads them.
+  parseTagValue: false,
 });
 
 async function fetchText(url: string, token: string): Promise<string> {
@@ -137,6 +141,18 @@ function toCandidate(item: ThingItem): Candidate | null {
   };
 }
 
+/**
+ * toCandidate, with a record that can't be read — a description holding markup where text belongs, say — given
+ * as no game rather than a throw: one such game among a page's eight is skipped, not the page.
+ */
+function candidateOf(item: ThingItem): Candidate | null {
+  try {
+    return toCandidate(item);
+  } catch {
+    return null;
+  }
+}
+
 /** A name folded for comparison: lower case, accents and punctuation gone, spaces collapsed. */
 function fold(text: string): string {
   return text
@@ -209,7 +225,7 @@ export async function bggGame(token: string, id: number): Promise<BggGameResult>
   if (!doc || typeof doc !== 'object' || !('items' in doc)) return { ok: false, failure: 'unavailable' };
   // an unknown id answers 200 with an empty <items>; the one asked for is the only one that counts
   const item = (doc.items?.item ?? []).find((i) => num(i['@_id']) === id);
-  const game = item ? toCandidate(item) : null;
+  const game = item ? candidateOf(item) : null;
   return game ? { ok: true, game } : { ok: false, failure: 'not_found' };
 }
 
@@ -233,7 +249,7 @@ export function bgg(token: string | undefined): MetadataProvider & { searchPage(
     const candidates = ids
       .map((id) => byId.get(id))
       .filter((item): item is ThingItem => !!item)
-      .map(toCandidate)
+      .map(candidateOf)
       .filter((c): c is Candidate => !!c);
     return { candidates, more: ranked.length > page * PAGE_SIZE };
   }
