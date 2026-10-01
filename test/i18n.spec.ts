@@ -77,6 +77,37 @@ describe('the strings table', () => {
 
 const lang = (page: string) => page.match(/<html lang="([a-z]+)">/)?.[1];
 
+describe('the display faces', () => {
+  it('serves Eczar’s Devanagari and Tiro Tamil beside the Latin Eczar, each declared for its own range only', async () => {
+    // vendored by scripts/vendor.mjs, served as static files (the test-only ASSETS binding, as the service worker's spec reads them)
+    for (const path of [
+      '/vendor/fonts/eczar-latin-600-normal.woff2',
+      '/vendor/fonts/eczar-devanagari-600-normal.woff2',
+      '/vendor/fonts/eczar-devanagari-700-normal.woff2',
+      '/vendor/fonts/tiro-tamil-tamil-400-normal.woff2',
+      '/vendor/fonts/eczar.LICENSE.txt',
+      '/vendor/fonts/tiro-tamil.LICENSE.txt',
+    ]) {
+      const res = await env.ASSETS.fetch(`http://nalanda.test${path}`, { redirect: 'manual' });
+      expect(res.status, path).toBe(200);
+      expect((await res.arrayBuffer()).byteLength, path).toBeGreaterThan(100);
+    }
+    const css = await (await env.ASSETS.fetch('http://nalanda.test/app.css')).text();
+    // the Latin faces take every title; the Devanagari faces, declared after them, take Devanagari's own range
+    expect(css).toMatch(/font-family: 'Eczar';[^}]*eczar-latin-600-normal\.woff2[^}]*\}/);
+    expect(css).not.toMatch(/font-family: 'Eczar';[^}]*eczar-latin-600-normal\.woff2[^}]*unicode-range/);
+    expect(css).toMatch(/font-family: 'Eczar';[^}]*font-weight: 600;[^}]*eczar-devanagari-600-normal\.woff2[^}]*unicode-range: U\+0900-097F, U\+1CD0-1CF9/);
+    expect(css).toMatch(/font-family: 'Eczar';[^}]*font-weight: 700;[^}]*eczar-devanagari-700-normal\.woff2[^}]*unicode-range: U\+0900-097F/);
+    expect(css.indexOf('eczar-latin-700-normal')).toBeLessThan(css.indexOf('eczar-devanagari-600-normal'));
+    // Tiro Tamil: Tamil's range alone, so a Latin heading never falls to it, and never its Latin subsets
+    expect(css).toMatch(/font-family: 'Tiro Tamil';[^}]*tiro-tamil-tamil-400-normal\.woff2[^}]*unicode-range: U\+0964-0965, U\+0B82-0BFA/);
+    expect(css).not.toContain('tiro-tamil-latin');
+    expect(css).toContain("--serif: 'Eczar', 'Tiro Tamil', ");
+    // the brand's नालन्दा sets in Eczar now
+    expect(css).toMatch(/\.brand-deva \{ font-family: var\(--serif\);/);
+  });
+});
+
 async function calls(who: Member, path: string): Promise<number> {
   const budget = { left: 1000 };
   const ctx = createExecutionContext();

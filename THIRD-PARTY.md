@@ -16,11 +16,16 @@ into `public/vendor/` next to the assets themselves.
 | htmx | [`htmx.org`](https://htmx.org) | 0BSD | `public/vendor/htmx.LICENSE.txt` |
 | ZXing barcode decoder (JS + WASM) | [`zxing-wasm`](https://github.com/Sec-ant/zxing-wasm) | MIT | `public/vendor/zxing/LICENSE.txt` |
 | QR Code Generator for JavaScript | [`qrcode-generator`](https://github.com/kazuhikoarase/qrcode-generator) | MIT | the header of `public/vendor/qrcode.js` (the package ships no separate file) |
-| Eczar (display face, Latin subset) | [`@fontsource/eczar`](https://fonts.google.com/specimen/Eczar) | SIL OFL 1.1 | `public/vendor/fonts/eczar.LICENSE.txt` |
+| Eczar (display face, Latin and Devanagari subsets) | [`@fontsource/eczar`](https://fonts.google.com/specimen/Eczar) | SIL OFL 1.1 | `public/vendor/fonts/eczar.LICENSE.txt` |
+| Tiro Tamil (display face for Tamil titles, Tamil subset) | [`@fontsource/tiro-tamil`](https://fonts.google.com/specimen/Tiro+Tamil) | SIL OFL 1.1 | `public/vendor/fonts/tiro-tamil.LICENSE.txt` |
 
 Eczar is by the [Eczar Project Authors](https://github.com/rosettatype/eczar), copyright
 2014. The OFL requires that the font be distributed with its license and that any derived
 font not use the reserved name — Nalanda ships the woff2 files unmodified.
+
+Tiro Tamil is by the [Indigo Project Authors](https://github.com/TiroTypeworks/Indigo) (Tiro
+Typeworks), copyright 2020, under the same licence and the same terms: Nalanda ships its Tamil
+subset's woff2 unmodified, beside the licence, and only for the Tamil range (ARCH.md §16 #93).
 
 ### BoardGameGeek's "Powered by BGG" logo
 

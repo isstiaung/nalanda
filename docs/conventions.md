@@ -148,7 +148,8 @@ constraints bullets.
   Pala-era scriptorium: palm-leaf buff paper, lampblack ink, indigo working accent,
   vermilion rubrication reserved for circulation/danger, turmeric gold for ratings,
   monospace for all data (counts, ISBNs, dates, pills, accession numbers via `accNo()`),
-  Eczar (vendored woff2, Devanagari-first face) for page titles and brand only, light +
+  Eczar (vendored woff2, Latin and Devanagari subsets — Tiro Tamil behind it for Tamil headings,
+  declared for Tamil's range alone, §16 #93) for page titles and brand only, light +
   dark (lamp-lit) via `prefers-color-scheme`. The brand hangs from its vermilion
   headstroke (śirorekhā) — that rule lives in `.brand-rule` only. Extend with the
   existing tokens/components (`.pill`, `.data-table`, `.props`, `.eyebrow`) — don't add

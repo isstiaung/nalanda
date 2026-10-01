@@ -49,6 +49,14 @@ imported by an admin, or as a pull request that ships to everyone.
   JSON, `updated_at`), and the household's strings override the shipped ones key by key — on share
   pages too. Remove clears it. Backups carry the table; `users.locale` is a member's setting, not
   item data, so it is not in the CSV export.
+- **The faces.** Eczar is a Devanagari-first design, but only its Latin subset was vendored: its
+  Devanagari subset (600 and 700) now ships beside it in `public/vendor/fonts/`, declared in
+  `app.css` for Devanagari's own `unicode-range` (the subset's, from `@fontsource/eczar`'s CSS),
+  so a Hindi title and the brand's नालन्दा set in Eczar and Latin stays as it was. Eczar has no
+  Tamil: `--serif` falls through `'Eczar', 'Tiro Tamil', …`, with Tiro Tamil (`@fontsource/tiro-tamil`,
+  SIL OFL 1.1, one weight) vendored as its Tamil subset alone and declared for Tamil's range alone,
+  so a Tamil heading uses it and a Latin one never does. Both are in the service worker's `STATIC`
+  (`VERSION` 2) and THIRD-PARTY.md; nothing is fetched from a CDN.
 - **The scope of this step** ("step 1 and a bit"): the layout (sidebar, mobile bar, skip link, brand
   line), log in and setup, the Overview, a shelf's page with its filter bar, presets and views bar,
   an item page's labels, pills and buttons, the Add page, Account, Members, Import/export's headings

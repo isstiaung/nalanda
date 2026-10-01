@@ -34,7 +34,8 @@ deployment's shape from this file.
 - Styling: the hand-written design system in `public/app.css`, "the manuscript ledger" (ARCH.md
   §16 #16) — no CSS framework. Indigo working accent; vermilion only for circulation/danger;
   turmeric gold for ratings; monospace for all data (counts, ISBNs, dates, pills, `accNo()`);
-  Eczar for page titles and brand only; light + lamp-lit dark via `prefers-color-scheme`; the
+  Eczar (Latin + Devanagari, Tiro Tamil behind it for Tamil, §16 #93) for page titles and brand only;
+  light + lamp-lit dark via `prefers-color-scheme`; the
   vermilion headstroke rule lives in `.brand-rule` only. Extend the existing tokens/components
   (`.pill`, `.data-table`, `.props`, `.eyebrow`) — don't add frameworks (docs/conventions.md).
 - htmx and ZXing-WASM are pinned devDependencies copied to `public/vendor/` by
