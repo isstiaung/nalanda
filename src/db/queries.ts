@@ -1,4 +1,4 @@
-// All D1 access lives here (plus src/lib/covers.ts for R2) — ARCH.md §13.
+// All D1 access lives here (plus src/lib/covers.ts and src/lib/fonts.ts for R2) — ARCH.md §13.
 import { and, asc, count, desc, eq, getTableColumns, gt, gte, inArray, isNull, lte, or, sql, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { newSessionKey } from '../lib/auth';
@@ -22,6 +22,7 @@ import { countName, nameKey, sortNames, splitCreators, type NameCount } from '..
 import { CUSTOM_FIELD_LIMIT } from '../lib/custom';
 import { MAX_EDITIONS_PER_ITEM, type EditionDraft } from '../lib/formats';
 import { DEFAULT_LANGUAGE, isLanguageCode } from '../lib/language';
+import { displayFaceOf, type DisplayFace } from '../lib/fonts';
 import { locales, parseTranslation, resolveLocale, type Locale, type Overrides } from '../i18n';
 import { MAX_PROGRESS_PER_READ } from '../lib/progress';
 import { MAX_QUOTES_PER_ITEM, type CellQuote, type KindleBook, type PersonQuote, type QuoteDraft } from '../lib/quotes';
@@ -35,7 +36,7 @@ import { isCurrencyCode, type CurrencyTotal } from '../lib/money';
 import { seriesKey, type SeriesDraft } from '../lib/series';
 import { emptyPlays, emptyStats, PLAYS_TOP, YEAR_TOP, yearRange, type YearReview } from '../lib/yearreview';
 import * as s from './schema';
-import type { Borrow, CustomField, CustomKind, Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Series, Share, User } from './schema';
+import type { Borrow, CustomField, CustomKind, FontFormat, Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Series, Share, User } from './schema';
 
 const db = (d1: D1Database) => drizzle(d1);
 
@@ -157,41 +158,52 @@ function overridesOf(row: { locale: string; strings: string } | undefined): Over
 export async function sessionAccount(
   d1: D1Database,
   id: number,
-): Promise<{ user: User | null; language: string; translation: Overrides | null }> {
+): Promise<{ user: User | null; language: string; translation: Overrides | null; font: DisplayFace | null }> {
   const dbi = db(d1);
   const resolved = sql`(SELECT CASE WHEN u.locale IN (${shippedLocales()}) THEN u.locale WHEN st.language IN (${shippedLocales()}) THEN st.language ELSE ${'en'} END
     FROM users u LEFT JOIN site_settings st ON st.id = 1 WHERE u.id = ${id})`;
-  const [users, settings, rows] = await dbi.batch([
+  const [users, settings, rows, fonts] = await dbi.batch([
     dbi.select().from(s.users).where(eq(s.users.id, id)),
     dbi.select({ language: s.siteSettings.language }).from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
     dbi.select({ locale: s.translations.locale, strings: s.translations.strings }).from(s.translations).where(eq(s.translations.locale, resolved)),
+    // the household's display font for that locale (§16 #96), in the same call: none, and this is simply empty
+    displayFontFor(dbi, resolved),
   ]);
   const language = settings[0]?.language;
   const user = users[0] ?? null;
   const translation = overridesOf(rows[0]);
   // the row is for the locale SQL resolved; the page resolves again in code, and a disagreement — none is possible
-  // while the two rules match — leaves the translation out rather than showing one for another language
+  // while the two rules match — leaves the translation (and the font) out rather than showing one for another language
   const expected = resolveLocale(user, { language: isLanguageCode(language) ? language : DEFAULT_LANGUAGE });
   return {
     user,
     language: isLanguageCode(language) ? language : DEFAULT_LANGUAGE,
     translation: rows[0]?.locale === expected ? translation : null,
+    font: fonts[0]?.locale === expected ? displayFaceOf(fonts[0]) : null,
   };
 }
+
+/** The display font row for a locale resolved in SQL (§16 #96): the one statement every page's batch adds for it. */
+const displayFontFor = (dbi: ReturnType<typeof db>, locale: SQL) =>
+  dbi
+    .select({ locale: s.displayFonts.locale, key: s.displayFonts.key, format: s.displayFonts.format })
+    .from(s.displayFonts)
+    .where(eq(s.displayFonts.locale, locale));
 
 /**
  * What a page with no session renders in (§16 #93) — the login page, setup, a share page: the household's default
  * language and its own translation for the locale that gives, one call.
  */
-export async function householdLocale(d1: D1Database): Promise<{ language: string; translation: Overrides | null }> {
+export async function householdLocale(d1: D1Database): Promise<{ language: string; translation: Overrides | null; font: DisplayFace | null }> {
   const dbi = db(d1);
   const resolved = sql`coalesce((SELECT CASE WHEN language IN (${shippedLocales()}) THEN language ELSE ${'en'} END FROM site_settings WHERE id = 1), ${'en'})`;
-  const [settings, rows] = await dbi.batch([
+  const [settings, rows, fonts] = await dbi.batch([
     dbi.select({ language: s.siteSettings.language }).from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
     dbi.select({ locale: s.translations.locale, strings: s.translations.strings }).from(s.translations).where(eq(s.translations.locale, resolved)),
+    displayFontFor(dbi, resolved), // and the household's display font for it (§16 #96)
   ]);
   const language = settings[0]?.language;
-  return { language: isLanguageCode(language) ? language : DEFAULT_LANGUAGE, translation: overridesOf(rows[0]) };
+  return { language: isLanguageCode(language) ? language : DEFAULT_LANGUAGE, translation: overridesOf(rows[0]), font: displayFaceOf(fonts[0]) };
 }
 
 /**
@@ -201,35 +213,53 @@ export async function householdLocale(d1: D1Database): Promise<{ language: strin
 export async function shareWithLocale(
   d1: D1Database,
   token: string,
-): Promise<{ share: Share | null; language: string; translation: Overrides | null }> {
+): Promise<{ share: Share | null; language: string; translation: Overrides | null; font: DisplayFace | null }> {
   const dbi = db(d1);
   const resolved = sql`coalesce((SELECT CASE WHEN language IN (${shippedLocales()}) THEN language ELSE ${'en'} END FROM site_settings WHERE id = 1), ${'en'})`;
-  const [shares, settings, rows] = await dbi.batch([
+  const [shares, settings, rows, fonts] = await dbi.batch([
     dbi.select().from(s.shares).where(eq(s.shares.token, token || '\u0000')), // '' names no link; the bind keeps the batch's shape
     dbi.select({ language: s.siteSettings.language }).from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
     dbi.select({ locale: s.translations.locale, strings: s.translations.strings }).from(s.translations).where(eq(s.translations.locale, resolved)),
+    displayFontFor(dbi, resolved), // and the household's display font for it (§16 #96)
   ]);
   const language = settings[0]?.language;
-  return { share: token ? (shares[0] ?? null) : null, language: isLanguageCode(language) ? language : DEFAULT_LANGUAGE, translation: overridesOf(rows[0]) };
+  return {
+    share: token ? (shares[0] ?? null) : null,
+    language: isLanguageCode(language) ? language : DEFAULT_LANGUAGE,
+    translation: overridesOf(rows[0]),
+    font: displayFaceOf(fonts[0]),
+  };
 }
+
+/** A household display font as Members lists it (§16 #96): whose language, the file's name, its size and when. */
+export type DisplayFontRow = { locale: string; name: string; bytes: number; uploadedAt: string };
 
 /**
  * Everything the Members page shows beside its members, in one call: the settings, the household's custom fields
- * (§16 #95) and its own interface translations (§16 #93) — the page makes the calls it made before either existed.
+ * (§16 #95), its own interface translations (§16 #93) and its display fonts (§16 #96) — the page makes the calls it
+ * made before any of them existed.
  */
-export async function membersSettings(
-  d1: D1Database,
-): Promise<{ settings: SiteSettings; customFields: CustomField[]; translations: Array<{ locale: string; count: number; updatedAt: string }> }> {
+export async function membersSettings(d1: D1Database): Promise<{
+  settings: SiteSettings;
+  customFields: CustomField[];
+  translations: Array<{ locale: string; count: number; updatedAt: string }>;
+  fonts: DisplayFontRow[];
+}> {
   const dbi = db(d1);
-  const [rows, fields, trs] = await dbi.batch([
+  const [rows, fields, trs, fonts] = await dbi.batch([
     dbi.select().from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
     dbi.select().from(s.customFields).orderBy(asc(s.customFields.position), asc(s.customFields.id)),
     dbi.select().from(s.translations).orderBy(asc(s.translations.locale)),
+    dbi
+      .select({ locale: s.displayFonts.locale, name: s.displayFonts.name, bytes: s.displayFonts.bytes, uploadedAt: s.displayFonts.uploadedAt })
+      .from(s.displayFonts)
+      .orderBy(asc(s.displayFonts.locale)),
   ]);
   return {
     settings: settingsOf(rows[0]),
     customFields: fields,
     translations: trs.map((r) => ({ locale: r.locale, count: Object.keys(overridesOf(r) ?? {}).length, updatedAt: r.updatedAt })),
+    fonts,
   };
 }
 
@@ -254,6 +284,35 @@ export async function setTranslation(d1: D1Database, locale: Locale, strings: Ov
 
 export async function deleteTranslation(d1: D1Database, locale: Locale): Promise<void> {
   await db(d1).delete(s.translations).where(eq(s.translations.locale, locale));
+}
+
+// ---------- the household's display fonts (ARCH.md §16 #96) ----------
+
+/**
+ * Names a stored font as the household's display face for a locale — its object already in R2 — replacing any it
+ * had. The key it replaces is read in the same batch, one transaction, so the route deletes exactly the object no row
+ * names any more; null when the locale had none.
+ */
+export async function setDisplayFont(
+  d1: D1Database,
+  values: { locale: Locale; key: string; format: FontFormat; name: string; bytes: number },
+): Promise<{ before: string | null }> {
+  const dbi = db(d1);
+  const { key, format, name, bytes } = values;
+  const [was] = await dbi.batch([
+    dbi.select({ key: s.displayFonts.key }).from(s.displayFonts).where(eq(s.displayFonts.locale, values.locale)),
+    dbi
+      .insert(s.displayFonts)
+      .values(values)
+      .onConflictDoUpdate({ target: s.displayFonts.locale, set: { key, format, name, bytes, uploadedAt: sql`(datetime('now'))` } }),
+  ]);
+  return { before: was[0]?.key ?? null };
+}
+
+/** Removes a locale's display font; the key its object was under, for the route to delete next, or null. */
+export async function deleteDisplayFont(d1: D1Database, locale: Locale): Promise<string | null> {
+  const [row] = await db(d1).delete(s.displayFonts).where(eq(s.displayFonts.locale, locale)).returning({ key: s.displayFonts.key });
+  return row?.key ?? null;
 }
 
 /**
