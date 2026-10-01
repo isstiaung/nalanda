@@ -7,6 +7,7 @@ import federationRoutes from './federation/routes';
 import { SESSION_COOKIE, sessionMatches, verifySessionToken } from './lib/auth';
 import { serveCover } from './lib/covers';
 import accountRoutes from './routes/account';
+import apiRoutes from './routes/api';
 import addRoutes from './routes/add';
 import authRoutes from './routes/auth';
 import borrowingRoutes from './routes/borrowing';
@@ -87,6 +88,9 @@ app.get('/covers/:key', (c) => serveCover(c.env.COVERS, c.req.param('key')));
 // ---- public: connections between instances — signature-authenticated, 404 unless enabled ----
 // (docs/proposals/connections.md). Peers never hold a session, so this sits before the session middleware.
 app.route('/', federationRoutes);
+
+// ---- the read-only API (ARCH.md §16 #88): a member's token, never a cookie — so it sits before the session middleware ----
+app.route('/', apiRoutes);
 
 // ---- front door: with HOME_SHARE_TOKEN set, anonymous "/" lands on that share ----
 // The token lives in a secret so the front page can be repointed (e.g. after a share

@@ -15,6 +15,9 @@ const files = [
   ['node_modules/zxing-wasm/dist/es/reader/index.js', 'zxing/reader/index.js'],
   ['node_modules/zxing-wasm/dist/es/share.js', 'zxing/share.js'],
   ['node_modules/zxing-wasm/dist/reader/zxing_reader.wasm', 'zxing/zxing_reader.wasm'],
+  // QR codes for share links (ARCH.md §16 #85), drawn in the browser by public/qr.js. The package ships no LICENSE
+  // file: its MIT notice is the header of this very file, so it travels with it.
+  ['node_modules/qrcode-generator/dist/qrcode.js', 'qrcode.js'],
   // Display face for titles/brand (Devanagari-first design, OFL) — see app.css.
   ['node_modules/@fontsource/eczar/files/eczar-latin-600-normal.woff2', 'fonts/eczar-latin-600-normal.woff2'],
   ['node_modules/@fontsource/eczar/files/eczar-latin-700-normal.woff2', 'fonts/eczar-latin-700-normal.woff2'],

@@ -31,7 +31,9 @@ only for deploying, remote migrations, and backups.
 the reasoning behind each choice. If a change alters a decision, update ARCH.md in the same
 PR. [CLAUDE.md](CLAUDE.md) holds the working conventions in short form; their long forms are in
 [docs/privacy.md](docs/privacy.md), [docs/conventions.md](docs/conventions.md) and
-[docs/layout.md](docs/layout.md).
+[docs/layout.md](docs/layout.md). Two guides walk the most common changes in order:
+[docs/adding-a-column.md](docs/adding-a-column.md) and
+[docs/adding-a-provider.md](docs/adding-a-provider.md).
 
 ## Things that will get a PR sent back
 

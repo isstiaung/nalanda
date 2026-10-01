@@ -1,3 +1,4 @@
+import { HISTORY_DAYS, type HistoryEntry } from '../db/queries';
 import type { FC } from 'hono/jsx';
 import type { PastLoan } from '../db/queries';
 import type { Borrow, Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
@@ -116,6 +117,74 @@ export const StatusPill: FC<{ status: ItemStatus }> = ({ status }) => (
 
 /** copies = 0: in the ledger, not on the shelf — a reading-log entry. */
 export const NotOwnedPill: FC = () => <span class="pill ghost">Not owned</span>;
+/** What the history calls each of an item's fields (§16 #84); a column it doesn't know is shown by its name. */
+const HISTORY_FIELD: Record<string, string> = {
+  title: 'Title',
+  creators: 'Creators',
+  publisher: 'Publisher',
+  published: 'Published',
+  description: 'Description',
+  length: 'Length',
+  isbn13: 'ISBN-13',
+  isbn10_upc: 'ISBN-10 / UPC',
+  media_type: 'Type',
+  library_id: 'Shelf',
+  copies: 'Copies',
+  location: 'Location',
+  notes: 'Notes',
+  language: 'Language',
+  original_title: 'Original title',
+  cover_key: 'Cover',
+  formats: 'Held as',
+  series_id: 'Series',
+  series_number: 'Series number',
+  purchase_price: 'Price paid',
+  purchase_currency: 'Currency',
+  media_condition: 'Media condition',
+  sleeve_condition: 'Sleeve condition',
+  details: 'Details',
+};
+
+/**
+ * The item's history (§16 #84), for admins: each change to one of its own fields, newest first — when, who, the field,
+ * before and after. Reads, reviews and plays aren't here: they show who did them already.
+ */
+export const ItemHistory: FC<{ entries: HistoryEntry[] }> = ({ entries }) => (
+  <details class="item-history">
+    <summary>
+      History <small class="muted">· admins only · {entries.length ? `${entries.length} ${entries.length === 1 ? 'change' : 'changes'}` : 'no changes'} in the last {HISTORY_DAYS} days</small>
+    </summary>
+    {entries.length ? (
+      <div class="data-table">
+        <table>
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>Who</th>
+              <th>Field</th>
+              <th>Before</th>
+              <th>After</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((e) => (
+              <tr>
+                <td class="date">{ledgerDateTime(e.at)}</td>
+                <td>{e.by ?? <span class="muted">—</span>}</td>
+                <td>{HISTORY_FIELD[e.field] ?? e.field}</td>
+                <td class="history-value">{e.before ?? <span class="muted">—</span>}</td>
+                <td class="history-value">{e.after ?? <span class="muted">—</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    ) : (
+      <p class="muted">Nothing changed on this item in the last {HISTORY_DAYS} days.</p>
+    )}
+  </details>
+);
+
 /** Borrowed from someone not on Nalanda (§16 #82), beside "Not owned" — in the app only. */
 export const BorrowedPill: FC = () => <span class="pill borrowed">Borrowed</span>;
 

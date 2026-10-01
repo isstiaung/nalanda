@@ -60,6 +60,12 @@ for a surface before changing anything it shows to someone outside the household
 - A shelf's search box (`ItemFilters.q`) matches `location`, so share links and connection views
   must never capture `q` (`shareFilters()`, `shelfPage()` don't) — a view filtered by "loft" would
   publish where things are kept.
+- **A share link's feeds** (ARCH.md §16 #86) — `/share/:token/feed.atom` and `.rss` — carry what
+  `toPublicItem()` (or `toGiftItem()`) carries and nothing more, for the link's twenty newest
+  items, each dated by the **day** of `added_at` — the day an item was added is public through a
+  feed, the time of day never; a gift list's entries are all dated by the day of its newest want,
+  never each want's own — never a read, a finish or its date, never progress, never a name. The
+  feed is the page's whitelist in another shape.
 - **Saved views** (ARCH.md §16 #81) are the shelf's filter bar stored verbatim, so one may hold `q`,
   `readBy` and the decluttering filters (`addedYears`, `unplayedMonths` — `StaleFilter`, outside
   `ItemFilters` like `ReaderFilter`): never a share's source, never a key the publish form carries,
@@ -69,6 +75,15 @@ for a surface before changing anything it shows to someone outside the household
   (`toPublicItem()` and `toConnectionItem()` have no key for them), the Borrowed pill is inside the
   app, and the Holding filter's Borrowed choice rides in `StaleFilter`, outside `ItemFilters`, so no
   share link can capture it.
+- **Item history** (ARCH.md §16 #84) is admin-only and inside the app: `item_history` holds before and
+  after values of an item's own fields — notes and location among them — and who changed them; no
+  whitelist has a key for it, and a share page's bytes are unchanged by it.
+- **The read-only API** (ARCH.md §16 #88, `/api/v1/…`) is a member's own view, behind their token:
+  it returns what that member's pages show — private notes, locations, prices included — to the
+  holder of the token and nobody else. It is not a share: no route is public, a cookie never signs
+  in there, and a token never signs into the pages. Tokens are kept as hashes, bound to the
+  account's key and generation (#56, #70), and die with "Sign out other devices", a password
+  change or the member's removal.
 
 ## Gift lists, want lists and purchase links
 
