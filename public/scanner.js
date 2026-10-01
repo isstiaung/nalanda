@@ -4,7 +4,10 @@
 //
 // With no signal it keeps going (ARCH.md §16 #48): a barcode found offline — or whose lookup never reached the
 // server — is held on the device by scan-queue.js, and the camera stays on for the next one. The offline page
-// (offline.html, <body data-scan-mode="hold">) only ever holds; the Add page looks up while it can.
+// (offline.html, <body data-scan-mode="hold">) only ever holds; the Add page looks up while it can — unless its
+// "Keep scanning" box is on (§16 #94), when every barcode is held the same way, with a beep and a running count, and
+// the review list's "Add all" looks them up later, twenty a request. Online and offline are one mode: a held barcode
+// is a barcode and a time, nothing is looked up at scan time.
 (() => {
   const video = document.getElementById('scanner-video');
   const startBtn = document.getElementById('scanner-start');
@@ -66,6 +69,60 @@
 
   const offline = () => holdOnly || !navigator.onLine || !window.htmx;
 
+  // "Keep scanning" (§16 #94): the Add page's box, remembered on this device, off until someone turns it on. The
+  // offline page has no box and always holds.
+  const keepBox = document.getElementById('scanner-keep');
+  const KEEP_KEY = 'nalanda:keep-scanning';
+  if (keepBox) {
+    try {
+      keepBox.checked = localStorage.getItem(KEEP_KEY) === '1';
+    } catch { /* storage disabled: off, as the box shows */ }
+    keepBox.addEventListener('change', () => {
+      try {
+        localStorage.setItem(KEEP_KEY, keepBox.checked ? '1' : '0');
+      } catch { /* not remembered, still on for this page */ }
+      if (stream) say(hint());
+    });
+  }
+  const keeping = () => !!keepBox?.checked;
+  // whether a barcode found now is held rather than looked up
+  const holding = () => offline() || keeping();
+  const hint = () =>
+    offline()
+      ? 'Offline — point at a barcode; each one is held on this device.'
+      : keeping()
+        ? 'Keep scanning — point at each barcode in turn; each one is held for the list above.'
+        : 'Point at a barcode…';
+
+  // A short tone when a barcode is held — Web Audio, no file to fetch — beside the vibration and the status line,
+  // never the only signal. The context is made on Start, a click, so browsers let it sound.
+  let audio = null;
+  function tune() {
+    try {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (Ctx && !audio) audio = new Ctx();
+    } catch {
+      audio = null;
+    }
+  }
+  function beep() {
+    if (!audio) return;
+    try {
+      if (audio.state === 'suspended') audio.resume();
+      const at = audio.currentTime;
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 1047; // C6: short and clear over a shop's noise
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.25, at + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.12);
+      osc.connect(gain).connect(audio.destination);
+      osc.start(at);
+      osc.stop(at + 0.13);
+    } catch { /* no sound: the vibration and the status line say it */ }
+  }
+
   // what a hold says; the offline page and the Add page both show the count
   const HOLD_WHY = {
     already: (code) => `${code} is already held — it's on the list once.`,
@@ -87,20 +144,27 @@
       say('Couldn’t hold that scan on this device.');
       return;
     }
-    const waiting = outcome.count ? ` ${outcome.count} waiting to review.` : '';
-    say(outcome.held ? `Held ${code} on this device.${waiting}` : `${HOLD_WHY[outcome.why]?.(code) ?? 'Not held.'}${waiting}`);
+    const waiting = outcome.count ? ` ${outcome.count} on the list to review.` : '';
+    say(outcome.held ? `Held ${code}.${waiting}` : `${HOLD_WHY[outcome.why]?.(code) ?? 'Not held.'}${waiting}`);
+    if (outcome.held) beep();
     document.dispatchEvent(new CustomEvent('nalanda:held', { detail: outcome }));
   }
   // for the typed-barcode box on the offline page, which has no camera to go through
   window.nalandaHoldScan = hold;
 
-  const seen = new Set(); // this page's offline finds: the barcode still in frame isn't held again every 350 ms
+  // This page's holds: the barcode still in frame isn't held again every 350 ms, but one brought back a few seconds
+  // later is asked of the queue, which says it's on the list once.
+  const seen = new Map();
+  const inFrame = (code) => {
+    const last = seen.get(code);
+    seen.set(code, Date.now());
+    return last !== undefined && Date.now() - last < 3000;
+  };
 
   function found(code) {
-    if (offline()) {
-      // offline, the camera keeps going for the next barcode
-      if (seen.has(code)) return;
-      seen.add(code);
+    if (holding()) {
+      // held, and the camera keeps going for the next barcode
+      if (inFrame(code)) return;
       if (navigator.vibrate) navigator.vibrate(80);
       hold(code);
       return;
@@ -125,6 +189,7 @@
   });
 
   async function start() {
+    tune(); // inside the click, so the beep is allowed
     const request = navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'environment', width: { ideal: 1280 } },
       audio: false,
@@ -148,7 +213,7 @@
     await video.play();
     startBtn.hidden = true;
     stopBtn.hidden = false;
-    say(offline() ? 'Offline — point at a barcode; each one is held on this device.' : 'Point at a barcode…');
+    say(hint());
     timer = setInterval(async () => {
       try {
         const code = await detectFrame();

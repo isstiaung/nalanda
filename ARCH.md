@@ -882,6 +882,7 @@ is a section of this document and "#N" another decision.
 | 91 | 2026-10-01 | [The export guards formula-leading cells with `'`, and a Nalanda import strips exactly one — a title a connection sent never reaches a spreadsheet as a formula](docs/decisions/091-csv-formula-guard.md) |
 | 92 | 2026-10-01 | [`FEDERATION_OFFLINE`: a plain runtime variable under which an instance contacts no connected household, for a copy of the database restored anywhere but production](docs/decisions/092-federation-offline.md) |
 | 95 | 2026-10-01 | [Custom fields: up to ten household fields (text, yes/no, date) on every item form, kept in `items.custom`, private unless a field's own share switch is on, never to connections](docs/decisions/095-custom-fields.md) |
+| 94 | 2026-10-01 | [Rapid batch scanning: "Keep scanning" holds each barcode on the device; "Add all" resolves them twenty a request, as bare records, covers later](docs/decisions/094-rapid-batch-scanning.md) (#93 is taken on another branch) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

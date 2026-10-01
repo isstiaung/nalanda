@@ -13,4 +13,4 @@ it. The short version is the [README](../../README.md); the privacy rules behind
 - [Lending](lending.md) — loans with due dates and history, and what you've borrowed from someone.
 - [Connections](connections.md) — two households that both run Nalanda follow, comment, borrow and recommend, pairwise and off by default.
 - [Members and privacy](members-and-privacy.md) — admins and members, display names and the switches, sessions, a read-only API, item history, the trash.
-- [On your phone](on-your-phone.md) — install it to the home screen and scan with no signal, with nothing of yours kept on the phone.
+- [On your phone](on-your-phone.md) — install it to the home screen, scan with no signal, or scan a whole shelf in one go, with nothing of yours kept on the phone.

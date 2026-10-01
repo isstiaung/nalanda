@@ -23,8 +23,7 @@ lookup. Where each barcode goes, and what a result offers, is in
 In a basement or a bookshop, the scanner keeps working. Opening the app with no connection shows a
 scan-only page, and a barcode scanned there — or on the Add page when the lookup can't reach the
 server — is held on the phone: the barcode and the time, nothing else, up to 200. Back online,
-**Add items** lists what you scanned, each looked up, for you to add to a shelf, put on your want
-list, or drop — one at a time or all to one shelf. Nothing is added until you say so.
+**Add items** lists what you scanned, for you to look up one at a time (add to a shelf, want it, or drop it) or add all to one shelf. Nothing is added until you say so.
 
 Held scans belong to the account signed in on the phone: logging out clears them, and another
 account signing in on the same phone never sees them. Nothing is synced in the background.
@@ -45,7 +44,17 @@ cards; nothing scrolls sideways. Every page meets WCAG 2.2 AA in both themes at 
 comes, an old icon — is in
 [runbooks/troubleshooting.md → Scanner](../../runbooks/troubleshooting.md#scanner).
 
-## Not yet
+## Scanning a shelf in one go
 
-A rapid batch mode — scanning a pile of barcodes and reviewing them together while online — is not
-in Nalanda yet; online, each scan is looked up and offered as it is read (offline, they queue).
+Tick **Keep scanning** beside the camera on Add items and each barcode is held with a beep, a
+vibration and a running count while the camera stays on — the same list the phone fills with no
+signal, so online and offline scanning are one mode. The list shows every held code without
+looking anything up; **Look up** fetches one, and **Add all** sends them twenty at a time: each is
+looked up by the usual providers, skipped when the catalogue already has it (by ISBN, an ISBN-10's
+EAN-13, or a record's barcode), held as *maybe already here* when a title and author match a book
+catalogued without an ISBN, and otherwise added as a bare record — no cover, no description beyond
+what the lookup carried; the cover backfill fills those later. The report says what was added,
+what was here, what might be, and what nothing was found for; those stay on the list with an
+**Add by hand** link to the manual form, prefilled. The queue still holds a barcode and a time and
+nothing else ([#94](../decisions/094-rapid-batch-scanning.md),
+[runbooks/troubleshooting.md → Scanning a shelf in one go](../../runbooks/troubleshooting.md#scanner)).

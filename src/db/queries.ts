@@ -1516,6 +1516,31 @@ export async function createItemWithTags(
 }
 
 /**
+ * Items from a run of scans (ARCH.md §16 #94): each a bare record as its lookup described it — no cover, no tags, no
+ * reads or review — in one batch, so a request's twenty land whole or not at all. `who` is the member adding them,
+ * for the history triggers (#84: a creation records nothing, but the marker and the sweeps ride as with every item
+ * write). Their activity to connections is today's, as an Add from the page is — not an import's. Returns the ids
+ * in the rows' order, from the batch's own results.
+ */
+export async function addScannedItems(d1: D1Database, rows: Array<{ item: NewItem; series?: SeriesDraft | null }>, who?: Writer): Promise<number[]> {
+  if (!rows.length) return [];
+  const writes: D1PreparedStatement[] = [];
+  const itemAt: number[] = []; // each row's insert, as an index into the batch's results
+  for (const r of rows) {
+    const q = db(d1)
+      .insert(s.items)
+      .values(withSeries(withReviewState(withReadState(r.item, []), []), r.series))
+      .returning({ id: s.items.id })
+      .toSQL();
+    writes.push(...seriesUpsert(d1, r.series));
+    itemAt.push(writes.length + (who ? 1 : 0)); // asWriter's marker leads the batch when someone is writing
+    writes.push(d1.prepare(q.sql).bind(...q.params));
+  }
+  const results = await d1.batch(asWriter(d1, who, writes));
+  return rows.map((_, i) => (results[itemAt[i]!]?.results[0] as { id: number }).id);
+}
+
+/**
  * What the edit form says about its person's reading (§16 #43): it describes that person's read that decides their
  * status. `clearReads` is "Not started" for an item with no Reading section to delete reads from — a record, a board
  * game — whose reads of theirs then go (the route allows it only there).
@@ -3438,18 +3463,36 @@ export async function deletePurchaseLink(d1: D1Database, itemId: number, linkId:
  */
 type CatalogProbe = { mediaType: MediaType; isbn13?: string | null; isbn10Upc?: string | null; details: Record<string, unknown> };
 
-/** What names a scan or search result in the catalog: a book's ISBN-13; a record's barcode or Discogs id; a game's BGG id. */
-function catalogKeys(c: CatalogProbe): { isbn: string | null; barcode: string | null; discogs: string | null; bgg: string | null } {
+/**
+ * The ISBN-10 a 978-prefixed EAN-13 stands for — its nine digits after the prefix and the ISBN-10 check digit (X for
+ * ten) — or null: a 979 EAN has none. The inverse of isbn13Of() in src/metadata/index.ts, so a book catalogued with
+ * only its ISBN-10 is found again when its barcode is scanned (§16 #94).
+ */
+export function isbn10OfEan(ean: string | null): string | null {
+  if (!ean || !/^978\d{10}$/.test(ean)) return null;
+  const nine = ean.slice(3, 12);
+  const sum = [...nine].reduce((acc, digit, i) => acc + Number(digit) * (10 - i), 0);
+  const check = (11 - (sum % 11)) % 11;
+  return `${nine}${check === 10 ? 'X' : check}`;
+}
+
+/** What names a scan or search result in the catalog: a book's ISBN-13 (and the ISBN-10 it stands for); a record's barcode or Discogs id; a game's BGG id. */
+function catalogKeys(c: CatalogProbe): { isbn: string | null; isbn10: string | null; barcode: string | null; discogs: string | null; bgg: string | null } {
   const digits = (v: string | null | undefined) => (v ?? '').replace(/\D/g, '') || null;
   const idOf = (v: unknown) => (typeof v === 'number' && Number.isSafeInteger(v) && v > 0) || (typeof v === 'string' && /^\d{1,15}$/.test(v)) ? String(v) : null;
   const music = c.mediaType === 'vinyl' || c.mediaType === 'music';
+  const isbn = c.mediaType === 'book' ? digits(c.isbn13) : null;
   return {
-    isbn: c.mediaType === 'book' ? digits(c.isbn13) : null,
+    isbn,
+    isbn10: isbn10OfEan(isbn),
     barcode: music ? (digits(c.isbn10Upc) ?? digits(c.isbn13)) : null,
     discogs: music ? idOf(c.details['discogs_id']) : null,
     bgg: c.mediaType === 'boardgame' ? idOf(c.details['bgg_id']) : null,
   };
 }
+
+/** An ISBN-10 as the catalog may hold it — typed with hyphens or a small x — made comparable: digits and X only. */
+const plainIsbn10 = (v: string | null) => (v ?? '').replace(/[-\s]/g, '').toUpperCase();
 
 /**
  * For each scan or search result, the item already in the catalog it names — by the same keys as existingForWant — or
@@ -3478,21 +3521,23 @@ export async function shelfForType(d1: D1Database): Promise<Partial<Record<Media
 
 export async function catalogMatches(d1: D1Database, candidates: CatalogProbe[]): Promise<Array<number | null>> {
   const keys = candidates.map(catalogKeys);
-  const list = (k: 'isbn' | 'barcode' | 'discogs' | 'bgg') => JSON.stringify([...new Set(keys.map((x) => x[k]).filter((v): v is string => !!v))]);
+  const list = (k: 'isbn' | 'isbn10' | 'barcode' | 'discogs' | 'bgg') => JSON.stringify([...new Set(keys.map((x) => x[k]).filter((v): v is string => !!v))]);
   if (!keys.some((k) => k.isbn || k.barcode || k.discogs || k.bgg)) return candidates.map(() => null);
+  // ?5: a book catalogued with only its ISBN-10 (§16 #94), as typed — hyphens and case aside
   const { results } = await d1
     .prepare(
       `SELECT id, media_type AS mediaType, isbn13, isbn10_upc AS isbn10Upc,
          CAST(json_extract(details, '$.discogs_id') AS TEXT) AS discogs, CAST(json_extract(details, '$.bgg_id') AS TEXT) AS bgg
        FROM items WHERE
          isbn13 IN (SELECT value FROM json_each(?1))
+         OR (media_type = 'book' AND replace(replace(upper(isbn10_upc), '-', ''), ' ', '') IN (SELECT value FROM json_each(?5)))
          OR (media_type IN ('vinyl', 'music') AND (isbn10_upc IN (SELECT value FROM json_each(?2)) OR isbn13 IN (SELECT value FROM json_each(?2))))
          OR (media_type IN ('vinyl', 'music') AND CAST(json_extract(details, '$.discogs_id') AS TEXT) IN (SELECT value FROM json_each(?3)))
          OR (media_type = 'boardgame' AND CAST(json_extract(details, '$.bgg_id') AS TEXT) IN (SELECT value FROM json_each(?4)))
          OR id IN (SELECT item_id FROM editions WHERE isbn IN (SELECT value FROM json_each(?1)) OR isbn IN (SELECT value FROM json_each(?2)))
        ORDER BY id`,
     )
-    .bind(list('isbn'), list('barcode'), list('discogs'), list('bgg'))
+    .bind(list('isbn'), list('barcode'), list('discogs'), list('bgg'), list('isbn10'))
     .all<{ id: number; mediaType: MediaType; isbn13: string | null; isbn10Upc: string | null; discogs: string | null; bgg: string | null }>();
   // another edition's identifier finds the same item (§16 #75): one more call, only when something matched at all
   const alsoHeld = results.length
@@ -3510,11 +3555,40 @@ export async function catalogMatches(d1: D1Database, candidates: CatalogProbe[])
       results.find(
         (r) =>
           (k.isbn !== null && (r.isbn13 === k.isbn || heldAs(r, k.isbn))) ||
+          (k.isbn10 !== null && r.mediaType === 'book' && plainIsbn10(r.isbn10Upc) === k.isbn10) ||
           (k.barcode !== null && music(r.mediaType) && (r.isbn10Upc === k.barcode || r.isbn13 === k.barcode || heldAs(r, k.barcode))) ||
           (k.discogs !== null && music(r.mediaType) && r.discogs === k.discogs) ||
           (k.bgg !== null && r.mediaType === 'boardgame' && r.bgg === k.bgg),
       )?.id ?? null,
   );
+}
+
+/** The titles of these items, by id — for a report that names what the catalog already had. One query; none for no ids. */
+export async function itemTitles(d1: D1Database, ids: number[]): Promise<Map<number, string>> {
+  if (!ids.length) return new Map();
+  const { results } = await d1
+    .prepare('SELECT id, title FROM items WHERE id IN (SELECT value FROM json_each(?1))')
+    .bind(JSON.stringify([...new Set(ids)]))
+    .all<{ id: number; title: string }>();
+  return new Map(results.map((r) => [r.id, r.title]));
+}
+
+/** A book the catalog holds without an ISBN, as the title index names it: for "maybe already here" (§16 #94). */
+export type IsbnlessBook = { id: number; title: string; copies: number };
+
+/**
+ * The catalog's books with no ISBN at all — reading-log entries from Goodreads and the like, a fifth of a catalogue —
+ * by title and author (TitleIndex, the imports' own matcher), so a run of scans can say a book found by its barcode
+ * may already be here under no number (§16 #94). One query, household scale, as mergeImportItems loads its keys;
+ * the caller asks only when a found book matched no ISBN.
+ */
+export async function isbnlessBookIndex(d1: D1Database): Promise<TitleIndex<IsbnlessBook>> {
+  const { results } = await d1
+    .prepare(`SELECT id, title, creators, copies FROM items WHERE media_type = 'book' AND isbn13 IS NULL AND (isbn10_upc IS NULL OR isbn10_upc = '') ORDER BY id`)
+    .all<{ id: number; title: string; creators: string | null; copies: number }>();
+  const index = new TitleIndex<IsbnlessBook>();
+  for (const r of results) index.add(r.title, r.creators, { id: r.id, title: r.title, copies: r.copies });
+  return index;
 }
 
 export async function existingForWant(d1: D1Database, c: CatalogProbe): Promise<number | null> {
