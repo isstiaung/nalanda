@@ -324,10 +324,11 @@ runbooks/          operational guides: deploy, updating (for self-hosters), back
                    connections, libib import, goodreads import, metadata backfill, troubleshooting —
                    update when ops procedures change
 .github/           CI (typecheck + lint + test, and the a11y audit as its own job; no secrets,
-                   never pull_request_target), release (on a vX.Y.Z tag: publishes that
-                   version's CHANGELOG section; never deploys),
+                   never pull_request_target), release (on a vX.Y.Z tag: publishes
+                   changelog/vX.Y.Z.md; never deploys),
                    dependabot (minor/patch grouped, majors alone), CODEOWNERS
-CHANGELOG.md       every release, newest first, each with an Upgrading section (ARCH.md §16 #42)
+CHANGELOG.md       the release index: one line per release, newest first (ARCH.md §16 #42)
+changelog/         vX.Y.Z.md per release, each with an Upgrading section; unreleased.md for PRs
 docs/screenshots/  README imagery, captured from seeded demo data — never real catalog data
 ```
 
@@ -337,10 +338,13 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
   commit. Push only when asked.
 - **Releases** (ARCH.md §16 #42) are SemVer. A release commit bumps the version with
   `npm version X.Y.Z --no-git-tag-version`, updates `src/version.ts` to match (a test checks),
-  and adds the CHANGELOG.md section with its **Upgrading** block: migrations and whether to back
-  up, new secrets, compatibility with connections on older versions. After it merges, tag main
-  `vX.Y.Z`; the release workflow publishes the notes (only for tags on main; v1.0.0, which
-  predates the workflow, was published by hand). A migration that changes data, a new
+  renames `changelog/unreleased.md` to `changelog/vX.Y.Z.md` with its heading
+  (`## [X.Y.Z] - <date>`) and a one-sentence summary, creates a fresh `changelog/unreleased.md`,
+  and adds the version's line to the CHANGELOG.md index. Its **Upgrading** block says:
+  migrations and whether to back up, new secrets, compatibility with connections on older
+  versions. PRs add their entries to `changelog/unreleased.md`. After it merges, tag main
+  `vX.Y.Z`; the release workflow publishes `changelog/vX.Y.Z.md` (only for tags on main; v1.0.0,
+  which predates the workflow, was published by hand). A migration that changes data, a new
   secret, or anything needing a manual step must be in Upgrading.
 - Handlers render a full page normally, a partial when the `HX-Request` header is present —
   one handler, two renders.

@@ -1,7 +1,8 @@
 # Updating your instance
 
 Nalanda is released as numbered versions: `v1.1.0`, `v1.2.0`, and so on. Each release has notes on
-[GitHub Releases](https://github.com/isstiaung/nalanda/releases), and the same text is in
+[GitHub Releases](https://github.com/isstiaung/nalanda/releases), and the same text is in the
+repository, one file per release: `changelog/v1.2.0.md` and so on, listed newest first in
 [CHANGELOG.md](../CHANGELOG.md). The version you're running is shown at the bottom of the **Account**
 page.
 
