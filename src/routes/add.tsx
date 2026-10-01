@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { FC } from 'hono/jsx';
-import { addScannedItems, catalogMatches, getLibraryAndSettings, getSiteSettings, itemTitles, listLibraries, listPeople, seriesNames, shelfForType } from '../db/queries';
+import { addScannedItems, catalogMatches, getLibraryAndSettings, getSiteSettings, isbnlessBookIndex, itemTitles, listLibraries, listPeople, seriesNames, shelfForType, type IsbnlessBook } from '../db/queries';
 import type { Item, MediaType, NewItem } from '../db/schema';
 import type { AppEnv } from '../env';
 import { classifyBarcode, isbn13Of, lookupByBarcode, searchByName, type Candidate, type SearchType } from '../metadata';
@@ -344,9 +344,10 @@ function bareItem(c: Candidate, libraryId: number, addedBy: number, language: st
 /**
  * "Add all" from the review list (ARCH.md §16 #94): at most MAX_SCANS_PER_REQUEST held barcodes, each resolved by the
  * usual lookup, the ones the catalog already has left alone (one query for the batch), the rest added as bare records
- * in one D1 batch. Answers what became of each: `added` and `already` with the item and its title, `notFound` the
- * barcodes nothing was found for, which the browser keeps on the list to add by hand. Refused for scans held for
- * another account (`scanOwner`), as POST /items refuses one.
+ * in one D1 batch. Answers what became of each: `added` and `already` with the item and its title; `maybe` — a book
+ * the catalog may hold under no ISBN at all (a reading-log entry), met by title and author, which is held rather than
+ * added so nobody decides it unseen; `notFound` the barcodes nothing was found for, which the browser keeps on the
+ * list to add by hand. Refused for scans held for another account (`scanOwner`), as POST /items refuses one.
  */
 add.post('/api/scans/add', async (c) => {
   let body: ScanBody;
@@ -391,12 +392,23 @@ add.post('/api/scans/add', async (c) => {
   // what the catalog already has, one query for the batch: a found code by what its candidate names (an ISBN-13, a
   // record's barcode or Discogs id), an unknown one by the barcode itself, so a shelf catalogued by hand reads as here
   const held = await catalogMatches(c.env.DB, codes.map((code, i) => found[i] ?? probeFor(code)));
+  // a found book no number matched may still be here under no number — a fifth of a catalogue is reading-log entries
+  // with none — so those are met by title and author too (the imports' matcher): one more query, only when there are any
+  const maybeOf = new Map<number, IsbnlessBook>();
+  const unnumbered = (i: number) => held[i] == null && found[i]?.mediaType === 'book';
+  if (codes.some((_, i) => unnumbered(i))) {
+    const index = await isbnlessBookIndex(c.env.DB);
+    for (let i = 0; i < codes.length; i++) {
+      const hit = unnumbered(i) ? index.find(found[i]!.title, found[i]!.creators ?? null) : undefined;
+      if (hit) maybeOf.set(i, hit);
+    }
+  }
   const toAdd: number[] = []; // indexes of the codes that become items
   const twinOf = new Map<number, number>(); // a second scan of a book in this batch → the index that adds it
   const firstBy = new Map<string, number>();
   for (let i = 0; i < codes.length; i++) {
     const candidate = found[i];
-    if (held[i] !== null || !candidate) continue;
+    if (held[i] !== null || maybeOf.has(i) || !candidate) continue;
     const key = keyOf(candidate);
     const first = key ? firstBy.get(key) : undefined;
     if (first !== undefined) {
@@ -416,20 +428,25 @@ add.post('/api/scans/add', async (c) => {
   const titles = await itemTitles(c.env.DB, held.filter((id): id is number => id !== null));
   const added = toAdd.map((i) => ({ code: codes[i]!, id: idOf.get(i)!, title: found[i]!.title }));
   const already: Array<{ code: string; id: number; title: string }> = [];
+  // held, not added: the catalog's entry by id and title, and whether it is Not owned — the Holding toggle on its page is
+  // then the likely next step once someone has looked and decided
+  const maybe: Array<{ code: string; id: number; title: string; notOwned: boolean }> = [];
   const notFound: string[] = [];
   const notices = new Set<string>();
   for (let i = 0; i < codes.length; i++) {
     const code = codes[i]!;
     const here = held[i] ?? null;
     const twin = twinOf.get(i);
+    const hit = maybeOf.get(i);
     if (here !== null) already.push({ code, id: here, title: titles.get(here) ?? found[i]?.title ?? '' });
+    else if (hit) maybe.push({ code, id: hit.id, title: hit.title, notOwned: hit.copies === 0 });
     else if (twin !== undefined) already.push({ code, id: idOf.get(twin)!, title: found[twin]!.title });
     else if (!found[i]) {
       notFound.push(code);
       for (const n of why[i]!) notices.add(n);
     }
   }
-  return c.json({ added, already, notFound, notices: [...notices] });
+  return c.json({ added, already, maybe, notFound, notices: [...notices] });
 });
 
 /** Same lookup as JSON, for scripting/tests. */

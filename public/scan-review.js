@@ -2,7 +2,8 @@
 // "Keep scanning" on — one list whichever way they came. An entry is the barcode and when it was scanned; nothing is
 // looked up at scan time. "Add all to <shelf>" sends them to POST /api/scans/add twenty at a time (nalandaScanBatch,
 // below): the server looks each one up, leaves alone what the catalog already has and adds the rest as bare records,
-// and the list says what became of each — added and already-here entries leave the device's queue, a barcode nothing
+// and the list says what became of each — added and already-here entries leave the device's queue; a book the catalog
+// may hold under no ISBN (met by title and author) stays, named, for someone to look up and decide; a barcode nothing
 // was found for stays, with a way to add it by hand. "Look up" on one entry fetches it alone through GET /add/review,
 // to pick its shelf, add it, want it or drop it; it leaves the queue only once the server has said it was added.
 
@@ -30,7 +31,7 @@ window.nalandaScanBatch = (() => {
    */
   async function run({ codes, libraryId, scanOwner, onBatch, fetch: doFetch }) {
     const send = doFetch || ((...args) => fetch(...args));
-    const tally = { added: [], already: [], notFound: [], notices: [], sent: 0, failed: null };
+    const tally = { added: [], already: [], maybe: [], notFound: [], notices: [], sent: 0, failed: null };
     for (const batch of split(codes)) {
       let res = null;
       try {
@@ -59,6 +60,7 @@ window.nalandaScanBatch = (() => {
       const data = await res.json();
       tally.added.push(...(data.added || []));
       tally.already.push(...(data.already || []));
+      tally.maybe.push(...(data.maybe || []));
       tally.notFound.push(...(data.notFound || []));
       for (const n of data.notices || []) if (!tally.notices.includes(n)) tally.notices.push(n);
       tally.sent += batch.length;
@@ -159,20 +161,23 @@ window.nalandaScanBatch = (() => {
     return el;
   }
 
-  /** A line under an entry saying what went wrong, or what to do next — with a link when there is somewhere to go. */
-  function trouble(entry, message, link) {
+  /**
+   * A line under an entry saying what went wrong, or what to do next — with a link when there is somewhere to go, and
+   * text after it when there is more to say. `tone` 'note' for news that isn't an error.
+   */
+  function trouble(entry, message, link, after = '', tone = 'error') {
     let line = entry.querySelector('.review-trouble');
     if (!line) {
       line = document.createElement('p');
-      line.className = 'error review-trouble';
       entry.querySelector('.candidate-body')?.append(line);
     }
+    line.className = `${tone === 'note' ? 'muted' : 'error'} review-trouble`;
     line.textContent = message;
     if (link) {
       const a = document.createElement('a');
       a.href = link.href;
       a.textContent = link.text;
-      line.append(a);
+      line.append(a, after);
     }
   }
 
@@ -275,9 +280,21 @@ window.nalandaScanBatch = (() => {
     trouble(entry, `Nothing found for ${code} — it stays held. `, { href: `/add?barcode=${encodeURIComponent(code)}`, text: 'Add by hand' });
   }
 
-  /** The run's report: the three counts, then what to do about what's left and what the new items still lack. */
+  /**
+   * A book the catalog may already hold under no ISBN, met by title and author: held, not added — the entry names the
+   * catalog's copy (Not owned when it is: its page's Holding toggle is then the next step) and keeps Look up to decide.
+   */
+  function perhaps(entry, hit) {
+    if (!entry) return;
+    entry.dataset.maybe = '';
+    const after = `${hit.notOwned ? ' (Not owned)' : ''} — look up to decide.`;
+    trouble(entry, 'Maybe already here: ', { href: `/items/${hit.id}`, text: hit.title || hit.code }, after, 'note');
+  }
+
+  /** The run's report: the four counts, then what to do about what's left and what the new items still lack. */
   function report(tally, total) {
-    let msg = `${tally.added.length} added, ${tally.already.length} already here, ${tally.notFound.length} not found.`;
+    let msg = `${tally.added.length} added, ${tally.already.length} already here, ${tally.maybe.length} maybe already here, ${tally.notFound.length} not found.`;
+    if (tally.maybe.length) msg += ' A book that may be here already is held, with the copy named — look it up to decide.';
     if (tally.notFound.length) msg += ' Unknown barcodes stay on the list — look one up again, or add it by hand.';
     if (tally.notices.length) msg += ` ${tally.notices.join(' ')}`;
     if (tally.added.length) msg += ' New items arrive without covers — run the cover backfill on the Import page.';
@@ -324,6 +341,7 @@ window.nalandaScanBatch = (() => {
       onBatch: async (data, batch) => {
         for (const a of data.added || []) await settle(byCode.get(a.code), a, 'added', shelf);
         for (const a of data.already || []) await settle(byCode.get(a.code), a, 'already', shelf);
+        for (const m of data.maybe || []) perhaps(byCode.get(m.code), m);
         for (const code of data.notFound || []) unknown(byCode.get(code), code);
         sent += batch.length;
         refresh();

@@ -5,7 +5,7 @@
 // asked. The browser's loop is test/scan-batch-browser.spec.ts.
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createItem, createLibrary } from '../src/db/queries';
+import { createItem, createLibrary, isbn10OfEan } from '../src/db/queries';
 import type { Bindings } from '../src/env';
 import { budgeted } from '../src/federation/budget';
 import app from '../src/index';
@@ -77,7 +77,8 @@ async function post(
   return res;
 }
 
-type Reply = { added: Array<{ code: string; id: number; title: string }>; already: Array<{ code: string; id: number; title: string }>; notFound: string[]; notices: string[] };
+type Hit = { code: string; id: number; title: string };
+type Reply = { added: Hit[]; already: Hit[]; maybe: Array<Hit & { notOwned: boolean }>; notFound: string[]; notices: string[] };
 
 beforeEach(() => activateFetchMock());
 afterEach(() => assertNoPendingInterceptors());
@@ -103,11 +104,13 @@ describe('POST /api/scans/add', () => {
       [b, 'Only Google Knows'],
     ]);
     expect(reply.already).toEqual([]);
+    expect(reply.maybe).toEqual([]);
     expect(reply.notFound).toEqual([c]);
     expect(reply.notices).toEqual([`No book found for ISBN ${c}. Try the search tab or add manually.`]);
 
-    // the session, the shelf with the household's settings, the catalog check, the insert: four calls, the inserts one batch
-    expect(1000 - budget.left).toBe(4);
+    // the session, the shelf with the household's settings, the catalog check, the ISBN-less books by title (asked once,
+    // because found books matched no number), the insert: five calls, the inserts one batch
+    expect(1000 - budget.left).toBe(5);
     const items = await rows<Record<string, unknown>>(
       'SELECT id, title, creators, publisher, published, length, isbn13, description, language, copies, added_by, cover_key, library_id, media_type, series_id, series_number FROM items ORDER BY id',
     );
@@ -193,28 +196,96 @@ describe('POST /api/scans/add', () => {
     const shelf = await createLibrary(env.DB, 'Fiction');
     const piranesi = await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'Piranesi', isbn13: '9781635575637', details: '{}' });
     const elements = await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'The Elements of Style', isbn13: '9780060512750', details: '{}' });
+    // a book catalogued with only its ISBN-10, typed with hyphens: its barcode is the EAN-13 that stands for it
+    const tenOnly = await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'The Left Hand of Darkness', isbn13: null, isbn10Upc: '0-441-47812-3', details: '{}' });
     // a record catalogued by hand, on an instance with no Discogs token: nothing is found for its barcode, but it is here
     const record = await createItem(env.DB, { libraryId: shelf.id, mediaType: 'vinyl', title: 'Monsoon Suites', isbn13: '0724384260910', details: '{}' });
     bookKnown('9781635575637', 'Piranesi (another edition)');
     bookKnown('0060512750', 'The Elements of Style'); // the ISBN-10: its candidate carries the derived ISBN-13
-    bookKnown('9780441478125', 'The Left Hand of Darkness');
-    bookKnown('0441478123', 'The Left Hand of Darkness'); // the same book's ISBN-10, later in the run
+    bookKnown('9780441478125', 'The Left Hand of Darkness (new edition)'); // the EAN-13 of the ISBN-10-only book
+    bookKnown('9780307387899', 'The Road');
+    bookKnown('0307387895', 'The Road'); // the same book's ISBN-10, later in the run
     const stamp = await scanQueueOwner(env.SESSION_SECRET, ravi);
-    const res = await post(ravi, { libraryId: shelf.id, codes: codesOf(['9781635575637', '0060512750', '0724384260910', '9780441478125', '0441478123']), scanOwner: stamp });
+    const res = await post(ravi, { libraryId: shelf.id, codes: codesOf(['9781635575637', '0060512750', '9780441478125', '0724384260910', '9780307387899', '0307387895']), scanOwner: stamp });
     expect(res.status).toBe(200);
     const reply = (await res.json()) as Reply;
-    expect(reply.added).toEqual([{ code: '9780441478125', id: expect.any(Number), title: 'The Left Hand of Darkness' }]);
+    expect(reply.added).toEqual([{ code: '9780307387899', id: expect.any(Number), title: 'The Road' }]);
     const added = reply.added[0]!.id;
     expect(reply.already).toEqual([
       { code: '9781635575637', id: piranesi.id, title: 'Piranesi' }, // the catalog's title, not the lookup's
       { code: '0060512750', id: elements.id, title: 'The Elements of Style' },
+      { code: '9780441478125', id: tenOnly.id, title: 'The Left Hand of Darkness' },
       { code: '0724384260910', id: record.id, title: 'Monsoon Suites' },
-      { code: '0441478123', id: added, title: 'The Left Hand of Darkness' },
+      { code: '0307387895', id: added, title: 'The Road' },
     ]);
+    expect(reply.maybe).toEqual([]);
     expect(reply.notFound).toEqual([]);
     expect(reply.notices).toEqual([]); // the token notice is for a barcode nothing was found for; this one was here
-    expect(await rows<{ n: number }>('SELECT count(*) AS n FROM items')).toEqual([{ n: 4 }]);
-    expect(await rows('SELECT isbn13, isbn10_upc AS upc FROM items WHERE id = ?1', added)).toEqual([{ isbn13: '9780441478125', upc: null }]);
+    expect(await rows<{ n: number }>('SELECT count(*) AS n FROM items')).toEqual([{ n: 5 }]);
+    expect(await rows('SELECT isbn13, isbn10_upc AS upc FROM items WHERE id = ?1', added)).toEqual([{ isbn13: '9780307387899', upc: null }]);
+  });
+
+  it('derives the ISBN-10 a 978 EAN-13 stands for — X for ten — and none for a 979', () => {
+    expect(isbn10OfEan('9780441478125')).toBe('0441478123');
+    expect(isbn10OfEan('9780307387899')).toBe('0307387895');
+    expect(isbn10OfEan('9780804429573')).toBe('080442957X');
+    // the suite's made-up '0060512750' has the wrong check digit: the EAN it is scanned as stands for 006051275X, so
+    // only the derived ISBN-13 on its candidate (isbn13Of, which checks nothing) finds it — as the already-here test shows
+    expect(isbn10OfEan('9780060512750')).toBe('006051275X');
+    expect(isbn10OfEan('9791234567896')).toBeNull();
+    expect(isbn10OfEan(null)).toBeNull();
+    expect(isbn10OfEan('0724384260910')).toBeNull();
+  });
+
+  it('holds a book the catalog may have under no ISBN — met by title and author — as "maybe", adds nothing for it, and asks the index once', async () => {
+    const ravi = await member('ravi');
+    const shelf = await createLibrary(env.DB, 'Fiction');
+    // a Goodreads reading-log entry: no number at all, Not owned
+    const logged = await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'Piranesi', creators: 'Susanna Clarke', copies: 0, details: '{}' });
+    olAnswers('9781635575637', 'Piranesi', { author_name: ['Susanna Clarke'] });
+    gbAnswers('9781635575637', null);
+    // the same title by someone else is another book (the index's author guard), added as any new one
+    olAnswers('9780306406157', 'Piranesi', { author_name: ['Giovanni Battista Piranesi'] });
+    gbAnswers('9780306406157', null);
+    const stamp = await scanQueueOwner(env.SESSION_SECRET, ravi);
+    let budget = { left: 1000 };
+    let res = await post(ravi, { libraryId: shelf.id, codes: codesOf(['9781635575637', '9780306406157']), scanOwner: stamp }, { budget });
+    expect(res.status).toBe(200);
+    let reply = (await res.json()) as Reply;
+    expect(reply.maybe).toEqual([{ code: '9781635575637', id: logged.id, title: 'Piranesi', notOwned: true }]);
+    expect(reply.added).toEqual([{ code: '9780306406157', id: expect.any(Number), title: 'Piranesi' }]);
+    expect(reply.already).toEqual([]);
+    expect(reply.notFound).toEqual([]);
+    // the session, the shelf, the catalog check, the ISBN-less books once, the insert
+    expect(1000 - budget.left).toBe(5);
+    expect(await rows<{ title: string; creators: string | null }>('SELECT title, creators FROM items ORDER BY id')).toEqual([
+      { title: 'Piranesi', creators: 'Susanna Clarke' },
+      { title: 'Piranesi', creators: 'Giovanni Battista Piranesi' },
+    ]);
+
+    // the same scan again: the index is the one call past the check, and with nothing to add there is no batch
+    olAnswers('9781635575637', 'Piranesi', { author_name: ['Susanna Clarke'] });
+    gbAnswers('9781635575637', null);
+    budget = { left: 1000 };
+    res = await post(ravi, { libraryId: shelf.id, codes: codesOf(['9781635575637']), scanOwner: stamp }, { budget });
+    reply = (await res.json()) as Reply;
+    expect(reply.maybe).toEqual([{ code: '9781635575637', id: logged.id, title: 'Piranesi', notOwned: true }]);
+    expect(reply.added).toEqual([]);
+    expect(1000 - budget.left).toBe(4);
+    expect(await rows<{ n: number }>('SELECT count(*) AS n FROM items')).toEqual([{ n: 2 }]);
+
+    // an owned ISBN-less copy is a maybe too, said as owned; and a found book that matched a number never asks the index
+    await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'The Dispossessed', creators: 'Ursula K. Le Guin', copies: 1, details: '{}' });
+    olAnswers('9780061054884', 'The Dispossessed: An Ambiguous Utopia', { author_name: ['Ursula K. Le Guin'] });
+    gbAnswers('9780061054884', null);
+    bookKnown('9780306406157', 'Piranesi'); // added above: matched by its ISBN-13
+    budget = { left: 1000 };
+    res = await post(ravi, { libraryId: shelf.id, codes: codesOf(['9780061054884', '9780306406157']), scanOwner: stamp }, { budget });
+    reply = (await res.json()) as Reply;
+    expect(reply.maybe).toEqual([{ code: '9780061054884', id: expect.any(Number), title: 'The Dispossessed', notOwned: false }]);
+    expect(reply.already).toEqual([{ code: '9780306406157', id: expect.any(Number), title: 'Piranesi' }]);
+    expect(1000 - budget.left).toBe(6); // the check (two calls: something matched), the index, the matched title, no batch
+    expect(await rows<{ n: number }>('SELECT count(*) AS n FROM items')).toEqual([{ n: 3 }]);
   });
 
   it('adds a record as Discogs’ search described it — the release, the cover and the Cover Art Archive left for later', async () => {
@@ -243,12 +314,12 @@ describe('POST /api/scans/add', () => {
     const urls = asked();
     const res = await post(ravi, { libraryId: shelf.id, codes: codesOf(['0602547288011']), scanOwner: await scanQueueOwner(env.SESSION_SECRET, ravi) });
     const reply = (await res.json()) as Reply;
-    expect(reply).toEqual({ added: [], already: [], notFound: ['0602547288011'], notices: [expect.stringContaining('DISCOGS_TOKEN')] });
+    expect(reply).toEqual({ added: [], already: [], maybe: [], notFound: ['0602547288011'], notices: [expect.stringContaining('DISCOGS_TOKEN')] });
     expect(urls).toEqual([]);
     expect(await rows('SELECT id FROM items')).toEqual([]);
   });
 
-  it('takes a full batch of twenty in one request: forty provider calls, four D1 calls, twenty items', async () => {
+  it('takes a full batch of twenty in one request: forty provider calls, five D1 calls, twenty items', async () => {
     const ravi = await member('ravi');
     const shelf = await createLibrary(env.DB, 'Fiction');
     const codes = Array.from({ length: 20 }, (_, i) => `97803064${String(i).padStart(5, '0')}`);
@@ -261,7 +332,7 @@ describe('POST /api/scans/add', () => {
     expect(reply.added).toHaveLength(20);
     expect(reply.added.map((a) => a.title)).toEqual(codes.map((_, i) => `Book ${i}`)); // in the list's order
     expect(urls).toHaveLength(40);
-    expect(1000 - budget.left).toBe(4);
+    expect(1000 - budget.left).toBe(5); // the ISBN-less index once for the twenty, since none matched a number
     expect(await rows<{ n: number }>('SELECT count(*) AS n FROM items WHERE added_by = ?1', ravi.id)).toEqual([{ n: 20 }]);
   });
 

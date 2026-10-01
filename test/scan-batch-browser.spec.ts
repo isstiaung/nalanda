@@ -11,7 +11,8 @@ import { activateFetchMock, assertNoPendingInterceptors, intercept, json } from 
 import { member, rows, type Member } from './member-helpers';
 
 type Entry = { code: string; at: string };
-type Tally = { added: Array<{ code: string; id: number; title: string }>; already: Array<{ code: string; id: number; title: string }>; notFound: string[]; notices: string[]; sent: number; failed: { at: number; why: string } | null };
+type Hit = { code: string; id: number; title: string };
+type Tally = { added: Hit[]; already: Hit[]; maybe: Array<Hit & { notOwned: boolean }>; notFound: string[]; notices: string[]; sent: number; failed: { at: number; why: string } | null };
 type Batch = {
   SIZE: number;
   split: (codes: Entry[]) => Entry[][];
@@ -78,6 +79,8 @@ describe('"Add all", run against the app', () => {
     const ravi = await member('ravi');
     const shelf = await createLibrary(env.DB, 'Fiction');
     await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'Already Here', isbn13: isbn(7), details: '{}' });
+    // a reading-log entry with no number: the scan that finds "Book 5" by the same author is held as a maybe
+    const logged = await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'Book 5', creators: 'A. Writer', copies: 0, details: '{}' });
     const codes = Array.from({ length: 25 }, (_, i) => isbn(i));
     codes.forEach((code, i) => (i === 24 ? intercept(OL, (p) => p.startsWith(`/search.json?q=isbn%3A${code}&`), json({ numFound: 0, docs: [] })) : known(code, `Book ${i}`)));
     intercept(GB, (p) => p.startsWith(`/books/v1/volumes?q=isbn%3A${codes[24]}&`), json({ totalItems: 0 }));
@@ -90,7 +93,8 @@ describe('"Add all", run against the app', () => {
       fetch: toApp(ravi, posted),
       onBatch: (data, sent) => {
         seen.push(sent.length);
-        expect((data as { added: unknown[] }).added.length + (data as { already: unknown[] }).already.length + (data as { notFound: unknown[] }).notFound.length).toBe(sent.length);
+        const d = data as { added: unknown[]; already: unknown[]; maybe: unknown[]; notFound: unknown[] };
+        expect(d.added.length + d.already.length + d.maybe.length + d.notFound.length).toBe(sent.length);
       },
     });
     expect(posted.map((b) => b.length)).toEqual([20, 5]);
@@ -98,11 +102,12 @@ describe('"Add all", run against the app', () => {
     expect(seen).toEqual([20, 5]);
     expect(tally.sent).toBe(25);
     expect(tally.failed).toBeNull();
-    expect(tally.added.map((a) => a.title)).toEqual(codes.filter((_, i) => i !== 7 && i !== 24).map((_, n) => `Book ${n < 7 ? n : n + 1}`));
+    expect(tally.added.map((a) => a.title)).toEqual(codes.map((_, i) => `Book ${i}`).filter((_, i) => i !== 5 && i !== 7 && i !== 24));
     expect(tally.already).toEqual([{ code: isbn(7), id: expect.any(Number), title: 'Already Here' }]);
+    expect(tally.maybe).toEqual([{ code: isbn(5), id: logged.id, title: 'Book 5', notOwned: true }]);
     expect(tally.notFound).toEqual([isbn(24)]);
     expect(tally.notices).toEqual([`No book found for ISBN ${isbn(24)}. Try the search tab or add manually.`]);
-    expect(await rows<{ n: number }>('SELECT count(*) AS n FROM items WHERE added_by = ?1', ravi.id)).toEqual([{ n: 23 }]);
+    expect(await rows<{ n: number }>('SELECT count(*) AS n FROM items WHERE added_by = ?1', ravi.id)).toEqual([{ n: 22 }]);
   });
 
   it('stops at a batch the server refuses, with its reason — what landed stands, the rest was never sent', async () => {
