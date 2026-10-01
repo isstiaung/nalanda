@@ -236,6 +236,12 @@ describe('a Nalanda export, imported again', () => {
     expect(row({ length: '1e5' }).length).toBeNull();
     expect(row({ rating: '11' }).rating).toBeNull();
     expect(row({ began_on: 'not a date', completed_on: '2026-09-28' })).toMatchObject({ beganOn: null, completedOn: '2026-09-28' });
+    // a hand-edited date is a calendar date and a time of day, or nothing: 2024-13-45 never reaches added_at
+    expect(row({ completed_on: '2024-13-45' }).completedOn).toBeNull();
+    expect(row({ added_at: '2024-13-45 00:00:00' })).not.toHaveProperty('addedAt');
+    expect(row({ added_at: '2023-02-29 00:00:00' })).not.toHaveProperty('addedAt');
+    expect(row({ added_at: '2024-02-29 24:00:00' })).not.toHaveProperty('addedAt');
+    expect(row({ added_at: '2024-02-29 23:59:59' }).addedAt).toBe('2024-02-29 23:59:59');
   });
 });
 

@@ -159,6 +159,13 @@ describe('goodreads row mapping', () => {
     const odd = mapGoodreadsRow({ 'Title': 'X', 'Exclusive Shelf': 'to-read', 'Date Added': 'last spring' })!;
     expect(odd.item).not.toHaveProperty('addedAt');
     expect(JSON.parse(odd.item.details as string)).not.toHaveProperty('date_added'); // not a date: dropped, as nothing can read it
+    // a calendar date, not just four-two-two digits: 2024/13/45 dates nothing, and neither does 29 February 2023
+    const impossible = mapGoodreadsRow({ 'Title': 'X', 'Exclusive Shelf': 'read', 'Date Added': '2024/13/45', 'Date Read': '2023/02/29' })!;
+    expect(impossible.item).not.toHaveProperty('addedAt');
+    expect(impossible.item.completedOn).toBeNull();
+    expect(JSON.parse(impossible.item.details as string)).toEqual({});
+    const leap = mapGoodreadsRow({ 'Title': 'X', 'Exclusive Shelf': 'read', 'Date Added': '2024/02/29', 'Date Read': '2024/02/29' })!;
+    expect(leap.item).toMatchObject({ addedAt: '2024-02-29 00:00:00', completedOn: '2024-02-29' });
   });
 
   it('maps shelf states: to-read, currently-reading, dnf; unrated stays null', () => {

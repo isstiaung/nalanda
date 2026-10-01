@@ -8,6 +8,7 @@ import { cellPrice, isStoredPrice, minorToDecimal } from './money';
 import {
   formatReadsCell,
   inDisplayOrder,
+  isIsoDate,
   parseReadsCell,
   readsFromColumns,
   reconcileGoodreads,
@@ -515,7 +516,13 @@ export function looksLikeNalandaExport(headers: string[]): boolean {
   return ['media_type', 'isbn10_upc', 'began_on', 'completed_on', 'added_at', 'details'].every((c) => have.has(c));
 }
 
-const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+const SQL_DATETIME = /^(\d{4}-\d{2}-\d{2}) (\d{2}):(\d{2}):(\d{2})$/;
+
+/** A datetime as SQLite writes one, and a real one: a calendar date (isIsoDate) and a time of day — never 2024-13-45 00:00:00. */
+function isSqlDatetime(v: string | undefined): v is string {
+  const m = SQL_DATETIME.exec(v ?? '');
+  return m !== null && isIsoDate(m[1]) && Number(m[2]) < 24 && Number(m[3]) < 60 && Number(m[4]) < 60;
+}
 
 /**
  * A row of our own export, mapped back exactly — the round trip every column promises (CLAUDE.md). Unlike a
@@ -537,7 +544,7 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
     const n = Number(raw);
     return Number.isSafeInteger(n) && n <= max ? n : null;
   };
-  const date = (raw: string | undefined) => (/^\d{4}-\d{2}-\d{2}$/.test(raw ?? '') ? raw! : null);
+  const date = (raw: string | undefined) => (isIsoDate(raw) ? raw : null); // a calendar date, as every read's is
   const status = (ITEM_STATUSES as readonly string[]).includes(r['status'] ?? '') ? (r['status'] as ItemStatus) : 'not_started';
   const rating = int(r['rating'], 10);
   const length = int(r['length'], 100_000);
@@ -601,7 +608,7 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
       copies: copies ?? 1,
       beganOn: state.beganOn,
       completedOn: state.completedOn,
-      ...(SQL_DATETIME.test(r['added_at'] ?? '') ? { addedAt: r['added_at'] } : {}),
+      ...(isSqlDatetime(r['added_at']) ? { addedAt: r['added_at'] } : {}),
       details,
       formats: parseFormatsCell(mediaType, r['formats']),
       // its language (§16 #76): the file's code when it is one, else the household's; and the original title as written
@@ -765,10 +772,10 @@ function unguard(raw: string | undefined): string {
   return v.startsWith('=') ? v.slice(1).replace(/^"|"$/g, '') : v;
 }
 
-/** Goodreads dates are 2024/01/15; we store 2024-01-15. */
+/** Goodreads dates are 2024/01/15; we store 2024-01-15 — and only a calendar date (isIsoDate): 2024/13/45 is none. */
 function isoDate(raw: string | undefined): string | null {
   const v = (raw ?? '').trim().replaceAll('/', '-');
-  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+  return isIsoDate(v) ? v : null;
 }
 
 /**
