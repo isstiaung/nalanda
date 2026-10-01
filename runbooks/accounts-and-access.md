@@ -59,8 +59,9 @@ part of its password. **Never add an account with a hand-written `INSERT`**: cre
 Members, which gives it its own session key. (An account inserted without one gets a key at
 its first password login, and nothing signs it in before.)
 
-Log in with the new password. If you racked up failed attempts first, either wait 10
-minutes or clear the throttle:
+Log in with the new password. If you racked up failed attempts first — ten in ten minutes
+from your address, or ten at the account from anywhere, and login answers "Too many attempts"
+(HTTP 429) to the right password too — either wait 10 minutes or clear the throttle:
 
 ```sh
 npm run wrangler:remote -- d1 execute nalanda --remote --command "DELETE FROM login_attempts"

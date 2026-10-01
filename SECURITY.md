@@ -31,7 +31,11 @@ reused (SQLite gives a new row max(id)+1), keys are 128 random bits and never ar
 removed account's cookie never signs in whoever is later given its id (ARCH.md §16 #56).
 Anything that trusts a user
 id *across time* — a cookie, a stamp, a cached decision — without also binding the key is a
-vulnerability. Login is throttled to 10 failed attempts per IP per 10 minutes.
+vulnerability. Login is throttled to 10 failed attempts in 10 minutes per IP *and* per
+account (the username as typed, so guesses spread over many addresses still add up): the
+attempt is counted in the statement that checks the count, before the password is verified,
+so a burst of parallel guesses stops at ten too; past the limit the answer is 429, the right
+password included, until the failures age out. A login that succeeds takes its row back.
 
 **CSRF.** `SameSite=Lax` cookies plus an Origin-check middleware on every mutation. All
 mutations are POSTs; a state-changing GET would itself be a bug.
