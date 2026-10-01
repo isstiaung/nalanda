@@ -600,6 +600,30 @@ export const trash = sqliteTable(
   (t) => [index('idx_trash_deleted').on(t.deletedAt)],
 );
 
+/**
+ * Quotes and highlights (ARCH.md §16 #77): a member's own, on a book — a line copied down, with the page or Kindle
+ * location and, optionally, the reader's own note beside the author's words. Private until the member marks it
+ * `shared`: only a shared quote reaches a share page, signed with a display name only while names are on there.
+ * `source` is 'kindle' for a highlight the Kindle import brought (dated by Kindle, in `at`), else NULL.
+ */
+export const quotes = sqliteTable(
+  'quotes',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    userId: integer('user_id').references(() => users.id, { onDelete: 'set null' }), // NULL: a member removed since
+    text: text('text').notNull(),
+    page: text('page'), // "42", or a Kindle location "1234-1236"; free text, short
+    note: text('note'),
+    shared: integer('shared', { mode: 'boolean' }).notNull().default(false),
+    source: text('source'),
+    at: text('at').notNull().default(now),
+  },
+  (t) => [index('idx_quotes_item').on(t.itemId), index('idx_quotes_user').on(t.userId)],
+);
+
 export const activityLog = sqliteTable(
   'activity_log',
   {

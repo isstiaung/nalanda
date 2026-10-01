@@ -425,7 +425,8 @@ share.get('/:token/items/:id', async (c) => {
   // Members' reviews are fetched here too, whatever the switch says, so a hit does no more work than a miss with names
   // on — the default for a new instance since §16 #49 — and are used only once the item is known to be in the view.
   // Its tags and who wants it (a gift list's guard, §16 #53) come in one call, for every id alike.
-  const [item, { tags, wanters }, plays, settings, named] = await Promise.all([
+  // its tags, who wants it, and its shared quotes (§16 #77) come in one call, for every id alike
+  const [item, { tags, wanters, quotes: shared }, plays, settings, named] = await Promise.all([
     getItem(c.env.DB, id),
     shareGuardFacts(c.env.DB, id),
     // counted for every id, played or not, so a hit and a miss still do the same work; the whitelist keeps it for games
@@ -441,7 +442,9 @@ share.get('/:token/items/:id', async (c) => {
   const series = item.seriesId !== null ? await getSeries(c.env.DB, item.seriesId) : null;
   const reviews = settings.namesOnShares ? named : undefined;
   // §16 #53: the "Wanted" badge, from the wanters the guard already read — a boolean, never whose
-  const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews, plays, series, wanted: wanters.length > 0 });
+  // §16 #77: a shared quote is shown whatever the names switch says; its writer's name only while names are on
+  const quotes = shared.map((q) => (settings.namesOnShares ? q : { ...q, by: null }));
+  const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews, plays, series, wanted: wanters.length > 0, quotes });
   const preview: LinkPreview = {
     title: pub.title,
     description: itemLine(pub, view.name),
@@ -610,6 +613,23 @@ share.get('/:token/items/:id', async (c) => {
           <div class="detail-section">
             <p class="eyebrow">Review</p>
             <p class="prewrap">{pub.review}</p>
+          </div>
+        ) : null}
+        {pub.quotes?.length ? (
+          <div class="detail-section">
+            <p class="eyebrow">Quotes</p>
+            <ol class="quotes">
+              {pub.quotes.map((q) => (
+                <li class="quote">
+                  <blockquote class="quote-text prewrap">{q.text}</blockquote>
+                  <p class="quote-by">
+                    {/* a display name, or unsigned: never a username, never the reader's own note */}
+                    <span class="reviewer">{q.by ?? 'A member'}</span>
+                    {q.page ? <span class="mono muted">{q.page}</span> : null}
+                  </p>
+                </li>
+              ))}
+            </ol>
           </div>
         ) : null}
         <p class="back-link">

@@ -21,6 +21,7 @@ import {
 import { countName, nameKey, sortNames, splitCreators, type NameCount } from '../lib/creators';
 import { MAX_EDITIONS_PER_ITEM, type EditionDraft } from '../lib/formats';
 import { DEFAULT_LANGUAGE, isLanguageCode } from '../lib/language';
+import { MAX_QUOTES_PER_ITEM, type CellQuote, type KindleBook, type PersonQuote, type QuoteDraft } from '../lib/quotes';
 import { ftsMatch, parseSearch } from '../lib/search';
 import { FEWEST_PLAYERS, WEIGHT_BANDS, type GameFilters } from '../lib/games';
 import { MAX_LINKS_PER_ITEM, type LinkDraft } from '../lib/links';
@@ -257,6 +258,7 @@ export async function deleteUser(d1: D1Database, id: number): Promise<void> {
     d1.prepare('UPDATE reading_progress SET added_by = NULL WHERE added_by = ?1').bind(id),
     d1.prepare('UPDATE reads SET reader_id = NULL WHERE reader_id = ?1').bind(id),
     d1.prepare('UPDATE reviews SET user_id = NULL WHERE user_id = ?1').bind(id),
+    d1.prepare('UPDATE quotes SET user_id = NULL WHERE user_id = ?1').bind(id), // their quotes stay, a former member's (§16 #77)
     // their plays are the household's and stay; only who logged them goes (its table would set null on its own too)
     d1.prepare('UPDATE plays SET logged_by = NULL WHERE logged_by = ?1').bind(id),
     // Their want list goes with them, and every gift list published of it (§16 #53): a want is a wish for later, not
@@ -2081,6 +2083,7 @@ export async function itemPageLog(
   want: { wanters: Array<{ id: number; username: string; at: string }>; links: Array<{ id: number; label: string; url: string }> };
   editions: EditionDraft[]; // "also held as" (§16 #75), in the same call
   householdLanguage: string; // the household's default (§16 #76), read in the same call, for the language pill
+  quotes: QuoteEntry[]; // the household's quotes on it (§16 #77), in the same call
   extra: D1Result[];
 }> {
   const own = [
@@ -2088,16 +2091,121 @@ export async function itemPageLog(
     ...wantsAndLinksStatements(d1, itemId),
     d1.prepare('SELECT language FROM site_settings WHERE id = 1'),
     d1.prepare('SELECT format, isbn, publisher, year FROM editions WHERE item_id = ?1 ORDER BY id').bind(itemId),
+    d1.prepare(`SELECT ${QUOTE_COLUMNS} FROM quotes WHERE item_id = ?1 ORDER BY at, id`).bind(itemId),
   ];
   const results = await d1.batch([...own, ...extra]);
-  const lang = (results[own.length - 2]?.results?.[0] as { language?: string } | undefined)?.language;
+  const lang = (results[own.length - 3]?.results?.[0] as { language?: string } | undefined)?.language;
   return {
     ...readingLogOf(results),
     want: wantsAndLinksOf(results.slice(3)),
     householdLanguage: isLanguageCode(lang) ? lang : DEFAULT_LANGUAGE,
-    editions: (results[own.length - 1]?.results ?? []) as EditionDraft[],
+    editions: (results[own.length - 2]?.results ?? []) as EditionDraft[],
+    quotes: ((results[own.length - 1]?.results ?? []) as QuoteRow[]).map((q) => ({ ...q, shared: !!q.shared })),
     extra: results.slice(own.length),
   };
+}
+
+// ---------- quotes and highlights (ARCH.md §16 #77) ----------
+
+export type QuoteEntry = { id: number; itemId: number; userId: number | null; text: string; page: string | null; note: string | null; shared: boolean; source: string | null; at: string };
+/** A quotes row as D1 hands it back: `shared` an integer. */
+type QuoteRow = Omit<QuoteEntry, 'shared'> & { shared: number };
+const QUOTE_COLUMNS = 'id, item_id AS itemId, user_id AS userId, text, page, note, shared, source, at';
+
+/** Adds a member's quote to an item, dated now unless the draft says. True when added; false when the item is gone or they have that text on it already. */
+export async function addQuote(d1: D1Database, itemId: number, userId: number, draft: QuoteDraft): Promise<boolean> {
+  const [res] = await d1.batch(quoteInsertStatements(d1, itemId, [{ ...draft, userId }], userId));
+  return (res?.meta?.changes ?? 0) > 0;
+}
+
+export async function getQuote(d1: D1Database, itemId: number, quoteId: number): Promise<QuoteEntry | null> {
+  const row = await d1.prepare(`SELECT ${QUOTE_COLUMNS} FROM quotes WHERE id = ?1 AND item_id = ?2`).bind(quoteId, itemId).first<QuoteRow>();
+  return row ? { ...row, shared: !!row.shared } : null;
+}
+
+/** Edits a quote — its text, page, note and whether it is shared — the writer's own, or anyone's for an admin (the guard in the statement too). */
+export async function updateQuote(d1: D1Database, itemId: number, quoteId: number, draft: QuoteDraft, by: Actor): Promise<boolean> {
+  const res = await d1
+    .prepare(`UPDATE quotes SET text = ?3, page = ?4, note = ?5, shared = ?6 WHERE id = ?1 AND item_id = ?2 AND (?7 = 1 OR user_id = ?8)`)
+    .bind(quoteId, itemId, draft.text, draft.page, draft.note, draft.shared ? 1 : 0, by.admin ? 1 : 0, by.id)
+    .run();
+  return res.meta.changes > 0;
+}
+
+export async function deleteQuote(d1: D1Database, itemId: number, quoteId: number, by: Actor): Promise<boolean> {
+  const res = await d1
+    .prepare('DELETE FROM quotes WHERE id = ?1 AND item_id = ?2 AND (?3 = 1 OR user_id = ?4)')
+    .bind(quoteId, itemId, by.admin ? 1 : 0, by.id)
+    .run();
+  return res.meta.changes > 0;
+}
+
+export type MemberQuote = QuoteEntry & { title: string; creators: string | null; coverKey: string | null; mediaType: MediaType };
+export const QUOTES_PER_PAGE = 50;
+
+/** One member's quotes, newest first, with the item each is on: one page, and whether there are more. */
+export async function quotesOf(d1: D1Database, userId: number, pageNum: number): Promise<{ quotes: MemberQuote[]; more: boolean }> {
+  const offset = (Math.max(1, pageNum) - 1) * QUOTES_PER_PAGE;
+  const rows = (
+    await d1
+      .prepare(
+        `SELECT q.id, q.item_id AS itemId, q.user_id AS userId, q.text, q.page, q.note, q.shared, q.source, q.at,
+                i.title, i.creators, i.cover_key AS coverKey, i.media_type AS mediaType
+         FROM quotes q JOIN items i ON i.id = q.item_id WHERE q.user_id = ?1 ORDER BY q.at DESC, q.id DESC LIMIT ?2 OFFSET ?3`,
+      )
+      .bind(userId, QUOTES_PER_PAGE + 1, offset)
+      .all<Omit<MemberQuote, 'shared'> & { shared: number }>()
+  ).results;
+  return { quotes: rows.slice(0, QUOTES_PER_PAGE).map((q) => ({ ...q, shared: !!q.shared })), more: rows.length > QUOTES_PER_PAGE };
+}
+
+/**
+ * The Kindle import (§16 #77): each posted book's highlights become the importer's quotes on the book here that
+ * matches it by title and first author (the Goodreads matcher's rule), or on a Not owned reading-log entry made for
+ * it — a book you highlighted is one you read. One call to read the catalog's books, then one batch per book.
+ * Re-imported highlights bring nothing twice (quoteInsertStatements). `dryRun` only matches.
+ */
+export async function importKindle(
+  d1: D1Database,
+  books: KindleBook[],
+  into: { libraryId: number; userId: number },
+  dryRun = false,
+): Promise<{ matched: number; created: number; quotes: number; duplicates: number; titles: Array<{ title: string; found: boolean }> }> {
+  const existing = await db(d1)
+    .select({ id: s.items.id, title: s.items.title, creators: s.items.creators })
+    .from(s.items)
+    .where(eq(s.items.mediaType, 'book'));
+  const byTitle = new Map<string, number>();
+  for (const e of existing) byTitle.set(titleKey(e.title, e.creators), e.id);
+  const out = { matched: 0, created: 0, quotes: 0, duplicates: 0, titles: [] as Array<{ title: string; found: boolean }> };
+  for (const book of books) {
+    const id = byTitle.get(titleKey(book.title, book.author));
+    out.titles.push({ title: book.title, found: id !== undefined });
+    if (id !== undefined) out.matched++;
+    else out.created++;
+    if (dryRun) {
+      out.quotes += book.highlights.length;
+      continue;
+    }
+    const quotes: PersonQuote[] = book.highlights.map((h) => ({ text: h.text, page: h.page, note: h.note, shared: false, at: h.at, source: 'kindle', userId: into.userId }));
+    if (id !== undefined) {
+      const [res] = await d1.batch(quoteInsertStatements(d1, id, quotes, into.userId));
+      const added = res?.meta?.changes ?? 0;
+      out.quotes += added;
+      out.duplicates += quotes.length - added;
+    } else {
+      const newId = await createItemWithTags(
+        d1,
+        { libraryId: into.libraryId, mediaType: 'book', title: book.title, creators: book.author, copies: 0, addedBy: into.userId, details: '{}' },
+        [],
+        null,
+        { after: quoteInsertStatements(d1, 'newest', quotes, into.userId) },
+      );
+      byTitle.set(titleKey(book.title, book.author), newId);
+      out.quotes += quotes.length;
+    }
+  }
+  return out;
 }
 
 function readingLogStatements(d1: D1Database, itemId: number): D1PreparedStatement[] {
@@ -2709,15 +2817,26 @@ export async function wantListExtras(
  * What the public item route checks an item against, whatever kind of share it is (itemMatchesShare): its tags, and
  * who wants it. One D1 call, the same work for every id — an item that doesn't exist costs what one outside the view does.
  */
-export async function shareGuardFacts(d1: D1Database, itemId: number): Promise<{ tags: string[]; wanters: number[] }> {
-  const [t, w] = await d1.batch([
+export async function shareGuardFacts(
+  d1: D1Database,
+  itemId: number,
+): Promise<{ tags: string[]; wanters: number[]; quotes: Array<{ by: string | null; text: string; page: string | null }> }> {
+  const [t, w, q] = await d1.batch([
     // no ORDER BY, as tagsForItems() had none: a shelf's share page lists an item's tags as it always did
     d1.prepare('SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = ?1').bind(itemId),
     d1.prepare('SELECT user_id AS id FROM wants WHERE item_id = ?1').bind(itemId),
+    // the quotes marked shared (§16 #77), with their writers' display names for the route to keep only while names are on
+    d1
+      .prepare(
+        `SELECT u.display_name AS by, q.text, q.page FROM quotes q LEFT JOIN users u ON u.id = q.user_id
+         WHERE q.item_id = ?1 AND q.shared = 1 ORDER BY q.at, q.id`,
+      )
+      .bind(itemId),
   ]);
   return {
     tags: ((t?.results ?? []) as Array<{ name: string }>).map((r) => r.name),
     wanters: ((w?.results ?? []) as Array<{ id: number }>).map((r) => r.id),
+    quotes: ((q?.results ?? []) as Array<{ by: string | null; text: string; page: string | null }>).map((r) => ({ by: r.by || null, text: r.text, page: r.page })),
   };
 }
 
@@ -2894,6 +3013,7 @@ export type ExportCells = {
   wants: Map<number, Array<{ by: string; at: string }>>; // each want's member by username (§16 #53)
   links: Map<number, LinkDraft[]>;
   editions: Map<number, EditionDraft[]>; // "also held as" (§16 #75)
+  quotes: Map<number, CellQuote[]>; // quotes and highlights by username (§16 #77)
 };
 
 /**
@@ -2938,6 +3058,10 @@ export async function exportCellsForIdRange(
     ),
     bind(`SELECT item_id AS itemId, label, url FROM purchase_links WHERE item_id BETWEEN ?1 AND ?2 ${scoped('item_id')} ORDER BY item_id, id`),
     bind(`SELECT item_id AS itemId, format, isbn, publisher, year FROM editions WHERE item_id BETWEEN ?1 AND ?2 ${scoped('item_id')} ORDER BY item_id, id`),
+    bind(
+      `SELECT q.item_id AS itemId, u.username AS by, q.text, q.page, q.note, q.shared, q.at, q.source FROM quotes q LEFT JOIN users u ON u.id = q.user_id
+       WHERE q.item_id BETWEEN ?1 AND ?2 ${scoped('q.item_id')} ORDER BY q.item_id, q.at, q.id`,
+    ),
   ]);
   const rowsOf = <T,>(i: number) => (results[i]?.results ?? []) as Array<T & { itemId: number }>;
   const group = <T, U>(rows: Array<T & { itemId: number }>, pick: (r: T & { itemId: number }) => U) => {
@@ -2958,6 +3082,15 @@ export async function exportCellsForIdRange(
     wants: group(rowsOf<{ by: string; at: string }>(7), (r) => ({ by: r.by, at: r.at })),
     links: group(rowsOf<LinkDraft>(8), (r) => ({ label: r.label, url: r.url })),
     editions: group(rowsOf<EditionDraft>(9), (r) => ({ format: r.format, isbn: r.isbn, publisher: r.publisher, year: r.year })),
+    quotes: group(rowsOf<{ by: string | null; text: string; page: string | null; note: string | null; shared: number; at: string; source: string | null }>(10), (r) => ({
+      by: r.by,
+      text: r.text,
+      page: r.page,
+      note: r.note,
+      shared: !!r.shared,
+      at: r.at,
+      source: r.source,
+    })),
   };
 }
 
@@ -3659,7 +3792,10 @@ export type ImportRow = {
   progress?: ProgressDraft[];
   // "also held as" (§16 #75): a Nalanda export's, or the trash's
   editions?: EditionDraft[];
+  // quotes and highlights (§16 #77), each already resolved to a member here, nobody (null) or the importer
+  quotes?: PersonQuote[];
 };
+
 
 /** Inserts an item's editions — its id, or 'newest' for one inserted earlier in the batch — at most MAX_EDITIONS_PER_ITEM. */
 function editionInsertStatements(d1: D1Database, item: number | 'newest', editions: EditionDraft[]): D1PreparedStatement[] {
@@ -3670,6 +3806,37 @@ function editionInsertStatements(d1: D1Database, item: number | 'newest', editio
     `INSERT INTO editions (item_id, format, isbn, publisher, year)
      SELECT ${itemRef}, json_extract(value, '$.format'), json_extract(value, '$.isbn'), json_extract(value, '$.publisher'), json_extract(value, '$.year')
      FROM json_each(?1) ORDER BY key`,
+  );
+  return [item === 'newest' ? stmt.bind(json) : stmt.bind(json, item)];
+}
+
+/**
+ * Inserts quotes for an item — its id, or 'newest' for one inserted earlier in the batch — skipping any the same
+ * person already has of the same text on it (a Kindle file imported twice brings nothing twice), at most
+ * MAX_QUOTES_PER_ITEM. `person` is whose a quote with no `userId` is.
+ */
+function quoteInsertStatements(d1: D1Database, item: number | 'newest', quotes: PersonQuote[], person: number | null): D1PreparedStatement[] {
+  if (!quotes.length) return [];
+  const itemRef = item === 'newest' ? '(SELECT max(id) FROM items)' : '?2';
+  const json = JSON.stringify(
+    quotes.slice(0, MAX_QUOTES_PER_ITEM).map((q) => ({
+      userId: q.userId === undefined ? person : q.userId,
+      text: q.text,
+      page: q.page,
+      note: q.note,
+      shared: q.shared ? 1 : 0,
+      at: q.at ?? null,
+      source: q.source ?? null,
+    })),
+  );
+  const stmt = d1.prepare(
+    `INSERT INTO quotes (item_id, user_id, text, page, note, shared, source, at)
+     SELECT ${itemRef}, json_extract(j.value, '$.userId'), json_extract(j.value, '$.text'), json_extract(j.value, '$.page'),
+            json_extract(j.value, '$.note'), json_extract(j.value, '$.shared'), json_extract(j.value, '$.source'),
+            coalesce(json_extract(j.value, '$.at'), datetime('now'))
+     FROM json_each(?1) AS j
+     WHERE NOT EXISTS (SELECT 1 FROM quotes q WHERE q.item_id = ${itemRef} AND q.user_id IS json_extract(j.value, '$.userId') AND q.text = json_extract(j.value, '$.text'))
+     ORDER BY j.key`,
   );
   return [item === 'newest' ? stmt.bind(json) : stmt.bind(json, item)];
 }
@@ -3742,6 +3909,7 @@ export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1Pr
       ...linkInsertStatements(d1, 'newest', r.links ?? []),
       ...progressInsertStatements(d1, r.progress ?? []),
       ...editionInsertStatements(d1, 'newest', r.editions ?? []),
+      ...quoteInsertStatements(d1, 'newest', r.quotes ?? [], person),
     );
   }
   const results = await d1.batch(asImport(d1, [...writes, ...extra]));
@@ -4038,6 +4206,7 @@ function trashPayloadSql(): string {
     'wants', ${jsonRows("'userId', user_id, 'at', created_at", 'wants WHERE item_id = i.id', 'created_at, user_id')},
     'links', ${jsonRows("'label', label, 'url', url", 'purchase_links WHERE item_id = i.id')},
     'editions', ${jsonRows("'format', format, 'isbn', isbn, 'publisher', publisher, 'year', year", 'editions WHERE item_id = i.id')},
+    'quotes', ${jsonRows("'userId', user_id, 'text', text, 'page', page, 'note', note, 'shared', shared, 'at', at, 'source', source", 'quotes WHERE item_id = i.id', 'at, id')},
     'people', json((SELECT coalesce(json_group_object(id, session_key), '{}') FROM users)),
     'progress', json((SELECT coalesce(json_group_array(json_object(
         'page', page, 'at', at, 'addedBy', added_by,
@@ -4125,6 +4294,7 @@ export type TrashPayload = {
   links: LinkDraft[];
   progress: ProgressDraft[];
   editions?: EditionDraft[];
+  quotes?: Array<{ userId: number | null; text: string; page: string | null; note: string | null; shared: number | boolean; at: string | null; source: string | null }>;
   /** every member at the time, id to session key (§16 #56): an id is a person only while it still has that key */
   people: Record<string, string>;
 };
@@ -4163,6 +4333,7 @@ export async function restoreFromTrash(d1: D1Database, trashId: number, members:
     wants: (p.wants ?? []).filter((w) => who(w.userId) !== null),
     links: p.links ?? [],
     editions: p.editions ?? [],
+    quotes: (p.quotes ?? []).map((q) => ({ text: q.text, page: q.page, note: q.note, shared: !!q.shared, at: q.at, source: q.source, userId: who(q.userId) })),
     progress: (p.progress ?? []).map((pr) => ({
       page: pr.page,
       at: pr.at,

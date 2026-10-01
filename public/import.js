@@ -281,3 +281,77 @@
     }
   });
 })();
+
+// Kindle highlights (ARCH.md §16 #77): the file is parsed here (public/kindle.js, an ES module) and posted as books with
+// their highlights, a few books a request, each answered with what matched, what was made and what was added.
+(() => {
+  const fileInput = document.getElementById('kindle-file');
+  const previewBtn = document.getElementById('kindle-preview');
+  const runBtn = document.getElementById('kindle-run');
+  const status = document.getElementById('kindle-status');
+  if (!fileInput || !previewBtn || !runBtn || !status) return;
+  const BOOKS = 25;
+  let books = null;
+  const say = (msg) => { status.textContent = msg; };
+  const append = (msg) => { status.textContent += `\n${msg}`; };
+  fileInput.addEventListener('change', () => { books = null; });
+
+  async function load() {
+    const file = fileInput.files?.[0];
+    if (!file) { say('Pick a Kindle file first.'); return null; }
+    const { parseKindle } = await import('/kindle.js');
+    const parsed = parseKindle(await file.text());
+    if (!parsed.length) { say('Nothing in that file looks like a Kindle highlight.'); return null; }
+    return parsed;
+  }
+  const options = (dryRun, batch) => ({
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ libraryId: Number(document.getElementById('kindle-library').value), dryRun, books: batch }),
+  });
+  const count = (list) => list.reduce((n, b) => n + b.highlights.length, 0);
+
+  previewBtn.addEventListener('click', async () => {
+    books = await load();
+    if (!books) return;
+    say(`Found ${books.length} ${books.length === 1 ? 'book' : 'books'} with ${count(books)} highlights. Matching…`);
+    let matched = 0;
+    let created = 0;
+    const missing = [];
+    for (let i = 0; i < books.length; i += BOOKS) {
+      const res = await fetch('/api/import/kindle', options(true, books.slice(i, i + BOOKS)));
+      if (!res.ok) { append(`Preview failed (${res.status}).`); return; }
+      const data = await res.json();
+      matched += data.matched;
+      created += data.created;
+      for (const t of data.titles) if (!t.found) missing.push(t.title);
+    }
+    append(`${matched} ${matched === 1 ? 'book is' : 'books are'} already here; ${created} would be added as “Not owned” reading-log entries on the shelf chosen.`);
+    for (const t of missing.slice(0, 20)) append(`  · new: ${t}`);
+    if (missing.length > 20) append(`  · and ${missing.length - 20} more`);
+    append('Every highlight becomes your quote, private until you share it.');
+  });
+
+  runBtn.addEventListener('click', async () => {
+    if (!books) books = await load();
+    if (!books) return;
+    runBtn.disabled = true;
+    previewBtn.disabled = true;
+    let quotes = 0;
+    let duplicates = 0;
+    let created = 0;
+    say(`Importing ${count(books)} highlights from ${books.length} ${books.length === 1 ? 'book' : 'books'}…`);
+    for (let i = 0; i < books.length; i += BOOKS) {
+      const res = await fetch('/api/import/kindle', options(false, books.slice(i, i + BOOKS)));
+      if (!res.ok) { append(`Batch at book ${i + 1} failed (${res.status}) — stopped; re-run, nothing is added twice.`); previewBtn.disabled = false; runBtn.disabled = false; return; }
+      const data = await res.json();
+      quotes += data.quotes;
+      duplicates += data.duplicates;
+      created += data.created;
+      say(`Importing… ${Math.min(i + BOOKS, books.length)}/${books.length} books (${quotes} quotes added)`);
+    }
+    say(`Done: ${quotes} ${quotes === 1 ? 'quote' : 'quotes'} added${duplicates ? `, ${duplicates} already here` : ''}${created ? `, ${created} ${created === 1 ? 'book' : 'books'} added as Not owned` : ''}. See them under Reading → Quotes.`);
+    previewBtn.disabled = false;
+    runBtn.disabled = false;
+  });
+})();

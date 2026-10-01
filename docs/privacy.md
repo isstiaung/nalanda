@@ -35,6 +35,10 @@ for a surface before changing anything it shows to someone outside the household
   like the borrower.
 - **Language and original title are public** (ARCH.md §16 #76), like the publisher: `language` and
   `originalTitle` are keys of `toPublicItem()`, on gift lists, and to connections.
+- **Quotes** (ARCH.md §16 #77) reach a share page one at a time, only those a member marked `shared`,
+  as text and page through `toPublicItem(item, { quotes })` — never a note, never an unshared quote,
+  never a username; signed with a display name only while `names_on_shares` is on. Not sent to
+  connections yet. The Quotes page is inside the app.
 - **Link previews** (ARCH.md §16 #71): every share page's Open Graph tags are a `LinkPreview` its
   route builds from `toPublicItem()`/`toGiftItem()` values and the page's own name and count —
   never a field the whitelist keeps back, never a display name while `names_on_shares` is off, and

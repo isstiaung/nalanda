@@ -29,6 +29,9 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    CSV cells; what a provider's format words map to — ARCH.md §16 #75),
                    language.ts (every ISO 639-1 language by name, the household default, what a provider's
                    or a file's code means — ARCH.md §16 #76),
+                   quotes.ts (a quote's shape and tidying, the `quotes` CSV cell, what the Kindle import posts —
+                   ARCH.md §16 #77; its pages are routes/quotes.tsx and views/quotes.tsx, the file's parsing
+                   public/kindle.js),
                    search.ts (the search box's operators — author:, title:, tag:, status:, year:, lang:, type: — parsed
                    once and the FTS5 expression; searchItems in db/queries.ts applies them, ARCH.md §16 #80),
                    creators.ts (the people in a creators string — the twin of YEAR_CREATORS in queries.ts — and
@@ -80,7 +83,7 @@ scripts/           vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp
                    backfill-remote.mjs + ts-resolve.mjs (runs src/metadata under Node),
                    a11y.mjs (the runtime accessibility audit; eslint.config.mjs is the static one)
 runbooks/          operational guides: deploy, updating (for self-hosters), backup/restore, accounts,
-                   connections, libib import, goodreads import, metadata backfill, troubleshooting —
+                   connections, libib import, goodreads import, kindle import, metadata backfill, troubleshooting —
                    update when ops procedures change
 .github/           CI (typecheck + lint + test, and the a11y audit as its own job; no secrets,
                    never pull_request_target), release (on a vX.Y.Z tag: publishes

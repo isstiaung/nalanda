@@ -91,6 +91,9 @@ manuscripts.
 - **New from your authors**: the authors you've finished, and on a click their works from Open
   Library, newest first, with what you already have marked — the extent of discovery here: no
   recommendation engine, nothing about your reading sent anywhere.
+- **Quotes and highlights**: keep the lines worth keeping on each book, with a page and a note
+  of your own; private until you mark one to show on share pages. Import your Kindle highlights
+  in one go, parsed in your browser, matched to your books.
 - **Search operators**: `author:`, `title:`, `tag:`, `status:`, `year:`, `lang:` and `type:` beside
   plain words in the search box — `author:"le guin" status:unread year:1960-1979` — and anything
   the box doesn't understand is searched as text.
