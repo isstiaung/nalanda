@@ -18,6 +18,14 @@ import { as, book, html, member, rows, type Member } from './member-helpers';
 
 const placeholders = (text: string) => [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
 
+describe('Fill', () => {
+  it('fills only its own slots: an inherited name such as {constructor} stays as written', async () => {
+    const { Fill } = await import('../src/views/i18n');
+    const html = String(Fill({ text: '{constructor} and {toString} and {who}', with: { who: 'Ravi' } }));
+    expect(html).toBe('{constructor} and {toString} and Ravi');
+  });
+});
+
 describe('the strings table', () => {
   it('ships Hindi and Tamil as full drafts: every English key, the same placeholders, no markup', () => {
     expect(locales).toEqual(['en', 'hi', 'ta']);

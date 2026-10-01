@@ -20,7 +20,7 @@ export const useI18n = (): Translator => useContext(I18n);
  */
 export const Fill: FC<{ text: string; with: Record<string, Child> }> = ({ text, with: slots }) => {
   const parts = text.split(/\{(\w+)\}/); // text, slot name, text, slot name, …, text
-  return <>{parts.map((part, i) => (i % 2 === 1 ? (part in slots ? slots[part] : `{${part}}`) : part))}</>;
+  return <>{parts.map((part, i) => (i % 2 === 1 ? (Object.hasOwn(slots, part) ? slots[part] : `{${part}}`) : part))}</>;
 };
 
 // The label constants in components.tsx stay as they are — the CSV, connections and the pages not yet covered read
