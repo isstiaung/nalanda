@@ -240,6 +240,26 @@ describe('add flow: Log — not owned', () => {
   });
 });
 
+describe('the form’s tags', () => {
+  it('takes up to 50 tags of up to 100 characters, and refuses more with the reason — on add and on edit', async () => {
+    const { lib, cookie } = await seedSession();
+    const base = { title: 'Tagged', libraryId: String(lib.id), mediaType: 'book', status: 'not_started' };
+    const added = await post('/items', { ...base, tags: Array.from({ length: 51 }, (_, i) => `t${i}`).join(',') }, cookie);
+    expect(added.status).toBe(400);
+    expect(await added.text()).toContain('An item takes up to 50 tags, each up to 100 characters.');
+    expect((await env.DB.prepare('SELECT count(*) AS n FROM items').first<{ n: number }>())!.n).toBe(0);
+    const ok = await post('/items', { ...base, tags: Array.from({ length: 50 }, (_, i) => `t${i}`).join(',') }, cookie);
+    expect(ok.status).toBe(302);
+    const id = Number(ok.headers.get('location')!.match(/\/items\/(\d+)/)![1]);
+    expect(await tagsForItem(env.DB, id)).toHaveLength(50);
+    // the edit form likewise, here a tag too long: refused on the form, the item's tags untouched
+    const long = await post(`/items/${id}`, { ...base, tags: 'x'.repeat(101) }, cookie);
+    expect(long.status).toBe(400);
+    expect(await long.text()).toContain('role="alert"');
+    expect(await tagsForItem(env.DB, id)).toHaveLength(50);
+  });
+});
+
 describe('shelf table columns', () => {
   async function shelfHtml(libId: number, cookie: string): Promise<string> {
     const ctx = createExecutionContext();

@@ -14,3 +14,6 @@ export function progressPercent(page: number | null, length: number | null): num
  * they receive — a page above it would be kept here and silently dropped by every one of them.
  */
 export const MAX_PROGRESS_PAGE = 100_000;
+
+/** The most pages one read can have recorded: the item page lists every one of a read's, and a book has that many pages. */
+export const MAX_PROGRESS_PER_READ = 1000;

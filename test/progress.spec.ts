@@ -17,7 +17,7 @@ import {
 import { EXPORT_COLUMNS, mapLibibRow, progressHistoryCell } from '../src/lib/csv';
 import { SESSION_COOKIE } from '../src/lib/auth';
 import { sessionTokenFor } from './session-helpers';
-import { progressPercent } from '../src/lib/progress';
+import { MAX_PROGRESS_PER_READ, progressPercent } from '../src/lib/progress';
 import app from '../src/index';
 
 // The DB layer's own callers here act for the whole household, as an admin would (§16 #43).
@@ -179,6 +179,24 @@ describe('POST /items/:id/progress', () => {
 
     expect(res.status).toBe(400);
     expect(await listProgress(env.DB, record.id)).toEqual([]);
+  });
+
+  it('holds at most 1,000 pages on one read, checked where it writes, and says so', async () => {
+    const book = await seedBook();
+    const user = await admin();
+    expect(await addProgress(env.DB, book.id, 1, user.id)).toBe(true);
+    const read = (await env.DB.prepare('SELECT id FROM reads WHERE item_id = ?1').bind(book.id).first<{ id: number }>())!.id;
+    await env.DB.prepare('INSERT INTO reading_progress (item_id, page, added_by, read_id) SELECT ?1, value + 1, ?2, ?3 FROM json_each(?4)')
+      .bind(book.id, user.id, read, JSON.stringify(Array.from({ length: MAX_PROGRESS_PER_READ - 1 }, (_, i) => i + 1)))
+      .run();
+    expect(await addProgress(env.DB, book.id, 1001, user.id)).toBe(false);
+    const res = await post(`/items/${book.id}/progress`, user.id, { page: '1001' });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('as many pages recorded as it can hold (1,000)');
+    expect(await listProgress(env.DB, book.id)).toHaveLength(MAX_PROGRESS_PER_READ);
+    // the cap is the read's: another reader's read of the book takes their page
+    const other = await createUser(env.DB, { username: 'ravi', passwordHash: 'pbkdf2$1$x$y', role: 'member', mustChangePassword: false });
+    expect(await addProgress(env.DB, book.id, 5, other.id)).toBe(true);
   });
 
   it('removes an entry through its own route', async () => {

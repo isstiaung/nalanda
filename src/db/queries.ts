@@ -21,6 +21,7 @@ import {
 import { countName, nameKey, sortNames, splitCreators, type NameCount } from '../lib/creators';
 import { MAX_EDITIONS_PER_ITEM, type EditionDraft } from '../lib/formats';
 import { DEFAULT_LANGUAGE, isLanguageCode } from '../lib/language';
+import { MAX_PROGRESS_PER_READ } from '../lib/progress';
 import { MAX_QUOTES_PER_ITEM, type CellQuote, type KindleBook, type PersonQuote, type QuoteDraft } from '../lib/quotes';
 import { ftsMatch, parseSearch } from '../lib/search';
 import { FEWEST_PLAYERS, WEIGHT_BANDS, type GameFilters } from '../lib/games';
@@ -2543,10 +2544,19 @@ export type QuoteEntry = { id: number; itemId: number; userId: number | null; te
 type QuoteRow = Omit<QuoteEntry, 'shared'> & { shared: number };
 const QUOTE_COLUMNS = 'id, item_id AS itemId, user_id AS userId, text, page, note, shared, source, at';
 
-/** Adds a member's quote to an item, dated now unless the draft says. True when added; false when the item is gone or they have that text on it already. */
+/**
+ * Adds a member's quote to an item, dated now unless the draft says. True when added; false when the item is gone,
+ * they have that text on it already, or the item holds MAX_QUOTES_PER_ITEM (checked in the statement).
+ */
 export async function addQuote(d1: D1Database, itemId: number, userId: number, draft: QuoteDraft): Promise<boolean> {
   const [res] = await d1.batch(quoteInsertStatements(d1, itemId, [{ ...draft, userId }], userId));
   return (res?.meta?.changes ?? 0) > 0;
+}
+
+/** How many quotes an item holds — what tells a refused quote at the cap from one already there. */
+export async function quoteCount(d1: D1Database, itemId: number): Promise<number> {
+  const row = await d1.prepare('SELECT count(*) AS n FROM quotes WHERE item_id = ?1').bind(itemId).first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 export async function getQuote(d1: D1Database, itemId: number, quoteId: number): Promise<QuoteEntry | null> {
@@ -3582,16 +3592,31 @@ export async function addProgress(
       )
       .bind(itemId, reader, today),
     adoptOrphanPages(d1, itemId, reader),
+    // at most MAX_PROGRESS_PER_READ pages on the read, checked in the statement
     d1
       .prepare(
         `INSERT INTO reading_progress (item_id, page, added_by, read_id)
-         SELECT ?1, ?3, ?2, id FROM reads WHERE item_id = ?1 AND reader_id IS ?2 AND status = 'in_progress' LIMIT 1`,
+         SELECT ?1, ?3, ?2, id FROM reads WHERE item_id = ?1 AND reader_id IS ?2 AND status = 'in_progress'
+           AND (SELECT count(*) FROM reading_progress p WHERE p.read_id = reads.id) < ${MAX_PROGRESS_PER_READ}
+         LIMIT 1`,
       )
       .bind(itemId, reader, page),
     // updated_at is deliberately untouched: connections see it, and a page is its own entry, not an edit of the book
     refreshReadState(d1, [itemId]),
   ]);
   return (results[3]?.meta.changes ?? 0) > 0;
+}
+
+/** How many pages `reader`'s open read of an item has recorded — what tells a refused page apart from no read open. */
+export async function openReadPages(d1: D1Database, itemId: number, reader: number | null): Promise<number> {
+  const row = await d1
+    .prepare(
+      `SELECT count(*) AS n FROM reading_progress p JOIN reads r ON r.id = p.read_id
+       WHERE r.item_id = ?1 AND r.reader_id IS ?2 AND r.status = 'in_progress'`,
+    )
+    .bind(itemId, reader)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 /** A page's person: its read's reader, or — for a page from before reads — whoever recorded it. */
@@ -4236,7 +4261,8 @@ function editionInsertStatements(d1: D1Database, item: number | 'newest', editio
 /**
  * Inserts quotes for an item — its id, or 'newest' for one inserted earlier in the batch — skipping any the same
  * person already has of the same text on it (a Kindle file imported twice brings nothing twice), at most
- * MAX_QUOTES_PER_ITEM. `person` is whose a quote with no `userId` is.
+ * MAX_QUOTES_PER_ITEM on the item, counted in the statement with what it holds already. `person` is whose a quote
+ * with no `userId` is.
  */
 function quoteInsertStatements(d1: D1Database, item: number | 'newest', quotes: PersonQuote[], person: number | null): D1PreparedStatement[] {
   if (!quotes.length) return [];
@@ -4259,6 +4285,7 @@ function quoteInsertStatements(d1: D1Database, item: number | 'newest', quotes: 
             coalesce(json_extract(j.value, '$.at'), datetime('now'))
      FROM json_each(?1) AS j
      WHERE NOT EXISTS (SELECT 1 FROM quotes q WHERE q.item_id = ${itemRef} AND q.user_id IS json_extract(j.value, '$.userId') AND q.text = json_extract(j.value, '$.text'))
+       AND (SELECT count(*) FROM quotes q WHERE q.item_id = ${itemRef}) + j.key < ${MAX_QUOTES_PER_ITEM}
      ORDER BY j.key`,
   );
   return [item === 'newest' ? stmt.bind(json) : stmt.bind(json, item)];

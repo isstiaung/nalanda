@@ -56,6 +56,8 @@ import {
   markNotOwnedUnlessLent,
   markOwnedUnlessBorrowed,
   openBorrowLender,
+  openReadPages,
+  quoteCount,
   historyOf,
   itemHistoryStatements,
   type Writer,
@@ -69,7 +71,7 @@ import { isPlayable, MAX_PLAYS_PER_ITEM, playDateProblem } from '../lib/plays';
 import { fillPressing, recordBarcode, releaseIdOf, type Filled } from '../lib/pressing';
 import { checkPurchaseLink, MAX_LINKS_PER_ITEM } from '../lib/links';
 import { isCurrencyCode, isStoredPrice, parseMoney } from '../lib/money';
-import { MAX_PROGRESS_PAGE } from '../lib/progress';
+import { MAX_PROGRESS_PAGE, MAX_PROGRESS_PER_READ } from '../lib/progress';
 import { isReadStatus, readDateProblem, summarizeReads, type ReadDraft } from '../lib/reads';
 import { reviewText } from '../lib/reviews';
 import { cleanSeriesName, formatSeriesNumber, parseSeriesNumber, type SeriesDraft } from '../lib/series';
@@ -119,7 +121,7 @@ import { CoverPhotoForm, PHOTO_REFUSED } from '../views/cover-photo';
 import { cleanEdition, FORMATS, formatLabel, formatsFromPressing, formatsOf, MAX_EDITIONS_PER_ITEM, normalizeFormats, type EditionDraft } from '../lib/formats';
 import { isLanguageCode } from '../lib/language';
 import { QuotesSection } from '../views/quotes';
-import { cleanQuote, type QuoteDraft } from '../lib/quotes';
+import { cleanQuote, MAX_QUOTES_PER_ITEM, type QuoteDraft } from '../lib/quotes';
 import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
 import { recommendOnItemPage } from './recommendations';
@@ -207,7 +209,14 @@ type ParsedForm = {
   gradeProblem: string | null;
   /** Why the typed cover URL was refused: it's Discogs' image (§16 #67). */
   coverProblem: string | null;
+  /** Why the tags were refused: more than an item takes, or one too long. */
+  tagProblem: string | null;
 };
+
+/** The most tags one item takes from the form, and the longest — bulk edit's tag action has its own, per action. */
+const MAX_TAGS_PER_ITEM = 50;
+const MAX_TAG_LENGTH = 100;
+const TAGS_REFUSED = `An item takes up to ${MAX_TAGS_PER_ITEM} tags, each up to ${MAX_TAG_LENGTH} characters.`;
 
 const DISCOGS_COVER =
   'Discogs’ images can’t be kept as a cover: its API terms restrict them. Use another image’s URL, or leave the cover blank.';
@@ -333,6 +342,7 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
   if (reviewedIn.length) detailsObj['reviewed_in'] = reviewedIn;
   const details = JSON.stringify(detailsObj);
   const { grades, problem: gradeProblem } = formGrades(body, mediaType);
+  const tags = str('tags').split(',').map((t) => t.trim()).filter(Boolean);
 
   return {
     values: {
@@ -367,7 +377,8 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
       ...grades,
     },
     editions: editionsFromForm(body, mediaType),
-    tags: str('tags').split(',').map((t) => t.trim()).filter(Boolean),
+    tags,
+    tagProblem: tags.length > MAX_TAGS_PER_ITEM || tags.some((t) => t.length > MAX_TAG_LENGTH) ? TAGS_REFUSED : null,
     coverUrl: str('coverUrl'),
     // a photo taken or a file picked (§16 #73): a File from a multipart form, else nothing
     photo: body['photo'] instanceof File && body['photo'].size > 0 ? body['photo'] : null,
@@ -383,10 +394,10 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
 
 /**
  * Why the form can't be saved — a grade off the scale (§16 #55), Discogs' image (§16 #67), a photo that isn't one
- * (§16 #73), its reading, or its series — or null.
+ * (§16 #73), its reading, its series, or its tags — or null.
  */
 const formProblem = (readProblem: string | null, parsed: ParsedForm, photoProblem: string | null = null) =>
-  parsed.gradeProblem ?? parsed.coverProblem ?? photoProblem ?? readProblem ?? parsed.seriesProblem;
+  parsed.gradeProblem ?? parsed.coverProblem ?? photoProblem ?? readProblem ?? parsed.seriesProblem ?? parsed.tagProblem;
 
 /** A photo on the form that can't be a cover: said back on the form, tied to its field, rather than silently kept out. */
 const photoProblemOf = async (parsed: ParsedForm): Promise<string | null> =>
@@ -994,7 +1005,19 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
         ) : null}
 
         {item.mediaType === 'book' ? (
-          <QuotesSection itemId={item.id} quotes={log.quotes} viewer={viewer} people={people} error={c.req.query('quote') === 'refused' ? 'A quote needs some text.' : undefined} />
+          <QuotesSection
+            itemId={item.id}
+            quotes={log.quotes}
+            viewer={viewer}
+            people={people}
+            error={
+              c.req.query('quote') === 'refused'
+                ? 'A quote needs some text.'
+                : c.req.query('quote') === 'full'
+                  ? `This book has as many quotes as it can hold (${MAX_QUOTES_PER_ITEM}).`
+                  : undefined
+            }
+          />
         ) : null}
 
         {item.mediaType === 'book' ? (
@@ -1210,16 +1233,20 @@ items.post('/items/:id/progress', async (c) => {
   const raw = ((await c.req.parseBody())['page'] ?? '').toString().trim();
   const page = Number(raw);
   const invalid = !/^\d+$/.test(raw) || !Number.isSafeInteger(page) || page < 1 || page > MAX_PROGRESS_PAGE;
-  // a finished or stopped book has no open read to record into: reading it again starts with "Read again"
+  // a finished or stopped book has no open read to record into: reading it again starts with "Read again"; a read
+  // that holds all the pages it can takes no more
   const recorded = !invalid && (await addProgress(c.env.DB, id, page, c.get('user').id, todayOf(c)));
+  const full = !invalid && !recorded && (await openReadPages(c.env.DB, id, c.get('user').id)) >= MAX_PROGRESS_PER_READ;
   return readingResponse(
     c,
     id,
     invalid
       ? 'Give a whole page number, from 1 to 100,000.'
-      : !recorded
-        ? 'This book isn’t being read now. Start a new read first, then record its pages.'
-        : undefined,
+      : full
+        ? `This read has as many pages recorded as it can hold (${MAX_PROGRESS_PER_READ.toLocaleString('en')}). Finish it, or remove an entry.`
+        : !recorded
+          ? 'This book isn’t being read now. Start a new read first, then record its pages.'
+          : undefined,
   );
 });
 
@@ -1391,9 +1418,12 @@ items.post('/items/:id/quotes', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
+  if (item.mediaType !== 'book') return c.text('Quotes are for books', 400); // the page offers them for books only
   const draft = quoteFromForm(await c.req.parseBody());
   if (!draft) return c.redirect(`/items/${id}?quote=refused#quotes`);
-  await addQuote(c.env.DB, id, c.get('user').id, draft);
+  const added = await addQuote(c.env.DB, id, c.get('user').id, draft);
+  // not added: the same text of theirs is on it already (nothing to say), or the book holds all it can
+  if (!added && (await quoteCount(c.env.DB, id)) >= MAX_QUOTES_PER_ITEM) return c.redirect(`/items/${id}?quote=full#quotes`);
   return c.redirect(`/items/${id}#quotes`);
 });
 

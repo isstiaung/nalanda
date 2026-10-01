@@ -2,9 +2,9 @@
 // the browser's module and matched by title and author; the CSV cell; the trash; and what a share page may show.
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
-import { createLibrary, createShare, deleteItem, deleteUser, getItem, listMembersWithKeys, listTrash, memberKeys, quotesOf, restoreFromTrash, updateSiteSettings } from '../src/db/queries';
+import { addQuote, createLibrary, createShare, deleteItem, deleteUser, getItem, listMembersWithKeys, listTrash, memberKeys, quotesOf, restoreFromTrash, updateSiteSettings } from '../src/db/queries';
 import { mapNalandaRow } from '../src/lib/csv';
-import { cleanKindleBook, cleanQuote, formatQuotesCell, parseQuotesCell } from '../src/lib/quotes';
+import { cleanKindleBook, cleanQuote, formatQuotesCell, MAX_QUOTES_PER_ITEM, parseQuotesCell } from '../src/lib/quotes';
 import { newShareToken, toPublicItem } from '../src/lib/share';
 import { clearSharePageCache } from '../src/routes/share';
 import app from '../src/index';
@@ -139,6 +139,23 @@ describe('on a book’s page', () => {
     expect((await as(mira, `/items/${b.id}/quotes/${id}/delete`, { body: {} })).status).toBe(403);
     expect((await as(ravi, `/items/${b.id}/quotes/${id}/delete`, { body: {} })).status).toBe(302);
     expect(await quotesIn(b.id)).toEqual([]);
+  });
+
+  it('holds at most 500 quotes, checked where it writes, and takes none on a record or a game', async () => {
+    const { asha, ravi, shelf } = await household();
+    const b = await book(asha, { libraryId: shelf.id, title: 'Piranesi' });
+    await env.DB.prepare("INSERT INTO quotes (item_id, user_id, text, shared, at) SELECT ?1, ?2, 'line ' || value, 0, datetime('now') FROM json_each(?3)")
+      .bind(b.id, ravi.id, JSON.stringify(Array.from({ length: MAX_QUOTES_PER_ITEM }, (_, i) => i)))
+      .run();
+    expect(await addQuote(env.DB, b.id, ravi.id, { text: 'One more', page: null, note: null, shared: false })).toBe(false);
+    const res = await as(ravi, `/items/${b.id}/quotes`, { body: { text: 'One more' } });
+    expect(res.headers.get('location')).toBe(`/items/${b.id}?quote=full#quotes`);
+    expect(await html(ravi, `/items/${b.id}?quote=full`)).toContain('as many quotes as it can hold (500)');
+    expect(await quotesIn(b.id)).toHaveLength(MAX_QUOTES_PER_ITEM);
+    // a record: its page has no quotes section, and the route takes none either
+    const record = await book(asha, { libraryId: shelf.id, title: 'Kind of Blue', mediaType: 'vinyl' });
+    expect((await as(ravi, `/items/${record.id}/quotes`, { body: { text: 'So what' } })).status).toBe(400);
+    expect(await quotesIn(record.id)).toEqual([]);
   });
 
   it('lists a member’s quotes, newest first, on their page — and the household picks whose', async () => {
