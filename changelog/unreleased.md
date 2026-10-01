@@ -4,6 +4,7 @@
 
 ### Changed
 - The reading goal's note under the bar now reads "The mark shows where you'd be reading evenly since 1 January."
+- **A record's cover now comes from the Cover Art Archive, never from Discogs.** Discogs' API terms restrict its images, and a stored cover is shown on share pages and to connected households. Adding a record from a Discogs result (search, barcode or a held scan), the cover backfill, and wanting a recommended record now look the record up on MusicBrainz, by barcode or by a confident artist-and-title match, and store the archive's front cover, or none. Discogs still fills in the pressing. The Add page still previews Discogs' image while you choose. A Discogs image URL pasted into the cover field is refused, with the reason.
 - **Pages read far less of the database.** The Overview reads about a fifth of the rows it did, a shelf about a sixth, a tag's page about a third and a tag's share link a quarter, and Year in review about half — with fewer database calls, and nothing on any page changes. On a 2,000-item catalogue a day's ordinary use comes to about 3% of the free plan's daily rows, down from 12%. The analysis is in [docs/perf/query-analysis.md](../docs/perf/query-analysis.md).
 
 ### Fixed
@@ -12,5 +13,6 @@
 - The accessibility audit now presses the Add page's **More results**, and `npm run a11y -- --only=<word>` also picks out single htmx steps.
 
 ### Upgrading
+- **Replace record covers stored from Discogs** with the one-off in [record-covers.md](../runbooks/record-covers.md), soon after deploying: `npm run record-covers:remote -- rehearse --backup backups/remote-<date>`, then `export`, `enrich`, `upload`, `npm run backup`, `apply`. It touches only covers the data proves came from Discogs: a record added from a Discogs result and never saved since. It replaces each with the Cover Art Archive's, or drops it. Covers typed in by hand, and covers it can't place, are kept and counted. No migration, and no new secret. Connections on older versions are unaffected. A cover they copied from an old key shows its placeholder once that object is deleted.
 - **One migration, 0040: indexes only.** It adds seven indexes and changes no data. [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual — the deploy applies it. On a 2,000-item catalogue building them writes about 10,000 rows once, of the free plan's 100,000 a day; afterwards adding an item writes about four more rows than before.
 - **Connections** are unaffected: nothing sent to or received from another household changes.

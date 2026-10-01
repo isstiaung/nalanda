@@ -536,6 +536,32 @@ describe('the Recommended list', () => {
     expect(await rows('SELECT item_id FROM wants')).toEqual([{ item_id: made }]);
   });
 
+  it('takes a wanted record’s cover from the Cover Art Archive, never theirs — which may be Discogs’ image (§16 #67)', async () => {
+    const id = await received({ mediaType: 'vinyl', title: 'Kind of Blue', creators: 'Miles Davis', ids: { discogs_id: 1234567 } });
+    const asha = await member('asha');
+    const RG = '8e8a594f-2175-4f46-8f8a-3a7c5d7e0a11';
+    const log = answerOutbound((req) => {
+      const url = new URL(req.url);
+      if (url.hostname === 'musicbrainz.org') {
+        return json({
+          releases: [{ id: 'a1b2c3d4-0000-4000-8000-000000000001', title: 'Kind of Blue', 'artist-credit': [{ name: 'Miles Davis' }], 'release-group': { id: RG, 'primary-type': 'Album' } }],
+        });
+      }
+      if (url.href === `https://coverartarchive.org/release-group/${RG}/front-500`) {
+        return new Response(null, { status: 307, headers: { location: 'https://archive.org/download/mbid-x/front.jpg' } });
+      }
+      if (url.href === 'https://archive.org/download/mbid-x/front.jpg') return new Response(new Uint8Array(900).fill(3), { headers: { 'content-type': 'image/jpeg' } });
+      if (url.pathname === `/covers/${COVER_KEY}`) return new Response(new Uint8Array(900).fill(7), { headers: { 'content-type': 'image/jpeg' } });
+      return json({}, 404);
+    });
+    await a.postForm(`/recommendations/${id}/want`, { libraryId: String(shelfId) }, asha.cookie);
+    expect(to(log, `/covers/${COVER_KEY}`)).toEqual([]); // their cover is never asked for
+    const [made] = await rows<{ cover_key: string }>('SELECT cover_key FROM items WHERE title = ?1 AND copies = 0', 'Kind of Blue');
+    const stored = await env.COVERS.get(made!.cover_key);
+    expect(new Uint8Array(await stored!.arrayBuffer())).toEqual(new Uint8Array(900).fill(3)); // the archive's bytes
+    expect(log.map((r) => new URL(r.url).hostname).filter((h) => h.includes('discogs'))).toEqual([]);
+  });
+
   it('never keeps a cover that isn’t a raster image, nor follows a redirect for one — and serves every cover sandboxed', async () => {
     const id = await received();
     const asha = await member('asha');

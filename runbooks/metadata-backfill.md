@@ -8,6 +8,11 @@ It uses the same matching code as the app (`src/metadata`), so it makes the same
 under Node instead of inside a Worker, so the free plan's per-request limits (10 ms of CPU, 50
 outbound requests) don't apply. It can also pace itself for each provider and retry failed requests.
 
+A record's cover comes only from the Cover Art Archive, by barcode or by a confident artist-and-title
+match on MusicBrainz. Its details still come from Discogs, but never its image, which Discogs'
+terms restrict (ARCH.md §16 #67). To replace record covers stored from Discogs before that, see
+[record-covers.md](record-covers.md).
+
 Nothing it writes can overwrite your data. It only fills fields that are empty, and every update
 re-checks, at the moment it runs, that its field is *still* empty. Anything written after the
 export, whether by you or by the in-app backfill, wins.

@@ -51,7 +51,7 @@ import {
 import type { AppEnv } from '../env';
 import { scanQueueOwner } from '../lib/auth';
 import { isRecord, parseGrade } from '../lib/condition';
-import { deleteCover, storeCover } from '../lib/covers';
+import { deleteCover, isDiscogsUrl, storeCover } from '../lib/covers';
 import { bggIdOf, fillGame, type GameFill } from '../lib/games';
 import { isPlayable, MAX_PLAYS_PER_ITEM, playDateProblem } from '../lib/plays';
 import { fillPressing, recordBarcode, releaseIdOf, type Filled } from '../lib/pressing';
@@ -62,7 +62,7 @@ import { isReadStatus, readDateProblem, summarizeReads, todayUtc, type ReadDraft
 import { reviewText } from '../lib/reviews';
 import { cleanSeriesName, formatSeriesNumber, parseSeriesNumber, type SeriesDraft } from '../lib/series';
 import { parseDetails } from '../lib/share';
-import { bggRefresh, discogsPressing } from '../metadata';
+import { bggRefresh, discogsPressing, recordCover } from '../metadata';
 import {
   accNo,
   BuySection,
@@ -174,7 +174,12 @@ type ParsedForm = {
   seriesProblem: string | null;
   /** Why a grade was refused: one off the fixed scale (§16 #55). */
   gradeProblem: string | null;
+  /** Why the typed cover URL was refused: it's Discogs' image (§16 #67). */
+  coverProblem: string | null;
 };
+
+const DISCOGS_COVER =
+  'Discogs’ images can’t be kept as a cover: its API terms restrict them. Use another image’s URL, or leave the cover blank.';
 
 /** The series fields: a name, and a number that needs one. Blank both, and the item is in no series. */
 function parseSeriesFields(nameRaw: string, numberRaw: string): Pick<ParsedForm, 'series' | 'seriesProblem'> {
@@ -313,11 +318,15 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
     ...parseSeriesFields(str('seriesName'), str('seriesNumber')),
     seriesSent: { name: str('seriesName'), number: str('seriesNumber') },
     gradeProblem,
+    // A Discogs result's own form never sends its image now, and one from a page rendered before that is ignored on
+    // save (POST /items): only a URL someone typed is refused, with the reason.
+    coverProblem: body['source'] !== 'discogs' && isDiscogsUrl(str('coverUrl')) ? DISCOGS_COVER : null,
   };
 }
 
-/** Why the form can't be saved — a grade off the scale (§16 #55), its reading, or its series — or null. */
-const formProblem = (readProblem: string | null, parsed: ParsedForm) => parsed.gradeProblem ?? readProblem ?? parsed.seriesProblem;
+/** Why the form can't be saved — a grade off the scale (§16 #55), Discogs' image (§16 #67), its reading, or its series — or null. */
+const formProblem = (readProblem: string | null, parsed: ParsedForm) =>
+  parsed.gradeProblem ?? parsed.coverProblem ?? readProblem ?? parsed.seriesProblem;
 
 /** The form's status and dates, as the read they describe. */
 const readFields = (v: ParsedForm['values']) => ({ status: v.status ?? 'not_started', beganOn: v.beganOn ?? null, completedOn: v.completedOn ?? null });
@@ -402,6 +411,7 @@ items.post('/items', async (c) => {
           tags={parsed.tags}
           coverUrl={parsed.coverUrl}
           error={problem}
+          coverError={problem === parsed.coverProblem}
           perMember={people.length > 1}
           series={parsed.seriesSent}
           seriesNames={names}
@@ -428,7 +438,22 @@ items.post('/items', async (c) => {
     }
   }
 
-  const coverKey = await storeCover(c.env.COVERS, parsed.coverUrl);
+  // A record from a Discogs result takes its cover from the Cover Art Archive, or has none: never the image the result
+  // showed, which is Discogs' Restricted Data (§16 #67). A cover URL typed into the form is the person's own.
+  const coverKey =
+    body['source'] === 'discogs' && isRecord(parsed.values.mediaType)
+      ? (
+          await recordCover(
+            {
+              barcode: recordBarcode({ isbn13: parsed.values.isbn13 ?? null, isbn10Upc: parsed.values.isbn10Upc ?? null }),
+              musicbrainzId: parseDetails(parsed.values.details)['musicbrainz_id'],
+              title: parsed.values.title,
+              creators: parsed.values.creators,
+            },
+            (url) => storeCover(c.env.COVERS, url),
+          )
+        ).key
+      : await storeCover(c.env.COVERS, parsed.coverUrl);
   let id: number;
   try {
     // its status, dates, rating and review become the adder's read and review (added_by)
@@ -1574,6 +1599,7 @@ items.post('/items/:id', async (c) => {
           coverUrl={parsed.coverUrl}
           removeCover={parsed.removeCover}
           error={problem}
+          coverError={problem === parsed.coverProblem}
           perMember={people.length > 1}
           series={parsed.seriesSent}
           seriesNames={names}

@@ -59,7 +59,8 @@ item short of a cover or a description, in small batches with live progress, try
 passes per item:
 
 1. **Exact, by ISBN/UPC** — Open Library (search + raw edition record), Google Books,
-   iTunes; Discogs and the MusicBrainz Cover Art Archive for music barcodes. All keyless
+   iTunes. A record's cover comes only from the MusicBrainz Cover Art Archive (by barcode,
+   or a confident artist-and-title match), and its details from Discogs. All keyless
    except Discogs.
 2. **By title + author** — catches items whose ISBN no provider knows (and items with no
    ISBN at all). A different *edition's* cover may be used; matches are flagged in the
