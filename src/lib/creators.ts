@@ -15,11 +15,11 @@ import type { MediaType } from '../db/schema';
  * ("Terry Pratchett, Neil Gaiman") stay two people. ';' and ' & ' separate people too ("Pratchett & Gaiman").
  */
 export function splitCreators(creators: string | null | undefined): string[] {
-  const cr = (creators ?? '').trim();
+  const cr = sqlTrim(creators ?? '');
   if (!cr) return [];
   const comma = cr.indexOf(',');
-  const a = comma >= 0 ? cr.slice(0, comma).trim() : '';
-  const b = comma >= 0 ? cr.slice(comma + 1).trim() : '';
+  const a = comma >= 0 ? sqlTrim(cr.slice(0, comma)) : '';
+  const b = comma >= 0 ? sqlTrim(cr.slice(comma + 1)) : '';
   let names: string;
   if (
     comma >= 0 &&
@@ -38,9 +38,12 @@ export function splitCreators(creators: string | null | undefined): string[] {
   }
   return names
     .split(',')
-    .map((n) => n.trim())
+    .map(sqlTrim)
     .filter((n) => n !== '' && !NOBODY.has(n.toLowerCase()));
 }
+
+/** SQLite's trim(): spaces only — not tabs, newlines or no-break spaces, which JS's trim() would take and the SQL twin keeps. */
+const sqlTrim = (s: string): string => s.replace(/^ +| +$/g, '');
 
 const SUFFIXES = new Set(['jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv']);
 const NOBODY = new Set(['jr', 'jr.', 'sr', 'sr.']);

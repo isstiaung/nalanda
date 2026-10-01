@@ -24,6 +24,11 @@ describe('splitCreators', () => {
     ['Miles Davis', ['Miles Davis']],
     ['Various Artists', ['Various Artists']],
     [', ,', []],
+    ['Jens Østergaard, Čapek, Karel', ['Jens Østergaard', 'Čapek', 'Karel']],
+    ['Ødegaard, Martin', ['Martin Ødegaard']],
+    // SQLite's trim() takes spaces only: a tab or a no-break space stays part of a name, in both twins
+    ['\tTab Name\t, Second Person', ['\tTab Name\t', 'Second Person']],
+    ['\u00a0Nbsp Name, Second Person', ['\u00a0Nbsp Name', 'Second Person']],
   ];
   it.each(cases)('%j → %j', (input, expected) => {
     expect(splitCreators(input)).toEqual(expected);
@@ -140,6 +145,27 @@ describe('a creator’s page', () => {
     expect(await html(ravi, '/creators/ursula%20k.%20le%20guin')).toContain('AUTHOR · 3 BOOKS');
     // nobody of that name: as a tag nothing carries
     expect((await as(ravi, '/creators/Nobody%20Here')).status).toBe(404);
+  });
+
+  it('finds a name whose last word has a capital SQLite’s lower() leaves alone, and names with URL characters', async () => {
+    const { asha, books, records } = await household();
+    await book(asha, { libraryId: books.id, title: 'Kierkegaard', creators: 'Jens Østergaard' });
+    await book(asha, { libraryId: books.id, title: 'R.U.R.', creators: 'Čapek, Karel' });
+    await record(records.id, 'Back in Black', 'AC/DC');
+    await record(records.id, 'Odd', '100% Pure? Yes');
+    for (const [name, title] of [
+      ['Jens Østergaard', 'Kierkegaard'],
+      ['Karel Čapek', 'R.U.R.'],
+      ['AC/DC', 'Back in Black'],
+      ['100% Pure? Yes', 'Odd'],
+    ] as const) {
+      const index = await html(asha, '/creators');
+      const link = `href="/creators/${encodeURIComponent(name)}"`;
+      expect(index).toContain(link);
+      const text = await html(asha, `/creators/${encodeURIComponent(name)}`);
+      expect(text).toContain(`<h1>${name.replace(/&/g, '&amp;')}</h1>`);
+      expect(text).toContain(title);
+    }
   });
 
   it('pages at sixty', async () => {

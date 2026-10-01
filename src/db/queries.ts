@@ -3800,17 +3800,23 @@ export type ByNameRow = Item & { finishedByMe: boolean };
 
 /**
  * Every item one creator is named on, by title, with whether the viewer has finished it. The column holds several
- * people in one string, so SQL narrows to rows that contain the name and TypeScript keeps those where the split names
- * it exactly, without case: "Ann Leckie" is not on "Ann Leckie Jr."'s page, and "Le Guin, Ursula K." is on Ursula K.
- * Le Guin's. Reads only the rows that contain the name.
+ * people in one string, so SQL narrows to rows that contain the name's last word and TypeScript keeps those where the
+ * split names it exactly, without case: "Ann Leckie" is not on "Ann Leckie Jr."'s page, and "Le Guin, Ursula K." is on
+ * Ursula K. Le Guin's. SQLite's lower() folds ASCII only, so the narrowing is used only when that word is plain ASCII;
+ * "Jens Østergaard" reads every row with creators instead — one row per item, as the index does — and the exact match
+ * decides.
  */
 export async function itemsByCreator(d1: D1Database, name: string, viewer: number): Promise<ByNameRow[]> {
   const key = nameKey(name);
   if (!key) return [];
+  const last = key.split(' ').at(-1) ?? '';
+  const narrow = /^[\x00-\x7f]+$/.test(last)
+    ? sql`instr(lower(${s.items.creators}), ${last}) > 0`
+    : sql`${s.items.creators} IS NOT NULL AND trim(${s.items.creators}) <> ''`;
   const rows = await db(d1)
     .select({ item: s.items, finished: finishedByViewer(viewer) })
     .from(s.items)
-    .where(sql`instr(lower(${s.items.creators}), ${key.split(' ').at(-1)}) > 0`)
+    .where(narrow)
     .orderBy(asc(s.items.title), asc(s.items.id));
   return rows
     .filter((r) => splitCreators(r.item.creators).some((n) => nameKey(n) === key))

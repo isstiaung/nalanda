@@ -18,8 +18,9 @@ lives on.
   `YEAR_CREATORS`, the SQL that gives Year in review its most-read authors (#59): ", ", ";"
   and " & " separate people; "Last, First" with given names after the comma is one person
   turned round ("Le Guin, Ursula K." is Ursula K. Le Guin); a suffix keeps its order and a lone
-  "Jr." is nobody. `test/creators.spec.ts` runs the same cases through both and holds them to
-  the same answers, so the two can't drift.
+  "Jr." is nobody. Trimming is SQLite's `trim()`, spaces only, so a tab or a no-break space
+  stays part of a name in both. `test/creators.spec.ts` runs the same cases through both and
+  holds them to the same answers, so the two can't drift.
 - **Four pages, two kinds.** `/creators` and `/creators/:name`, `/publishers` and
   `/publishers/:name` (`src/routes/creators.tsx`, one handler pair for both). The index lists
   every name grouped by what it mostly is — Authors, Designers, Artists; Publishers, Labels —
@@ -37,9 +38,10 @@ lives on.
   indexes.
 - **What it reads.** The creators index reads one row per item with creators, once per visit
   — 2,000 rows on a 2,000-item catalogue, split in TypeScript. The publishers index groups in
-  SQL. A name's page narrows in SQL (`instr` on the name's last word; an exact publisher) and
-  keeps, in TypeScript, the rows whose split names it exactly: "Ann Leckie" is not on "Ann
-  Leckie Jr."'s page.
+  SQL. A name's page narrows in SQL (`instr` on the name's last word, when that word is plain ASCII — SQLite's `lower()`
+  folds nothing else, so "Jens Østergaard" reads every row with creators instead; an exact
+  publisher) and keeps, in TypeScript, the rows whose split names it exactly: "Ann Leckie" is
+  not on "Ann Leckie Jr."'s page.
 
 **What it rules out:** a creators table (above); linking creators on shelf cards and search
 rows (the item page is where a name is read; a card is a cover and a title); editing a
