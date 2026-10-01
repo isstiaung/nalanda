@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { writerOf } from './items';
 import { cleanKindleBook, MAX_KINDLE_BOOKS_PER_REQUEST, MAX_KINDLE_HIGHLIGHTS_PER_REQUEST, type KindleBook } from '../lib/quotes';
 import type { MediaType, NewItem } from '../db/schema';
 import { MEDIA_TYPES } from '../db/schema';
@@ -304,7 +305,7 @@ importexport.post('/api/import', async (c) => {
   }
 
   if (isGoodreads) {
-    const { inserted, merged, reads } = await mergeImportItems(c.env.DB, withOwners);
+    const { inserted, merged, reads } = await mergeImportItems(c.env.DB, withOwners, false, writerOf(c));
     return c.json({ inserted, merged, reads, skipped });
   }
   const inserted = await importItems(c.env.DB, withOwners);
@@ -387,7 +388,7 @@ importexport.post('/api/backfill-covers', async (c) => {
         const fromWork = await findDescription(match ?? null);
         if (fromWork) patch.description = fromWork;
       }
-      if (Object.keys(patch).length) await updateItem(c.env.DB, item.id, patch);
+      if (Object.keys(patch).length) await updateItem(c.env.DB, item.id, patch, writerOf(c));
       if (patch.coverKey) {
         found++;
         if (result?.method === 'title') byTitle++;

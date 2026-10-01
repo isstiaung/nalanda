@@ -806,11 +806,32 @@ export async function createItem(d1: D1Database, values: NewItem): Promise<Item>
   return item;
 }
 
-export async function updateItem(d1: D1Database, id: number, values: Partial<NewItem>): Promise<void> {
-  await db(d1)
+/** Who is writing an item (ARCH.md §16 #84): the member's id and session key, for the history triggers; null when nobody is. */
+export type Writer = Deleter;
+
+/**
+ * `writes` between the statements that set and clear the `acting` row (§16 #84), so the item-history triggers know who
+ * — one batch, one transaction, so no other request ever sees the row. With nobody writing, the writes as they are.
+ */
+function asWriter(d1: D1Database, who: Writer | undefined, writes: D1PreparedStatement[]): D1PreparedStatement[] {
+  // every item write also lets the history past HISTORY_DAYS go — one indexed delete, so retention holds without a page
+  const sweep = d1.prepare(`DELETE FROM item_history WHERE at < datetime('now', '-${HISTORY_DAYS} days')`);
+  if (!who) return [...writes, sweep];
+  return [
+    d1.prepare('INSERT OR REPLACE INTO acting (id, user_id, session_key) VALUES (1, ?1, ?2)').bind(who.id, who.sessionKey),
+    ...writes,
+    sweep,
+    d1.prepare('DELETE FROM acting WHERE id = 1'),
+  ];
+}
+
+export async function updateItem(d1: D1Database, id: number, values: Partial<NewItem>, who?: Writer): Promise<void> {
+  const q = db(d1)
     .update(s.items)
     .set({ ...values, updatedAt: sql`(datetime('now'))` })
-    .where(eq(s.items.id, id));
+    .where(eq(s.items.id, id))
+    .toSQL();
+  await d1.batch(asWriter(d1, who, [d1.prepare(q.sql).bind(...q.params)]));
 }
 
 /**
@@ -823,15 +844,16 @@ export async function applyPressingFill(
   id: number,
   before: Pick<Item, 'details' | 'publisher' | 'published' | 'length'>,
   after: Pick<Item, 'details' | 'publisher' | 'published' | 'length'>,
+  who?: Writer,
 ): Promise<boolean> {
-  const res = await d1
+  const stmt = d1
     .prepare(
       `UPDATE items SET details = ?1, publisher = ?2, published = ?3, length = ?4, updated_at = datetime('now')
        WHERE id = ?5 AND details = ?6 AND publisher IS ?7 AND published IS ?8 AND length IS ?9`,
     )
-    .bind(after.details, after.publisher, after.published, after.length, id, before.details, before.publisher, before.published, before.length)
-    .run();
-  return res.meta.changes > 0;
+    .bind(after.details, after.publisher, after.published, after.length, id, before.details, before.publisher, before.published, before.length);
+  const results = await d1.batch(asWriter(d1, who, [stmt]));
+  return (results[who ? 1 : 0]?.meta.changes ?? 0) > 0;
 }
 
 /**
@@ -843,15 +865,16 @@ export async function applyGameFill(
   id: number,
   before: Pick<Item, 'details' | 'length'>,
   after: Pick<Item, 'details' | 'length'>,
+  who?: Writer,
 ): Promise<boolean> {
-  const res = await d1
+  const stmt = d1
     .prepare(
       `UPDATE items SET details = ?1, length = ?2, updated_at = datetime('now')
        WHERE id = ?3 AND media_type = 'boardgame' AND details = ?4 AND length IS ?5`,
     )
-    .bind(after.details, after.length, id, before.details, before.length)
-    .run();
-  return res.meta.changes > 0;
+    .bind(after.details, after.length, id, before.details, before.length);
+  const results = await d1.batch(asWriter(d1, who, [stmt]));
+  return (results[who ? 1 : 0]?.meta.changes ?? 0) > 0;
 }
 
 /**
@@ -1333,6 +1356,7 @@ export async function updateItemWithTags(
   formReview?: FormReview,
   series?: SeriesDraft | null, // undefined leaves the item's series as it is; null takes it out of one (§16 #52)
   editions?: EditionDraft[], // undefined leaves "also held as" as it is; a list replaces it (§16 #75)
+  who?: Writer, // who is saving, for the item's history (§16 #84)
 ): Promise<void> {
   // reading state and the rating and review come from reads and reviews alone; the series only from `series`
   const {
@@ -1353,7 +1377,7 @@ export async function updateItemWithTags(
     .set({ ...(series === undefined ? rest : withSeries(rest, series)), updatedAt: sql`(datetime('now'))` })
     .where(eq(s.items.id, id))
     .toSQL();
-  await d1.batch([
+  await d1.batch(asWriter(d1, who, [
     ...seriesUpsert(d1, series),
     d1.prepare(q.sql).bind(...q.params),
     // the series it left, if this was that series' last volume
@@ -1367,7 +1391,7 @@ export async function updateItemWithTags(
     ...(formReview ? reviewWriteStatements(d1, id, person, formReview, 'replace') : []),
     refreshReviewState(d1, [id]),
     redateReviewActivity(d1, [id]),
-  ]);
+  ]));
 }
 
 export async function tagsForItem(d1: D1Database, itemId: number): Promise<string[]> {
@@ -1513,14 +1537,14 @@ export async function bulkRemoveTags(d1: D1Database, ids: number[], names: strin
  * existing entries under their old ids, below every follower's cursor, and one they leave withdraws them at the next
  * removal check — as moving each on its edit form would.
  */
-export async function bulkMove(d1: D1Database, ids: number[], libraryId: number): Promise<BulkResult> {
+export async function bulkMove(d1: D1Database, ids: number[], libraryId: number, who?: Writer): Promise<BulkResult> {
   const json = JSON.stringify(ids);
   const moves = `library_id <> ?2 AND EXISTS (SELECT 1 FROM libraries WHERE id = ?2)`;
-  const [tally] = await d1.batch([
+  const results = await d1.batch(asWriter(d1, who, [
     d1.prepare(`SELECT count(*) AS found, sum(${moves}) AS changed FROM items WHERE ${SELECTED}`).bind(json, libraryId),
     d1.prepare(`UPDATE items SET library_id = ?2, updated_at = datetime('now') WHERE ${SELECTED} AND ${moves}`).bind(json, libraryId),
-  ]);
-  return tallied(tally?.results[0] as Tally | undefined);
+  ]));
+  return tallied(results[who ? 1 : 0]?.results[0] as Tally | undefined);
 }
 
 /**
@@ -1528,18 +1552,18 @@ export async function bulkMove(d1: D1Database, ids: number[], libraryId: number)
  * two moves (§16 #27), in one batch. An item held in two or more copies is skipped either way: the toggle only lands
  * on 0 or 1, and zeroing or flattening a real count would lose a number that round-trips through /export.csv.
  */
-export async function bulkSetOwned(d1: D1Database, ids: number[], owned: boolean): Promise<BulkResult> {
+export async function bulkSetOwned(d1: D1Database, ids: number[], owned: boolean, who?: Writer): Promise<BulkResult> {
   const json = JSON.stringify(ids);
   const [from, to] = owned ? [0, 1] : [1, 0];
   // an item borrowed from someone (§16 #82) is theirs until marked returned: "Mark owned" skips it, as the toggle refuses
   const borrowed = 'EXISTS (SELECT 1 FROM borrows b WHERE b.item_id = items.id AND b.returned_on IS NULL)';
   const changes = owned ? `copies = ?2 AND NOT ${borrowed}` : 'copies = ?2';
   const skips = owned ? `copies >= 2 OR (copies = 0 AND ${borrowed})` : 'copies >= 2';
-  const [tally] = await d1.batch([
+  const results = await d1.batch(asWriter(d1, who, [
     d1.prepare(`SELECT count(*) AS found, sum(${changes}) AS changed, sum(${skips}) AS skipped FROM items WHERE ${SELECTED}`).bind(json, from),
     d1.prepare(`UPDATE items SET copies = ?3, updated_at = datetime('now') WHERE ${SELECTED} AND ${changes}`).bind(json, from, to),
-  ]);
-  return tallied(tally?.results[0] as Tally | undefined);
+  ]));
+  return tallied(results[who ? 1 : 0]?.results[0] as Tally | undefined);
 }
 
 /**
@@ -1813,12 +1837,14 @@ export async function openBorrowLender(d1: D1Database, itemId: number): Promise<
  * The Holding toggle's owning half: copies 0 → 1, unless a borrow is open — a borrowed book is theirs until it is marked
  * returned, so it is never owned and borrowed at once (checked in the statement). True when it changed.
  */
-export async function markOwnedUnlessBorrowed(d1: D1Database, id: number): Promise<boolean> {
-  const res = await d1
-    .prepare('UPDATE items SET copies = 1 WHERE id = ?1 AND copies = 0 AND NOT EXISTS (SELECT 1 FROM borrows WHERE item_id = ?1 AND returned_on IS NULL)')
-    .bind(id)
-    .run();
-  return res.meta.changes > 0;
+export async function markOwnedUnlessBorrowed(d1: D1Database, id: number, who?: Writer): Promise<boolean> {
+  const stmt = d1
+    .prepare(
+      `UPDATE items SET copies = 1, updated_at = datetime('now') WHERE id = ?1 AND copies = 0 AND NOT EXISTS (SELECT 1 FROM borrows WHERE item_id = ?1 AND returned_on IS NULL)`,
+    )
+    .bind(id);
+  const results = await d1.batch(asWriter(d1, who, [stmt]));
+  return (results[who ? 1 : 0]?.meta.changes ?? 0) > 0;
 }
 
 /** Marks a borrow returned on `today`, the device's day (§16 #69) — once; one already back keeps its date. */
@@ -1936,6 +1962,26 @@ async function viewsWithoutReader(d1: D1Database, id: number): Promise<D1Prepare
 export async function deleteSavedView(d1: D1Database, libraryId: number, id: number): Promise<boolean> {
   const res = await d1.prepare('DELETE FROM saved_views WHERE id = ?1 AND library_id = ?2').bind(id, libraryId).run();
   return res.meta.changes > 0;
+}
+
+// ---------- share feeds (ARCH.md §16 #86) ----------
+
+/** A share link's feed: the newest items among those it exposes, each with when it was added — never a read's date. */
+export async function feedItems(d1: D1Database, libraryId: number | null, f: ItemFilters, limit: number): Promise<Array<{ item: Item; at: string }>> {
+  const rows = await db(d1).select().from(s.items).where(itemFilterWhere(libraryId, f)).orderBy(desc(s.items.addedAt), desc(s.items.id)).limit(limit);
+  return rows.map((item) => ({ item, at: item.addedAt }));
+}
+
+/** A gift list's feed (§16 #53): the member's newest wants among the items the list exposes, each dated by the want. */
+export async function wantFeedItems(d1: D1Database, userId: number, f: ItemFilters, limit: number): Promise<Array<{ item: Item; at: string }>> {
+  const rows = await db(d1)
+    .select({ item: s.items, at: s.wants.createdAt })
+    .from(s.wants)
+    .innerJoin(s.items, eq(s.items.id, s.wants.itemId))
+    .where(and(eq(s.wants.userId, userId), itemFilterWhere(null, f)))
+    .orderBy(desc(s.wants.createdAt), desc(s.items.id))
+    .limit(limit);
+  return rows.map((r) => ({ item: r.item, at: r.at }));
 }
 
 // ---------- full-text search ----------
@@ -4214,7 +4260,7 @@ const readingOf = (item: NewItem): GoodreadsReading => ({
  * theirs alone, and its rating and review are theirs — someone else's reads and reviews of the same book are
  * never touched. Private notes stay the item's own, as before.
  */
-export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun = false): Promise<MergeImportResult> {
+export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun = false, who?: Writer): Promise<MergeImportResult> {
   if (!rows.length) return { inserted: 0, merged: 0, reads: 0 };
   const dbi = db(d1);
   const person = rows[0]!.item.addedBy ?? null;
@@ -4326,7 +4372,7 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
         ...(untouched.length ? [refreshReadState(d1, untouched)] : []),
       ];
       // reads and their refresh first, so a rating merged in the same batch is dated by the finish it arrived with
-      await d1.batch(asImport(d1, [...writes, ...refreshes, ...reviews, ...notes, refreshReviewState(d1, ids)]));
+      await d1.batch(asImport(d1, asWriter(d1, who, [...writes, ...refreshes, ...reviews, ...notes, refreshReviewState(d1, ids)])));
       const pairs: Array<{ itemId: number; tag: string }> = [];
       for (const m of merges) for (const tag of normalizeTags(m.tags)) pairs.push({ itemId: m.id, tag });
       await linkTags(dbi, pairs);
@@ -4414,13 +4460,61 @@ const finishedByViewer = (viewer: number) =>
  * Points an item at a cover, or at none (§16 #73): the key it had before, so the caller can delete that object. One
  * batch — a RETURNING clause sees the row as updated, so the old key is read in the statement before the write.
  */
-export async function setCover(d1: D1Database, id: number, coverKey: string | null): Promise<{ before: string | null } | null> {
-  const [was, did] = await d1.batch([
+export async function setCover(d1: D1Database, id: number, coverKey: string | null, who?: Writer): Promise<{ before: string | null } | null> {
+  const results = await d1.batch(asWriter(d1, who, [
     d1.prepare('SELECT cover_key AS before FROM items WHERE id = ?1').bind(id),
     d1.prepare(`UPDATE items SET cover_key = ?2, updated_at = datetime('now') WHERE id = ?1`).bind(id, coverKey),
-  ]);
+  ]));
+  const [was, did] = results.slice(who ? 1 : 0);
   const row = (was?.results?.[0] as { before: string | null } | undefined) ?? null;
   return row && did?.meta?.changes ? row : null;
+}
+
+// ---------- item history (ARCH.md §16 #84) ----------
+
+/** How long a change to an item's own fields is kept. */
+export const HISTORY_DAYS = 90;
+/** The most entries the item page lists. */
+export const HISTORY_SHOWN = 200;
+
+export type HistoryEntry = {
+  id: number;
+  field: string;
+  before: string | null;
+  after: string | null;
+  at: string;
+  /** who: the member's username while it is still their account (#56), 'a former member' once not, null when nobody was named */
+  by: string | null;
+};
+
+/**
+ * The item page's history read, for admins, in the page's batch — read-only: the item's entries inside HISTORY_DAYS,
+ * newest first, with the username only while the account is still the one that made the change. The sweep past
+ * HISTORY_DAYS is every item write's (asWriter), never a page's; the window here means a row the sweep hasn't reached
+ * yet is never shown either.
+ */
+export function itemHistoryStatements(d1: D1Database, itemId: number): D1PreparedStatement[] {
+  return [
+    d1
+      .prepare(
+        `SELECT h.id, h.field, h.before, h.after, h.at, h.changed_by AS changedBy, u.username, (u.session_key = h.changed_key) AS same
+         FROM item_history h LEFT JOIN users u ON u.id = h.changed_by
+         WHERE h.item_id = ?1 AND h.at >= datetime('now', '-${HISTORY_DAYS} days') ORDER BY h.id DESC LIMIT ${HISTORY_SHOWN}`,
+      )
+      .bind(itemId),
+  ];
+}
+
+export function historyOf(result: D1Result | undefined): HistoryEntry[] {
+  type Row = { id: number; field: string; before: string | null; after: string | null; at: string; changedBy: number | null; username: string | null; same: number | null };
+  return ((result?.results ?? []) as Row[]).map((r) => ({
+    id: r.id,
+    field: r.field,
+    before: r.before,
+    after: r.after,
+    at: r.at,
+    by: r.changedBy === null ? null : r.same && r.username ? r.username : 'a former member',
+  }));
 }
 
 // ---------- the trash (ARCH.md §16 #74) ----------

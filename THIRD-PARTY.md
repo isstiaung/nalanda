@@ -15,6 +15,7 @@ into `public/vendor/` next to the assets themselves.
 |---|---|---|---|
 | htmx | [`htmx.org`](https://htmx.org) | 0BSD | `public/vendor/htmx.LICENSE.txt` |
 | ZXing barcode decoder (JS + WASM) | [`zxing-wasm`](https://github.com/Sec-ant/zxing-wasm) | MIT | `public/vendor/zxing/LICENSE.txt` |
+| QR Code Generator for JavaScript | [`qrcode-generator`](https://github.com/kazuhikoarase/qrcode-generator) | MIT | the header of `public/vendor/qrcode.js` (the package ships no separate file) |
 | Eczar (display face, Latin subset) | [`@fontsource/eczar`](https://fonts.google.com/specimen/Eczar) | SIL OFL 1.1 | `public/vendor/fonts/eczar.LICENSE.txt` |
 
 Eczar is by the [Eczar Project Authors](https://github.com/rosettatype/eczar), copyright

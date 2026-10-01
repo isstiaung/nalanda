@@ -29,6 +29,8 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    CSV cells; what a provider's format words map to — ARCH.md §16 #75),
                    language.ts (every ISO 639-1 language by name, the household default, what a provider's
                    or a file's code means — ARCH.md §16 #76),
+                   feeds.ts (a share link's Atom and RSS: the XML, the dates, an entry's HTML — ARCH.md §16 #86;
+                   the route is in routes/share.tsx, the queries in db/queries.ts),
                    quotes.ts (a quote's shape and tidying, the `quotes` CSV cell, what the Kindle import posts —
                    ARCH.md §16 #77; its pages are routes/quotes.tsx and views/quotes.tsx, the file's parsing
                    public/kindle.js),
@@ -61,7 +63,8 @@ src/federation/    connections between instances (docs/proposals/connections.md)
                    shelves/requests/Borrowed and the Loans-page section in routes/borrowing — Borrowed
                    is every household's page since ARCH.md §16 #82, its people section first,
                    in-app notifications in routes/notifications (recorded in src/db/federation.ts)
-public/            app.css, scanner.js, import.js, app.js (also shrinks a chosen cover photo before the form
+public/            app.css, scanner.js, import.js, qr.js (each share link's QR code, drawn on the Shared links
+                   page from the vendored qrcode.js — ARCH.md §16 #85), app.js (also shrinks a chosen cover photo before the form
                    sends it, ARCH.md §16 #73), covers.js (swaps a cover that fails to
                    load for its media-icon box; app and share pages) + vendor/ (htmx, zxing, eczar fonts)
                    + the installed app (ARCH.md §16 #48): manifest.webmanifest, icons/, sw.js (keeps

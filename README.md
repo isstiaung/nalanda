@@ -99,11 +99,17 @@ manuscripts.
 - **Search operators**: `author:`, `title:`, `tag:`, `status:`, `year:`, `lang:` and `type:` beside
   plain words in the search box — `author:"le guin" status:unread year:1960-1979` — and anything
   the box doesn't understand is searched as text.
+- **Feeds for share links**: every share link has an Atom and an RSS feed of its newest additions,
+  the page's whitelist and nothing more.
+- **QR codes for share links**: on Shared links, each address as a branded QR code, drawn in the
+  browser, with a PNG to download — for a card on the shelf.
 - **Saved views**: a shelf's filters under a name, the household's, opened from the shelf or the
   Overview; two decluttering views on every shelf — unread for years, not played lately.
 - **Borrowed from someone**: a book borrowed from a friend is a Not owned item with a borrow record —
   who from, due back when, returned — a Borrowed pill, a Holding filter, and a Borrowed page for every
   household; private like loans.
+- **Item history**: for admins, each change to an item's own fields with who and when, kept 90
+  days — not reads or reviews, which say who already.
 - **A trash**: a deleted item waits 30 days with everything it had — reads, reviews, pages,
   plays, loans, tags, cover — and an admin can restore it or let it go. The delete itself is
   still a delete: nothing trashed stays on a share link or in a connection's view.
