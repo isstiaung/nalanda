@@ -5,7 +5,8 @@ before deciding to self-host (ARCH.md §16 #89). Nothing in it can be changed: e
 file, every form is answered with "read-only demo", and the sign-in is a check in the browser.
 
 **Address:** `https://<owner>.github.io/<repo>/` — for this repository,
-https://isstiaung.github.io/nalanda/. Sign in with **demo** / **demo**.
+https://isstiaung.github.io/nalanda/ — or a custom domain set under Pages (below). Sign in with
+**demo** / **demo**.
 
 ## What it is, and isn't
 
@@ -31,6 +32,14 @@ from the Actions tab ("Demo" → Run workflow). It needs no secret.
 **GitHub Actions**. Without that the deploy job fails with "Get Pages site failed". The first run
 after enabling may take a few minutes to appear at the address above.
 
+**A custom domain** (Settings → Pages → *Custom domain*, e.g. `nalanda-demo.isstiaung.me`): at the
+DNS provider add a `CNAME` record for the subdomain pointing at `<owner>.github.io` — on Cloudflare
+DNS, *DNS only*, not proxied, or GitHub's check and its certificate fail. GitHub re-checks the
+record itself ("DNS check unsuccessful" means it isn't there yet); once it passes, tick *Enforce
+HTTPS* when the certificate has been issued. Nothing in the repository changes: the workflow asks
+Pages for the site's base path at build time (`actions/configure-pages`), so links are written for
+`/<repo>/` on github.io and for `/` on a custom domain alike.
+
 ## Building locally
 
 ```sh
@@ -54,7 +63,9 @@ rebuild. The seed drives the real import routes, so it can never write a shape t
 - *The deploy job fails with "Resource not accessible by the integration" or a 404 on Pages:*
   Pages isn't set to GitHub Actions as its source (above), or the repository's Actions settings
   forbid the `pages: write` permission.
-- *Links on the demo lead to the repository root:* the build was made without `--base`; the
-  workflow passes `--base=/<repo>` itself.
+- *Links on the demo lead to the repository root:* a local build was made without `--base`; the
+  workflow takes the base from Pages itself (`/<repo>` on github.io, nothing on a custom domain).
+- *"DNS check unsuccessful" under Custom domain:* the `CNAME` record isn't there or is proxied —
+  see above.
 - *A page in the demo is missing:* the crawl stops at 600 pages and never follows `?page=`,
   `?after=`, the APIs or the export; an item not linked from any crawled page isn't in it.
