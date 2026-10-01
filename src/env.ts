@@ -1,3 +1,5 @@
+import type { Translator } from './i18n';
+
 export type Bindings = {
   DB: D1Database;
   COVERS: R2Bucket;
@@ -25,12 +27,17 @@ export type SessionUser = {
   sessionKey: string;
   // The generation this session was made in (§16 #70): what a cookie re-issued on this response must name.
   sessionGeneration: number;
+  // The interface language this member chose on Account (§16 #93), or null to follow the household's.
+  locale: string | null;
 };
 
 export type AppEnv = {
   Bindings: Bindings;
   Variables: {
     user: SessionUser;
+    // What this request renders in (§16 #93): set by the session middleware for every signed-in page from the same
+    // call that read the account; a public page sets it on first use (i18nOf in views/layout.tsx).
+    i18n: Translator;
   };
 };
 

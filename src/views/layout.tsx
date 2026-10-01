@@ -3,11 +3,13 @@ import { getCookie } from 'hono/cookie';
 import { todayFor, TZ_COOKIE } from '../lib/dates';
 import type { Child, FC, PropsWithChildren } from 'hono/jsx';
 import type { Library } from '../db/schema';
-import { listLibraries } from '../db/queries';
+import { householdLocale, listLibraries } from '../db/queries';
 import type { AppEnv, SessionUser } from '../env';
 import { unreadCounts } from '../db/federation';
 import { loadIdentity } from '../federation/keys';
 import { scanQueueOwner } from '../lib/auth';
+import { resolveLocale, translator, type StringKey, type Translator } from '../i18n';
+import { I18n, useI18n } from './i18n';
 
 type NavLibrary = Library & { itemCount: number };
 
@@ -61,18 +63,22 @@ const Head: FC<{ title: string }> = ({ title }) => (
   </head>
 );
 
-export const Brand: FC = () => (
-  <a href="/" class="brand">
-    <div class="brand-rule"></div>
-    <div class="brand-name">Nalanda</div>
-    <div class="brand-sub">
-      <span class="brand-deva" lang="sa">
-        नालन्दा
-      </span>
-      {' · home library registry'}
-    </div>
-  </a>
-);
+export const Brand: FC = () => {
+  const { t } = useI18n();
+  return (
+    <a href="/" class="brand">
+      <div class="brand-rule"></div>
+      <div class="brand-name">Nalanda</div>
+      <div class="brand-sub">
+        <span class="brand-deva" lang="sa">
+          नालन्दा
+        </span>
+        {' · '}
+        {t('brand.sub')}
+      </div>
+    </a>
+  );
+};
 
 const isActive = (href: string, path: string, exact?: boolean) =>
   exact ? path === href : path === href || path.startsWith(`${href}/`);
@@ -85,13 +91,14 @@ const NavLink: FC<{ href: string; label: string; path: string; count?: number; u
   unread,
   exact,
 }) => {
+  const { t } = useI18n();
   const active = isActive(href, path, exact);
   return (
     <a href={href} class={active ? 'nav-link active' : 'nav-link'} aria-current={active ? 'page' : undefined}>
       <span>{label}</span>
       {count !== undefined ? <span class="nav-count">{count}</span> : null}
       {unread ? (
-        <span class="nav-unread" aria-label={`${unread} unread`}>
+        <span class="nav-unread" aria-label={t('nav.unread_count', { count: unread })}>
           {unread > 99 ? '99+' : unread}
         </span>
       ) : null}
@@ -114,6 +121,20 @@ export const NAV_COOKIE = 'nav';
 export const todayOf = (c: Context<AppEnv>): string => todayFor(getCookie(c, TZ_COOKIE));
 
 /**
+ * What this request renders in (ARCH.md §16 #93). Behind the session middleware it is already set, from the call
+ * that read the account. A page with no session — log in, setup, a share page — resolves the household's language
+ * and its translation here, one call, and keeps it on the context so the page's other renders cost nothing more.
+ */
+export async function i18nOf(c: Context<AppEnv>): Promise<Translator> {
+  const set = c.get('i18n') as Translator | undefined;
+  if (set) return set;
+  const { language, translation } = await householdLocale(c.env.DB);
+  const i18n = translator(resolveLocale(null, { language }), translation);
+  c.set('i18n', i18n);
+  return i18n;
+}
+
+/**
  * The sections a `nav` cookie asks to keep open. The browser writes it, so it is only ever a filter over the known
  * ids: anything else in it — an unknown name, markup, a repeat — is dropped, and none of it reaches the page.
  */
@@ -127,61 +148,61 @@ type NavEntry = { href: string; label: string; count?: number; unread?: number; 
 type NavGroup = { id: NavSectionId; label: string; links: NavEntry[] };
 
 /** What each section holds for this member. A link they can't use is absent, and so is a section left empty. */
-function navGroups(user: SessionUser, libraries: NavLibrary[], federation: boolean, unread: Unread): NavGroup[] {
+function navGroups(user: SessionUser, libraries: NavLibrary[], federation: boolean, unread: Unread, t: (key: StringKey) => string): NavGroup[] {
   const admin = user.role === 'admin';
   const only = (...links: (NavEntry | false)[]) => links.filter((l): l is NavEntry => l !== false);
   const groups: NavGroup[] = [
     {
       id: 'library',
-      label: 'Library',
+      label: t('nav.library'),
       links: only(
-        { href: '/tags', label: 'Tags' },
-        { href: '/series', label: 'Series' },
-        { href: '/creators', label: 'Creators' },
-        { href: '/publishers', label: 'Publishers' },
+        { href: '/tags', label: t('nav.tags') },
+        { href: '/series', label: t('nav.series') },
+        { href: '/creators', label: t('nav.creators') },
+        { href: '/publishers', label: t('nav.publishers') },
       ),
     },
     {
       id: 'shelves',
-      label: 'Shelves',
+      label: t('nav.shelves'),
       links: libraries.map((l) => ({ href: `/libraries/${l.id}`, label: l.name, count: l.itemCount })),
     },
     {
       id: 'reading',
-      label: 'Reading',
+      label: t('nav.reading'),
       links: only(
-        { href: '/wants', label: 'Want list' },
-        { href: '/discover', label: 'New from your authors' },
-        { href: '/quotes', label: 'Quotes' },
-        { href: '/goals', label: 'Reading goals' },
-        { href: '/year-in-review', label: 'Year in review' },
+        { href: '/wants', label: t('nav.wants') },
+        { href: '/discover', label: t('nav.discover') },
+        { href: '/quotes', label: t('nav.quotes') },
+        { href: '/goals', label: t('nav.goals') },
+        { href: '/year-in-review', label: t('nav.year') },
       ),
     },
     {
       id: 'lending',
-      label: 'Lending',
+      label: t('nav.lending'),
       // Borrowed is for every household (§16 #82): what is borrowed from people, and from connections where there are any
-      links: only({ href: '/loans', label: 'Loans' }, { href: '/borrowed', label: 'Borrowed' }),
+      links: only({ href: '/loans', label: t('nav.loans') }, { href: '/borrowed', label: t('nav.borrowed') }),
     },
     {
       id: 'sharing',
-      label: 'Sharing & connections',
+      label: t('nav.sharing'),
       links: only(
-        admin && { href: '/shares', label: 'Shared links' },
-        federation && { href: '/feed', label: 'Feed', unread: unread.feed },
-        federation && { href: '/notifications', label: 'Notifications', unread: unread.notifications },
-        federation && { href: '/recommendations', label: 'Recommended' },
-        federation && admin && { href: '/connections', label: 'Connections' },
+        admin && { href: '/shares', label: t('nav.shares') },
+        federation && { href: '/feed', label: t('nav.feed'), unread: unread.feed },
+        federation && { href: '/notifications', label: t('nav.notifications'), unread: unread.notifications },
+        federation && { href: '/recommendations', label: t('nav.recommended') },
+        federation && admin && { href: '/connections', label: t('nav.connections') },
       ),
     },
     {
       id: 'settings',
-      label: 'Settings',
+      label: t('nav.settings'),
       links: only(
-        { href: '/import', label: 'Import / export' },
-        admin && { href: '/settings/users', label: 'Members' },
-        admin && { href: '/trash', label: 'Trash' },
-        { href: '/account', label: 'Account' },
+        { href: '/import', label: t('nav.import') },
+        admin && { href: '/settings/users', label: t('nav.members') },
+        admin && { href: '/trash', label: t('nav.trash') },
+        { href: '/account', label: t('nav.account') },
       ),
     },
   ];
@@ -194,6 +215,7 @@ function navGroups(user: SessionUser, libraries: NavLibrary[], federation: boole
  * Closed, its header carries the section's unread total (CSS hides it once open, where each link shows its own).
  */
 const NavSection: FC<{ group: NavGroup; path: string; open: boolean }> = ({ group, path, open }) => {
+  const { t } = useI18n();
   const unread = group.links.reduce((n, l) => n + (l.unread ?? 0), 0);
   return (
     <details class="nav-section" data-nav={group.id} open={open}>
@@ -203,7 +225,7 @@ const NavSection: FC<{ group: NavGroup; path: string; open: boolean }> = ({ grou
           // the count and the word "unread" read out in place, no role: "Sharing & connections, 3 unread, collapsed"
           <span class="nav-unread nav-summary-unread">
             {unread > 99 ? '99+' : unread}
-            <span class="sr-only"> unread</span>
+            <span class="sr-only"> {t('nav.unread')}</span>
           </span>
         ) : null}
       </summary>
@@ -223,33 +245,36 @@ const Sidebar: FC<{
   federation: boolean;
   unread: Unread;
   navOpen: readonly NavSectionId[];
-}> = ({ user, path, libraries, federation, unread, navOpen }) => (
-  <aside class="sidebar" id="sidebar">
-    <Brand />
-    <nav class="nav" aria-label="Main">
-      {/* pinned: always in view, in no section */}
-      <div class="nav-pinned">
-        <NavLink href="/" label="Overview" path={path} exact />
-        <NavLink href="/add" label="Add items" path={path} />
-        <NavLink href="/search" label="Search" path={path} />
+}> = ({ user, path, libraries, federation, unread, navOpen }) => {
+  const { t } = useI18n();
+  return (
+    <aside class="sidebar" id="sidebar">
+      <Brand />
+      <nav class="nav" aria-label={t('nav.main')}>
+        {/* pinned: always in view, in no section */}
+        <div class="nav-pinned">
+          <NavLink href="/" label={t('nav.overview')} path={path} exact />
+          <NavLink href="/add" label={t('nav.add')} path={path} />
+          <NavLink href="/search" label={t('nav.search')} path={path} />
+        </div>
+        {navGroups(user, libraries, federation, unread, t).map((g) => (
+          // open if this device keeps it open, and always when it holds the page being shown
+          <NavSection group={g} path={path} open={navOpen.includes(g.id) || g.links.some((l) => isActive(l.href, path, l.exact))} />
+        ))}
+      </nav>
+      <div class="sidebar-foot">
+        <div class="whoami">
+          {user.username} · {t(user.role === 'admin' ? 'role.admin' : 'role.member')}
+        </div>
+        <form method="post" action="/auth/logout">
+          <button class="linklike" type="submit">
+            {t('nav.logout')}
+          </button>
+        </form>
       </div>
-      {navGroups(user, libraries, federation, unread).map((g) => (
-        // open if this device keeps it open, and always when it holds the page being shown
-        <NavSection group={g} path={path} open={navOpen.includes(g.id) || g.links.some((l) => isActive(l.href, path, l.exact))} />
-      ))}
-    </nav>
-    <div class="sidebar-foot">
-      <div class="whoami">
-        {user.username} · {user.role}
-      </div>
-      <form method="post" action="/auth/logout">
-        <button class="linklike" type="submit">
-          Log out
-        </button>
-      </form>
-    </div>
-  </aside>
-);
+    </aside>
+  );
+};
 
 export const Layout: FC<
   PropsWithChildren<{
@@ -264,54 +289,59 @@ export const Layout: FC<
     /** the sidebar sections this device keeps open — navCookieSections() of the `nav` cookie */
     navOpen?: readonly NavSectionId[];
   }>
-> = ({ title, user, path = '/', libraries = [], federation = false, unread = NONE_UNREAD, scanOwner, navOpen = [], children }) => (
-  <html lang="en">
-    <Head title={title} />
-    {user ? (
-      <body data-scan-owner={scanOwner}>
-        {/* the first Tab stop on every page: past the sidebar, straight to the page itself */}
-        <a href="#main" class="skip-link">
-          Skip to content
-        </a>
-        <div class="app">
-          <Sidebar user={user} path={path} libraries={libraries} federation={federation} unread={unread} navOpen={navOpen} />
-          <div>
-            <header class="mobile-bar">
-              <button type="button" id="nav-toggle" class="btn-quiet" aria-label="Menu" aria-controls="sidebar" aria-expanded="false">
-                ☰
-              </button>
-              {/* the wordmark hangs from its headstroke here too — the rule lives in .brand-rule, as in the sidebar */}
-              <div class="mobile-brand">
-                <div class="brand-rule"></div>
-                <div class="brand-name">Nalanda</div>
-              </div>
-              {/* the sidebar folds away on a phone, taking its badges with it — so the bar carries the one that matters */}
-              {unread.notifications ? (
-                <a href="/notifications" class="nav-unread mobile-unread" aria-label={`${unread.notifications} unread notifications`}>
-                  {unread.notifications > 99 ? '99+' : unread.notifications}
-                </a>
-              ) : unread.feed ? (
-                <a href="/feed" class="nav-unread mobile-unread" aria-label={`${unread.feed} new in your feed`}>
-                  {unread.feed > 99 ? '99+' : unread.feed}
-                </a>
-              ) : null}
-            </header>
-            {/* tabindex=-1: the skip link moves focus here in every browser, not only where following a link does */}
-            <main class="content" id="main" tabindex={-1}>
-              <div class="content-inner">{children}</div>
-            </main>
-            {/* an htmx request that fails says so here, in fixed words (app.js, §16 #65); empty, it takes no room */}
-            <output id="app-status" class="app-status" aria-live="polite"></output>
+> = ({ title, user, path = '/', libraries = [], federation = false, unread = NONE_UNREAD, scanOwner, navOpen = [], children }) => {
+  const i18n = useI18n();
+  const { t } = i18n;
+  return (
+    // the page's language (§16 #93): the member's choice, else the household's — what every string below is in
+    <html lang={i18n.locale}>
+      <Head title={title} />
+      {user ? (
+        <body data-scan-owner={scanOwner}>
+          {/* the first Tab stop on every page: past the sidebar, straight to the page itself */}
+          <a href="#main" class="skip-link">
+            {t('app.skip')}
+          </a>
+          <div class="app">
+            <Sidebar user={user} path={path} libraries={libraries} federation={federation} unread={unread} navOpen={navOpen} />
+            <div>
+              <header class="mobile-bar">
+                <button type="button" id="nav-toggle" class="btn-quiet" aria-label={t('nav.menu')} aria-controls="sidebar" aria-expanded="false">
+                  ☰
+                </button>
+                {/* the wordmark hangs from its headstroke here too — the rule lives in .brand-rule, as in the sidebar */}
+                <div class="mobile-brand">
+                  <div class="brand-rule"></div>
+                  <div class="brand-name">Nalanda</div>
+                </div>
+                {/* the sidebar folds away on a phone, taking its badges with it — so the bar carries the one that matters */}
+                {unread.notifications ? (
+                  <a href="/notifications" class="nav-unread mobile-unread" aria-label={t('nav.unread_notifications', { count: unread.notifications })}>
+                    {unread.notifications > 99 ? '99+' : unread.notifications}
+                  </a>
+                ) : unread.feed ? (
+                  <a href="/feed" class="nav-unread mobile-unread" aria-label={t('nav.new_in_feed', { count: unread.feed })}>
+                    {unread.feed > 99 ? '99+' : unread.feed}
+                  </a>
+                ) : null}
+              </header>
+              {/* tabindex=-1: the skip link moves focus here in every browser, not only where following a link does */}
+              <main class="content" id="main" tabindex={-1}>
+                <div class="content-inner">{children}</div>
+              </main>
+              {/* an htmx request that fails says so here, in fixed words (app.js, §16 #65); empty, it takes no room */}
+              <output id="app-status" class="app-status" aria-live="polite"></output>
+            </div>
           </div>
-        </div>
-      </body>
-    ) : (
-      <body>
-        <main class="auth-shell">{children}</main>
-      </body>
-    )}
-  </html>
-);
+        </body>
+      ) : (
+        <body>
+          <main class="auth-shell">{children}</main>
+        </body>
+      )}
+    </html>
+  );
+};
 
 /**
  * The path the sidebar marks for a page with no link of its own: the one it's reached from. A connected household's
@@ -324,9 +354,10 @@ export function navPath(path: string): string {
 }
 
 /**
- * Renders a full page (doctype + app shell). Partials use c.html(<Fragment/>) directly. A page that listed the shelves
+ * Renders a full page (doctype + app shell). Partials use partial() below. A page that listed the shelves
  * itself passes that list as `shelves`, and the sidebar shows it rather than counting every item again (§16 #68) — only
  * a list read in this request after any write it made, so it is exactly what the sidebar would have read.
+ * The whole tree renders inside the request's language (§16 #93): every component reads it with useI18n().
  */
 export async function page(c: Context<AppEnv>, title: string, body: Child, shelves?: Awaited<ReturnType<typeof listLibraries>>) {
   const user = (c.get('user') as SessionUser | undefined) ?? null;
@@ -340,7 +371,19 @@ export async function page(c: Context<AppEnv>, title: string, body: Child, shelv
   const scanOwner = user && c.env.SESSION_SECRET ? await scanQueueOwner(c.env.SESSION_SECRET, user) : undefined;
   // the sidebar sections this device keeps open: a cookie app.js writes, read here so the first paint is right
   const navOpen = navCookieSections(getCookie(c, NAV_COOKIE));
+  const i18n = await i18nOf(c);
   return c.html(
-    `<!doctype html>${Layout({ title, user, path, libraries, federation, unread, scanOwner, navOpen, children: body })}`,
+    `<!doctype html>${(
+      <I18n.Provider value={i18n}>
+        <Layout title={title} user={user} path={path} libraries={libraries} federation={federation} unread={unread} scanOwner={scanOwner} navOpen={navOpen}>
+          {body}
+        </Layout>
+      </I18n.Provider>
+    )}`,
   );
+}
+
+/** An htmx partial, rendered in the request's language as the page it lands in was (§16 #93). */
+export function partial(c: Context<AppEnv>, body: Child) {
+  return c.html(<I18n.Provider value={c.get('i18n')}>{body}</I18n.Provider>);
 }

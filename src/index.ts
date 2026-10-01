@@ -1,8 +1,9 @@
 import { type Context, Hono } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { secureHeaders } from 'hono/secure-headers';
-import { countUsers, getShareByToken, getUserById } from './db/queries';
+import { countUsers, getShareByToken, sessionAccount } from './db/queries';
 import type { AppEnv } from './env';
+import { resolveLocale, translator } from './i18n';
 import federationRoutes from './federation/routes';
 import { SESSION_COOKIE, sessionMatches, verifySessionToken } from './lib/auth';
 import { serveCover } from './lib/covers';
@@ -131,9 +132,12 @@ app.use(async (c, next) => {
   // The row check is instant revocation, and its key is who the cookie was made for: an id can be reused, a key
   // can't (§16 #56), so a removed member's cookie signs in nobody — not whoever is given their id next. Its generation
   // is whether this session still counts (§16 #70): "Sign out other devices", a new password or a reset moves it on.
-  const row = session ? await getUserById(c.env.DB, session.userId) : null;
+  // The same call brings what the page renders in (§16 #93): the household's language, and its own translation for
+  // the locale this member resolves to — one batch, so a translated page costs no call more than an English one.
+  const account = session ? await sessionAccount(c.env.DB, session.userId) : null;
+  const row = account?.user ?? null;
   const user = row && sessionMatches(session, row) ? row : null;
-  if (!user) {
+  if (!user || !account) {
     if ((await countUsers(c.env.DB)) === 0) return sendTo(c, '/setup', 401, 'Nalanda isn’t set up yet — reload the page.');
     return sendTo(c, '/login', 401, 'Signed out — reload and sign in.');
   }
@@ -144,7 +148,9 @@ app.use(async (c, next) => {
     mustChangePassword: user.mustChangePassword,
     sessionKey: user.sessionKey,
     sessionGeneration: user.sessionGeneration,
+    locale: user.locale,
   });
+  c.set('i18n', translator(resolveLocale(user, { language: account.language }), account.translation));
   // A temporary password reaches the Account page and the password change, and nothing else — not the display name,
   // not "Sign out other devices", not a token: own-account actions all, but whoever holds the temp password isn't
   // yet shown to be the member, and a display name set here would go out on share pages with names on.
