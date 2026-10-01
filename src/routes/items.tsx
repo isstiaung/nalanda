@@ -981,7 +981,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
             method="post"
             action={`/items/${item.id}/delete`}
             class="inline"
-            onsubmit="return confirm('Delete this item?')"
+            onsubmit="return confirm('Delete this item? An admin can restore it from the trash for 30 days.')"
           >
             <button type="submit" class="btn-danger">
               Delete
@@ -1690,12 +1690,14 @@ items.post('/items/:id/cover', async (c) => {
   return c.redirect(`/items/${id}`);
 });
 
+/** Deletes an item into the trash (§16 #74): its cover's object stays until the trash row is purged. */
 items.post('/items/:id/delete', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
-  await deleteItem(c.env.DB, id);
-  c.executionCtx.waitUntil(deleteCover(c.env.COVERS, item.coverKey));
+  const user = c.get('user');
+  const expired = await deleteItem(c.env.DB, id, { id: user.id, sessionKey: user.sessionKey });
+  c.executionCtx.waitUntil(Promise.all(expired.map((k) => deleteCover(c.env.COVERS, k)))); // purged rows' covers, not this one's
   return c.redirect(`/libraries/${item.libraryId}`);
 });
 

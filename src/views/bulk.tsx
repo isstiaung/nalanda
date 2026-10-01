@@ -156,8 +156,8 @@ export const DeleteConfirmation: FC<{ items: Array<{ id: number; title: string }
       <div class="panel bulk-confirm">
         <p>
           {items.length === 1
-            ? 'This item goes for good, with its tags, reads, reviews, loans and cover:'
-            : `These ${items.length} items go for good, with their tags, reads, reviews, loans and covers:`}
+            ? 'This item goes to the trash, with its tags, reads, reviews, loans and cover, where an admin can restore it for 30 days:'
+            : `These ${items.length} items go to the trash, with their tags, reads, reviews, loans and covers, where an admin can restore them for 30 days:`}
         </p>
         <ol class="bulk-titles">
           {shown.map((i) => (

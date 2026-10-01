@@ -66,7 +66,7 @@ describe('sections', () => {
       ['reading', ['/wants', '/goals', '/year-in-review']],
       ['lending', ['/loans', '/borrowed']],
       ['sharing', ['/shares', '/feed', '/notifications', '/recommendations', '/connections']],
-      ['settings', ['/import', '/settings/users', '/account']],
+      ['settings', ['/import', '/settings/users', '/trash', '/account']],
     ]);
     for (const s of bar.sections) for (const href of ['/', '/add', '/search']) expect(s.links, s.id).not.toContain(href);
     // each header is the section's eyebrow, named for people

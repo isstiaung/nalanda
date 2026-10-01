@@ -82,6 +82,9 @@ manuscripts.
   and invite-only, never a network or the fediverse; off unless you give the instance a key.
   **Notifications** count connection requests, borrowing and comments, and Feed counts what's
   new, per person in the household.
+- **A trash**: a deleted item waits 30 days with everything it had — reads, reviews, pages,
+  plays, loans, tags, cover — and an admin can restore it or let it go. The delete itself is
+  still a delete: nothing trashed stays on a share link or in a connection's view.
 - **A cover from your camera**: under any item's cover, take a photo or pick a file and make it
   the cover — shrunk in the browser before it's sent, so a phone photo goes up in a second. For
   the old paperback, the Indian edition, the small-press game nobody has an image of.

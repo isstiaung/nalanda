@@ -123,8 +123,8 @@ bulk.post('/bulk', async (c) => {
         if (!found.length) return refuse(c, 400, 'None of the selected items exist any more.', back);
         return page(c, 'Delete items', <DeleteConfirmation items={found} back={back} />);
       }
-      result = await bulkDelete(c.env.DB, ids);
-      // only now, with the batch done, is nothing pointing at them — as the single delete does
+      result = await bulkDelete(c.env.DB, ids, { id: c.get('user').id, sessionKey: c.get('user').sessionKey }); // into the trash (§16 #74)
+      // not these items' covers — those stay until their rows are purged — but the covers of rows purged on the way
       c.executionCtx.waitUntil(Promise.all(result.covers.map((k) => deleteCover(c.env.COVERS, k))));
       break;
     }

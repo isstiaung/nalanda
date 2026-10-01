@@ -177,6 +177,7 @@ function navGroups(user: SessionUser, libraries: NavLibrary[], federation: boole
       links: only(
         { href: '/import', label: 'Import / export' },
         admin && { href: '/settings/users', label: 'Members' },
+        admin && { href: '/trash', label: 'Trash' },
         { href: '/account', label: 'Account' },
       ),
     },

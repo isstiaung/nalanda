@@ -39,6 +39,11 @@ constraints bullets.
 
 ## Writes, accounts and permissions
 
+- Deleting an item is `trashItems()` (ARCH.md §16 #74), never a bare `DELETE FROM items`: the
+  snapshot and the delete are one batch, and the cover's object stays until the trash row is
+  purged. Restoring is `restoreFromTrash()`, an import of the snapshot. Never add a soft-delete
+  column to items: 88 reads would have to honour it, and one miss is a leak.
+
 - A write and whatever depends on it are **one batch**: a change and the message it queues for a
   connection, the notification it records, its replay marker, an item and its tags (ARCH.md §16 #39).
   As separate calls, a failure between them leaves half a change that the path's own idempotency
