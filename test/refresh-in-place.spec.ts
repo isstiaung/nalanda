@@ -218,7 +218,7 @@ describe('Refresh from Discogs, in place', () => {
     const main = body.slice(0, body.indexOf('<div id="pressing-more"'));
     expect(main).toContain('<dd>Mine</dd>');
     expect(body.slice(body.indexOf('<div id="pressing-more"'), body.indexOf('<div id="item-filled"'))).toContain('Theirs');
-    expect(body.slice(body.indexOf('<div id="item-filled"'))).toContain('<dt>Publisher</dt><dd>Their label</dd>');
+    expect(body.slice(body.indexOf('<div id="item-filled"'))).toContain('<dt>Publisher</dt><dd><a href="/publishers/Their%20label">Their label</a></dd>');
     expect(1000 - budget.left).toBe(4); // the session, the record, the write that lost, the record again
     expect(JSON.parse((await getItem(env.DB, lp.id))!.details)).toEqual({ ...pressingOf, country: 'Mine', genres: ['Theirs'] });
   });
@@ -238,7 +238,7 @@ describe('Refresh from Discogs, in place', () => {
     expect(more).toContain('<dt>Genres</dt>');
     expect(page).toContain(more.replace(' hx-swap-oob="true"', ''));
     const filled = body.slice(body.indexOf('<div id="item-filled"'), body.indexOf('<output'));
-    expect(filled).toContain('<dt>Publisher</dt><dd>RCA</dd>');
+    expect(filled).toContain('<dt>Publisher</dt><dd><a href="/publishers/RCA">RCA</a></dd>');
     expect(filled).toContain('<dt>Published</dt><dd>1987</dd>');
     expect(filled).toContain('<dt>Length</dt><dd class="mono">2 tracks</dd>');
     expect(page).toContain(filled.replace(' hx-swap-oob="true"', ''));

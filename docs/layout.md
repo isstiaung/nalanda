@@ -22,6 +22,9 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    log for games and records: which types take plays, the export's plays cell —
                    ARCH.md §16 #54), series.ts (series names and numbers, the gaps, each member's next up;
                    its queries are in db/queries.ts, its pages in routes/series.tsx, ARCH.md §16 #52),
+                   creators.ts (the people in a creators string — the twin of YEAR_CREATORS in queries.ts — and
+                   what each kind calls them; its pages are routes/creators.tsx, the item page's links
+                   views/creators.tsx, ARCH.md §16 #72),
                    condition.ts (a record's grades and their fixed scale), pressing.ts (what an add
                    and "Refresh from Discogs" may write into a record's details, and reading it back),
                    goals.ts (a reading goal's pace and limits; what counts is goalCountSql in queries.ts),

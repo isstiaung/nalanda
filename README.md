@@ -85,6 +85,10 @@ manuscripts.
 - **A cover from your camera**: under any item's cover, take a photo or pick a file and make it
   the cover — shrunk in the browser before it's sent, so a phone photo goes up in a second. For
   the old paperback, the Indian edition, the small-press game nobody has an image of.
+- **Creators and publishers**: every author, designer and artist the catalog names, grouped by
+  which they mostly are, and every publisher and label — each with a page of their items and how
+  many you've finished, linked from each item's page. Read from the items as they are: "Le Guin,
+  Ursula K." and "Ursula K. Le Guin" are one author.
 - **Series**: give a book its series and number ("The Expanse", #3 — or #2.5 for the novella
   between), filled in from Open Library when it knows. Each series shows its volumes in order,
   the numbers you're missing ("#4, #6–9" once you set how many there are), and your own

@@ -1499,6 +1499,10 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .results-more { margin: 0.25rem 0 1rem; }
 .results-page:focus { outline: none; }
 
+/* creators and publishers (ARCH.md §16 #72): the index's groups and its narrowing box */
+.names-filter { margin: 0 0 1rem; }
+.names-filter input[type='search'] { max-width: 20rem; }
+.names-group + .names-group { margin-top: 1.5rem; }
 /* a cover from the camera (ARCH.md §16 #73): the small form under an item's cover */
 .cover-photo { margin-top: 0.75rem; display: grid; gap: 0.5rem; }
 .cover-photo label { font-size: 12.5px; margin: 0; }

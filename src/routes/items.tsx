@@ -98,6 +98,7 @@ import {
   WantedPill,
 } from '../views/components';
 import { page, todayOf } from '../views/layout';
+import { CreatorLinks } from '../views/creators';
 import { CoverPhotoForm, PHOTO_REFUSED } from '../views/cover-photo';
 import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
@@ -687,7 +688,9 @@ function FilledProps({ item, oob }: { item: Pick<Item, 'mediaType' | 'published'
       {item.publisher ? (
         <>
           <dt>Publisher</dt>
-          <dd>{item.publisher}</dd>
+          <dd>
+            <a href={`/publishers/${encodeURIComponent(item.publisher.trim())}`}>{item.publisher}</a>
+          </dd>
         </>
       ) : null}
       {item.length ? (
@@ -748,7 +751,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
       <div class="item-detail-body">
         <hgroup>
           <h1>{item.title}</h1>
-          {item.creators ? <p>{item.creators}</p> : null}
+          {item.creators ? <CreatorLinks creators={item.creators} /> : null}
         </hgroup>
         {tags.length ? (
           <p>
