@@ -39,14 +39,20 @@ so a do-over is just delete-and-retry.
 | `price` | the purchase price, in the household currency — when an admin has set one (**Members → Household currency**) before the import and the cell is a plain number like `12.99`; otherwise it stays in details. Either way it is never on share pages or to connections (ARCH.md §16 #61) |
 | `purchase_price` / `purchase_currency`, if the file has them (a Nalanda export) | the purchase price, in that currency — never in details |
 | `added` (the day libib catalogued it) | the item's date added, which newest-first order and "Unread for years" count from (ARCH.md §16 #90) |
+| `added_by` (a Nalanda export: who added the item, by username; empty for a member removed since) | who added it — the member of that name when an admin imports, otherwise you; an empty cell or a name nobody here has is you |
 | anything else (`ensemble`, `esrb`, `aspect_ratio`, …) | kept losslessly in the item's details JSON |
 
 Rows without a title are skipped and counted; nothing is silently dropped.
 
+A **Nalanda export that lost a column** in a spreadsheet (`details`, say) is no longer recognised
+as one and is read as a libib file — the preview says so. Its type, identifiers, dates, location,
+notes and price still map, and nothing private reaches details; but its reads, reviews, loans,
+plays, wants and quotes are dropped, so keep every column (or put it back) before importing.
+
 The reading status and dates, rating and review become **the importing member's own** read and
 review (ARCH.md §16 #43) — import while signed in as the person whose catalogue it is. A
-**Nalanda export** is different: it names each read's reader and each review's writer, and when an
-admin imports it, a name that is a member here keeps them; any other name is yours. A member's
+**Nalanda export** is different: it names each read's reader, each review's writer and who added each
+item, and when an admin imports it, a name that is a member here keeps them; any other name is yours. A member's
 import is always all theirs. The preview lists who gets what. A Nalanda export also brings back
 every loan in its `loans` column, open and returned, onto the items it adds, whoever imports it;
 a loan to a connected household comes back as an ordinary loan under the name it was lent to

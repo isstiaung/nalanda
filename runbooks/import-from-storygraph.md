@@ -38,7 +38,7 @@ run and merge instead of duplicating.
 | Format (hardcover, paperback, ebook, audiobook) | Held as |
 | Read Status (read, currently-reading, to-read, did-not-finish) | Reading status |
 | Dates Read ("start-end", several joined by commas) | One read per dated range; an open range while currently reading is the open read |
-| Last Date Read, Read Count | The finish and count a merge reconciles with reads already here |
+| Last Date Read, Read Count | The finish and count a merge reconciles with reads already here; Read Count beyond the dated ranges adds undated finished reads, on a new book and a matched one alike |
 | Star Rating (0–5, halves and quarters) | Rating 1–10 (4.25 → 9) |
 | Review | Your review |
 | Tags | Tags |
@@ -46,6 +46,7 @@ run and merge instead of duplicating.
 | Moods, Pace, Character- or Plot-Driven?, the character questions, Content Warnings | Your private notes — opinions, never on a share page |
 | Date Added | The book's date added — always for a new entry, for a matched one only with the Import page's box ticked (ARCH.md §16 #90) |
 | Contributors | Details (kept) |
+| `Location`, `Notes`, if you added them — or any column of a Nalanda export (`loans`, `reads`, the dates, grades, prices…) | the private location and notes; everything else private is dropped — nothing of it ever lands in details, which share pages show |
 
 StoryGraph has no publisher, page count or notes; those stay empty for a new entry and are
 never blanked on a matched one.
@@ -53,7 +54,7 @@ never blanked on a matched one.
 ## Matching and merge rules
 
 The same as Goodreads': a row is matched by **ISBN-13 → ISBN-10 → normalized title +
-first-author surname**; on a match StoryGraph wins for *your* rating and review, the book's
+first author** (the surname and then the whole name, initials aside, in any script); on a match StoryGraph wins for *your* rating and review, the book's
 notes keep what they had with the impressions added after, and your reads
 are **added and never removed** — importing the same file again adds nothing. See the
 [Goodreads runbook](import-from-goodreads.md#matching-and-merge-rules) for the rules read by

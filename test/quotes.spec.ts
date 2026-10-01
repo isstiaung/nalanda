@@ -250,4 +250,32 @@ describe('the CSV, the trash and a removed member', () => {
     expect(await quotesIn(newId)).toEqual([{ userId: null, text: 'Kept line', page: 'p. 3', note: null, shared: 1, source: null }]);
     expect(await html(asha, `/items/${newId}`)).toContain('Former member');
   });
+
+  it('an admin’s import of a household export keeps each quote with its writer, and a former member’s with nobody', async () => {
+    const { asha, ravi, shelf } = await household();
+    const mira = await member('mira');
+    const row = {
+      library: 'x', media_type: 'book', isbn10_upc: '', added_at: '', details: '', progress_history: '', began_on: '', completed_on: '',
+      title: 'Piranesi',
+      reads: 'completed:..2024-01-01@ravi',
+      quotes: JSON.stringify([
+        { by: 'ravi', text: 'Ravi’s line', page: 'p. 3', shared: true },
+        { by: null, text: 'A former member’s line', page: null, shared: false },
+        { by: 'nobody-here', text: 'A stranger’s line', page: null, shared: false },
+      ]),
+    };
+    expect((await as(asha, '/api/import', { json: { libraryId: shelf.id, rows: [row] } })).status).toBe(200);
+    const id = (await rows<{ id: number }>("SELECT id FROM items WHERE title = 'Piranesi' ORDER BY id DESC"))[0]!.id;
+    // the quotes follow the same rule as the read: a member of that name keeps theirs, a former member's stays nobody's,
+    // and an unknown name is the importer's — never every one the importer's
+    expect((await quotesIn(id)).map((q) => [q.userId, q.text])).toEqual([
+      [ravi.id, 'Ravi’s line'],
+      [null, 'A former member’s line'],
+      [asha.id, 'A stranger’s line'],
+    ]);
+    // a member's import is all theirs, as their reads and reviews are — only an admin's keeps names
+    expect((await as(mira, '/api/import', { json: { libraryId: shelf.id, rows: [{ ...row, title: 'Piranesi again' }] } })).status).toBe(200);
+    const again = (await rows<{ id: number }>("SELECT id FROM items WHERE title = 'Piranesi again'"))[0]!.id;
+    expect((await quotesIn(again)).map((q) => q.userId)).toEqual([mira.id, mira.id, mira.id]);
+  });
 });

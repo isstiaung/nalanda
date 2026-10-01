@@ -50,12 +50,14 @@ run and merge instead of duplicating.
 | Other Call Number | Location (where it is kept — never on a share page) |
 | Entry Date | The book's date added — always for a new entry, for a matched one only with the Import page's box ticked (ARCH.md §16 #90) |
 | Book ID, Subjects, LCCN, Dewey, OCLC, Work id… | Details (kept) |
+| `Location`, `Notes`, if you added them — or any column of a Nalanda export (`loans`, `reads`, the dates, grades, prices…) | the private location and notes; everything else private is dropped — nothing of it ever lands in details, which share pages show |
 | List Price, Value, Condition, Acquired, From Where, Source, Lending columns | Dropped — money, the copy's state and provenance are never published, and a loan here is the household's |
 
 ## Matching and merge rules
 
 The same as Goodreads': a row is matched by **ISBN-13 → ISBN-10 → normalized title +
-first-author surname** (the turned-round author matches the usual order); on a match
+first author** (the surname and then the whole name, initials aside, in any script; the turned-round author
+matches the usual order); on a match
 LibraryThing wins for *your* rating and review, the book's notes keep what they had with the
 comments added after, and your reads are **added and never
 removed** — importing the same file again adds nothing. See the

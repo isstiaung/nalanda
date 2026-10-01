@@ -360,7 +360,7 @@ the browser** and posts JSON batches of ~200 rows (this sidesteps the Worker CPU
 `Exclusive Shelf` column). Known columns map to real columns; anything unrecognized lands
 in `details` JSON so the import is lossless. libib rows always insert (`group` becomes a
 tag, and the series, §16 #52). Goodreads rows **match-and-merge** (§16 #14): a row matching an existing item — by
-ISBN-13, then ISBN-10, then normalized title + first-author surname — merges rating,
+ISBN-13, then ISBN-10, then normalized title (any script) + first author, the surname and the whole name — merges rating,
 review, notes and shelves-as-tags onto it (Goodreads wins, but never blanks a field it has
 no value for, and never touches copies or bibliographic metadata), and its shelf, Date
 Read, Date Started and Read Count become reads, added and never removed (§16 #41);
@@ -872,6 +872,7 @@ is a section of this document and "#N" another decision.
 | 87 | 2026-10-01 | [StoryGraph and LibraryThing exports import as Goodreads' does: matched and merged, the importer's own reads and reviews](docs/decisions/087-storygraph-librarything.md) |
 | 88 | 2026-10-01 | [A read-only API behind per-member tokens: made on the Account page, shown once, bound to the account as a session is; a token sees what its member sees and changes nothing](docs/decisions/088-token-api.md) |
 | 90 | 2026-10-01 | [An import dates a book by the file's "date added"; a re-import re-dates the books already here only when asked, the row's own time kept for the stamp connections hold](docs/decisions/090-import-date-added.md) |
+| 91 | 2026-10-01 | [The export guards formula-leading cells with `'`, and a Nalanda import strips exactly one — a title a connection sent never reaches a spreadsheet as a formula](docs/decisions/091-csv-formula-guard.md) |
 | 92 | 2026-10-01 | [`FEDERATION_OFFLINE`: a plain runtime variable under which an instance contacts no connected household, for a copy of the database restored anywhere but production](docs/decisions/092-federation-offline.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React

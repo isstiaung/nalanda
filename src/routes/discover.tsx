@@ -3,7 +3,7 @@
 // background, cached in this isolate for a day — with what the catalog already has marked, and Add and Want for the
 // rest. In the app only.
 import { Hono, type Context } from 'hono';
-import { booksNamed, catalogMatches, finishedAuthors, listLibraries, shelfForType, titleKey } from '../db/queries';
+import { booksNamed, catalogMatches, finishedAuthors, listLibraries, shelfForType, TitleIndex } from '../db/queries';
 import type { AppEnv } from '../env';
 import { nameKey } from '../lib/creators';
 import { olRecentByAuthor } from '../metadata/openlibrary';
@@ -130,8 +130,9 @@ discover.get('/discover', async (c) => {
   if (works === null) return discoverPage(c, authors, { author, works: null, held: [] });
   // what is here already: by ISBN as the Add page tells, and by title and author for a work without one
   const [byIsbn, named] = await Promise.all([catalogMatches(c.env.DB, works), booksNamed(c.env.DB, author)]);
-  const byTitle = new Map(named.map((b) => [titleKey(b.title, b.creators), b.id]));
-  const held = works.map((w, i) => byIsbn[i] ?? byTitle.get(titleKey(w.title, w.creators ?? author)) ?? null);
+  const byTitle = new TitleIndex();
+  for (const b of named) byTitle.add(b.title, b.creators, b.id);
+  const held = works.map((w, i) => byIsbn[i] ?? byTitle.find(w.title, w.creators ?? author) ?? null);
   return discoverPage(c, authors, { author, works, held });
 });
 

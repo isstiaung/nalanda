@@ -2608,11 +2608,11 @@ export async function importKindle(
     .select({ id: s.items.id, title: s.items.title, creators: s.items.creators })
     .from(s.items)
     .where(eq(s.items.mediaType, 'book'));
-  const byTitle = new Map<string, number>();
-  for (const e of existing) byTitle.set(titleKey(e.title, e.creators), e.id);
+  const byTitle = new TitleIndex();
+  for (const e of existing) byTitle.add(e.title, e.creators, e.id);
   const out = { matched: 0, created: 0, quotes: 0, duplicates: 0, titles: [] as Array<{ title: string; found: boolean }> };
   for (const book of books) {
-    const id = byTitle.get(titleKey(book.title, book.author));
+    const id = byTitle.find(book.title, book.author);
     out.titles.push({ title: book.title, found: id !== undefined });
     if (id !== undefined) out.matched++;
     else out.created++;
@@ -2634,7 +2634,7 @@ export async function importKindle(
         null,
         { after: quoteInsertStatements(d1, 'newest', quotes, into.userId) },
       );
-      byTitle.set(titleKey(book.title, book.author), newId);
+      byTitle.add(book.title, book.author, newId);
       out.quotes += quotes.length;
     }
   }
@@ -4374,23 +4374,75 @@ export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1Pr
 
 // ---------- Goodreads match-and-merge import ----------
 
-/** Series suffixes and subtitles differ between sources; compare the stem only. */
+/**
+ * A title's stem for matching: lower-cased, a parenthesised series suffix and a subtitle after ":" dropped — series
+ * suffixes and subtitles differ between sources — and every run of anything but letters and digits, in any script,
+ * one space. Empty when nothing is left, and an empty stem matches nothing (TitleIndex): the ASCII-only rule before
+ * reduced every Tamil, Cyrillic or CJK title to "", so two books by one author met on the surname alone (§16 #14).
+ */
 const normTitle = (t: string) =>
   t
     .toLowerCase()
     .replace(/\(.*?\)/g, ' ')
     .split(':')[0]!
-    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
 
-/** First author's surname, initials-insensitive ("N.K. Jemisin" ≈ "N. K. Jemisin"). */
-const surname = (creators: string | null) => {
-  const first = (creators ?? '').split(',')[0]!.replace(/\./g, ' ').trim();
-  const tokens = first.split(/\s+/).filter(Boolean);
-  return tokens[tokens.length - 1]?.toLowerCase() ?? '';
+/**
+ * The first author's name as lower-cased tokens, full stops as spaces ("N.K. Jemisin" ≈ "N. K. Jemisin"), a name
+ * written "Le Guin, Ursula K." turned round first (splitCreators) so it meets "Ursula K. Le Guin".
+ */
+const authorTokens = (creators: string | null): string[] =>
+  (splitCreators(creators)[0] ?? '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .split(' ')
+    .filter(Boolean);
+
+/** First author's surname: the last token of the name. */
+const surname = (creators: string | null) => authorTokens(creators).at(-1) ?? '';
+
+/**
+ * The whole first-author name, its tokens sorted, initials left out: the same person however the name is ordered,
+ * spaced or initialled — "Ursula Le Guin", "Ursula K. Le Guin" and "Le Guin, Ursula K." agree, "Brian Herbert" and
+ * "Frank Herbert" don't. A name that is only initials keeps them all, so it still has something to agree on.
+ */
+const authorKey = (creators: string | null) => {
+  const tokens = authorTokens(creators);
+  const named = tokens.filter((t) => t.length > 1);
+  return [...(named.length ? named : tokens)].sort().join(' ');
 };
 
+/** The stem and surname a row and a book meet on. Exported for tests; matching itself goes through TitleIndex. */
 export const titleKey = (title: string, creators: string | null) => `${normTitle(title)}|${surname(creators)}`;
+
+/**
+ * Books by title and author, for everything that matches a row to a book already here without an ISBN: the
+ * Goodreads, StoryGraph and LibraryThing imports (§16 #14, #87), the Kindle import (§16 #77) and Discover. A row meets
+ * a book when the stems and the first author's surname agree — "The Dispossessed: An Ambiguous Utopia" meets "The
+ * Dispossessed", a series suffix is ignored — and, when both name an author, the whole name agrees too (authorKey:
+ * initials aside, written either way round): Brian Herbert's "Dune: House Atreides" never meets Frank Herbert's
+ * "Dune". A title whose
+ * stem is empty meets nothing. Among several books on one key the one added last is found, as before.
+ */
+export class TitleIndex<T = number> {
+  private readonly byKey = new Map<string, Array<{ author: string; value: T }>>();
+
+  add(title: string, creators: string | null, value: T): void {
+    if (!normTitle(title)) return;
+    const key = titleKey(title, creators);
+    const list = this.byKey.get(key) ?? [];
+    list.unshift({ author: authorKey(creators), value });
+    this.byKey.set(key, list);
+  }
+
+  find(title: string, creators: string | null): T | undefined {
+    if (!normTitle(title)) return undefined;
+    const author = authorKey(creators);
+    return this.byKey.get(titleKey(title, creators))?.find((c) => c.author === author)?.value;
+  }
+}
 
 /** `dated`: the matched books whose date added the file would change — and did, when the caller asked for dates. */
 export type MergeImportResult = { inserted: number; merged: number; reads: number; dated: number };
@@ -4402,6 +4454,21 @@ const readingOf = (item: NewItem): GoodreadsReading => ({
   dateStarted: item.beganOn ?? null,
   readCount: null,
 });
+
+/**
+ * What a row says about reading, as the readings a merge reconciles one after another: every finished read the row
+ * dates beyond the one its summary names — StoryGraph's earlier "Dates Read" ranges (§16 #87) — oldest first, then
+ * the summary itself. So a merge keeps every dated read an insert would, and a re-import still adds nothing: each
+ * finish is checked for before it is added (reconcileGoodreads). A Goodreads or LibraryThing row dates at most the one
+ * read its summary names, so it reconciles once, as before.
+ */
+const readingsOf = (r: ImportRow): GoodreadsReading[] => {
+  const main = r.goodreads ?? readingOf(r.item);
+  const earlier = (r.reads ?? [])
+    .filter((x) => x.status === 'completed' && x.endedOn !== null && x.endedOn !== main.dateRead)
+    .map((x): GoodreadsReading => ({ shelf: 'completed', dateRead: x.endedOn, dateStarted: x.beganOn, readCount: null }));
+  return [...earlier, main];
+};
 
 /**
  * Rows matching an existing item (by ISBN-13, then ISBN-10, then normalized
@@ -4444,23 +4511,23 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
     .from(s.items);
   const byIsbn13 = new Map<string, number>();
   const byIsbn10 = new Map<string, number>();
-  const byTitle = new Map<string, number>();
+  const byTitle = new TitleIndex();
   const addedHere = new Map<number, string>();
   for (const e of existing) {
     if (e.isbn13) byIsbn13.set(e.isbn13, e.id);
     if (e.isbn10Upc) byIsbn10.set(e.isbn10Upc.toUpperCase(), e.id);
-    byTitle.set(titleKey(e.title, e.creators), e.id);
+    byTitle.add(e.title, e.creators, e.id);
     addedHere.set(e.id, e.addedAt);
   }
 
   const inserts: ImportRow[] = [];
-  const merges: Array<{ id: number; set: Partial<NewItem>; tags: string[]; reading: GoodreadsReading }> = [];
+  const merges: Array<{ id: number; set: Partial<NewItem>; tags: string[]; readings: GoodreadsReading[] }> = [];
   const redate = new Map<number, string>(); // matched books the file dates differently; a later row for the same book wins
   for (const r of rows) {
     const id =
       (r.item.isbn13 ? byIsbn13.get(r.item.isbn13) : undefined) ??
       (r.item.isbn10Upc ? byIsbn10.get(r.item.isbn10Upc.toUpperCase()) : undefined) ??
-      byTitle.get(titleKey(r.item.title, r.item.creators ?? null));
+      byTitle.find(r.item.title, r.item.creators ?? null);
     if (!id) {
       inserts.push(r);
       continue;
@@ -4471,7 +4538,7 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
     if (r.item.rating != null) set.rating = r.item.rating;
     if (r.item.review) set.review = r.item.review;
     if (r.item.notes) set.notes = r.item.notes;
-    merges.push({ id, set, tags: r.tags, reading: r.goodreads ?? readingOf(r.item) });
+    merges.push({ id, set, tags: r.tags, readings: readingsOf(r) });
   }
 
   // the importer's reads already here for the books that matched: one query, the ids as one JSON parameter
@@ -4494,9 +4561,11 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
   let standIn = 0; // ids for reads this run will insert; negative, so they never meet a real one
   for (const m of merges) {
     const list = work.get(m.id) ?? (readsHere.get(m.id) ?? []).map((r) => ({ ...r, fresh: false, changed: false }));
-    for (const op of reconcileGoodreads(list, m.reading)) {
-      if (op.op === 'insert') list.push({ ...op.read, id: --standIn, fresh: true, changed: true });
-      else Object.assign(list.find((r) => r.id === op.id)!, op.read, { changed: true });
+    for (const reading of m.readings) {
+      for (const op of reconcileGoodreads(list, reading)) {
+        if (op.op === 'insert') list.push({ ...op.read, id: --standIn, fresh: true, changed: true });
+        else Object.assign(list.find((r) => r.id === op.id)!, op.read, { changed: true });
+      }
     }
     work.set(m.id, list);
   }

