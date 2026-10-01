@@ -290,7 +290,8 @@ Delete `.wrangler/connections/` to start over.
   `http://` at an address other than localhost.
 - **"… runs an older version of Nalanda that can't take recommendations yet."** Their descriptor
   (`<their address>/.well-known/nalanda`) has no `"accepts": ["Recommend"]`. They need to update to
-  the release that brought recommendations (CHANGELOG.md); nothing else between you is affected.
+  the release that brought recommendations (1.6.0, [changelog/v1.6.0.md](../changelog/v1.6.0.md));
+  nothing else between you is affected.
 - **Connect fails.** The page says why. Most often the invitation was already used,
   expired or revoked — ask for a new one — or their library couldn't be reached.
 - **"No answer from …" after Connect.** The request may still have reached them, so it stays

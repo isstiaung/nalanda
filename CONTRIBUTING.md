@@ -29,7 +29,9 @@ only for deploying, remote migrations, and backups.
 
 [ARCH.md](ARCH.md) is the source of truth for architecture, and §16 is a decision log with
 the reasoning behind each choice. If a change alters a decision, update ARCH.md in the same
-PR. [CLAUDE.md](CLAUDE.md) holds the working conventions in short form.
+PR. [CLAUDE.md](CLAUDE.md) holds the working conventions in short form; their long forms are in
+[docs/privacy.md](docs/privacy.md), [docs/conventions.md](docs/conventions.md) and
+[docs/layout.md](docs/layout.md).
 
 ## Things that will get a PR sent back
 
@@ -80,8 +82,11 @@ arrive with a test.
 ## Commits and pull requests
 
 Conventional commit messages (`feat:`, `fix:`, `docs:`, `chore:`, `test:`), one completed unit
-of work per commit, and no batching of unrelated changes. Keep PRs focused enough to review in
-one sitting; CI runs typecheck, the accessibility lint, the test suite and the accessibility
+of work per commit, and no batching of unrelated changes. A change someone running Nalanda would
+notice adds its entry to [changelog/unreleased.md](changelog/unreleased.md), under **Added**,
+**Changed** or **Fixed**, with an **Upgrading** line for anything a host has to do (a migration,
+a new secret, an effect on connected households on older versions); the release commit turns
+that file into the version's notes. Keep PRs focused enough to review in one sitting; CI runs typecheck, the accessibility lint, the test suite and the accessibility
 audit on every one. A new page or htmx interaction joins the audit's list in
 `scripts/a11y.mjs` (ARCH.md §18).
 
