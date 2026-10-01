@@ -65,6 +65,7 @@ import {
 } from '../federation/config';
 import { estimateBytes, fetchSharedViews, formatBytes, perMonth, type SharedView } from '../federation/feed';
 import {
+  cleanHouseholdName,
   fetchDescriptor,
   inviteLink,
   isHouseholdName,
@@ -590,10 +591,12 @@ connections.post('/connections/progress-sharing', async (c) => {
 
 connections.post('/connections/settings', async (c) => {
   const body = await c.req.parseBody();
-  const householdName = String(body['householdName'] ?? '').trim();
-  if (!isHouseholdName(householdName)) {
+  const typed = String(body['householdName'] ?? '').trim();
+  if (!isHouseholdName(typed)) {
     return render(c, { error: `Give your library a name of up to ${MAX_HOUSEHOLD_NAME} characters.` });
   }
+  // kept as a peer will keep it: the same cleaning every name from another instance gets
+  const householdName = cleanHouseholdName(typed)!;
   const existing = await getFederationSettings(c.env.DB);
   // The address is part of this library's identity: it stays fixed once anyone is connected or waiting, and
   // while an unused invitation names it — changing it then would break every link already sent.

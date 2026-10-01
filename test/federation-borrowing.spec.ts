@@ -137,6 +137,26 @@ describe('lending: what a connection sees and asks for', () => {
     expect(html).toContain('&lt;b&gt;For the trip&lt;/b&gt;');
   });
 
+  it('cleans a requester’s name of direction overrides before Loans, the notification or a loan’s borrower sees it', async () => {
+    const RLO = '\u202E';
+    const request = borrowRequest(peer.url, lendable.id, await itemStamp(lendable), `nar${RLO}ain`, null);
+    expect((await a.signedPost('/federation/inbox', peer, request)).status).toBe(200);
+    expect(await rows('SELECT requester_name FROM borrow_requests')).toEqual([{ requester_name: 'nar ain' }]);
+    expect(JSON.stringify(await rows('SELECT * FROM notifications'))).not.toContain(RLO);
+    const member = await sessionCookie('member');
+    const html = await (await a.get('/loans', member)).text();
+    expect(html).toContain('nar ain');
+    expect(html).not.toContain(RLO);
+    const [row] = await rows<{ id: number }>('SELECT id FROM borrow_requests');
+    capturePushes();
+    await a.postForm(`/borrow-requests/${row!.id}/accept`, {}, member);
+    expect(await rows('SELECT borrower FROM loans WHERE item_id = ?', lendable.id)).toEqual([{ borrower: 'nar ain (Riverbank library)' }]);
+    // a name that is nothing but overrides is no name: the request is malformed
+    const blank = borrowRequest(peer.url, twoCopies.id, await itemStamp(twoCopies), `${RLO}\u200B`, null);
+    expect((await a.signedPost('/federation/inbox', peer, blank)).status).toBe(400);
+    expect(await rows('SELECT * FROM borrow_requests')).toHaveLength(1);
+  });
+
   it('refuses a request meant for a book whose id has since been reused', async () => {
     const mistake = await createItem(env.DB, { libraryId: shelfId, title: 'Wrong edition', copies: 1 });
     const mistakeStamp = await itemStamp(mistake);

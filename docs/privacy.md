@@ -170,7 +170,11 @@ for a surface before changing anything it shows to someone outside the household
   (migration 0021, ARCH.md §16 #40).
 - Strings from another instance — household names, view names, feed entries, members' names (`by`, `reviews`), comments,
   recommendations (title, creators, the name it's signed with, the note) —
-  render only as escaped text. A comment thread is only ever shown to the two households in it. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:
+  render only as escaped text. Every *name* among them — a feed entry's `by`, a review's, a recommender's, a
+  comment's author, a borrow requester's, a household's from its descriptor or connect request — is also cleaned
+  on the way in as a display name typed here is (`parsePeerName()`, `cleanHouseholdName()`): control and format
+  characters out, so a bidi override can't reorder the text around it on the Loans page, in a notification or in a
+  loan's borrower, and a name that is nothing but them rejects what carried it. A comment thread is only ever shown to the two households in it. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:
   the browser decodes HTML escapes back into quotes before it runs the script.
 
 ## Recommendations
