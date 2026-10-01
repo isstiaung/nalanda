@@ -56,7 +56,7 @@ const DevicesForm = ({ done }: { done?: boolean }) => (
 
 /**
  * A member's read-only API tokens (§16 #88): made here, shown once — on this page, never in a URL — and revoked here.
- * One that no longer signs in (made before "Sign out other devices" or a password change) says so.
+ * Every path that moves the account's generation on deletes them, so each one listed works.
  */
 const TokensForm = ({ tokens, fresh, error }: { tokens: Array<{ id: number; name: string; createdAt: string }>; fresh?: { name: string; token: string } | null; error?: string }) => (
   <article class="panel form-card account-card" id="tokens">
