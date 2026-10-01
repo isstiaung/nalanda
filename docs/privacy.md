@@ -36,6 +36,12 @@ for a surface before changing anything it shows to someone outside the household
   lost a column in a spreadsheet and is read as a libib file, or a Goodreads export someone added a Location
   column to, publishes nothing it shouldn't; the preview names the format it read, so a mis-read file is
   noticed. A Nalanda export's own `details` cell is the only way into `details` for that format.
+- **The export never hands a spreadsheet a formula** (ARCH.md §16 #91): `csvEscape()` puts `'` before a
+  text cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return (and before one starting with
+  `'`), and `mapNalandaRow()` strips exactly one on the way back, so the round trip is exact. The one
+  text that reaches the export without passing a form is a recommendation's title and creators, copied
+  from what a connection sent when a member wants it — a connection can't plant a formula that opens
+  with the file.
 - **Formats are public, editions' identifiers are not** (ARCH.md §16 #75): `formats` (the forms an
   item is held in) is in `toPublicItem()` like the publisher, on shelves' and gift lists' pages and to
   connections; the `editions` table (another edition's ISBN or barcode, publisher, year) is as private as
