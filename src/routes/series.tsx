@@ -58,6 +58,8 @@ series.get('/series', async (c) => {
 // ---------- the gaps, from Open Library (ARCH.md §16 #79) ----------
 
 const FIND_TTL_MS = 24 * 60 * 60_000;
+/** How many works one look-up asks Open Library for (olSeriesWorks' default): enough for most series, not every omnibus. */
+const FIND_LIMIT = 40;
 const FIND_MAX = 200;
 /** Per isolate, by series key: a day's worth of answers, so a household looking twice asks Open Library once. */
 const findCache = new Map<string, { at: number; works: Array<{ candidate: Candidate; position: number | null }> }>();
@@ -126,7 +128,8 @@ async function seriesPage(c: Context<AppEnv>, id: number, error?: string, sent?:
       ))}
       <p class="muted form-note">
         Each is offered with this series’ name and the number Open Library gives it; what you have numbered yourself is
-        never changed, and a number you already hold isn’t offered again.
+        never changed, and a number you already hold isn’t offered again. Open Library listed {found.gaps.length + found.elsewhere.length + found.here}{' '}
+        {found.gaps.length + found.elsewhere.length + found.here === 1 ? 'work' : 'works'} for this series, of at most {FIND_LIMIT} asked for: a long series may be missing some.
       </p>
     </section>
   ) : null;

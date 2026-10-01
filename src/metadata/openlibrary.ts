@@ -41,7 +41,9 @@ async function searchOl(q: string, limit: number, fields: string = FIELDS, page 
 export function seriesOf(doc: Pick<OlDoc, 'series_name' | 'series_position'>): { series?: SeriesDraft } {
   const name = cleanSeriesName(doc.series_name?.[0]);
   if (!name) return {};
-  return { series: { name, number: parseSeriesNumber(doc.series_position?.[0]) ?? null } };
+  // the two lists are parallel only when they are the same length; otherwise the first position may be another series'
+  const aligned = (doc.series_position?.length ?? 0) === (doc.series_name?.length ?? 0);
+  return { series: { name, number: aligned ? (parseSeriesNumber(doc.series_position?.[0]) ?? null) : null } };
 }
 
 function toCandidate(doc: OlDoc, isbn13?: string): Candidate | null {
@@ -140,8 +142,12 @@ export async function olSeriesWorks(name: string, limit = 40): Promise<Array<{ c
       .map((d) => {
         const c = toCandidate(d, d.isbn?.find((i) => /^\d{13}$/.test(i)));
         if (!c) return null;
-        const at = (d.series_name ?? []).findIndex((n) => seriesKey(n) === key);
-        const position = parseSeriesNumber(d.series_position?.[at]) ?? null;
+        // series_name and series_position are parallel lists; when their lengths differ a position may belong to
+        // another of the work's series, so the work is listed without one rather than offered under a wrong number
+        const names = d.series_name ?? [];
+        const at = names.findIndex((n) => seriesKey(n) === key);
+        const aligned = (d.series_position?.length ?? 0) === names.length;
+        const position = aligned ? (parseSeriesNumber(d.series_position?.[at]) ?? null) : null;
         return { candidate: c, position };
       })
       .filter((x): x is { candidate: Candidate; position: number | null } => x !== null)

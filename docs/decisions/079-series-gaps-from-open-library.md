@@ -23,6 +23,13 @@ can overwrite the series data" — so Open Library only ever suggests.
   numbered yourself is never changed: adding an offered volume is an ordinary add with the
   series fields prefilled, editable on the form like any other. A series' total is never set
   from Open Library either.
+- **Measured (2026-10-01):** Discworld's forty works with ISBNs come back as 74 KB and parse
+  in 0.17 ms; without ISBNs 29 KB — nowhere near the 10 ms budget, so the ISBN field stays
+  for the "already here" match. Forty is the limit asked for; a longer series, or one whose
+  search also returns omnibuses, may come back incomplete, and the page says how many Open
+  Library listed. `series_name` and `series_position` are parallel lists: when their lengths
+  differ a position may belong to another of the work's series, so the work is listed without
+  one rather than offered under a wrong number (`seriesOf()` now guards the same way).
 - **Only some works carry series records** (checked 2026-09-30: The Expanse and Discworld do,
   Earthsea doesn't), so an empty answer says nothing about the series, and the page says so.
   A rehearsal against the owner's real catalog is the next step before leaning on it.
