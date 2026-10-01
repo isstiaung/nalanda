@@ -5,7 +5,7 @@ import type { Child, FC, PropsWithChildren } from 'hono/jsx';
 import {
   getItem,
   getSeries,
-  getShareByToken,
+  shareWithLocale,
   getSiteSettings,
   giftExtras,
   listItems,
@@ -18,7 +18,6 @@ import {
 } from '../db/queries';
 import type { Item, Share } from '../db/schema';
 import type { AppEnv } from '../env';
-import { timesPlayed } from '../lib/plays';
 import { atomFeed, entryHtml, FEED_ENTRIES, rfc3339, rssFeed, type FeedEntry } from '../lib/feeds';
 import { formatSeriesNumber } from '../lib/series';
 import { isRecord } from '../lib/condition';
@@ -29,14 +28,16 @@ import {
   toGiftItem,
   toPublicItem,
   previewText,
-  wantListTitle,
   type GiftItem,
   type LinkPreview,
   type PublicItem,
 } from '../lib/share';
 import { BggCredit, fromBgg } from '../views/attribution';
 import { languageName } from '../lib/language';
-import { BuyLinks, DetailsList, FormatPills, LENGTH_UNIT, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, RecordDetails, stars, WantedPill } from '../views/components';
+import { BuyLinks, DetailsList, FormatPills, MEDIA_ICON, NotOwnedPill, Pagination, RecordDetails, stars, WantedPill } from '../views/components';
+import { I18n, lengthUnit, mediaLabel, useI18n } from '../views/i18n';
+import { i18nOf } from '../views/layout';
+import { resolveLocale, translator, type Translator } from '../i18n';
 
 const share = new Hono<AppEnv>();
 
@@ -67,6 +68,16 @@ const pageOf = (c: Context<AppEnv>) => Number.parseInt(c.req.query('page') ?? '1
 
 /** A listing: `/share/<token>` alone — the item pages and feeds hang below it, and none of them reads a query. */
 const LISTING = /^\/share\/[^/]+\/?$/;
+
+/**
+ * The link's row, and the page's language with it (§16 #93): the household's, with its own translation, read in the
+ * same call as the token and kept on the context, so renderShare() and the feed pay nothing more for it.
+ */
+async function shareFor(c: Context<AppEnv>, token: string): Promise<Share | null> {
+  const { share, language, translation } = await shareWithLocale(c.env.DB, token);
+  c.set('i18n', translator(resolveLocale(null, { language }), translation));
+  return share;
+}
 
 /**
  * The cache key: the canonical path — with the host, since feeds and link previews write absolute URLs — plus the
@@ -103,18 +114,22 @@ share.use('*', async (c, next) => {
 
 /**
  * `bgg`: the page shows a board game, so BoardGameGeek's logo is owed in the footer (ARCH.md §16 #44). `mark`: what
- * kind of page it is, above its name — a gift list says so (§16 #53).
+ * kind of page it is, above its name — a gift list says so (§16 #53). The page is in the household's language (§16
+ * #93): its own few strings translated, the item's data as it is, never a member's choice.
  */
 const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: boolean; mark?: string; preview?: LinkPreview; feeds?: string }>> = ({
   title,
   shelf,
   bgg,
-  mark = 'Nalanda · shared shelf',
+  mark,
   preview,
   feeds,
   children,
-}) => (
-  <html lang="en">
+}) => {
+  const i18n = useI18n();
+  const { t } = i18n;
+  return (
+  <html lang={i18n.locale}>
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -131,7 +146,7 @@ const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: bo
           <meta property="og:description" content={preview.description} />
           <meta property="og:url" content={preview.url} />
           {preview.image ? <meta property="og:image" content={preview.image} /> : null}
-          {preview.image && preview.imageAlt ? <meta property="og:image:alt" content={`Cover of ${preview.imageAlt}`} /> : null}
+          {preview.image && preview.imageAlt ? <meta property="og:image:alt" content={t('cover.alt', { title: preview.imageAlt })} /> : null}
           <meta name="twitter:card" content="summary" />
         </>
       ) : null}
@@ -152,14 +167,14 @@ const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: bo
         <div class="share-head">
           <div>
             <div class="brand-rule"></div>
-            <div class="share-mark">{mark}</div>
+            <div class="share-mark">{mark ?? t('share.mark')}</div>
             <h1>{shelf}</h1>
           </div>
         </div>
         {children}
         <footer class="share-footer">
           <span>
-            Shared read-only from a Nalanda home library ·{' '}
+            {t('share.footer')} ·{' '}
             <span lang="sa">नालन्दा</span>
           </span>
           {bgg ? <BggCredit /> : null}
@@ -167,16 +182,20 @@ const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: bo
       </main>
     </body>
   </html>
-);
+  );
+};
 
-const PublicCard: FC<{ item: PublicItem; token: string }> = ({ item, token }) => (
+const PublicCard: FC<{ item: PublicItem; token: string }> = ({ item, token }) => {
+  const i18n = useI18n();
+  const { t } = i18n;
+  return (
   <a href={`/share/${token}/items/${item.id}`} class="item-card">
     <div class="item-cover">
       {item.coverKey ? (
         <img
           class="cover-img"
           src={`/covers/${item.coverKey}`}
-          alt={`Cover of ${item.title}`}
+          alt={t('cover.alt', { title: item.title })}
           loading="lazy"
           data-fallback={MEDIA_ICON[item.mediaType]}
         />
@@ -188,24 +207,35 @@ const PublicCard: FC<{ item: PublicItem; token: string }> = ({ item, token }) =>
       <strong>{item.title}</strong>
       {item.creators ? <small>{item.creators}</small> : null}
       <span class="mline">
-        <small class="muted">{MEDIA_LABEL[item.mediaType]}</small>
+        <small class="muted">{mediaLabel(i18n, item.mediaType)}</small>
         {item.rating ? <span class="rating">{stars(item.rating)}</span> : null}
-        {item.readCount ? <small class="mono muted">read {item.readCount}×</small> : null}
+        {item.readCount ? <small class="mono muted">{t('share.read_times_short', { count: item.readCount })}</small> : null}
         {!item.inCollection ? <NotOwnedPill /> : null}
         {item.wanted ? <WantedPill /> : null}
       </span>
     </div>
   </a>
-);
+  );
+};
 
-function renderShare(
+/** The page in the household's language (§16 #93): the whole tree renders inside its translator, as app pages do. */
+async function renderShare(
   c: Context<AppEnv>,
   title: string,
   shelf: string,
   body: Child,
   opts: { bgg?: boolean; mark?: string; preview?: LinkPreview; feeds?: string } = {},
 ) {
-  return c.html(`<!doctype html>${ShareLayout({ title, shelf, bgg: opts.bgg, mark: opts.mark, preview: opts.preview, feeds: opts.feeds, children: body })}`);
+  const i18n = await i18nOf(c);
+  return c.html(
+    `<!doctype html>${(
+      <I18n.Provider value={i18n}>
+        <ShareLayout title={title} shelf={shelf} bgg={opts.bgg} mark={opts.mark} preview={opts.preview} feeds={opts.feeds}>
+          {body}
+        </ShareLayout>
+      </I18n.Provider>
+    )}`,
+  );
 }
 
 // ---------- link previews (ARCH.md §16 #71) ----------
@@ -220,31 +250,33 @@ function firstCover(c: Context<AppEnv>, items: Array<{ coverKey: string | null; 
 }
 
 /** "12 items · a shared shelf from a Nalanda home library": the count the page's eyebrow shows, and what kind of page. */
-const countLine = (total: number, kind: string) => `${total} ${total === 1 ? 'item' : 'items'} · ${kind} from a Nalanda home library`;
+const countLine = (i18n: Translator, total: number, kind: 'shelf' | 'tag' | 'want') =>
+  i18n.t(`share.preview_${kind}`, { items: i18n.n('share.items', total) });
 
 /** An item page's line: its creators and type, which page it's on, and the start of its description. */
-function itemLine(item: { creators: string | null; mediaType: PublicItem['mediaType']; description: string | null }, on: string): string {
-  const head = [item.creators, MEDIA_LABEL[item.mediaType], `on ${on}`].filter(Boolean).join(' · ');
+function itemLine(i18n: Translator, item: { creators: string | null; mediaType: PublicItem['mediaType']; description: string | null }, on: string): string {
+  const head = [item.creators, mediaLabel(i18n, item.mediaType), i18n.t('share.on_page', { name: on })].filter(Boolean).join(' · ');
   const more = previewText(item.description, 140);
   return more ? `${head} — ${more}` : head;
 }
 
+/** A gift list's title (§16 #53): its member's display name — only while names are on, as giftExtras() gives it — or none. */
+const wantTitle = (i18n: Translator, owner: string | null) => (owner ? i18n.t('share.someones_want_list', { name: owner }) : i18n.t('share.want_list'));
+
 // ---------- gift lists: a member's want list, published (ARCH.md §16 #53) ----------
 
-const GIFT_MARK = 'Nalanda · want list';
 /** A tag's link spans every shelf, so its pages don't call themselves a shelf. */
-const TAG_MARK = 'Nalanda · shared tag';
-const shareMark = (view: Share) => (view.tag !== null ? TAG_MARK : undefined);
+const shareMark = (i18n: Translator, view: Share) => (view.tag !== null ? i18n.t('share.mark_tag') : undefined);
 
 const GiftCover: FC<{ item: GiftItem }> = ({ item }) =>
   item.coverKey ? (
-    <img class="cover-img" src={`/covers/${item.coverKey}`} alt={`Cover of ${item.title}`} loading="lazy" data-fallback={MEDIA_ICON[item.mediaType]} />
+    <img class="cover-img" src={`/covers/${item.coverKey}`} alt={useI18n().t('cover.alt', { title: item.title })} loading="lazy" data-fallback={MEDIA_ICON[item.mediaType]} />
   ) : (
     <div class="cover-fallback">{MEDIA_ICON[item.mediaType]}</div>
   );
 
 /** An item already on the household's shelves: a giver can skip it. The derived boolean only — never a count. */
-const OnShelvesPill: FC = () => <span class="pill">On the shelves</span>;
+const OnShelvesPill: FC = () => <span class="pill">{useI18n().t('share.on_shelves')}</span>;
 
 const GiftCard: FC<{ item: GiftItem; token: string }> = ({ item, token }) => (
   <li class="want-card">
@@ -257,7 +289,7 @@ const GiftCard: FC<{ item: GiftItem; token: string }> = ({ item, token }) => (
       </a>
       {item.creators ? <small class="want-creators">{item.creators}</small> : null}
       <span class="mline">
-        <small class="muted">{MEDIA_LABEL[item.mediaType]}</small>
+        <small class="muted">{mediaLabel(useI18n(), item.mediaType)}</small>
         {item.inCollection ? <OnShelvesPill /> : null}
       </span>
       <BuyLinks links={item.purchaseLinks} />
@@ -274,11 +306,13 @@ async function giftListPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
     view.wantUserId,
     items.map((i) => i.id),
   );
+  const i18n = await i18nOf(c);
+  const { t, n } = i18n;
   const gifts = items.map((i) => toGiftItem(i, links.get(i.id) ?? []));
-  const title = wantListTitle(owner);
+  const title = wantTitle(i18n, owner);
   const preview: LinkPreview = {
     title,
-    description: countLine(total, 'a want list shared'),
+    description: countLine(i18n, total, 'want'),
     ...firstCover(c, gifts),
     url: absolute(c, `/share/${token}`),
   };
@@ -287,9 +321,7 @@ async function giftListPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
     title,
     title,
     <>
-      <p class="eyebrow">
-        {total} {total === 1 ? 'item' : 'items'}
-      </p>
+      <p class="eyebrow">{n('share.items', total)}</p>
       {gifts.length ? (
         <ol class="want-list">
           {gifts.map((g) => (
@@ -297,22 +329,24 @@ async function giftListPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
           ))}
         </ol>
       ) : (
-        <p class="muted">Nothing on this list right now.</p>
+        <p class="muted">{t('share.nothing_on_list')}</p>
       )}
       <Pagination page={current} pages={pages} makeHref={(p) => `/share/${token}?page=${p}`} />
     </>,
-    { bgg: gifts.some(fromBgg), mark: GIFT_MARK, preview, feeds: `/share/${token}` },
+    { bgg: gifts.some(fromBgg), mark: t('share.mark_want'), preview, feeds: `/share/${token}` },
   );
 }
 
 /** One item on a gift list: what finding the right one takes, and where to buy it. */
 async function giftItemPage(c: Context<AppEnv>, view: Share & { wantUserId: number }, token: string, item: Item) {
   const { owner, links } = await giftExtras(c.env.DB, view.wantUserId, [item.id]);
+  const i18n = await i18nOf(c);
+  const { t } = i18n;
   const gift = toGiftItem(item, links.get(item.id) ?? []);
-  const title = wantListTitle(owner);
+  const title = wantTitle(i18n, owner);
   const preview: LinkPreview = {
     title: gift.title,
-    description: itemLine(gift, title),
+    description: itemLine(i18n, gift, title),
     image: gift.coverKey ? absolute(c, `/covers/${gift.coverKey}`) : null,
     imageAlt: gift.coverKey ? gift.title : null,
     url: absolute(c, `/share/${token}/items/${gift.id}`),
@@ -332,41 +366,41 @@ async function giftItemPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
           {gift.creators ? <p>{gift.creators}</p> : null}
         </hgroup>
         <dl class="props">
-          <dt>Type</dt>
+          <dt>{t('item.type')}</dt>
           <dd>
-            {MEDIA_LABEL[gift.mediaType]} <FormatPills formats={gift.formats} />
+            {mediaLabel(i18n, gift.mediaType)} <FormatPills formats={gift.formats} />
           </dd>
           {gift.language ? (
             <>
-              <dt>Language</dt>
+              <dt>{t('item.language')}</dt>
               <dd>{languageName(gift.language)}</dd>
             </>
           ) : null}
           {gift.inCollection ? (
             <>
-              <dt>Holding</dt>
+              <dt>{t('item.holding')}</dt>
               <dd>
-                <OnShelvesPill /> already on these shelves
+                <OnShelvesPill /> {t('share.already_on_shelves')}
               </dd>
             </>
           ) : null}
           {gift.published ? (
             <>
-              <dt>Published</dt>
+              <dt>{t('item.published')}</dt>
               <dd>{gift.published}</dd>
             </>
           ) : null}
           {gift.publisher ? (
             <>
-              <dt>Publisher</dt>
+              <dt>{t('item.publisher')}</dt>
               <dd>{gift.publisher}</dd>
             </>
           ) : null}
           {gift.length ? (
             <>
-              <dt>Length</dt>
+              <dt>{t('item.length')}</dt>
               <dd class="mono">
-                {gift.length} {LENGTH_UNIT[gift.mediaType] ?? ''}
+                {gift.length} {lengthUnit(i18n, gift.mediaType)}
               </dd>
             </>
           ) : null}
@@ -374,16 +408,16 @@ async function giftItemPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
         {gift.description ? <p class="prewrap">{gift.description}</p> : null}
         {gift.purchaseLinks.length ? (
           <div class="detail-section">
-            <p class="eyebrow">Where to buy</p>
+            <p class="eyebrow">{t('share.where_to_buy')}</p>
             <BuyLinks links={gift.purchaseLinks} />
           </div>
         ) : null}
         <p class="back-link">
-          <a href={`/share/${token}`}>← back to {title}</a>
+          <a href={`/share/${token}`}>{t('share.back_to', { name: title })}</a>
         </p>
       </div>
     </article>,
-    { bgg: fromBgg(gift), mark: GIFT_MARK, preview },
+    { bgg: fromBgg(gift), mark: t('share.mark_want'), preview },
   );
 }
 
@@ -391,19 +425,15 @@ async function giftItemPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
  * Any share URL that doesn't resolve — unknown or rotated token, an item outside the view, a mistyped path. One
  * fixed page for all of them: no share name, no shelf, no title, so it can't confirm what a link was or held.
  */
-export function shareNotFound(c: Context<AppEnv>) {
+export async function shareNotFound(c: Context<AppEnv>) {
   c.status(404);
-  return renderShare(
-    c,
-    'Link not found',
-    'Link not found',
-    <p class="muted">This link has been changed or removed. Ask whoever sent it for a new one.</p>,
-  );
+  const { t } = await i18nOf(c);
+  return renderShare(c, t('share.not_found'), t('share.not_found'), <p class="muted">{t('share.not_found_text')}</p>);
 }
 
 share.get('/:token', async (c) => {
   const token = c.req.param('token');
-  const view = await getShareByToken(c.env.DB, token);
+  const view = await shareFor(c, token);
   if (!view) return c.notFound();
   const pageNum = pageOf(c);
   if (isWantListShare(view)) return giftListPage(c, view, token, pageNum);
@@ -416,10 +446,11 @@ share.get('/:token', async (c) => {
     c.env.DB,
     items.filter((i) => i.copies === 0).map((i) => i.id),
   );
+  const i18n = await i18nOf(c);
   const publicItems = items.map((i) => toPublicItem(i, { wanted: wanted.has(i.id) }));
   const preview: LinkPreview = {
     title: view.name,
-    description: countLine(total, view.tag !== null ? 'a shared tag' : 'a shared shelf'),
+    description: countLine(i18n, total, view.tag !== null ? 'tag' : 'shelf'),
     ...firstCover(c, publicItems),
     url: absolute(c, `/share/${token}`),
   };
@@ -429,9 +460,7 @@ share.get('/:token', async (c) => {
     view.name,
     view.name,
     <>
-      <p class="eyebrow">
-        {total} {total === 1 ? 'item' : 'items'}
-      </p>
+      <p class="eyebrow">{i18n.n('share.items', total)}</p>
       <div class="item-grid">
         {publicItems.map((item) => (
           <PublicCard item={item} token={token} />
@@ -439,7 +468,7 @@ share.get('/:token', async (c) => {
       </div>
       <Pagination page={current} pages={pages} makeHref={(p) => `/share/${token}?page=${p}`} />
     </>,
-    { bgg: publicItems.some(fromBgg), mark: shareMark(view), preview, feeds: `/share/${token}` },
+    { bgg: publicItems.some(fromBgg), mark: shareMark(i18n, view), preview, feeds: `/share/${token}` },
   );
 });
 
@@ -449,14 +478,15 @@ share.get('/:token', async (c) => {
  * never by a read. Cached with the pages (the middleware above), and gone with the token.
  */
 async function feed(c: Context<AppEnv>, token: string, kind: 'atom' | 'rss') {
-  const view = await getShareByToken(c.env.DB, token);
+  const view = await shareFor(c, token);
   if (!view) return c.notFound();
   const gift = isWantListShare(view);
   const found = gift
     ? await wantFeedItems(c.env.DB, view.wantUserId, shareFilters(view), FEED_ENTRIES)
     : await feedItems(c.env.DB, view.libraryId, shareFilters(view), FEED_ENTRIES);
   const wanted = gift ? new Set<number>() : await wantedAmong(c.env.DB, found.filter((x) => x.item.copies === 0).map((x) => x.item.id));
-  const title = gift ? wantListTitle((await giftExtras(c.env.DB, view.wantUserId, [])).owner) : view.name;
+  const i18n = await i18nOf(c); // the feed's own words in the household's language too (§16 #93)
+  const title = gift ? wantTitle(i18n, (await giftExtras(c.env.DB, view.wantUserId, [])).owner) : view.name;
   // what a feed dates by (§16 #86): a shelf's entry by the day — never the time — its item was added; a gift list's
   // entries all by the day of the newest want, so one member's wanting is never dated item by item
   const newest = found[0]?.at;
@@ -466,7 +496,7 @@ async function feed(c: Context<AppEnv>, token: string, kind: 'atom' | 'rss') {
     const image = pub.coverKey ? absolute(c, `/covers/${pub.coverKey}`) : null;
     const rating = 'rating' in pub ? pub.rating : null;
     const review = 'review' in pub ? pub.review : null;
-    const summary = [pub.creators, rating !== null ? `Rated ${rating}/10` : null].filter(Boolean).join(' · ');
+    const summary = [pub.creators, rating !== null ? i18n.t('feed.rated', { rating }) : null].filter(Boolean).join(' · ');
     const updated = rfc3339(gift ? (newest ?? at) : at);
     return { id: link, title: pub.title, link, updated, summary, html: entryHtml({ image, title: pub.title, creators: pub.creators, rating, review }), image };
   });
@@ -475,7 +505,7 @@ async function feed(c: Context<AppEnv>, token: string, kind: 'atom' | 'rss') {
     link: absolute(c, `/share/${token}`),
     self: absolute(c, `/share/${token}/feed.${kind}`),
     updated: entries[0]?.updated ?? rfc3339(view.createdAt),
-    description: gift ? 'A want list shared from a Nalanda home library' : 'Shared from a Nalanda home library',
+    description: gift ? i18n.t('feed.want_shared') : i18n.t('feed.shared'),
   };
   return c.body(kind === 'atom' ? atomFeed(meta, entries) : rssFeed(meta, entries), 200, {
     'content-type': kind === 'atom' ? 'application/atom+xml; charset=utf-8' : 'application/rss+xml; charset=utf-8',
@@ -487,7 +517,7 @@ share.get('/:token/feed.rss', (c) => feed(c, c.req.param('token'), 'rss'));
 
 share.get('/:token/items/:id', async (c) => {
   const token = c.req.param('token');
-  const view = await getShareByToken(c.env.DB, token);
+  const view = await shareFor(c, token);
   if (!view) return c.notFound();
   // Past a live token, every answer does the same work — the item, its tags, its play count and the settings, all at
   // once — and only then decides. Stopping early on a missing item made "no such item" measurably faster than "an item
@@ -509,6 +539,8 @@ share.get('/:token/items/:id', async (c) => {
   ]);
   if (!item || !itemMatchesShare(view, item, tags, wanters)) return c.notFound(); // token only unlocks its own view
   if (isWantListShare(view)) return giftItemPage(c, view, token, item);
+  const i18n = await i18nOf(c);
+  const { t } = i18n;
   // §16 #45: each member's rating and review, by display name, only while an admin has names on for share pages
   // §16 #52: its series name and number are public catalogue data, like the publisher — never the gaps or "next up"
   const series = item.seriesId !== null ? await getSeries(c.env.DB, item.seriesId) : null;
@@ -519,7 +551,7 @@ share.get('/:token/items/:id', async (c) => {
   const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews, plays, series, wanted: wanters.length > 0, quotes });
   const preview: LinkPreview = {
     title: pub.title,
-    description: itemLine(pub, view.name),
+    description: itemLine(i18n, pub, view.name),
     image: pub.coverKey ? absolute(c, `/covers/${pub.coverKey}`) : null,
     imageAlt: pub.coverKey ? pub.title : null,
     url: absolute(c, `/share/${token}/items/${pub.id}`),
@@ -532,7 +564,7 @@ share.get('/:token/items/:id', async (c) => {
     <article class="item-detail">
       <div class="item-detail-cover">
         {pub.coverKey ? (
-          <img class="cover-img" src={`/covers/${pub.coverKey}`} alt={`Cover of ${pub.title}`} data-fallback={MEDIA_ICON[pub.mediaType]} />
+          <img class="cover-img" src={`/covers/${pub.coverKey}`} alt={t('cover.alt', { title: pub.title })} data-fallback={MEDIA_ICON[pub.mediaType]} />
         ) : (
           <div class="cover-fallback">{MEDIA_ICON[pub.mediaType]}</div>
         )}
@@ -545,25 +577,25 @@ share.get('/:token/items/:id', async (c) => {
         </hgroup>
         {tags.length ? (
           <p>
-            {tags.map((t) => (
-              <span class="tag">{t}</span>
+            {tags.map((tag) => (
+              <span class="tag">{tag}</span>
             ))}
           </p>
         ) : null}
         <dl class="props">
-          <dt>Type</dt>
+          <dt>{t('item.type')}</dt>
           <dd>
-            {MEDIA_LABEL[pub.mediaType]} <FormatPills formats={pub.formats} />
+            {mediaLabel(i18n, pub.mediaType)} <FormatPills formats={pub.formats} />
           </dd>
           {pub.language ? (
             <>
-              <dt>Language</dt>
+              <dt>{t('item.language')}</dt>
               <dd>{languageName(pub.language)}</dd>
             </>
           ) : null}
           {pub.series ? (
             <>
-              <dt>Series</dt>
+              <dt>{t('item.series')}</dt>
               <dd>
                 {pub.series.name}
                 {pub.series.number !== null ? <span class="mono">#{formatSeriesNumber(pub.series.number)}</span> : null}
@@ -572,12 +604,12 @@ share.get('/:token/items/:id', async (c) => {
           ) : null}
           {pub.progress ? (
             <>
-              <dt>Reading</dt>
+              <dt>{t('share.reading')}</dt>
               <dd>
-                <span class="mono">p. {pub.progress.page}</span>
+                <span class="mono">{t('share.page', { page: pub.progress.page })}</span>
                 {pub.progress.length ? (
                   <>
-                    {' of '}
+                    {` ${t('share.of')} `}
                     <span class="mono">{pub.progress.length}</span>
                   </>
                 ) : null}
@@ -595,24 +627,24 @@ share.get('/:token/items/:id', async (c) => {
           ) : null}
           {!pub.inCollection ? (
             <>
-              <dt>Holding</dt>
+              <dt>{t('item.holding')}</dt>
               <dd>
                 <NotOwnedPill />
                 {/* No status on share pages, so no claim it was read: a Goodreads to-read entry is Not owned too.
                     Wanted, it's on its way — or hoped to be (§16 #53). */}
                 {pub.wanted ? (
                   <>
-                    <WantedPill /> wanted, not on these shelves yet
+                    <WantedPill /> {t('share.wanted_not_here')}
                   </>
                 ) : (
-                  ' in the catalogue, not on these shelves'
+                  ` ${t('share.in_catalogue')}`
                 )}
               </dd>
             </>
           ) : null}
           {pub.rating ? (
             <>
-              <dt>Rating</dt>
+              <dt>{t('item.rating')}</dt>
               <dd>
                 <span class="rating">{stars(pub.rating)}</span>
               </dd>
@@ -620,34 +652,34 @@ share.get('/:token/items/:id', async (c) => {
           ) : null}
           {pub.readCount ? (
             <>
-              <dt>Read</dt>
-              <dd class="mono">{pub.readCount} times</dd>
+              <dt>{t('share.read')}</dt>
+              <dd class="mono">{t('share.read_times', { count: pub.readCount })}</dd>
             </>
           ) : null}
           {pub.playCount ? (
             <>
               {/* how many times, never when (§16 #54) */}
-              <dt>Played</dt>
-              <dd class="mono">{timesPlayed(pub.playCount)}</dd>
+              <dt>{t('share.played')}</dt>
+              <dd class="mono">{pub.playCount === 1 ? t('share.played_once') : t('share.played_times', { count: pub.playCount })}</dd>
             </>
           ) : null}
           {pub.published ? (
             <>
-              <dt>Published</dt>
+              <dt>{t('item.published')}</dt>
               <dd>{pub.published}</dd>
             </>
           ) : null}
           {pub.publisher ? (
             <>
-              <dt>Publisher</dt>
+              <dt>{t('item.publisher')}</dt>
               <dd>{pub.publisher}</dd>
             </>
           ) : null}
           {pub.length ? (
             <>
-              <dt>Length</dt>
+              <dt>{t('item.length')}</dt>
               <dd class="mono">
-                {pub.length} {LENGTH_UNIT[pub.mediaType] ?? ''}
+                {pub.length} {lengthUnit(i18n, pub.mediaType)}
               </dd>
             </>
           ) : null}
@@ -659,13 +691,13 @@ share.get('/:token/items/:id', async (c) => {
           <RecordDetails details={pub.details} publicPage />
         ) : Object.keys(pub.details).length ? (
           <div class="detail-section">
-            <p class="eyebrow">Details</p>
+            <p class="eyebrow">{t('share.details')}</p>
             <DetailsList details={pub.details} />
           </div>
         ) : null}
         {pub.reviews?.length ? (
           <div class="detail-section">
-            <p class="eyebrow">Ratings and reviews</p>
+            <p class="eyebrow">{t('share.ratings_reviews')}</p>
             <ol class="member-reviews">
               {pub.reviews.map((r) => (
                 <li>
@@ -673,7 +705,7 @@ share.get('/:token/items/:id', async (c) => {
                   {/* every entry has a rating or words; each is signed, "A member" for someone without a display
                       name, as a connection's item page labels it */}
                   <p class="review-by">
-                    <span class="reviewer">{r.by ?? 'A member'}</span>
+                    <span class="reviewer">{r.by ?? t('share.a_member')}</span>
                     {r.rating ? <span class="rating">{stars(r.rating)}</span> : null}
                   </p>
                   {r.review ? <p class="prewrap">{r.review}</p> : null}
@@ -683,20 +715,20 @@ share.get('/:token/items/:id', async (c) => {
           </div>
         ) : pub.review ? (
           <div class="detail-section">
-            <p class="eyebrow">Review</p>
+            <p class="eyebrow">{t('share.review')}</p>
             <p class="prewrap">{pub.review}</p>
           </div>
         ) : null}
         {pub.quotes?.length ? (
           <div class="detail-section">
-            <p class="eyebrow">Quotes</p>
+            <p class="eyebrow">{t('share.quotes')}</p>
             <ol class="quotes">
               {pub.quotes.map((q) => (
                 <li class="quote">
                   <blockquote class="quote-text prewrap">{q.text}</blockquote>
                   <p class="quote-by">
                     {/* a display name, or unsigned: never a username, never the reader's own note */}
-                    <span class="reviewer">{q.by ?? 'A member'}</span>
+                    <span class="reviewer">{q.by ?? t('share.a_member')}</span>
                     {q.page ? <span class="mono muted">{q.page}</span> : null}
                   </p>
                 </li>
@@ -705,11 +737,11 @@ share.get('/:token/items/:id', async (c) => {
           </div>
         ) : null}
         <p class="back-link">
-          <a href={`/share/${token}`}>← back to {view.name}</a>
+          <a href={`/share/${token}`}>{t('share.back_to', { name: view.name })}</a>
         </p>
       </div>
     </article>,
-    { bgg: fromBgg(pub), mark: shareMark(view), preview },
+    { bgg: fromBgg(pub), mark: shareMark(i18n, view), preview },
   );
 });
 

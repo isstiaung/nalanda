@@ -38,6 +38,9 @@ export type AppEnv = {
     // What this request renders in (§16 #93): set by the session middleware for every signed-in page from the same
     // call that read the account; a public page sets it on first use (i18nOf in views/layout.tsx).
     i18n: Translator;
+    // The household's default language (site_settings.language, §16 #76), from the same call: what the Account page's
+    // "Household default" means, and what Members says the interface follows.
+    householdLanguage: string;
   };
 };
 

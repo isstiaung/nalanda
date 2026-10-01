@@ -28,6 +28,7 @@ import playRoutes from './routes/play';
 import recommendationsRoutes from './routes/recommendations';
 import searchRoutes from './routes/search';
 import settingsRoutes from './routes/settings';
+import stringsRoutes from './routes/strings';
 import shareRoutes, { clearSharePageCache } from './routes/share';
 import shareAdminRoutes from './routes/shares';
 import seriesRoutes from './routes/series';
@@ -151,6 +152,7 @@ app.use(async (c, next) => {
     locale: user.locale,
   });
   c.set('i18n', translator(resolveLocale(user, { language: account.language }), account.translation));
+  c.set('householdLanguage', account.language);
   // A temporary password reaches the Account page and the password change, and nothing else — not the display name,
   // not "Sign out other devices", not a token: own-account actions all, but whoever holds the temp password isn't
   // yet shown to be the member, and a display name set here would go out on share pages with names on.
@@ -190,6 +192,7 @@ app.route('/', wantRoutes);
 app.route('/', searchRoutes);
 app.route('/', importExportRoutes);
 app.route('/', accountRoutes);
+app.route('/', stringsRoutes); // the interface strings as JSON, for translators (§16 #93): signed in, any member
 app.route('/', settingsRoutes);
 app.route('/', connectionsRoutes);
 app.route('/', feedRoutes);

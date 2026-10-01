@@ -193,6 +193,40 @@ export async function householdLocale(d1: D1Database): Promise<{ language: strin
   return { language: isLanguageCode(language) ? language : DEFAULT_LANGUAGE, translation: overridesOf(rows[0]) };
 }
 
+/**
+ * A share link's row and what its public pages render in (§16 #93), in the one call the share routes already made
+ * for the row: the household's language and its translation for the locale that gives — never a member's choice.
+ */
+export async function shareWithLocale(
+  d1: D1Database,
+  token: string,
+): Promise<{ share: Share | null; language: string; translation: Overrides | null }> {
+  const dbi = db(d1);
+  const resolved = sql`coalesce((SELECT CASE WHEN language IN (${shippedLocales()}) THEN language ELSE ${'en'} END FROM site_settings WHERE id = 1), ${'en'})`;
+  const [shares, settings, rows] = await dbi.batch([
+    dbi.select().from(s.shares).where(eq(s.shares.token, token || '\u0000')), // '' names no link; the bind keeps the batch's shape
+    dbi.select({ language: s.siteSettings.language }).from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
+    dbi.select({ locale: s.translations.locale, strings: s.translations.strings }).from(s.translations).where(eq(s.translations.locale, resolved)),
+  ]);
+  const language = settings[0]?.language;
+  return { share: token ? (shares[0] ?? null) : null, language: isLanguageCode(language) ? language : DEFAULT_LANGUAGE, translation: overridesOf(rows[0]) };
+}
+
+/** The site settings with every household translation (§16 #93) — the Members page's two reads as one call. */
+export async function siteSettingsWithTranslations(
+  d1: D1Database,
+): Promise<{ settings: SiteSettings; translations: Array<{ locale: string; count: number; updatedAt: string }> }> {
+  const dbi = db(d1);
+  const [rows, trs] = await dbi.batch([
+    dbi.select().from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
+    dbi.select().from(s.translations).orderBy(asc(s.translations.locale)),
+  ]);
+  return {
+    settings: settingsOf(rows[0]),
+    translations: trs.map((r) => ({ locale: r.locale, count: Object.keys(overridesOf(r) ?? {}).length, updatedAt: r.updatedAt })),
+  };
+}
+
 /** The interface language a member chose on Account (§16 #93): a shipped locale, or null to follow the household's. */
 export async function setUserLocale(d1: D1Database, id: number, locale: Locale | null): Promise<void> {
   await d1.prepare('UPDATE users SET locale = ?2 WHERE id = ?1').bind(id, locale).run();
@@ -202,12 +236,6 @@ export async function setUserLocale(d1: D1Database, id: number, locale: Locale |
 export async function getTranslation(d1: D1Database, locale: Locale): Promise<Overrides | null> {
   const [row] = await db(d1).select({ locale: s.translations.locale, strings: s.translations.strings }).from(s.translations).where(eq(s.translations.locale, locale));
   return overridesOf(row);
-}
-
-/** Every household translation, for the Members page: which locales, how many strings each, and when it was imported. */
-export async function listTranslations(d1: D1Database): Promise<Array<{ locale: string; count: number; updatedAt: string }>> {
-  const rows = await db(d1).select().from(s.translations).orderBy(asc(s.translations.locale));
-  return rows.map((r) => ({ locale: r.locale, count: Object.keys(overridesOf(r) ?? {}).length, updatedAt: r.updatedAt }));
 }
 
 /** Stores a household translation (§16 #93) — already parsed and reduced to known keys — replacing any for that locale. */
