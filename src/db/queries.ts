@@ -4438,16 +4438,18 @@ export type HistoryEntry = {
 };
 
 /**
- * The item page's history read, for admins, in the page's batch — read-only: the item's entries newest first, with
- * the username only while the account is still the one that made the change. The sweep past HISTORY_DAYS is every
- * item write's (asWriter), never a page's.
+ * The item page's history read, for admins, in the page's batch — read-only: the item's entries inside HISTORY_DAYS,
+ * newest first, with the username only while the account is still the one that made the change. The sweep past
+ * HISTORY_DAYS is every item write's (asWriter), never a page's; the window here means a row the sweep hasn't reached
+ * yet is never shown either.
  */
 export function itemHistoryStatements(d1: D1Database, itemId: number): D1PreparedStatement[] {
   return [
     d1
       .prepare(
         `SELECT h.id, h.field, h.before, h.after, h.at, h.changed_by AS changedBy, u.username, (u.session_key = h.changed_key) AS same
-         FROM item_history h LEFT JOIN users u ON u.id = h.changed_by WHERE h.item_id = ?1 ORDER BY h.id DESC LIMIT ${HISTORY_SHOWN}`,
+         FROM item_history h LEFT JOIN users u ON u.id = h.changed_by
+         WHERE h.item_id = ?1 AND h.at >= datetime('now', '-${HISTORY_DAYS} days') ORDER BY h.id DESC LIMIT ${HISTORY_SHOWN}`,
       )
       .bind(itemId),
   ];

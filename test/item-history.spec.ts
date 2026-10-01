@@ -156,8 +156,8 @@ describe('the item page', () => {
     const other = await item({ title: 'Another' });
     await updateItem(env.DB, book.id, { title: 'Aged' });
     await env.DB.prepare(`UPDATE item_history SET at = datetime('now', '-${HISTORY_DAYS + 1} days') WHERE item_id = ?1`).bind(book.id).run();
-    // an admin's read is read-only: the old row is still there, and listed
-    expect(await html(asha, `/items/${book.id}`)).toContain('1 change');
+    // an admin's read is read-only — the old row is still there — and the page keeps to the window, so it isn't listed
+    expect(await html(asha, `/items/${book.id}`)).toContain('no changes');
     expect(await history(book.id)).toHaveLength(1);
     // any item's write sweeps it, with the index on `at`
     await updateItem(env.DB, other.id, { title: 'Another, renamed' });
