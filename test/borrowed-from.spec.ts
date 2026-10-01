@@ -242,8 +242,8 @@ describe('what leaves the app', () => {
     expect(mapped!.borrows).toEqual(parseLoansCell(cell));
     // an owned row keeps only the returned borrow: a copy of yours is never also someone's
     const owned = mapNalandaRow({ title: 'Borrowed book', media_type: 'book', copies: '1', borrowed: cell }, 'en');
-    expect(owned!.borrows.map((b) => b.borrower)).toEqual(['Priya; the first']);
-    expect(mapNalandaRow({ title: 'Borrowed book', media_type: 'book', borrowed: cell }, 'en')!.borrows).toHaveLength(1); // no copies cell reads as one copy
+    expect(owned!.borrows!.map((b) => b.borrower)).toEqual(['Priya; the first']);
+    expect(mapNalandaRow({ title: 'Borrowed book', media_type: 'book', borrowed: cell }, 'en')!.borrows!).toHaveLength(1); // no copies cell reads as one copy
     // the trash snapshot carries them, and a restore brings them back
     await trashItems(env.DB, [book.id], { id: admin.id, sessionKey: admin.sessionKey });
     const [row] = await listTrash(env.DB);
