@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { activeLoans, goalOf, listShares, pickNextRead, recentItems, shelvesWithTotals } from '../db/queries';
+import { activeLoans, goalOf, listShares, pickNextRead, recentItems, shelvesWithTotals, type SavedView } from '../db/queries';
 import { formatCount, formatMoney } from '../lib/money';
 import type { Share } from '../db/schema';
 import type { AppEnv } from '../env';
@@ -28,7 +28,7 @@ dashboard.get('/', async (c) => {
 
   const today = todayOf(c);
   const year = Number(today.slice(0, 4));
-  const [{ shelves: libraries, totals, holdings }, recent, loans, shares, pick, goal] = await Promise.all([
+  const [{ shelves: libraries, totals, holdings, views: savedViews }, recent, loans, shares, pick, goal] = await Promise.all([
     // the shelves and their counts, what the household paid per shelf and currency (§16 #61) and the holdings by type —
     // one call, one pass over the items (§16 #68)
     shelvesWithTotals(c.env.DB),
@@ -50,6 +50,9 @@ dashboard.get('/', async (c) => {
       .map((t) => formatMoney(t.total, t.currency))
       .join(' · ');
   const sharesByLibrary = new Map<number | null, Share[]>();
+  // every shelf's saved views (§16 #81), listed under its name — read in the shelves' batch
+  const viewsByLibrary = new Map<number, SavedView[]>();
+  for (const v of savedViews) viewsByLibrary.set(v.libraryId, [...(viewsByLibrary.get(v.libraryId) ?? []), v]);
   for (const v of shares) sharesByLibrary.set(v.libraryId, [...(sharesByLibrary.get(v.libraryId) ?? []), v]);
   const overdue = loans.filter((l) => l.dueOn && l.dueOn < today).length;
   const owned = holdings.reduce((n, h) => n + h.owned, 0);
@@ -160,6 +163,15 @@ dashboard.get('/', async (c) => {
                         <a href={`/libraries/${l.id}`}>
                           <strong>{l.name}</strong>
                         </a>
+                        {viewsByLibrary.get(l.id)?.length ? (
+                          <span class="shelf-views">
+                            {viewsByLibrary.get(l.id)!.map((v) => (
+                              <a href={`/libraries/${l.id}?saved=${v.id}`} class="pill">
+                                {v.name}
+                              </a>
+                            ))}
+                          </span>
+                        ) : null}
                       </td>
                       <td class="num">{formatCount(l.itemCount)}</td>
                       <td>

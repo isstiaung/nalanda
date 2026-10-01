@@ -75,9 +75,10 @@ describe('a page offers the device’s today', () => {
 });
 
 describe('a handler fills in the device’s today', () => {
-  // The zone is chosen so its day differs from UTC's right now, whichever side of midnight the test runs on: east of
-  // UTC in the second half of the UTC day, west in the first. The test then proves the recorded date is that day.
-  const zoneApart = () => (new Date().getUTCHours() >= 12 ? 'Pacific/Kiritimati' : 'Pacific/Pago_Pago');
+  // The zone is chosen so its day differs from UTC's right now, whichever side of midnight the test runs on: Kiritimati
+  // (UTC+14) is on the next day from 10:00 UTC, Pago Pago (UTC−11) on the previous day until 11:00 UTC — so the cutoff
+  // is 10, not noon, or an 11 o'clock run finds both zones on UTC's day. The test then proves the recorded date is that day.
+  const zoneApart = () => (new Date().getUTCHours() >= 10 ? 'Pacific/Kiritimati' : 'Pacific/Pago_Pago');
 
   it('for a play logged without a date', async () => {
     const asha = await member('asha');
