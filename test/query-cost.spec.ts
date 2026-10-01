@@ -118,11 +118,11 @@ describe('rows read per page, on 2,000 items', () => {
     const pages: Array<[string, Member | null, string, number]> = [
       // [page, who, path, rows read per item at most] — beside each, what it read per item before §16 #68 and since,
       // measured on this household
-      ['Overview', asha, '/', 6.5], // 11.0 → 5.2
-      ['a shelf, newest first', asha, `/libraries/${shelf.id}`, 3], // 8.2 → 2.2
-      ['a shelf, by title', asha, `/libraries/${shelf.id}?sort=title`, 3], // 8.2 → 2.3
-      ['a shelf in covers, page 10', asha, `/libraries/${shelf.id}?view=grid&page=10`, 3.5], // 8.1 → 2.5
-      ['a shelf, being read by me', asha, `/libraries/${shelf.id}?readBy=now-me`, 4], // 7.0 → 3.0
+      ['Overview', asha, '/', 3], // 11.0 → 2.2
+      ['a shelf, newest first', asha, `/libraries/${shelf.id}`, 2], // 8.2 → 1.2
+      ['a shelf, by title', asha, `/libraries/${shelf.id}?sort=title`, 2], // 8.2 → 1.3
+      ['a shelf in covers, page 10', asha, `/libraries/${shelf.id}?view=grid&page=10`, 2.5], // 8.1 → 1.5
+      ['a shelf, being read by me', asha, `/libraries/${shelf.id}?readBy=now-me`, 3], // 7.0 → 2.0
       ['a tag', asha, '/tags/big', 3], // 5.6 → 2.2
       ['wants', asha, '/wants', 1.5], // 3.0 → 1.0
       ['an item’s edit form', asha, '/items/1/edit', 1.5], // 2.0 → 1.0

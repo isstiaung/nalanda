@@ -15,12 +15,14 @@ import {
   holdingsByType,
   importItems,
   listItems,
+  listLibraries,
   listShares,
   mergeImportItems,
   returnLoan,
   rotateShare,
   searchItems,
   setItemTags,
+  shelvesWithTotals,
   tagsForItem,
   updateItem,
 } from '../src/db/queries';
@@ -137,6 +139,30 @@ describe('items + FTS', () => {
       { mediaType: 'book', owned: 1, notOwned: 2 },
       { mediaType: 'boardgame', owned: 1, notOwned: 0 },
     ]);
+  });
+
+  it('the Overview’s holdings, from the shelves’ one pass, are holdingsByType()’s — ties in descending type order', async () => {
+    // §16 #68: the Overview reads them with the shelves and their totals; the order, ties included, must not move
+    const lib = await seedLibrary();
+    const other = await createLibrary(env.DB, 'Elsewhere');
+    for (const [libraryId, mediaType, copies] of [
+      [lib.id, 'book', 1], [other.id, 'book', 0], [lib.id, 'book', 2],
+      [lib.id, 'boardgame', 1], [other.id, 'vinyl', 0], [lib.id, 'movie', 1], [other.id, 'movie', 0],
+    ] as const) {
+      await createItem(env.DB, { libraryId, mediaType, title: `${mediaType} ${copies}`, copies, details: '{}' });
+    }
+    const expected = [
+      { mediaType: 'book', owned: 2, notOwned: 1 },
+      { mediaType: 'movie', owned: 1, notOwned: 1 },
+      { mediaType: 'vinyl', owned: 0, notOwned: 1 }, // tied at one item with boardgame: descending type order
+      { mediaType: 'boardgame', owned: 1, notOwned: 0 },
+    ];
+    expect(await holdingsByType(env.DB)).toEqual(expected);
+    const { shelves, holdings, totals } = await shelvesWithTotals(env.DB);
+    expect(holdings).toEqual(expected);
+    // and each shelf's count is listLibraries()'s
+    expect(shelves).toEqual(await listLibraries(env.DB));
+    expect(totals.shelves.get(lib.id)?.items).toBe(4);
   });
 
   it('filters by name across title and creators, case-insensitive, LIKE-safe', async () => {

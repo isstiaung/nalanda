@@ -2696,12 +2696,17 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     `MATERIALIZED` and joined to a two-row scope table, so each reads `reads` once rather than once per scope;
     tags join `item_tags` by its primary key (`CROSS JOIN` fixes the order, where SQLite had chosen to scan
     `item_tags` whole); plays are a range on `idx_plays_played_item`, as #54 foresaw. No index or migration was
-    needed: the year's finishes are a scan of `reads`, which at 1,500 rows is cheap. The page is 4 D1 calls on
-    an empty instance and the same 4 with 2,000 items, 1,500 reads, 600 reviews, ~7,000 tag links and 600 plays
-    (the session's user, the layout's shelves and the batch among them); a test counts both through the
+    needed at first: the year's finishes were a scan of `reads`, which at 1,500 rows is cheap. The page was 4 D1
+    calls on an empty instance and the same 4 with 2,000 items, 1,500 reads, 600 reviews, ~7,000 tag links and
+    600 plays (the session's user, the layout's shelves and the batch among them); a test counts both through the
     budgeted handle, and holds the review itself to one call. Measured there, the batch read about 52,000 rows
     in total (before materializing, 74,000) and returned 74, so the Worker's CPU is rendering a few dozen rows.
-    D1's free plan allows 5 million rows read a day: at that size, about a hundred views of the page.
+    D1's free plan allows 5 million rows read a day: at that size, about a hundred views of the page. **Since
+    #68** the year's finishes are a range on `idx_reads_status_ended`; the picker's years skip from year to year on
+    the indexes (`YEARS_WITH_DATA`, one seek a year) instead of reading every dated finish and play; and the tags
+    group by tag id before each name is looked up. On that household 2024's page reads 40,064 rows (54,918
+    measured the old way with the same harness) and this year's 2,151 (18,253); on production's data 3,171
+    (6,762). The page is 3 calls: the layout's shelves and their counts are one statement.
 
     **Undated finishes are left out, and counted beside.** A finish with no end date — Goodreads' read counts
     become exactly these (#41) — is in no year, so listing it under every year would be wrong and under none
@@ -2806,7 +2811,7 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     `SQLITE_NOMEM` in the tests, even on ten games. `row_number()` and `count(*)` over `PARTITION BY fit ORDER BY random()` return
     at most 60 of each group, at random, with the totals, so a big collection costs rows scanned, not
     rows sent; the page says "Showing 60 of 205". `pickGameForTonight()` is the same CTE with `LIMIT 1`.
-    The page is 4 D1 calls (the session, the sidebar's two, the results) and its htmx answer 2, with or
+    The page is 4 D1 calls (the session, the sidebar's two, the results; 3 since #68 made the sidebar's one) and its htmx answer 2, with or
     without filters, picking or not, and with 300 more games and 600 plays (tests hold both). Filters
     come from the URL through `parseGameFilters()`: whole numbers in range and the three band names;
     anything else is "any".
@@ -3293,6 +3298,53 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     a book search for a common word — Open Library is keyless, so it needs only the internet, as the audit's other
     Add-page lookup does, and when Open Library can't be reached the state is reported as not audited — then runs
     axe on the next page and checks focus landed on its wrapper. (It was left out at first, as needing a provider.)
+
+**2026-10-01 — what the pages read:**
+68. **Rows read are budgeted like calls: pages read in index order, count once, and filter from the small side.**
+    The owner asked for a query analysis (docs/perf/query-analysis.md). Every page and partial was requested through
+    the app in workerd on a copy of production's data (1,999 items) and on #59's synthetic household, with D1's own
+    `rows_read` per statement, and every page's HTML compared byte for byte before and after.
+    **How D1 counts:** every cursor step is a row, an index step with its table seek is one, and every row that
+    passes a temporary B-tree counts again, even under `LIMIT 1`. So a page of 60 sorted from 2,000 read 4,000, and
+    a `count(*)` reads every row it counts.
+    **What was spent:** the Overview read 22,397 rows and a shelf 16,483 to show a few dozen items; a realistic day
+    (50 signed-in views, six share visits, a peer's hourly pull) was 589,000 of the 5 million — never near the
+    limit, but concentrated in a few fixable statements.
+    **What changed:**
+    - Migration 0040 adds seven indexes, nothing else: `items (library_id, added_at)`, `(library_id, title)`,
+      `(added_at)` and `(library_id, media_type)`, a partial `idx_items_paid` on priced items,
+      `item_tags (tag_id)` and `reads (status, ended_on)`.
+    - The sidebar's shelves and counts are one statement, and a page that read them hands them to `page()`.
+    - The Overview and a shelf read the shelves, their totals and the holdings by type in one batch, one pass over
+      the items (`shelvesWithTotals()`). An unfiltered shelf takes its count from it (`listItems(…, knownTotal)`).
+    - Tag, want-list and Read-by filters are `IN` rather than a correlated `EXISTS`: the same set, found from the
+      tag, the wants or the reads.
+    - "Read next" keeps its pick with `min()` over a random key in one pass, not a sort.
+    - Year in review: as #59 now says.
+
+    The day is now 170,000 rows; the Overview reads 4,785 and a shelf 2,551, in 7–8 calls instead of 13–14.
+    `test/query-cost.spec.ts` holds the busiest pages to a rows-per-item budget, as call counts are held.
+    **Output is unchanged** (66 pages compared; the random "Read next" card aside). Three things had to be
+    proved first:
+    - `ORDER BY title` alone leaves ties to the plan, and the new indexes keep 15 duplicated titles in the same
+      order.
+    - `holdingsByType()`'s ties are in descending type order: checked for every pattern of ties among the seven
+      types on workerd's SQLite and node's, now written into its `ORDER BY`.
+    - The years skip-scan lists exactly what the old `UNION` did, junk dates included (a test runs the old query
+      as its oracle).
+
+    **Writes:** an item insert writes 9 rows instead of 5, a tag link 3 instead of 2, a read 4 instead of 3. A
+    2,000-item import writes about 8,000 more of the 100,000 a day. Building the indexes on production's data writes
+    about 10,300 once.
+    **Not done — they would change what a page or the data is:**
+    - Each shelf's item count kept on the shelf by triggers. This is about 2,000 rows a signed-in page, now the
+      floor of every page. It needs a data migration, and a restore would double the counts unless the backup
+      runbook recounts.
+    - Counting a goal's year by range. `goalCountSql()` matches malformed dates the range wouldn't, and the
+      triggers carry it word for word.
+
+    **Not done — little to gain for the rewrite:** Year in review's seven reading statements as one statement
+    sharing one materialization (about 6,000 rows on the synthetic household, nothing on production's).
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

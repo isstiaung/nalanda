@@ -430,6 +430,41 @@ describe('the page', () => {
     expect(html).toContain('<caption>Household: books finished and pages read in each month of 2025</caption>');
     expect(html).not.toContain('<caption>You:');
   });
+
+  it('offers the same years as reading every dated finish and play would, odd dates and all', async () => {
+    // The picker skips from year to year on the indexes (§16 #68). Before, it read every row: that query is the oracle.
+    const asha = await member('asha', 'admin');
+    const b = await book(asha);
+    const game = await book(asha, { mediaType: 'boardgame', title: 'Azul' });
+    const record = await book(asha, { mediaType: 'vinyl', title: 'Kind of Blue' });
+    const read = (itemId: number, status: string, endedOn: string | null) =>
+      env.DB.prepare('INSERT INTO reads (item_id, reader_id, status, ended_on) VALUES (?1, ?2, ?3, ?4)').bind(itemId, asha.id, status, endedOn).run();
+    const play = (itemId: number, playedOn: string) =>
+      env.DB.prepare('INSERT INTO plays (item_id, played_on, logged_by) VALUES (?1, ?2, ?3)').bind(itemId, playedOn, asha.id).run();
+    // written straight into the tables: an import or a hand edit can leave dates the forms would refuse
+    for (const d of ['2024-05-01', '2024/06/01', '2024', '24-01-01', '', '2019', '0999-01-01', '9999-12-31', '2021-13-45', 'abcd', '2009-10-10x']) {
+      await read(b.id, 'completed', d);
+    }
+    await read(b.id, 'completed', null);
+    await read(b.id, 'abandoned', '2016-01-01'); // not a finish
+    await read(game.id, 'completed', '2017-07-07'); // a read of a game is no book's finish
+    await play(game.id, '2015-03-03');
+    await play(record.id, '2013-02-02');
+    await play(record.id, '2013-12-31');
+    await play(b.id, '2012-01-01'); // a play of a book: no game's, no record's
+    await play(game.id, '1999-x');
+    const oracle = await env.DB.prepare(
+      `SELECT y FROM (
+         SELECT substr(r.ended_on, 1, 4) AS y FROM reads r JOIN items i ON i.id = r.item_id
+         WHERE r.status = 'completed' AND r.ended_on IS NOT NULL AND i.media_type = 'book'
+         UNION
+         SELECT substr(p.played_on, 1, 4) FROM plays p JOIN items i ON i.id = p.item_id WHERE i.media_type IN ('boardgame', 'vinyl')
+       ) WHERE y GLOB '[1-9][0-9][0-9][0-9]' ORDER BY y DESC`,
+    ).all<{ y: string }>();
+    const expected = oracle.results.map((r) => Number(r.y));
+    expect(expected).toEqual([9999, 2024, 2021, 2019, 2015, 2013, 2009, 1999]);
+    expect((await yearInReview(env.DB, asha.id, 2024)).years).toEqual(expected);
+  });
 });
 
 describe('privacy: in the app only', () => {

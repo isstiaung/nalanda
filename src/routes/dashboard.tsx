@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { activeLoans, goalOf, holdingsByType, listLibraries, listShares, pickNextRead, recentItems, shelfTotals } from '../db/queries';
+import { activeLoans, goalOf, listShares, pickNextRead, recentItems, shelvesWithTotals } from '../db/queries';
 import { formatCount, formatMoney } from '../lib/money';
 import type { Share } from '../db/schema';
 import type { AppEnv } from '../env';
@@ -29,17 +29,16 @@ dashboard.get('/', async (c) => {
 
   const today = todayUtc();
   const year = Number(today.slice(0, 4));
-  const [libraries, recent, loans, holdings, shares, pick, goal, totals] = await Promise.all([
-    listLibraries(c.env.DB),
+  const [{ shelves: libraries, totals, holdings }, recent, loans, shares, pick, goal] = await Promise.all([
+    // the shelves and their counts, what the household paid per shelf and currency (§16 #61) and the holdings by type —
+    // one call, one pass over the items (§16 #68)
+    shelvesWithTotals(c.env.DB),
     recentItems(c.env.DB, 12),
     activeLoans(c.env.DB),
-    holdingsByType(c.env.DB),
     listShares(c.env.DB),
     pickNextRead(c.env.DB, reader, notId),
     // the signed-in member's own goal for this year (§16 #49) — one call, its count worked out in it
     goalOf(c.env.DB, reader, year),
-    // what the household paid, per shelf and currency (§16 #61) — one call, summed in SQL
-    shelfTotals(c.env.DB),
   ]);
   // the recent cards' "Lent" and "Wanted" badges, as on a shelf (§16 #53) — they came with the items
   const onLoanIds = new Set(recent.filter((i) => i.onLoan).map((i) => i.id));

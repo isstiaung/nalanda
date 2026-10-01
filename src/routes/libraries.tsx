@@ -7,11 +7,10 @@ import {
   createLibrary,
   deleteLibrary,
   listItems,
-  listLibraries,
   listPeople,
   listShares,
   renameLibrary,
-  shelfTotals,
+  shelvesWithTotals,
   tagsForItems,
   type ReaderFilter,
 } from '../db/queries';
@@ -110,10 +109,11 @@ libraries.post('/libraries', async (c) => {
 
 libraries.get('/libraries/:id', async (c) => {
   const id = Number(c.req.param('id'));
-  // Every shelf with its count, in one statement (§16 #68): this shelf, bulk edit's "Move to shelf" and the shelf a
-  // move's notice links to (§16 #47), the sidebar's list (handed to page()), and — on an unfiltered view — the count
-  // the pages are worked out from, so the shelf's items aren't counted a second time.
-  const shelves = await listLibraries(c.env.DB);
+  // Every shelf with its count, and every shelf's totals — what the household paid (§16 #61) and the types it holds —
+  // in one call, one pass over the items (§16 #68): this shelf, bulk edit's "Move to shelf" and the shelf a move's
+  // notice links to (§16 #47), the sidebar's list (handed to page()), and — on an unfiltered view — the count the
+  // pages are worked out from, so the shelf's items aren't counted a second time.
+  const { shelves, totals } = await shelvesWithTotals(c.env.DB);
   const lib = shelves.find((l) => l.id === id);
   if (!lib) return c.notFound();
 
@@ -155,11 +155,9 @@ libraries.get('/libraries/:id', async (c) => {
     filtered ? undefined : lib.itemCount,
   );
   const ids = items.map((i) => i.id);
-  const [{ onLoan: onLoanIds, wanted: wantedIds }, tagsMap, totals] = await Promise.all([
+  const [{ onLoan: onLoanIds, wanted: wantedIds }, tagsMap] = await Promise.all([
     shelfFlags(c.env.DB, ids), // loans and the "Wanted" badge (§16 #53), one call
     view === 'table' ? tagsForItems(c.env.DB, ids) : Promise.resolve(undefined),
-    // what the household paid for the whole shelf (§16 #61), summed in SQL, and its currency — one call
-    shelfTotals(c.env.DB, id),
   ]);
   const shelfTotal = totals.shelves.get(id);
   // Status is reading status: a shelf — or a view of it — holding only games and records (they take plays) leaves the

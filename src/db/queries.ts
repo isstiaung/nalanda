@@ -317,19 +317,28 @@ export type ShelfTotals = {
   priced: number;
 };
 
+/** The household's items of one type, held (copies > 0) and not (copies = 0) — the Overview's counts. */
+export type Holding = { mediaType: MediaType; owned: number; notOwned: number };
+
+type Totals = { shelves: Map<number, ShelfTotals>; currency: string | null };
+type ShelfTypeRow = { libraryId: number; mediaType: MediaType; n: number; owned: number; notOwned: number };
+
 /**
- * Totals for one shelf, or for every shelf (keyed by shelf id), and the household's currency they're shown against.
- * Summed in SQL, in one D1 call: a batch of two grouped reads and the setting. A sum leaves SQLite as text, so a total
- * is exact however large it grows (formatMoney() takes text).
+ * shelfTotals()'s batch: the items by shelf and type — with how many of them are held, which is what the Overview's
+ * holdings add up — what the household paid, and its currency. The first is read in idx_items_library_type's order, so
+ * it groups without a sort (§16 #68); the second reads the priced items only (idx_items_paid).
  */
-export async function shelfTotals(
-  d1: D1Database,
-  libraryId?: number,
-): Promise<{ shelves: Map<number, ShelfTotals>; currency: string | null }> {
+function shelfTotalsStatements(d1: D1Database, libraryId?: number): D1PreparedStatement[] {
   const where = libraryId === undefined ? '' : 'WHERE library_id = ?1';
   const bind = (st: D1PreparedStatement) => (libraryId === undefined ? st : st.bind(libraryId));
-  const [types, money, setting] = await d1.batch([
-    bind(d1.prepare(`SELECT library_id AS libraryId, media_type AS mediaType, count(*) AS n FROM items ${where} GROUP BY library_id, media_type`)),
+  return [
+    bind(
+      d1.prepare(
+        `SELECT library_id AS libraryId, media_type AS mediaType, count(*) AS n,
+           sum(CASE WHEN copies > 0 THEN 1 ELSE 0 END) AS owned, sum(CASE WHEN copies = 0 THEN 1 ELSE 0 END) AS notOwned
+         FROM items ${where} GROUP BY library_id, media_type`,
+      ),
+    ),
     bind(
       d1.prepare(
         `SELECT library_id AS libraryId, purchase_currency AS currency, count(*) AS n, CAST(sum(purchase_price) AS TEXT) AS total
@@ -339,14 +348,62 @@ export async function shelfTotals(
       ),
     ),
     d1.prepare('SELECT currency FROM site_settings WHERE id = 1'),
+  ];
+}
+
+/**
+ * Totals for one shelf, or for every shelf (keyed by shelf id), and the household's currency they're shown against.
+ * Summed in SQL, in one D1 call: a batch of two grouped reads and the setting. A sum leaves SQLite as text, so a total
+ * is exact however large it grows (formatMoney() takes text).
+ */
+export async function shelfTotals(d1: D1Database, libraryId?: number): Promise<Totals> {
+  return readShelfTotals(await d1.batch(shelfTotalsStatements(d1, libraryId)));
+}
+
+/**
+ * Every shelf with its count, every shelf's totals and the household's holdings by type, in one D1 call (§16 #68).
+ * The Overview and a shelf's page each read listLibraries() and shelfTotals() — two passes over every item — and the
+ * Overview a third for holdingsByType(); this reads one. A shelf's count is the sum of its types', which is exactly
+ * what listLibraries() counts; holdings are holdingsByType()'s, in its order.
+ */
+export async function shelvesWithTotals(
+  d1: D1Database,
+): Promise<{ shelves: Array<Library & { itemCount: number }>; totals: Totals; holdings: Holding[] }> {
+  const [libraries, ...rest] = await d1.batch([
+    d1.prepare('SELECT id, name, position, share_token AS shareToken, created_at AS createdAt FROM libraries ORDER BY position, id'),
+    ...shelfTotalsStatements(d1),
   ]);
+  const totals = readShelfTotals(rest);
+  const shelves = ((libraries?.results ?? []) as Library[]).map((l) => ({ ...l, itemCount: totals.shelves.get(l.id)?.items ?? 0 }));
+  return { shelves, totals, holdings: holdingsOf((rest[0]?.results ?? []) as ShelfTypeRow[]) };
+}
+
+/**
+ * holdingsByType()'s answer from the shelves' type rows: summed across shelves, most items first, and types holding as
+ * many in descending media_type order — the order SQLite gave that query's ties before it said so (§16 #68).
+ */
+function holdingsOf(rows: ShelfTypeRow[]): Holding[] {
+  const byType = new Map<MediaType, Holding & { n: number }>();
+  for (const r of rows) {
+    const h = byType.get(r.mediaType) ?? { mediaType: r.mediaType, owned: 0, notOwned: 0, n: 0 };
+    h.owned += r.owned;
+    h.notOwned += r.notOwned;
+    h.n += r.n;
+    byType.set(r.mediaType, h);
+  }
+  return [...byType.values()]
+    .sort((a, b) => b.n - a.n || (a.mediaType < b.mediaType ? 1 : a.mediaType > b.mediaType ? -1 : 0))
+    .map(({ mediaType, owned, notOwned }) => ({ mediaType, owned, notOwned }));
+}
+
+function readShelfTotals([types, money, setting]: D1Result[]): Totals {
   const out = new Map<number, ShelfTotals>();
   const of = (id: number) => {
     let t = out.get(id);
     if (!t) out.set(id, (t = { items: 0, byType: [], paid: [], priced: 0 }));
     return t;
   };
-  for (const r of (types?.results ?? []) as Array<{ libraryId: number; mediaType: MediaType; n: number }>) {
+  for (const r of (types?.results ?? []) as ShelfTypeRow[]) {
     const t = of(r.libraryId);
     t.items += r.n;
     t.byType.push({ mediaType: r.mediaType, count: r.n });
@@ -887,10 +944,12 @@ export async function pickGameForTonight(
   return { pick: fit === 1 ? game : null, fitTotal: fits, unknownTotal: n - fits };
 }
 
-/** Reading-log entries: cataloged (reviewed, rated) but not physically owned. */
-export async function holdingsByType(
-  d1: D1Database,
-): Promise<{ mediaType: MediaType; owned: number; notOwned: number }[]> {
+/**
+ * Reading-log entries: cataloged (reviewed, rated) but not physically owned. Most items first; types holding as many
+ * come in descending media_type order, which is the order SQLite gave them before it was written down — checked for
+ * every pattern of ties among the seven types (§16 #68). The Overview reads the same from shelvesWithTotals().
+ */
+export async function holdingsByType(d1: D1Database): Promise<Holding[]> {
   return db(d1)
     .select({
       mediaType: s.items.mediaType,
@@ -899,7 +958,7 @@ export async function holdingsByType(
     })
     .from(s.items)
     .groupBy(s.items.mediaType)
-    .orderBy(desc(count()));
+    .orderBy(desc(count()), desc(s.items.mediaType));
 }
 
 // ---------- series (ARCH.md §16 #52) ----------
@@ -3161,6 +3220,41 @@ const YEAR_CREATORS = `named AS (
     FROM named
   )`;
 
+/**
+ * The years with a dated finish of a book or a play of a record or game, newest first: every year's first four
+ * characters of `ended_on` or `played_on` that look like a year. Read by skipping from year to year on the indexes
+ * (§16 #68) — the latest date, then the latest before that year's first four characters, and so on, each one index
+ * seek — rather than reading every dated finish and play to list a dozen years. Strings sort by their first four
+ * characters first, so every date before `y` has a prefix before `y`, and the skip visits each prefix once. A year then
+ * counts only if a book finish (or a playable item's play) has that prefix: a range [y, the next prefix) on the index,
+ * stopped at the first one found. Before §16 #68 this was a UNION over every row, and it lists the same years.
+ */
+const YEARS_WITH_DATA = `WITH RECURSIVE
+    finish_prefix(y) AS (
+      SELECT substr(max(ended_on), 1, 4) FROM reads WHERE status = 'completed'
+      UNION ALL
+      SELECT (SELECT substr(max(r.ended_on), 1, 4) FROM reads r WHERE r.status = 'completed' AND r.ended_on < f.y)
+      FROM finish_prefix f WHERE f.y IS NOT NULL
+    ),
+    play_prefix(y) AS (
+      SELECT substr(max(played_on), 1, 4) FROM plays
+      UNION ALL
+      SELECT (SELECT substr(max(p.played_on), 1, 4) FROM plays p WHERE p.played_on < f.y) FROM play_prefix f WHERE f.y IS NOT NULL
+    )
+  SELECT y FROM (
+    SELECT y FROM finish_prefix WHERE y GLOB '[1-9][0-9][0-9][0-9]' AND EXISTS (
+      SELECT 1 FROM reads r JOIN items i ON i.id = r.item_id
+      WHERE r.status = 'completed' AND r.ended_on >= y AND r.ended_on < substr(y, 1, 3) || char(unicode(substr(y, 4)) + 1)
+        AND i.media_type = 'book'
+    )
+    UNION
+    SELECT y FROM play_prefix WHERE y GLOB '[1-9][0-9][0-9][0-9]' AND EXISTS (
+      SELECT 1 FROM plays p JOIN items i ON i.id = p.item_id
+      WHERE p.played_on >= y AND p.played_on < substr(y, 1, 3) || char(unicode(substr(y, 4)) + 1)
+        AND i.media_type IN (${PLAYABLE_SQL})
+    )
+  ) ORDER BY y DESC`;
+
 /** The first `n` rows of `inner` in each scope, by `order`. */
 const topPerScope = (inner: string, order: string, n: number) =>
   `SELECT * FROM (SELECT *, row_number() OVER (PARTITION BY scope ORDER BY ${order}) AS rn FROM (${inner})) WHERE rn <= ${n}`;
@@ -3201,13 +3295,16 @@ export async function yearInReview(d1: D1Database, userId: number, year: number)
          YEAR_TOP,
        )} ORDER BY scope, rn`,
     ),
-    // most-used tags on the year's books
+    // most-used tags on the year's books — grouped by the tag's id first, so each tag's name is looked up once rather
+    // than once per finish carrying it (§16 #68)
     inYear(
       `${YEAR_FINISHES}
        ${topPerScope(
-         `SELECT s.scope, t.name, count(DISTINCT s.work) AS books, count(*) AS finishes, max(s.ended_on) AS last
-          FROM scoped s CROSS JOIN item_tags it ON it.item_id = s.item_id JOIN tags t ON t.id = it.tag_id
-          GROUP BY s.scope, t.id`,
+         `SELECT g.scope, t.name, g.books, g.finishes, g.last FROM (
+            SELECT s.scope, it.tag_id, count(DISTINCT s.work) AS books, count(*) AS finishes, max(s.ended_on) AS last
+            FROM scoped s CROSS JOIN item_tags it ON it.item_id = s.item_id
+            GROUP BY s.scope, it.tag_id
+          ) g JOIN tags t ON t.id = g.tag_id`,
          'books DESC, finishes DESC, last DESC, name',
          YEAR_TOP,
        )} ORDER BY scope, rn`,
@@ -3269,14 +3366,7 @@ export async function yearInReview(d1: D1Database, userId: number, year: number)
       )
       .bind(userId),
     // the years there is anything to show for
-    d1.prepare(
-      `SELECT y FROM (
-         SELECT substr(r.ended_on, 1, 4) AS y FROM reads r JOIN items i ON i.id = r.item_id
-         WHERE r.status = 'completed' AND r.ended_on IS NOT NULL AND i.media_type = 'book'
-         UNION
-         SELECT substr(p.played_on, 1, 4) FROM plays p JOIN items i ON i.id = p.item_id WHERE i.media_type IN (${PLAYABLE_SQL})
-       ) WHERE y GLOB '[1-9][0-9][0-9][0-9]' ORDER BY y DESC`,
-    ),
+    d1.prepare(YEARS_WITH_DATA),
   ]);
 
   const review: YearReview = {
