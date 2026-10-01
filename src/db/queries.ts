@@ -1504,11 +1504,13 @@ export async function bulkMove(d1: D1Database, ids: number[], libraryId: number)
 export async function bulkSetOwned(d1: D1Database, ids: number[], owned: boolean): Promise<BulkResult> {
   const json = JSON.stringify(ids);
   const [from, to] = owned ? [0, 1] : [1, 0];
+  // an item borrowed from someone (§16 #82) is theirs until marked returned: "Mark owned" skips it, as the toggle refuses
+  const borrowed = 'EXISTS (SELECT 1 FROM borrows b WHERE b.item_id = items.id AND b.returned_on IS NULL)';
+  const changes = owned ? `copies = ?2 AND NOT ${borrowed}` : 'copies = ?2';
+  const skips = owned ? `copies >= 2 OR (copies = 0 AND ${borrowed})` : 'copies >= 2';
   const [tally] = await d1.batch([
-    d1
-      .prepare(`SELECT count(*) AS found, sum(copies = ?2) AS changed, sum(copies >= 2) AS skipped FROM items WHERE ${SELECTED}`)
-      .bind(json, from),
-    d1.prepare(`UPDATE items SET copies = ?3, updated_at = datetime('now') WHERE ${SELECTED} AND copies = ?2`).bind(json, from, to),
+    d1.prepare(`SELECT count(*) AS found, sum(${changes}) AS changed, sum(${skips}) AS skipped FROM items WHERE ${SELECTED}`).bind(json, from),
+    d1.prepare(`UPDATE items SET copies = ?3, updated_at = datetime('now') WHERE ${SELECTED} AND ${changes}`).bind(json, from, to),
   ]);
   return tallied(tally?.results[0] as Tally | undefined);
 }
@@ -1772,6 +1774,24 @@ export async function borrowIfNotOwned(
     .bind(values.itemId, values.lender, values.contact, values.borrowedOn, values.dueOn, values.note)
     .first<{ id: number }>();
   return !!row;
+}
+
+/** The lender of an item's open borrow, or null — what refuses counting a copy as yours (the Holding toggle, the edit form). */
+export async function openBorrowLender(d1: D1Database, itemId: number): Promise<string | null> {
+  const row = await d1.prepare('SELECT lender FROM borrows WHERE item_id = ?1 AND returned_on IS NULL LIMIT 1').bind(itemId).first<{ lender: string }>();
+  return row?.lender ?? null;
+}
+
+/**
+ * The Holding toggle's owning half: copies 0 → 1, unless a borrow is open — a borrowed book is theirs until it is marked
+ * returned, so it is never owned and borrowed at once (checked in the statement). True when it changed.
+ */
+export async function markOwnedUnlessBorrowed(d1: D1Database, id: number): Promise<boolean> {
+  const res = await d1
+    .prepare('UPDATE items SET copies = 1 WHERE id = ?1 AND copies = 0 AND NOT EXISTS (SELECT 1 FROM borrows WHERE item_id = ?1 AND returned_on IS NULL)')
+    .bind(id)
+    .run();
+  return res.meta.changes > 0;
 }
 
 /** Marks a borrow returned on `today`, the device's day (§16 #69) — once; one already back keeps its date. */

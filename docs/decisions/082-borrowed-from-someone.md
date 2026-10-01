@@ -35,10 +35,12 @@ becomes the one place for both kinds of borrowing.
   (`formatLoansCell()`/`parseLoansCell()`, the lender in the borrower's place, #57), after
   `quotes` so older columns keep their positions; the import maps it; the trash snapshot carries
   the borrows and the restore brings them back; `npm run backup` lists the table after `items`.
-- **What it leaves alone:** marking a borrowed item owned (the Holding toggle) keeps the open
-  borrow row — the pill goes, since it shows only while not owned — and nothing is inferred from
-  it; a borrow from a connected household stays a `borrowed_items` row, made by a request, with
-  its own section.
+- **Theirs until returned.** An item with an open borrow can't be counted as a copy of yours: the
+  Holding toggle (`markOwnedUnlessBorrowed()`, the guard in the statement) and the edit form's
+  copies field both refuse with the lender's name — "mark it returned first" — so an item is never
+  owned and borrowed at once, which would have left it lendable and badged Borrowed while the
+  Holding filter dropped it (review on #121). A borrow from a connected household stays a
+  `borrowed_items` row, made by a request, with its own section.
 
 **What it rules out:** tags for borrowing (no date, no lender); a borrow on an owned item; two
 open borrows of one item; a lender who is a member (that is a loan between members, out of

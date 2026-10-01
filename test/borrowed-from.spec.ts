@@ -1,16 +1,18 @@
 // Borrowed from someone not on Nalanda (ARCH.md §16 #82): an item not owned with a borrow record — recorded from its
 // page, shown as a pill and on the Borrowed page, a Holding filter, a CSV cell shaped like `loans`, in the trash's
 // snapshot — and private like loans: never on a share page.
-import { env } from 'cloudflare:test';
+import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import {
   activeBorrows,
   borrowHistory,
   borrowIfNotOwned,
+  bulkSetOwned,
   createItem,
   createLibrary,
   createShare,
   exportCellsForIdRange,
+  getItem,
   listMembersWithKeys,
   listTrash,
   memberKeys,
@@ -23,6 +25,9 @@ import { formatLoansCell, parseLoansCell } from '../src/lib/loans';
 import { mapNalandaRow } from '../src/lib/csv';
 import { newShareToken } from '../src/lib/share';
 import { clearSharePageCache } from '../src/routes/share';
+import type { Bindings } from '../src/env';
+import { budgeted } from '../src/federation/budget';
+import app from '../src/index';
 import { as, html, member, rows } from './member-helpers';
 
 async function shelf() {
@@ -98,10 +103,14 @@ describe('recording a borrow', () => {
     expect(row(table, plain.id)).not.toContain('pill borrowed');
     expect((await html(ravi, `/libraries/${lib.id}?view=grid`)).match(/pill borrowed/g)).toHaveLength(1);
     expect(row(await html(ravi, '/search?q=earthsea'), book.id)).toContain('pill borrowed');
-    // marked owned, the pill goes with Not owned; the borrow row stays as a record
+    // it can't be marked owned while borrowed (below); once returned and then owned, the pill goes with Not owned
+    await as(ravi, `/items/${book.id}/mark-owned`, { body: {} });
+    expect(await html(ravi, `/libraries/${lib.id}`)).toContain('pill borrowed');
+    await returnBorrow(env.DB, (await borrowed(book.id))[0]!.id, '2026-10-01');
+    expect(await html(ravi, `/libraries/${lib.id}`)).not.toContain('pill borrowed');
     await as(ravi, `/items/${book.id}/mark-owned`, { body: {} });
     expect(await html(ravi, `/libraries/${lib.id}`)).not.toContain('pill borrowed');
-    expect(await borrowed(book.id)).toHaveLength(1);
+    expect(await borrowed(book.id)).toHaveLength(1); // the record stays
   });
 });
 
@@ -154,6 +163,57 @@ describe('the Borrowed page and the Holding filter', () => {
     expect(page).toMatch(/name="owned" value="b" checked/);
     const publish = page.slice(page.indexOf('action="/shares"'), page.indexOf('</form>', page.indexOf('action="/shares"')));
     expect(publish).not.toContain('name="owned"'); // a share captures owned alone; with Borrowed among the choices it captures nothing
+  });
+});
+
+describe('theirs until returned', () => {
+  it('refuses to count a copy as yours while a borrow is open — the Holding toggle and the edit form — and allows it once returned', async () => {
+    const { lib, item } = await shelf();
+    const ravi = await member('ravi');
+    const book = await item({ title: 'Lent to us', copies: 0 });
+    await as(ravi, `/items/${book.id}/borrow`, { body: { lender: 'Priya' } });
+    const toggled = await as(ravi, `/items/${book.id}/mark-owned`, { body: {}, htmx: true });
+    expect(toggled.status).toBe(200);
+    const swap = await toggled.text();
+    expect(swap).toContain('Borrowed from Priya — mark it returned first.');
+    expect(swap).toContain('mark-owned'); // the same button again, not the owned one
+    expect((await getItem(env.DB, book.id))!.copies).toBe(0);
+    const edited = await as(ravi, `/items/${book.id}`, { body: { title: 'Lent to us', libraryId: String(lib.id), mediaType: 'book', copies: '1' } });
+    expect(edited.status).toBe(400);
+    expect(await edited.text()).toContain('Borrowed from Priya — mark it returned before counting a copy as yours.');
+    expect((await getItem(env.DB, book.id))!.copies).toBe(0);
+    // a save that keeps it not owned goes through
+    expect((await as(ravi, `/items/${book.id}`, { body: { title: 'Lent to us, renamed', libraryId: String(lib.id), mediaType: 'book', copies: '0' } })).status).toBe(302);
+    // returned: the toggle and the form both take it
+    await returnBorrow(env.DB, (await borrowed(book.id))[0]!.id, '2026-10-01');
+    expect(await (await as(ravi, `/items/${book.id}/mark-owned`, { body: {}, htmx: true })).text()).toContain('mark-not-owned');
+    expect((await getItem(env.DB, book.id))!.copies).toBe(1);
+  });
+
+  it('is skipped by bulk edit’s "Mark owned", and counted as skipped', async () => {
+    const { item } = await shelf();
+    const ravi = await member('ravi');
+    const lent = await item({ title: 'Lent to us', copies: 0 });
+    const plain = await item({ title: 'Plain', copies: 0 });
+    await as(ravi, `/items/${lent.id}/borrow`, { body: { lender: 'Priya' } });
+    expect(await bulkSetOwned(env.DB, [lent.id, plain.id], true)).toMatchObject({ found: 2, changed: 1, skipped: 1 });
+    expect((await getItem(env.DB, lent.id))!.copies).toBe(0);
+    expect((await getItem(env.DB, plain.id))!.copies).toBe(1);
+    // the other direction is untouched by a borrow
+    expect(await bulkSetOwned(env.DB, [plain.id], false)).toMatchObject({ changed: 1, skipped: 0 });
+  });
+
+  it('reads nothing of connections on a household without a key: the Borrowed page is its own two reads', async () => {
+    const ravi = await member('ravi');
+    const budget = { left: 1000 };
+    const ctx = createExecutionContext();
+    const res = await app.fetch(new Request('http://nalanda.test/borrowed', { headers: { cookie: ravi.cookie } }), { ...env, DB: budgeted(env.DB, budget) } as Bindings, ctx);
+    expect(res.status).toBe(200);
+    await res.text();
+    await waitOnExecutionContext(ctx);
+    // the session's member and the sidebar's shelves, then what is borrowed from people and what was returned —
+    // the connections' three reads (borrowed items, requests, connections) would make it seven
+    expect(1000 - budget.left).toBe(4);
   });
 });
 
