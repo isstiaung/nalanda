@@ -1,7 +1,8 @@
 // The Add page's review list (ARCH.md §16 #48): barcodes held on this device while it was offline, each looked up
-// now through GET /add/review, two at a time. For each one the person picks a shelf and adds it or drops it, or
-// adds them all to one shelf. Nothing is added unless someone presses a button, and an entry leaves the device's
-// queue only once the server has said it was added — or when it's dropped.
+// now through GET /add/review, two at a time. For each one the person picks a shelf and adds it, wants it (onto their
+// want list: added as Not owned, or the copy already in the catalog) or drops it, or adds them all to one shelf.
+// Nothing is added unless someone presses a button, and an entry leaves the device's queue only once the server has
+// said it was added or wanted — or when it's dropped.
 (() => {
   const section = document.getElementById('scan-review');
   const list = document.getElementById('scan-review-list');
@@ -128,13 +129,17 @@
     }
   }
 
-  async function add(form) {
+  // Add, or Want (`submitter`, its name and value sent as a form's own submit would): either way the entry leaves
+  // the queue only once the server has answered with it done.
+  async function add(form, submitter) {
     const entry = form.closest('.review-entry');
     const buttons = [...entry.querySelectorAll('button')];
+    const body = new FormData(form);
+    if (submitter?.name) body.set(submitter.name, submitter.value);
     buttons.forEach((b) => (b.disabled = true));
     try {
       const added = await partial(
-        await fetch('/items', { method: 'POST', body: new FormData(form), headers: { 'HX-Request': 'true' }, redirect: 'manual' }),
+        await fetch('/items', { method: 'POST', body, headers: { 'HX-Request': 'true' }, redirect: 'manual' }),
       );
       entry.replaceWith(added);
       await queue.remove(entry.dataset.barcode);
@@ -155,7 +160,7 @@
     const form = e.target.closest?.('form[data-review-add]');
     if (!form) return;
     e.preventDefault();
-    add(form);
+    add(form, e.submitter);
   });
 
   list.addEventListener('click', (e) => {

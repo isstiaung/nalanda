@@ -118,7 +118,7 @@ describe('the Overview', () => {
     expect(html).toContain(`<span class="pill behind">${behind.state === 'behind' ? behind.by : ''} behind pace</span>`);
     expect(html).toContain('class="goal-pace"'); // the tick where a year-long pace stands today
     // the tick is hidden from assistive tech, so words say what it is — and where pace starts
-    expect(html).toContain('<p class="goal-note">Pace runs from 1 January: the mark is where a year-long pace is today.</p>');
+    expect(html).toContain('<p class="goal-note">The mark shows where you&#39;d be reading evenly since 1 January.</p>');
 
     // reached
     await setGoal(env.DB, asha.id, year(), 1, actor(asha));
