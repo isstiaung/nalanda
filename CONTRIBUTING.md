@@ -68,7 +68,7 @@ share pages. Adding a field there needs a deliberate check against ARCH.md §9 a
 
 **External API calls live in `src/metadata/`.** Nothing outside that directory talks to Open
 Library, Google Books, BoardGameGeek, or Discogs. Likewise `src/db/` is the only code touching
-D1, and `src/lib/covers.ts` the only code touching R2.
+D1, and `src/lib/covers.ts` and `src/lib/fonts.ts` the only code touching R2.
 
 ## Style
 

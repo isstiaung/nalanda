@@ -149,7 +149,9 @@ constraints bullets.
   vermilion rubrication reserved for circulation/danger, turmeric gold for ratings,
   monospace for all data (counts, ISBNs, dates, pills, accession numbers via `accNo()`),
   Eczar (vendored woff2, Latin and Devanagari subsets — Tiro Tamil behind it for Tamil headings,
-  declared for Tamil's range alone, §16 #93) for page titles and brand only, light +
+  declared for Tamil's range alone, §16 #93) for page titles and brand only — a household's own
+  display font goes in front of them for its language by a `<style>` the layout writes, never by
+  editing `--serif`, which `SERIF_STACK` in src/views/layout.tsx mirrors (§16 #96) — light +
   dark (lamp-lit) via `prefers-color-scheme`. The brand hangs from its vermilion
   headstroke (śirorekhā) — that rule lives in `.brand-rule` only. Extend with the
   existing tokens/components (`.pill`, `.data-table`, `.props`, `.eyebrow`) — don't add

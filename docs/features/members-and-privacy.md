@@ -35,7 +35,11 @@ strings change — never an item's data or a name
 strings from Account (`/strings/hi.json`, `/strings/ta.json`), edit the file, and either import it
 under **Members → Interface translations** — this household's words, key by key, share pages
 included, with **Remove** to clear it — or open a pull request so everyone gets it. The pages
-not yet covered stay English and are translated page by page.
+not yet covered stay English and are translated page by page. An admin can also give a language a
+display font of the household's own under **Members → Display font** — a `.woff2`, `.woff`, `.ttf`
+or `.otf` file up to 2 MB that every page in that language, share pages included, sets its titles
+in, falling back to Eczar for any letter it lacks; the file is public like a cover, and its licence
+is the household's to mind ([#96](../decisions/096-display-font.md)).
 [runbooks/accounts-and-access.md](../../runbooks/accounts-and-access.md).
 
 ## Sessions and sign-in

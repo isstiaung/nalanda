@@ -5,7 +5,7 @@ code alone may touch D1, R2 and external APIs, route order, append-only migratio
 architectural view.
 
 ```
-src/index.ts       Hono app entry; route order matters: public (share, covers, auth) first,
+src/index.ts       Hono app entry; route order matters: public (share, covers, fonts, auth) first,
                    then requireAuth, then protected routes. Origin-check CSRF on mutations.
 src/routes/        pages + htmx partials + /api/lookup, /api/import; share.tsx (public share pages)
                    and shares.tsx (admin share management — don't confuse); api.tsx (the read-only
@@ -35,8 +35,10 @@ src/db/            schema.ts (Drizzle) + queries.ts — the ONLY code touching D
 src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googlebooks, bgg,
                    discogs, itunes, musicbrainz — nothing else calls external APIs
 src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist), csv.ts
-                   (export + libib, Goodreads, StoryGraph and LibraryThing mappings, whose reads an import brings), covers.ts (only R2
-                   code), reads.ts (each read: how reads decide status, the legacy mapping, the
+                   (export + libib, Goodreads, StoryGraph and LibraryThing mappings, whose reads an import brings), covers.ts (with
+                   fonts.ts, the only R2 code), fonts.ts (a household's display fonts: the sniffer, the
+                   1 KB–2 MB caps, store, delete, serve, the checked face a page's <style> takes — ARCH.md
+                   §16 #96; the upload in routes/settings.tsx, the <style> in views/layout.tsx), reads.ts (each read: how reads decide status, the legacy mapping, the
                    export cell, Goodreads), reviews.ts (each member's review: the household
                    summary, the export's reviews cell), loans.ts (the export's loans cell),
                    names.ts (display names, and names peers send), plays.ts (the household's play

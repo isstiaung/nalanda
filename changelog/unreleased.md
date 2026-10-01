@@ -26,3 +26,9 @@ for what a host must do; link runbooks as ../runbooks/…); a release commit ren
 
 ### Upgrading
 - **One migration, 0057: a `locale` column on `users` (empty: everyone follows the household) and a new `translations` table (empty until an admin imports one), no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual; nothing else to do. The backup's table order gains `translations`. Pages stay English until the household language under Members is Hindi or Tamil, or a member picks one on Account.
+
+### Added
+- **A display font of your own, per language.** Under **Members → Display font** an admin uploads a `.woff2`, `.woff`, `.ttf` or `.otf` file (up to 2 MB, recognised by its contents) for English, हिन्दी or தமிழ், and every page in that language — the login page and share pages included — sets its titles and the brand in it, falling back to Eczar and Tiro Tamil for any letter it lacks. Uploading again replaces it; **Remove** goes back to the shipped faces. The file is kept in the covers bucket under a random address and served publicly like a cover, so the form says so — and that the font's licence is the household's responsibility. It costs no page a database call more ([ARCH.md §16 #96](../docs/decisions/096-display-font.md); [runbook](../runbooks/accounts-and-access.md)).
+
+### Upgrading
+- **One migration, 0058: a new `display_fonts` table (empty until an admin uploads a font), no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual; no new bucket or secret — fonts share the covers bucket. The backup's table order gains `display_fonts`, after `translations`. Keep the font files you upload: a backup carries the rows, and the files live in R2, which nothing can re-fetch.
