@@ -99,6 +99,9 @@ manuscripts.
   the box doesn't understand is searched as text.
 - **Saved views**: a shelf's filters under a name, the household's, opened from the shelf or the
   Overview; two decluttering views on every shelf — unread for years, not played lately.
+- **Borrowed from someone**: a book borrowed from a friend is a Not owned item with a borrow record —
+  who from, due back when, returned — a Borrowed pill, a Holding filter, and a Borrowed page for every
+  household; private like loans.
 - **A trash**: a deleted item waits 30 days with everything it had — reads, reviews, pages,
   plays, loans, tags, cover — and an admin can restore it or let it go. The delete itself is
   still a delete: nothing trashed stays on a share link or in a connection's view.

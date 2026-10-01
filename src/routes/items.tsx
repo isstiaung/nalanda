@@ -102,6 +102,8 @@ import {
   type Viewer,
   WantBar,
   WantedPill,
+  BorrowedFrom,
+  BorrowedPill,
   FormatPills,
   LanguagePill,
 } from '../views/components';
@@ -851,6 +853,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           <dd>
             <HoldingPill item={item} />
             {item.copies === 0 && log.want.wanters.length ? <WantedPill /> : null}
+            {item.copies === 0 && log.borrows.some((b) => !b.returnedOn) ? <BorrowedPill /> : null}
           </dd>
           {/* where it lives (§16 #51) — private, like notes: share pages and connections never carry it */}
           {item.location ? (
@@ -1008,6 +1011,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           {item.copies === 0 && !loans.length ? (
             <p class="muted">Not in the physical collection — nothing to lend.</p>
           ) : null}
+          {/* borrowed from someone not on Nalanda (§16 #82): the mirror of a loan, on an item not owned */}
+          {item.copies === 0 ? <BorrowedFrom itemId={item.id} borrows={log.borrows} today={today} /> : null}
           {/* every open loan: with two copies out, both borrowers show, each with its own return */}
           {loans.map((l) => (
             <form method="post" action={`/loans/${l.id}/return`} class="inline-form">

@@ -69,6 +69,7 @@ export const EXPORT_COLUMNS = [
   'language', // ISO 639-1 (§16 #76); blank reads as the household's default on import
   'original_title',
   'quotes', // quotes and highlights (§16 #77): JSON, each with its writer's username
+  'borrowed', // borrowed from someone not on Nalanda (§16 #82): as the loans cell, the lender in the borrower's place
   'details',
 ] as const;
 
@@ -119,6 +120,7 @@ export function itemToCsvLine(
   links: LinkDraft[] = [],
   editions: EditionDraft[] = [],
   quotes: CellQuote[] = [],
+  borrows: LoanDraft[] = [],
 ): string {
   const ordered = inDisplayOrder(reads);
   const position = new Map(ordered.map((r, i) => [r.id, i + 1]));
@@ -163,6 +165,7 @@ export function itemToCsvLine(
     item.language,
     item.originalTitle,
     formatQuotesCell(quotes),
+    formatLoansCell(borrows),
     item.details === '{}' ? '' : item.details,
   ]);
 }
@@ -212,6 +215,8 @@ export type MappedRow = {
   editions?: EditionDraft[];
   // quotes and highlights (§16 #77), by username as the reviews cell names people
   quotes?: CellQuote[];
+  // borrowed from someone not on Nalanda (§16 #82), a Nalanda export's `borrowed` cell
+  borrows?: LoanDraft[];
   // a Goodreads row's reading, which a merge reconciles with the reads already here
   goodreads?: GoodreadsReading;
   // a Nalanda export's `loans`, restored onto the item the row makes (§16 #57); libib and Goodreads have none
@@ -250,6 +255,8 @@ const KNOWN_COLUMNS = new Set([
   'original_title',
   // and quotes (§16 #77), each with its writer, private until shared
   'quotes',
+  // and what is borrowed from people (§16 #82), private like the loans
+  'borrowed',
   // and what was paid (§16 #61): money is never published. libib's own `price` is mapped below, and stays in details
   // — which published pages strip of money — only when it can't be read as a price in the household's currency
   'purchase_price',
@@ -504,6 +511,7 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
     links: parseLinksCell(r['purchase_links']),
     editions: parseEditionsCell(mediaType, r['editions']),
     quotes: parseQuotesCell(r['quotes']),
+    borrows: parseLoansCell(r['borrowed']),
     tags: (r['tags'] ?? '')
       .split(',')
       .map((t) => t.trim())

@@ -32,7 +32,7 @@ import { isCurrencyCode, type CurrencyTotal } from '../lib/money';
 import { seriesKey, type SeriesDraft } from '../lib/series';
 import { emptyPlays, emptyStats, PLAYS_TOP, YEAR_TOP, yearRange, type YearReview } from '../lib/yearreview';
 import * as s from './schema';
-import type { Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Series, Share, User } from './schema';
+import type { Borrow, Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Series, Share, User } from './schema';
 
 const db = (d1: D1Database) => drizzle(d1);
 
@@ -599,7 +599,14 @@ export type ReaderFilter = { readerId: number | null; mode: 'finished' | 'unfini
  * share or connection view has no room for them, so "not played in a year" is never published. `today` is the
  * device's day (#69), handed in by the route.
  */
-export type StaleFilter = { today: string; addedYearsAgo?: number; unplayedMonths?: number };
+export type StaleFilter = {
+  today: string;
+  addedYearsAgo?: number;
+  unplayedMonths?: number;
+  // the Holding filter once Borrowed is among its choices (§16 #82): any of these, in the app only — a share captures
+  // `owned` alone, so it can never say what is borrowed from whom
+  holding?: Array<'owned' | 'not_owned' | 'borrowed'>;
+};
 
 function readerFilterWhere(r: ReaderFilter): SQL {
   const status = r.mode === 'reading' ? 'in_progress' : 'completed';
@@ -662,6 +669,16 @@ function itemFilterWhere(libraryId: number | null, f: ItemFilters, reader?: Read
     conds.push(
       sql`NOT EXISTS (SELECT 1 FROM ${s.plays} WHERE ${s.plays.itemId} = ${s.items.id} AND ${s.plays.playedOn} >= date(${stale.today}, ${`-${stale.unplayedMonths} months`}))`,
     );
+  }
+  if (stale?.holding?.length) {
+    const kinds = stale.holding.map((h) =>
+      h === 'owned'
+        ? gt(s.items.copies, 0)
+        : h === 'not_owned'
+          ? eq(s.items.copies, 0)
+          : sql`(${s.items.copies} = 0 AND ${s.items.id} IN (SELECT ${s.borrows.itemId} FROM ${s.borrows} WHERE ${s.borrows.returnedOn} IS NULL))`,
+    );
+    conds.push(or(...kinds)!);
   }
   return and(...conds);
 }
@@ -1732,6 +1749,83 @@ export async function activeLoanItemIds(d1: D1Database, itemIds: number[]): Prom
   return new Set(rows.map((r) => r.itemId));
 }
 
+// ---------- borrowed from someone not on Nalanda (ARCH.md §16 #82) ----------
+
+const BORROW_COLUMNS = 'id, item_id AS itemId, lender, contact, borrowed_on AS borrowedOn, due_on AS dueOn, returned_on AS returnedOn, note';
+
+/**
+ * Records a borrow — only on an item not owned (copies = 0), and only one open at a time, both checked in the
+ * statement. True when recorded.
+ */
+export async function borrowIfNotOwned(
+  d1: D1Database,
+  values: { itemId: number; lender: string; borrowedOn: string; contact: string | null; dueOn: string | null; note: string | null },
+): Promise<boolean> {
+  const row = await d1
+    .prepare(
+      `INSERT INTO borrows (item_id, lender, contact, borrowed_on, due_on, note)
+       SELECT ?1, ?2, ?3, ?4, ?5, ?6
+       WHERE (SELECT copies FROM items WHERE id = ?1) = 0
+         AND NOT EXISTS (SELECT 1 FROM borrows WHERE item_id = ?1 AND returned_on IS NULL)
+       RETURNING id`,
+    )
+    .bind(values.itemId, values.lender, values.contact, values.borrowedOn, values.dueOn, values.note)
+    .first<{ id: number }>();
+  return !!row;
+}
+
+/** Marks a borrow returned on `today`, the device's day (§16 #69) — once; one already back keeps its date. */
+export async function returnBorrow(d1: D1Database, id: number, today: string): Promise<void> {
+  await d1.prepare('UPDATE borrows SET returned_on = ?2 WHERE id = ?1 AND returned_on IS NULL').bind(id, today).run();
+}
+
+export type BorrowWithItem = Borrow & { itemTitle: string; itemCoverKey: string | null };
+
+async function borrowsJoined(d1: D1Database, where: string, limit: number): Promise<BorrowWithItem[]> {
+  return (
+    await d1
+      .prepare(
+        `SELECT b.id, b.item_id AS itemId, b.lender, b.contact, b.borrowed_on AS borrowedOn, b.due_on AS dueOn, b.returned_on AS returnedOn, b.note,
+                i.title AS itemTitle, i.cover_key AS itemCoverKey
+         FROM borrows b JOIN items i ON i.id = b.item_id WHERE ${where} ORDER BY b.id DESC LIMIT ?1`,
+      )
+      .bind(limit)
+      .all<BorrowWithItem>()
+  ).results;
+}
+
+/** Everything borrowed from people and not yet returned, newest first. */
+export async function activeBorrows(d1: D1Database): Promise<BorrowWithItem[]> {
+  return borrowsJoined(d1, 'b.returned_on IS NULL', 200);
+}
+
+/** Borrows given back, newest first. */
+export async function borrowHistory(d1: D1Database, limit = 100): Promise<BorrowWithItem[]> {
+  return borrowsJoined(d1, 'b.returned_on IS NOT NULL', limit);
+}
+
+/** An item's borrows, newest first: the open one, if any, then the past ones. */
+export async function borrowsForItem(d1: D1Database, itemId: number): Promise<Borrow[]> {
+  return (await d1.prepare(`SELECT ${BORROW_COLUMNS} FROM borrows WHERE item_id = ?1 ORDER BY id DESC`).bind(itemId).all<Borrow>()).results;
+}
+
+/** A row's borrows onto the item inserted earlier in the batch — the export's `borrowed` cell, read as the loans cell is (§16 #57). */
+function borrowInsertStatements(d1: D1Database, borrows: LoanDraft[]): D1PreparedStatement[] {
+  if (!borrows.length) return [];
+  const json = JSON.stringify(borrows.slice(0, MAX_LOANS_PER_CELL));
+  return [
+    d1
+      .prepare(
+        `INSERT INTO borrows (item_id, lender, borrowed_on, due_on, returned_on, contact, note)
+         SELECT (SELECT max(id) FROM items), json_extract(value, '$.borrower'), json_extract(value, '$.loanedOn'),
+                json_extract(value, '$.dueOn'), json_extract(value, '$.returnedOn'), json_extract(value, '$.contact'),
+                json_extract(value, '$.note')
+         FROM json_each(?1) ORDER BY key`,
+      )
+      .bind(json),
+  ];
+}
+
 // ---------- saved views (ARCH.md §16 #81) ----------
 
 export type SavedView = typeof s.savedViews.$inferSelect;
@@ -2173,6 +2267,7 @@ export async function itemPageLog(
   editions: EditionDraft[]; // "also held as" (§16 #75), in the same call
   householdLanguage: string; // the household's default (§16 #76), read in the same call, for the language pill
   quotes: QuoteEntry[]; // the household's quotes on it (§16 #77), in the same call
+  borrows: Borrow[]; // borrowed from someone not on Nalanda (§16 #82), newest first, in the same call
   extra: D1Result[];
 }> {
   const own = [
@@ -2181,15 +2276,17 @@ export async function itemPageLog(
     d1.prepare('SELECT language FROM site_settings WHERE id = 1'),
     d1.prepare('SELECT format, isbn, publisher, year FROM editions WHERE item_id = ?1 ORDER BY id').bind(itemId),
     d1.prepare(`SELECT ${QUOTE_COLUMNS} FROM quotes WHERE item_id = ?1 ORDER BY at, id`).bind(itemId),
+    d1.prepare(`SELECT ${BORROW_COLUMNS} FROM borrows WHERE item_id = ?1 ORDER BY id DESC`).bind(itemId),
   ];
   const results = await d1.batch([...own, ...extra]);
-  const lang = (results[own.length - 3]?.results?.[0] as { language?: string } | undefined)?.language;
+  const lang = (results[own.length - 4]?.results?.[0] as { language?: string } | undefined)?.language;
   return {
     ...readingLogOf(results),
     want: wantsAndLinksOf(results.slice(3)),
     householdLanguage: isLanguageCode(lang) ? lang : DEFAULT_LANGUAGE,
-    editions: (results[own.length - 2]?.results ?? []) as EditionDraft[],
-    quotes: ((results[own.length - 1]?.results ?? []) as QuoteRow[]).map((q) => ({ ...q, shared: !!q.shared })),
+    editions: (results[own.length - 3]?.results ?? []) as EditionDraft[],
+    quotes: ((results[own.length - 2]?.results ?? []) as QuoteRow[]).map((q) => ({ ...q, shared: !!q.shared })),
+    borrows: (results[own.length - 1]?.results ?? []) as Borrow[],
     extra: results.slice(own.length),
   };
 }
@@ -2843,15 +2940,17 @@ const WANTED_AMONG = `SELECT i.id FROM items i WHERE i.id IN (SELECT value FROM 
   AND EXISTS (SELECT 1 FROM wants w WHERE w.item_id = i.id)`;
 
 /** A shelf page's badges in one D1 call: which items are out on loan, and which are wanted (wantedAmong). */
-export async function shelfFlags(d1: D1Database, itemIds: number[]): Promise<{ onLoan: Set<number>; wanted: Set<number> }> {
-  if (!itemIds.length) return { onLoan: new Set(), wanted: new Set() };
+export async function shelfFlags(d1: D1Database, itemIds: number[]): Promise<{ onLoan: Set<number>; wanted: Set<number>; borrowed: Set<number> }> {
+  if (!itemIds.length) return { onLoan: new Set(), wanted: new Set(), borrowed: new Set() };
   const ids = JSON.stringify(itemIds);
-  const [loans, wanted] = await d1.batch([
+  const [loans, wanted, borrowed] = await d1.batch([
     d1.prepare('SELECT DISTINCT item_id AS id FROM loans WHERE returned_on IS NULL AND item_id IN (SELECT value FROM json_each(?1))').bind(ids),
     d1.prepare(WANTED_AMONG).bind(ids),
+    // borrowed from someone (§16 #82), in the same batch
+    d1.prepare('SELECT DISTINCT item_id AS id FROM borrows WHERE returned_on IS NULL AND item_id IN (SELECT value FROM json_each(?1))').bind(ids),
   ]);
   const set = (r: D1Result | undefined) => new Set(((r?.results ?? []) as Array<{ id: number }>).map((x) => x.id));
-  return { onLoan: set(loans), wanted: set(wanted) };
+  return { onLoan: set(loans), wanted: set(wanted), borrowed: set(borrowed) };
 }
 
 /** Who wants an item — ids and usernames, for the item's page inside the app — and its purchase links, oldest first: one D1 call. */
@@ -3097,6 +3196,7 @@ export type ExportCells = {
   loans: Map<number, LoanDraft[]>;
   // with a loan limit: the item the loans stopped at, which may be missing some (loansForIdRange's cutAt, §16 #57)
   loanCutAt: number | null;
+  borrows: Map<number, LoanDraft[]>; // borrowed from people (§16 #82), as the loans cell carries a loan
   plays: Map<number, CellPlay[]>;
   series: Map<number, Series>; // every series an item in the range belongs to, by id (§16 #52)
   wants: Map<number, Array<{ by: string; at: string }>>; // each want's member by username (§16 #53)
@@ -3151,6 +3251,10 @@ export async function exportCellsForIdRange(
       `SELECT q.item_id AS itemId, u.username AS by, q.text, q.page, q.note, q.shared, q.at, q.source FROM quotes q LEFT JOIN users u ON u.id = q.user_id
        WHERE q.item_id BETWEEN ?1 AND ?2 ${scoped('q.item_id')} ORDER BY q.item_id, q.at, q.id`,
     ),
+    bind(
+      `SELECT item_id AS itemId, lender AS borrower, borrowed_on AS loanedOn, due_on AS dueOn, returned_on AS returnedOn, contact, note
+       FROM borrows WHERE item_id BETWEEN ?1 AND ?2 ${scoped('item_id')} ORDER BY item_id, id`,
+    ),
   ]);
   const rowsOf = <T,>(i: number) => (results[i]?.results ?? []) as Array<T & { itemId: number }>;
   const group = <T, U>(rows: Array<T & { itemId: number }>, pick: (r: T & { itemId: number }) => U) => {
@@ -3180,6 +3284,7 @@ export async function exportCellsForIdRange(
       at: r.at,
       source: r.source,
     })),
+    borrows: group(rowsOf<LoanDraft>(11), (r) => ({ borrower: r.borrower, loanedOn: r.loanedOn, dueOn: r.dueOn, returnedOn: r.returnedOn, contact: r.contact, note: r.note })),
   };
 }
 
@@ -3870,6 +3975,8 @@ export type ImportRow = {
   reads?: PersonRead[];
   reviews?: PersonReview[];
   loans?: LoanDraft[];
+  // borrowed from someone not on Nalanda (§16 #82): a Nalanda export's `borrowed` cell, or the trash's
+  borrows?: LoanDraft[];
   // a Nalanda export's `plays` (§16 #54); any other file brings none
   plays?: PersonPlay[];
   goodreads?: GoodreadsReading;
@@ -3993,6 +4100,7 @@ export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1Pr
       ...reviewInsertStatements(d1, 'newest', reviews, person),
       refreshReviewState(d1, 'newest'),
       ...loanInsertStatements(d1, r.loans ?? []),
+      ...borrowInsertStatements(d1, r.borrows ?? []),
       ...playInsertStatements(d1, r.plays ?? [], person),
       ...wantInsertStatements(d1, 'newest', r.wants ?? []),
       ...linkInsertStatements(d1, 'newest', r.links ?? []),
@@ -4291,6 +4399,7 @@ function trashPayloadSql(): string {
     'reads', ${jsonRows("'status', status, 'beganOn', began_on, 'endedOn', ended_on, 'readerId', reader_id", 'reads WHERE item_id = i.id')},
     'reviews', ${jsonRows("'userId', user_id, 'rating', rating, 'review', review, 'reviewedAt', reviewed_at, 'ratedAt', rated_at", 'reviews WHERE item_id = i.id')},
     'loans', ${jsonRows("'borrower', borrower, 'loanedOn', loaned_on, 'dueOn', due_on, 'returnedOn', returned_on, 'contact', contact, 'note', note, 'edition', edition", 'loans WHERE item_id = i.id')},
+    'borrows', ${jsonRows("'borrower', lender, 'loanedOn', borrowed_on, 'dueOn', due_on, 'returnedOn', returned_on, 'contact', contact, 'note', note", 'borrows WHERE item_id = i.id')},
     'plays', ${jsonRows("'playedOn', played_on, 'loggedBy', logged_by", 'plays WHERE item_id = i.id')},
     'wants', ${jsonRows("'userId', user_id, 'at', created_at", 'wants WHERE item_id = i.id', 'created_at, user_id')},
     'links', ${jsonRows("'label', label, 'url', url", 'purchase_links WHERE item_id = i.id')},
@@ -4378,6 +4487,7 @@ export type TrashPayload = {
   reads: Array<{ status: ReadStatus; beganOn: string | null; endedOn: string | null; readerId: number | null }>;
   reviews: Array<{ userId: number | null; rating: number | null; review: string | null; reviewedAt: string | null; ratedAt: string | null }>;
   loans: LoanDraft[];
+  borrows?: LoanDraft[]; // borrowed from someone (§16 #82), as the loans are
   plays: Array<{ playedOn: string; loggedBy: number | null }>;
   wants: Array<{ userId: number; at: string | null }>;
   links: LinkDraft[];
@@ -4418,6 +4528,7 @@ export async function restoreFromTrash(d1: D1Database, trashId: number, members:
     reads: (p.reads ?? []).map((r) => ({ status: r.status, beganOn: r.beganOn, endedOn: r.endedOn, readerId: who(r.readerId) })),
     reviews: (p.reviews ?? []).map((r) => ({ rating: r.rating, review: r.review, reviewedAt: r.reviewedAt, ratedAt: r.ratedAt, userId: who(r.userId) })),
     loans: p.loans ?? [],
+    borrows: p.borrows ?? [],
     plays: (p.plays ?? []).map((pl) => ({ playedOn: pl.playedOn, loggedBy: who(pl.loggedBy) })),
     wants: (p.wants ?? []).filter((w) => who(w.userId) !== null),
     links: p.links ?? [],

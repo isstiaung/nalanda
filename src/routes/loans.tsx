@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
 import {
   activeLoans,
+  borrowIfNotOwned,
   getItem,
   lendIfFree,
   loanHistory,
+  returnBorrow,
   returnLoan,
 } from '../db/queries';
 import type { AppEnv } from '../env';
@@ -157,6 +159,35 @@ loans.post('/items/:id/loan', async (c) => {
     if (!lent) return c.text('Every copy is already out on loan.', 409);
   }
   return c.redirect(`/items/${itemId}`);
+});
+
+/** Records a borrow from someone not on Nalanda (§16 #82): only on an item not owned, one open at a time. */
+loans.post('/items/:id/borrow', async (c) => {
+  const itemId = Number(c.req.param('id'));
+  const item = await getItem(c.env.DB, itemId);
+  if (!item) return c.notFound();
+  if (item.copies > 0) return c.text('This is your own copy — nothing to record as borrowed.', 400);
+  const body = await c.req.parseBody();
+  const lender = String(body['lender'] ?? '').trim().slice(0, 200);
+  if (lender) {
+    const recorded = await borrowIfNotOwned(c.env.DB, {
+      itemId,
+      lender,
+      borrowedOn: todayOf(c), // the device's day (§16 #69)
+      contact: String(body['contact'] ?? '').trim().slice(0, 200) || null,
+      dueOn: isIsoDate(String(body['dueOn'] ?? '').trim()) ? String(body['dueOn']).trim() : null,
+      note: String(body['note'] ?? '').trim().slice(0, 500) || null,
+    });
+    if (!recorded) return c.text('Already recorded as borrowed — mark it returned first.', 409);
+  }
+  return c.redirect(`/items/${itemId}`);
+});
+
+loans.post('/borrows/:id/return', async (c) => {
+  await returnBorrow(c.env.DB, Number(c.req.param('id')), todayOf(c));
+  const referer = c.req.header('referer');
+  const back = referer && URL.canParse(referer) && new URL(referer).origin === new URL(c.req.url).origin ? referer : '/borrowed';
+  return c.redirect(back);
 });
 
 loans.post('/loans/:id/return', async (c) => {

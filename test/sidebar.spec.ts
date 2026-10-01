@@ -272,11 +272,12 @@ describe('links only some members see', () => {
     const all = (bar: Awaited<ReturnType<typeof sidebar>>) => bar.sections.flatMap((s) => s.links);
 
     const plainMember = all(await sidebar(plain(), '/', member.cookie));
-    for (const href of ['/shares', '/settings/users', '/feed', '/notifications', '/borrowed', '/recommendations', '/connections']) expect(plainMember, href).not.toContain(href);
+    for (const href of ['/shares', '/settings/users', '/feed', '/notifications', '/recommendations', '/connections']) expect(plainMember, href).not.toContain(href);
+    expect(plainMember).toContain('/borrowed'); // every household's since ARCH.md §16 #82: what is borrowed from people
 
     const plainAdmin = all(await sidebar(plain(), '/', admin.cookie));
-    expect(plainAdmin).toEqual(expect.arrayContaining(['/shares', '/settings/users']));
-    for (const href of ['/feed', '/notifications', '/borrowed', '/recommendations', '/connections']) expect(plainAdmin, href).not.toContain(href);
+    expect(plainAdmin).toEqual(expect.arrayContaining(['/shares', '/settings/users', '/borrowed']));
+    for (const href of ['/feed', '/notifications', '/recommendations', '/connections']) expect(plainAdmin, href).not.toContain(href);
 
     const fedMember = all(await sidebar(fed, '/', member.cookie));
     expect(fedMember).toEqual(expect.arrayContaining(['/feed', '/notifications', '/borrowed', '/recommendations']));
