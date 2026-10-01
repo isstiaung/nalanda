@@ -1,0 +1,1 @@
+ALTER TABLE `login_attempts` ADD `username` text DEFAULT '' NOT NULL;

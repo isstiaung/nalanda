@@ -246,6 +246,7 @@ CREATE INDEX idx_loans_item ON loans(item_id);
 
 CREATE TABLE login_attempts (   -- login throttling (§8); old rows pruned opportunistically
   ip           TEXT NOT NULL,
+  username     TEXT NOT NULL DEFAULT '',   -- the account guessed at, as typed (0053)
   attempted_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -448,8 +449,11 @@ Multi-user, built into the app (no email infrastructure, no paid services):
 - An htmx request the session middleware turns away (signed out, `/setup`, `must_change_password`)
   gets `HX-Redirect` instead of a 302, so the whole page goes to log in rather than htmx swapping
   the login page into a section (§16 #65).
-- Login throttling: a per-IP counter of failed attempts in D1; ten in 10 minutes and login
-  refuses that IP until they age out.
+- Login throttling: failed password checks counted in D1 per IP and per account (the username as
+  typed); ten in 10 minutes from an address, or at an account from anywhere, and login answers 429
+  until they age out — the right password included. The attempt is inserted by the statement that
+  checks both counts (`recordLoginAttempt()`), before the password is verified, so parallel guesses
+  stop at ten as sequential ones do; a password that was right takes its row back.
 
 *Why not Cloudflare Access?* It was considered (free ≤ 50 users, zero auth code) but it
 gates the whole hostname — which fights the public `/share/*` requirement — and it moves

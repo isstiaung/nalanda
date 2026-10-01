@@ -5,7 +5,7 @@ import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { addPastRead, createItem, createLibrary, deleteSavedView, deleteUser, listItems, listSavedViews, logPlay, MAX_SAVED_VIEWS_PER_SHELF, saveView } from '../src/db/queries';
 import type { NewItem } from '../src/db/schema';
-import { parseShelfQuery, shelfQueryString } from '../src/routes/libraries';
+import { parseShelfQuery, readByValue, shelfQueryString } from '../src/routes/libraries';
 import { as, html, member, rows } from './member-helpers';
 
 const TODAY = '2026-10-01';
@@ -190,6 +190,49 @@ describe('saved views', () => {
     expect(page).toContain('Nobody read this');
     expect(page).not.toContain(`value="${newcomer.id}" selected`);
     expect(page).not.toContain(`value="now-${newcomer.id}" selected`);
+  });
+
+  it('writes "Read by" as the menu does, so a view saved from a hand-typed `02` loses the member with the rest when they go', async () => {
+    const { lib, item } = await shelf();
+    const asha = await member('asha', 'admin');
+    const ravi = await member('ravi');
+    const read = await item({ title: 'Read by Ravi' });
+    const other = await item({ title: 'Nobody read this' });
+    await addPastRead(env.DB, read.id, { status: 'completed', beganOn: null, endedOn: '2026-01-10' }, ravi.id);
+    const people = [{ id: asha.id }, { id: ravi.id }];
+    // the bar reads a leading zero as the member it names, and writes the id back as the menu would
+    const typed = parseShelfQuery(new URLSearchParams(`status=completed&readBy=0${ravi.id}`), asha.id, people);
+    expect(typed.reader).toEqual({ readerId: ravi.id, mode: 'finished' });
+    expect(shelfQueryString(typed)).toBe(`status=completed&readBy=${ravi.id}`);
+    expect(shelfQueryString(parseShelfQuery(new URLSearchParams(`readBy=now-00${ravi.id}`), asha.id, people))).toBe(`readBy=now-${ravi.id}`);
+    for (const v of ['me', 'not-me', 'anyone', 'now-me', 'now-anyone']) expect(readByValue(v)).toBe(v);
+    expect(readByValue('now-not-me')).toBe('');
+    expect(readByValue('x')).toBe('');
+    // the search box's menu shows the value selected, which it couldn't while the value was echoed as typed
+    expect(await html(asha, `/search?q=ravi&readBy=0${ravi.id}`)).toContain(`<option value="${ravi.id}" selected`);
+    // saved from the bar as typed, and — as a view saved before this was written canonically — stored as typed
+    const saved = await as(asha, `/libraries/${lib.id}/views`, { body: { name: 'Read by ravi', params: `status=completed&readBy=0${ravi.id}` } });
+    expect(saved.status).toBe(302);
+    const fromBar = (await listSavedViews(env.DB, lib.id)).find((v) => v.name === 'Read by ravi')!;
+    expect(fromBar.params).toBe(`status=completed&readBy=${ravi.id}`);
+    const stored = await saveView(env.DB, { libraryId: lib.id, name: 'Ravi reading', params: `readBy=now-0${ravi.id}&sort=title`, createdBy: asha.id });
+    const older = await saveView(env.DB, { libraryId: lib.id, name: 'Old finished', params: `status=completed&readBy=00${ravi.id}`, createdBy: asha.id });
+    expect(await html(asha, `/libraries/${lib.id}?saved=${older}`)).not.toContain('Nobody read this');
+    await deleteUser(env.DB, ravi.id);
+    const newcomer = await member('newcomer');
+    expect(newcomer.id).toBe(ravi.id); // ids are reused (#56)
+    await addPastRead(env.DB, other.id, { status: 'completed', beganOn: null, endedOn: '2026-02-10' }, newcomer.id);
+    const views = new Map((await listSavedViews(env.DB, lib.id)).map((v) => [v.id, v.params]));
+    expect(views.get(fromBar.id)).toBe('status=completed');
+    expect(views.get(stored!)).toBe('sort=title');
+    expect(views.get(older!)).toBe('status=completed');
+    // "completed by anyone" now: ravi's unattributed read is listed with the newcomer's, and nothing is theirs by name
+    for (const id of [fromBar.id, older!]) {
+      const page = await html(asha, `/libraries/${lib.id}?saved=${id}`);
+      expect(page).toContain('Read by Ravi');
+      expect(page).toContain('Nobody read this');
+      expect(page).not.toContain(`value="${newcomer.id}" selected`);
+    }
   });
 
   it('never reaches a share: the publish form carries none of a view\'s keys, and the backup lists the table', async () => {
