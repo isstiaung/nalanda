@@ -149,17 +149,22 @@ describe('the item page', () => {
     expect(page).not.toContain('<td>newcomer</td>');
   });
 
-  it('lets go of changes older than the kept days when an admin reads, and of an item’s when the item goes', async () => {
+  it('lets go of changes older than the kept days at the next item write — never on a read — and of an item’s when the item goes', async () => {
     const { item } = await shelf();
     const asha = await member('asha', 'admin');
     const book = await item({ title: 'Aging' });
+    const other = await item({ title: 'Another' });
     await updateItem(env.DB, book.id, { title: 'Aged' });
     await env.DB.prepare(`UPDATE item_history SET at = datetime('now', '-${HISTORY_DAYS + 1} days') WHERE item_id = ?1`).bind(book.id).run();
-    await updateItem(env.DB, book.id, { title: 'Aged twice' });
-    expect(await history(book.id)).toHaveLength(2);
-    const page = await html(asha, `/items/${book.id}`);
-    expect(page).toContain('1 change');
+    // an admin's read is read-only: the old row is still there, and listed
+    expect(await html(asha, `/items/${book.id}`)).toContain('1 change');
     expect(await history(book.id)).toHaveLength(1);
+    // any item's write sweeps it, with the index on `at`
+    await updateItem(env.DB, other.id, { title: 'Another, renamed' });
+    expect(await history(book.id)).toHaveLength(0);
+    await updateItem(env.DB, book.id, { title: 'Aged twice' });
+    expect(await history(book.id)).toHaveLength(1);
+    expect(await html(asha, `/items/${book.id}`)).toContain('1 change');
     await as(asha, `/items/${book.id}/delete`, { body: {} });
     expect(await history(book.id)).toEqual([]);
   });

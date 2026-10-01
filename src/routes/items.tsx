@@ -776,7 +776,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const viewer = viewerOf(c);
   // "Recommend to…" (§16 #58): its queries ride in the reading log's batch — no call of their own
   const recommend = await recommendOnItemPage(c, item);
-  // the item's history (§16 #84), admins only: its purge and read ride in the reading log's batch too
+  // the item's history (§16 #84), admins only: its read rides in the reading log's batch too
   const history = viewer.admin ? itemHistoryStatements(c.env.DB, id) : [];
   const [lib, tags, loans, people, log, lent, plays, inSeries] = await Promise.all([
     getLibrary(c.env.DB, item.libraryId),
@@ -803,7 +803,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const record = isRecord(item.mediaType);
   const discussion = await itemComments(c, item); // null unless connections are enabled and someone commented
   const recommending = recommend.render(log.extra); // null unless connections are enabled and one is active (§16 #58)
-  const changes = viewer.admin ? historyOf(log.extra[recommend.statements.length + 1]) : null;
+  const changes = viewer.admin ? historyOf(log.extra[recommend.statements.length]) : null;
 
   return page(
     c,

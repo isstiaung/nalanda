@@ -787,10 +787,13 @@ export type Writer = Deleter;
  * — one batch, one transaction, so no other request ever sees the row. With nobody writing, the writes as they are.
  */
 function asWriter(d1: D1Database, who: Writer | undefined, writes: D1PreparedStatement[]): D1PreparedStatement[] {
-  if (!who) return writes;
+  // every item write also lets the history past HISTORY_DAYS go — one indexed delete, so retention holds without a page
+  const sweep = d1.prepare(`DELETE FROM item_history WHERE at < datetime('now', '-${HISTORY_DAYS} days')`);
+  if (!who) return [...writes, sweep];
   return [
     d1.prepare('INSERT OR REPLACE INTO acting (id, user_id, session_key) VALUES (1, ?1, ?2)').bind(who.id, who.sessionKey),
     ...writes,
+    sweep,
     d1.prepare('DELETE FROM acting WHERE id = 1'),
   ];
 }
@@ -4435,12 +4438,12 @@ export type HistoryEntry = {
 };
 
 /**
- * The item page's history read, for admins, in the page's batch: the rows past HISTORY_DAYS purged first, then the
- * item's entries newest first — with the username only while the account is still the one that made the change.
+ * The item page's history read, for admins, in the page's batch — read-only: the item's entries newest first, with
+ * the username only while the account is still the one that made the change. The sweep past HISTORY_DAYS is every
+ * item write's (asWriter), never a page's.
  */
 export function itemHistoryStatements(d1: D1Database, itemId: number): D1PreparedStatement[] {
   return [
-    d1.prepare(`DELETE FROM item_history WHERE at < datetime('now', '-${HISTORY_DAYS} days')`),
     d1
       .prepare(
         `SELECT h.id, h.field, h.before, h.after, h.at, h.changed_by AS changedBy, u.username, (u.session_key = h.changed_key) AS same

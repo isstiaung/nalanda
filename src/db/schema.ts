@@ -308,7 +308,7 @@ export const acting = sqliteTable('acting', {
  * Item history (ARCH.md §16 #84): each change to one of an item's own fields — title, creators, shelf, holding, cover,
  * notes, location… never reads, reviews or plays, which show who did them already — written by the triggers of
  * migration 0050 from whatever path changed it, with the member the `acting` row named, if any. Admin-only on the item
- * page; rows older than HISTORY_DAYS are purged when the page reads them. Values are kept to 200 characters.
+ * page; rows older than HISTORY_DAYS are swept by every item write (asWriter). Values are kept to 200 characters.
  */
 export const itemHistory = sqliteTable(
   'item_history',
@@ -324,7 +324,7 @@ export const itemHistory = sqliteTable(
     changedKey: text('changed_key'), // their session key then (#56): shown as theirs only while it still matches
     at: text('at').notNull().default(now),
   },
-  (t) => [index('idx_item_history_item').on(t.itemId, t.id)],
+  (t) => [index('idx_item_history_item').on(t.itemId, t.id), index('idx_item_history_at').on(t.at)], // `at`: the sweep past HISTORY_DAYS on every item write
 );
 
 export const loginAttempts = sqliteTable('login_attempts', {

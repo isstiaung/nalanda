@@ -16,4 +16,5 @@ CREATE TABLE `item_history` (
 	FOREIGN KEY (`item_id`) REFERENCES `items`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `idx_item_history_item` ON `item_history` (`item_id`,`id`);
+CREATE INDEX `idx_item_history_item` ON `item_history` (`item_id`,`id`);--> statement-breakpoint
+CREATE INDEX `idx_item_history_at` ON `item_history` (`at`);

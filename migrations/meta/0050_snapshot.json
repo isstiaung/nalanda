@@ -1,6 +1,6 @@
 {
-  "id": "849b6f82-4f80-4397-9897-d7d02020246b",
-  "prevId": "28d154ca-e5a3-497d-8f38-ff067e49ab87",
+  "id": "c51737a1-94ce-4907-b869-b1aae81d5ef7",
+  "prevId": "3e3590a2-fef0-4a68-b9e4-02f7f5bfeae9",
   "version": "6",
   "dialect": "sqlite",
   "tables": {
@@ -1432,6 +1432,13 @@
           "columns": [
             "item_id",
             "id"
+          ],
+          "isUnique": false
+        },
+        "idx_item_history_at": {
+          "name": "idx_item_history_at",
+          "columns": [
+            "at"
           ],
           "isUnique": false
         }

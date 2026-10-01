@@ -29,9 +29,11 @@ days — not reads, reviews or plays, which already show who did them.
   nothing (keys are random and the old object is gone); a whole series number without ".0".
 - **Admins only, on the item page**, newest first, at most 200 entries, in a `<details>` under
   Circulation. Its purge and read ride in the reading log's batch (`itemHistoryStatements()`),
-  so an admin's item page makes the calls a member's does; a member's page has no section.
-  **90 days** (`HISTORY_DAYS`): rows older are deleted as an admin reads any item's history; an
-  item's rows go with it (cascade), and a restore from the trash starts fresh under its new id.
+  so an admin's item page makes the calls a member's does and writes nothing; a member's page has
+  no section. **90 days** (`HISTORY_DAYS`): every item write's batch ends with one indexed
+  `DELETE … WHERE at < …` (`idx_item_history_at`), so retention holds whether or not anyone opens a
+  page and no GET scans the table (review on #123); an item's rows go with it (cascade), and a
+  restore from the trash starts fresh under its new id.
 - **Inside the app only.** History reaches no share page or connection — neither whitelist has a
   key for it — and the backup lists `item_history` (and the empty-between-batches `acting`).
 
