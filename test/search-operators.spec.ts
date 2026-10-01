@@ -163,4 +163,18 @@ describe('the Search page', () => {
     const none = await html(admin, '/search?q=tag%3Anothing');
     expect(none).toContain('Nothing found for');
   });
+
+  it('answers a NUL byte in the box with a page, as it answers every other hostile shape', async () => {
+    const { leftHand } = await seed();
+    const admin = await member('admin', 'admin');
+    // FTS5 reads the bound MATCH expression as a C string: a NUL inside a phrase ended it mid-quote — "unterminated
+    // string", a 500 — where unbalanced quotes, NEAR and ten kilobytes all answered 200
+    expect(ftsMatch(parseSearch('the\u0000left'))).toBe('"the left"*');
+    for (const q of ['\u0000', 'the\u0000left', 'title:"a\u0000b"', 'author:le\u0000guin \u007f']) {
+      const res = await as(admin, `/search?q=${encodeURIComponent(q)}`);
+      expect(res.status, JSON.stringify(q)).toBe(200);
+    }
+    // the words either side of it still search, as the phrase they are
+    expect(ids(await searchItems(env.DB, 'the\u0000left'))).toEqual([leftHand.id]);
+  });
 });

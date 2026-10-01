@@ -165,9 +165,13 @@ function uniq<T>(values: T[], key: (v: T) => unknown = (v) => v): T[] {
   return out;
 }
 
-/** An FTS5 phrase matched as a prefix, with the characters FTS5 would read as syntax taken out; '' when nothing is left. */
+/**
+ * An FTS5 phrase matched as a prefix, with the characters FTS5 would read as syntax taken out — and the control
+ * characters: the MATCH expression is bound as one string, which FTS5's parser reads as a C string, so a NUL inside a
+ * phrase ended it mid-quote ("unterminated string", a 500) where every other byte searched. '' when nothing is left.
+ */
 function phrase(t: string): string {
-  const clean = t.replace(/["'*^:]/g, ' ').trim();
+  const clean = t.replace(/["'*^:\u0000-\u001f\u007f]/g, ' ').trim();
   return clean ? `"${clean}"*` : '';
 }
 
