@@ -4343,8 +4343,16 @@ const authorTokens = (creators: string | null): string[] =>
 /** First author's surname: the last token of the name. */
 const surname = (creators: string | null) => authorTokens(creators).at(-1) ?? '';
 
-/** The whole first-author name, its tokens sorted: the same person however the name is ordered or spaced. */
-const authorKey = (creators: string | null) => [...authorTokens(creators)].sort().join(' ');
+/**
+ * The whole first-author name, its tokens sorted, initials left out: the same person however the name is ordered,
+ * spaced or initialled — "Ursula Le Guin", "Ursula K. Le Guin" and "Le Guin, Ursula K." agree, "Brian Herbert" and
+ * "Frank Herbert" don't. A name that is only initials keeps them all, so it still has something to agree on.
+ */
+const authorKey = (creators: string | null) => {
+  const tokens = authorTokens(creators);
+  const named = tokens.filter((t) => t.length > 1);
+  return [...(named.length ? named : tokens)].sort().join(' ');
+};
 
 /** The stem and surname a row and a book meet on. Exported for tests; matching itself goes through TitleIndex. */
 export const titleKey = (title: string, creators: string | null) => `${normTitle(title)}|${surname(creators)}`;
@@ -4353,8 +4361,9 @@ export const titleKey = (title: string, creators: string | null) => `${normTitle
  * Books by title and author, for everything that matches a row to a book already here without an ISBN: the
  * Goodreads, StoryGraph and LibraryThing imports (§16 #14, #87), the Kindle import (§16 #77) and Discover. A row meets
  * a book when the stems and the first author's surname agree — "The Dispossessed: An Ambiguous Utopia" meets "The
- * Dispossessed", a series suffix is ignored — and, when both name an author, the whole name agrees too (authorKey),
- * written either way round: Brian Herbert's "Dune: House Atreides" never meets Frank Herbert's "Dune". A title whose
+ * Dispossessed", a series suffix is ignored — and, when both name an author, the whole name agrees too (authorKey:
+ * initials aside, written either way round): Brian Herbert's "Dune: House Atreides" never meets Frank Herbert's
+ * "Dune". A title whose
  * stem is empty meets nothing. Among several books on one key the one added last is found, as before.
  */
 export class TitleIndex<T = number> {

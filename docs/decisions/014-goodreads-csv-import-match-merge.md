@@ -19,7 +19,8 @@ normalised by Unicode letters and digits, not ASCII — the old rule reduced eve
 Cyrillic or CJK title to "", so two books by one author matched on the surname alone — and
 a row whose stem is empty matches nothing. A subtitle after ":" is still dropped (so "The
 Dispossessed: An Ambiguous Utopia" meets "The Dispossessed"), but a title-and-author match
-now needs the whole first-author name to agree, its tokens compared as a set so "Le Guin,
-Ursula K." meets "Ursula K. Le Guin": Brian Herbert's "Dune: House Atreides" no longer
-merges onto Frank Herbert's "Dune". `TitleIndex` in src/db/queries.ts carries the rule for
+now needs the whole first-author name to agree, its tokens compared as a set with initials
+ignored (a name that is only initials keeps them), so "Ursula Le Guin", "Ursula K. Le Guin"
+and "Le Guin, Ursula K." all agree, as "N. K. Jemisin" and "N.K. Jemisin" do: Brian Herbert's
+"Dune: House Atreides" no longer merges onto Frank Herbert's "Dune". `TitleIndex` in src/db/queries.ts carries the rule for
 the three merging imports, the Kindle import (#77) and Discover (#78).

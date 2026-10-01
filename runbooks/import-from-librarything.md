@@ -56,7 +56,7 @@ run and merge instead of duplicating.
 ## Matching and merge rules
 
 The same as Goodreads': a row is matched by **ISBN-13 → ISBN-10 → normalized title +
-first author** (the surname and then the whole name, in any script; the turned-round author
+first author** (the surname and then the whole name, initials aside, in any script; the turned-round author
 matches the usual order); on a match
 LibraryThing wins for *your* rating and review, the book's notes keep what they had with the
 comments added after, and your reads are **added and never

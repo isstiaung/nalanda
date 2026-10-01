@@ -343,6 +343,8 @@ describe('goodreads match-and-merge import', () => {
     const anna = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'Анна Каренина', creators: 'Лев Толстой', copies: 1, details: '{}' });
     const dune = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'Dune', creators: 'Frank Herbert', copies: 1, details: '{}' });
     const dots = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: '...', creators: 'Someone', copies: 1, details: '{}' });
+    const leGuin = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'The Dispossessed', creators: 'Ursula K. Le Guin', copies: 1, details: '{}' });
+    const jemisin = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'The Fifth Season', creators: 'N. K. Jemisin', copies: 1, details: '{}' });
     const row = (title: string, creators: string) => ({
       item: { libraryId: lib.id, mediaType: 'book' as const, title, creators, status: 'completed' as const, rating: 4, review: 'Not for me', copies: 0, details: '{}' },
       tags: [],
@@ -353,11 +355,18 @@ describe('goodreads match-and-merge import', () => {
       row('???', 'Someone'), // nothing left of either title: new, never a match on the surname alone
       row('Dune', 'Herbert, Frank'), // the same author written round the other way: a match
       row('Анна Каренина (Russian edition)', 'Толстой, Лев'), // and so with a suffix: a match
+      // initials are ignored, as the surname rule always was: three spellings of one person all meet her book
+      row('The Dispossessed: An Ambiguous Utopia', 'Ursula Le Guin'),
+      row('The Dispossessed', 'Ursula K. Le Guin'),
+      row('The Dispossessed', 'Le Guin, Ursula K.'),
+      row('The Fifth Season (The Broken Earth, #1)', 'N.K. Jemisin'),
     ]);
-    expect(result).toMatchObject({ inserted: 3, merged: 2 });
+    expect(result).toMatchObject({ inserted: 3, merged: 6 });
     expect((await getItem(env.DB, anna.id))!.rating).toBe(4);
     expect((await getItem(env.DB, dune.id))!.rating).toBe(4);
     expect((await getItem(env.DB, dots.id))!.rating).toBeNull();
+    expect((await getItem(env.DB, leGuin.id))!.rating).toBe(4);
+    expect((await getItem(env.DB, jemisin.id))!.rating).toBe(4);
     const { items } = await listItems(env.DB, lib.id, { owned: false });
     expect(items.map((i) => i.title).sort()).toEqual(['???', 'Dune: House Atreides', 'Война и мир']);
   });
