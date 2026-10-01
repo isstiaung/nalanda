@@ -4181,10 +4181,11 @@ export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1Pr
     const reviews = stampReviews(r.reviews ?? reviewsFromColumns(r.item));
     // A row dated by its file (§16 #90) keeps the time of its insert in created_at, so its stamp to connections is
     // still the second it was made here: ids are reused, and two books added over there on one day are the common case.
+    // A row that brings its own time — a trash restore, giving the book back the stamp it had — keeps that.
     const values = withSeries(withReviewState(withReadState(r.item, reads), reviews), r.series);
     const q = db(d1)
       .insert(s.items)
-      .values(r.item.addedAt ? { ...values, createdAt: sql`(datetime('now'))` } : values)
+      .values(r.item.addedAt && r.item.createdAt == null ? { ...values, createdAt: sql`(datetime('now'))` } : values)
       .returning({ id: s.items.id })
       .toSQL();
     writes.push(...seriesUpsert(d1, r.series));
@@ -4693,7 +4694,13 @@ export async function restoreFromTrash(d1: D1Database, trashId: number, members:
   const shelf = await shelfForRestore(d1, row.libraryId, row.libraryName);
   if (shelf === null) return { refused: 'no-shelf', shelf: row.libraryName };
   const { seriesId: _series, ...rest } = p.item as Record<string, unknown> & { seriesId?: unknown };
-  const item = { ...rest, libraryId: shelf, addedBy: who(rest['addedBy'] as number | null) } as NewItem;
+  // the time its stamp to connections was taken from (§16 #90), so a book back under its own id is still that book
+  const item = {
+    ...rest,
+    libraryId: shelf,
+    addedBy: who(rest['addedBy'] as number | null),
+    createdAt: (rest['createdAt'] as string | null | undefined) ?? (rest['addedAt'] as string),
+  } as NewItem;
   const importRow: ImportRow = {
     item,
     tags: p.tags ?? [],

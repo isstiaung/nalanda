@@ -32,8 +32,10 @@ page, since it moves them on every shelf.
   `created_at`, and a book re-dated twice keeps the time it was first made here. A row a file
   dates on insert takes its insert time in `created_at` there and then (review on #130): the newest
   id is reused after a delete, and a reading site's export has many books added on one day, so a
-  stamp of the id and the file's day alone could name the deleted book's successor. Internal, like
-  `session_key`: not a user-visible field, so not in the export.
+  stamp of the id and the file's day alone could name the deleted book's successor. A row that brings
+  its own time keeps it: a trash restore (#74) passes the snapshot's `created_at ?? added_at`, so a
+  book back under its own id is still that book to a connection. Internal, like `session_key`: not a
+  user-visible field, so not in the export.
 - **Nothing else moves.** `updated_at` stays — nothing a connection sees has changed — and the item
   history trigger (#84) lists neither column, so a re-import of hundreds of books writes no history.
   Where the date shows — a shelf's newest-first order, "Unread for years", the item page's Added
