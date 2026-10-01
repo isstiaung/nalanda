@@ -6,20 +6,24 @@ import {
   createCustomField,
   createUser,
   deleteCustomField,
+  deleteDisplayFont,
   deleteTranslation,
   deleteUser,
   getUserById,
   listUsers,
   membersSettings,
+  setDisplayFont,
   setDisplayName,
   setPassword,
   setTranslation,
   updateCustomField,
   updateSiteSettings,
+  type DisplayFontRow,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { hashPassword, tempPassword } from '../lib/auth';
 import { cleanCustomName, CUSTOM_FIELD_LIMIT, isCustomKind, MAX_CUSTOM_NAME } from '../lib/custom';
+import { cleanFontName, deleteFont, FONT_MAX_BYTES, FONT_MIN_BYTES, sniffFontType, storeFont } from '../lib/fonts';
 import { currencyCodes, currencyName, isCurrencyCode } from '../lib/money';
 import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
 import { invalid } from '../views/components';
@@ -212,6 +216,10 @@ const UsersPage = ({
   fieldsError,
   fieldsErrorField,
   translations,
+  fonts,
+  fontError,
+  fontErrorField,
+  fontNotice,
 }: {
   users: User[];
   self: number;
@@ -224,6 +232,10 @@ const UsersPage = ({
   fieldsError?: string;
   fieldsErrorField?: number | null; // which field a refusal names; null is the add form
   translations: TranslationRow[];
+  fonts: DisplayFontRow[];
+  fontError?: string;
+  fontErrorField?: 'locale' | 'file'; // which of the upload's fields a refusal names
+  fontNotice?: 'saved' | 'removed';
 }) => {
   const { t, n } = useI18n();
   return (
@@ -339,25 +351,42 @@ const UsersPage = ({
       <CurrencySection currency={currency} error={currencyError} />
       <LanguageSection language={language} />
       <TranslationsSection translations={translations} />
+      <DisplayFontSection fonts={fonts} language={language} error={fontError} errorField={fontErrorField} notice={fontNotice} />
     </>
   );
 };
 
-type UsersPageExtras = Partial<Pick<Parameters<typeof UsersPage>[0], 'minted' | 'error' | 'currencyError' | 'fieldsError' | 'fieldsErrorField'>>;
+type UsersPageExtras = Partial<
+  Pick<Parameters<typeof UsersPage>[0], 'minted' | 'error' | 'currencyError' | 'fieldsError' | 'fieldsErrorField' | 'fontError' | 'fontErrorField' | 'fontNotice'>
+>;
 
 /**
  * The Members page with everything it lists — the members, and in one call the household's settings, its custom
- * fields (§16 #95) and its own translations (§16 #93) — read in parallel; `status` for a refusal shown on it.
+ * fields (§16 #95), its own translations (§16 #93) and its display fonts (§16 #96) — read in parallel; `status` for a
+ * refusal shown on it.
  */
 async function membersPage(c: Context<AppEnv>, extras: UsersPageExtras = {}, status?: ContentfulStatusCode) {
-  const [users, { settings: site, customFields: fields, translations }] = await Promise.all([listUsers(c.env.DB), membersSettings(c.env.DB)]);
+  const [users, { settings: site, customFields: fields, translations, fonts }] = await Promise.all([listUsers(c.env.DB), membersSettings(c.env.DB)]);
   if (status) c.status(status);
   return page(c, c.get('i18n').t('members.title'), (
-    <UsersPage users={users} self={c.get('user').id} currency={site.currency} language={site.language} fields={fields} translations={translations} {...extras} />
+    <UsersPage
+      users={users}
+      self={c.get('user').id}
+      currency={site.currency}
+      language={site.language}
+      fields={fields}
+      translations={translations}
+      fonts={fonts}
+      {...extras}
+    />
   ));
 }
 
-settings.get('/settings/users', (c) => membersPage(c));
+settings.get('/settings/users', (c) => {
+  // the display font's upload and Remove land back here and say so (§16 #96): a fixed word in the query, nothing more
+  const font = c.req.query('font');
+  return membersPage(c, { fontNotice: font === 'saved' || font === 'removed' ? font : undefined });
+});
 
 // ---------- custom fields (ARCH.md §16 #95) ----------
 
@@ -521,6 +550,155 @@ settings.post('/settings/translations/:locale/delete', async (c) => {
   const locale = c.req.param('locale');
   if (isLocale(locale)) await deleteTranslation(c.env.DB, locale);
   return c.redirect('/settings/users#translations');
+});
+
+/** A font's size on Members: whole kilobytes, never 0. */
+const kilobytes = (bytes: number) => Math.max(1, Math.round(bytes / 1024));
+const FONT_MAX_MB = FONT_MAX_BYTES / (1024 * 1024);
+
+/**
+ * The household's display fonts (§16 #96): per shipped locale, the face its titles take — the household's own file,
+ * named with its size and a Remove, or the shipped faces — and one upload form, a language and a file. The file's
+ * name is shown here alone; a page in that language reads only the font's key and format.
+ */
+const DisplayFontSection = ({
+  fonts,
+  language,
+  error,
+  errorField,
+  notice,
+}: {
+  fonts: DisplayFontRow[];
+  language: string;
+  error?: string;
+  errorField?: 'locale' | 'file';
+  notice?: 'saved' | 'removed';
+}) => {
+  const { t } = useI18n();
+  const household = resolveLocale(null, { language });
+  const described = (field: 'locale' | 'file', help?: string) =>
+    [error && errorField === field ? 'display-font-error' : null, help].filter(Boolean).join(' ') || undefined;
+  return (
+    <section class="settings-section" id="display-font" aria-labelledby="display-font-head">
+      <p class="eyebrow" id="display-font-head">
+        {t('members.font')}
+      </p>
+      <p class="muted">{t('members.font_intro')}</p>
+      {notice ? <p class="notice">{t(notice === 'saved' ? 'members.font_saved' : 'members.font_removed')}</p> : null}
+      {error ? (
+        <p class="error" role="alert" id="display-font-error">
+          {error}
+        </p>
+      ) : null}
+      <ul class="token-list">
+        {locales.map((l) => {
+          const font = fonts.find((f) => f.locale === l);
+          return (
+            <li>
+              <span>
+                {font
+                  ? t('members.font_present', { language: LOCALE_NAMES[l], name: font.name, kb: kilobytes(font.bytes), date: ledgerDate(font.uploadedAt) })
+                  : t('members.font_shipped', { language: LOCALE_NAMES[l] })}
+              </span>
+              {font ? (
+                <form method="post" action={`/settings/display-fonts/${l}/delete`} class="inline-form">
+                  <button type="submit" class="btn-danger">
+                    {t('members.remove')}
+                  </button>
+                </form>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      <form method="post" action="/settings/display-fonts" enctype="multipart/form-data" class="inline-form">
+        <label for="display-font-locale">{t('members.font_for')}</label>
+        <select
+          id="display-font-locale"
+          name="locale"
+          aria-invalid={error && errorField === 'locale' ? 'true' : undefined}
+          aria-describedby={described('locale')}
+        >
+          {locales.map((l) => (
+            <option value={l} selected={l === household}>
+              {LOCALE_NAMES[l]}
+            </option>
+          ))}
+        </select>
+        <label for="display-font-file">{t('members.font_file')}</label>
+        <input
+          id="display-font-file"
+          name="file"
+          type="file"
+          accept=".woff2,.woff,.ttf,.otf,font/woff2,font/woff,font/ttf,font/otf"
+          required
+          aria-invalid={error && errorField === 'file' ? 'true' : undefined}
+          aria-describedby={described('file', 'display-font-help')}
+        />
+        <button type="submit">{t('members.font_upload')}</button>
+      </form>
+      <p class="muted" id="display-font-help">
+        {t('members.font_formats', { mb: FONT_MAX_MB })} {t('members.font_note')}
+      </p>
+    </section>
+  );
+};
+
+/** The framing around an upload — the boundaries, the locale field, the file part's headers: a few hundred bytes. */
+const MULTIPART_SLACK = 16 * 1024;
+
+/**
+ * Uploads a display font for a shipped locale (§16 #96), admins only like everything under /settings. Refused back to
+ * Members with the reason: past FONT_MAX_BYTES 413 (unread, when the request says so — parsing a multipart body is CPU
+ * in proportion to its size), a locale that isn't shipped or a file that isn't a font by its first bytes 400. Kept as
+ * it came, under a new key; the name is cleaned and shown on Members alone.
+ *
+ * The object first, then the row: R2 isn't in the D1 batch, so the order decides what a failure leaves. Stored first,
+ * a page never names a key whose object isn't there yet. Replacing, the row names the new key before the old object
+ * goes, so no page is ever pointed at a deleted font (a share page cached on another isolate may for up to an hour —
+ * its titles fall back to Eczar). What a failure between the two leaves is an orphaned object no row names: public
+ * bytes, a few hundred KB of storage, never a broken page.
+ */
+settings.post('/settings/display-fonts', async (c) => {
+  const { t } = c.get('i18n');
+  const refuse = (key: `members.font_error_${'locale' | 'file' | 'type' | 'size' | 'store'}`, status: ContentfulStatusCode, field: 'locale' | 'file') =>
+    membersPage(c, { fontError: t(key, { mb: FONT_MAX_MB }), fontErrorField: field }, status);
+  if (Number(c.req.header('content-length') ?? '0') > FONT_MAX_BYTES + MULTIPART_SLACK) return refuse('members.font_error_size', 413, 'file');
+  const body = await c.req.parseBody();
+  const locale = body['locale'];
+  if (!isLocale(locale)) return refuse('members.font_error_locale', 400, 'locale');
+  const file = body['file'] instanceof File && body['file'].size > 0 ? body['file'] : null;
+  if (!file) return refuse('members.font_error_file', 400, 'file');
+  if (file.size > FONT_MAX_BYTES) return refuse('members.font_error_size', 413, 'file');
+  const bytes = await file.arrayBuffer();
+  // under FONT_MIN_BYTES is no font, whatever it opens with; the type is the bytes', never the name's or the browser's
+  const format = bytes.byteLength >= FONT_MIN_BYTES ? sniffFontType(new Uint8Array(bytes, 0, 4)) : null;
+  if (!format) return refuse('members.font_error_type', 400, 'file');
+  const key = await storeFont(c.env.COVERS, bytes, format);
+  if (!key) return refuse('members.font_error_store', 500, 'file');
+  let before: string | null;
+  try {
+    ({ before } = await setDisplayFont(c.env.DB, { locale, key, format, name: cleanFontName(file.name, format), bytes: bytes.byteLength }));
+  } catch (err) {
+    c.executionCtx.waitUntil(deleteFont(c.env.COVERS, key)); // no row names it, and none ever will
+    throw err;
+  }
+  if (before && before !== key) c.executionCtx.waitUntil(deleteFont(c.env.COVERS, before));
+  return c.redirect('/settings/users?font=saved#display-font');
+});
+
+/**
+ * Removes a locale's display font (§16 #96): the row first, then the object — R2 isn't in the D1 batch, and in this
+ * order no page is pointed at a font already gone. A failure between leaves the object orphaned, named by no row:
+ * public bytes nobody loads, never a broken page.
+ */
+settings.post('/settings/display-fonts/:locale/delete', async (c) => {
+  const locale = c.req.param('locale');
+  if (isLocale(locale)) {
+    const key = await deleteDisplayFont(c.env.DB, locale);
+    if (key) c.executionCtx.waitUntil(deleteFont(c.env.COVERS, key));
+  }
+  return c.redirect('/settings/users?font=removed#display-font');
 });
 
 settings.post('/settings/language', async (c) => {

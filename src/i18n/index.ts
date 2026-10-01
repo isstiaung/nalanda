@@ -4,6 +4,7 @@
 // in the `translations` table — overrides the shipped one key by key. The interface follows the household's default
 // language (site_settings.language, §16 #76) unless a member chose another on Account (users.locale); share pages
 // carry the household's. Item data, usernames and display names are never translated.
+import type { DisplayFace } from '../lib/fonts';
 import { en, type StringKey } from './strings';
 import { hi } from './hi';
 import { ta } from './ta';
@@ -74,19 +75,22 @@ export function resolveLocale(user: { locale?: string | null } | null | undefine
   return isLocale(settings.language) ? settings.language : 'en';
 }
 
-/** A locale bound with the household's overrides: what a request renders with. */
+/** A locale bound with the household's overrides — and its display font, if it has one: what a request renders with. */
 export type Translator = {
   locale: Locale;
   /** the shipped strings are a machine draft nobody has checked */
   draft: boolean;
+  /** the household's own display font for this locale (§16 #96), key and format checked; null for the shipped faces */
+  font: DisplayFace | null;
   t: (key: StringKey, params?: Params) => string;
   n: (key: PluralKey, count: number, params?: Params) => string;
 };
 
-export function translator(locale: Locale, overrides?: Overrides | null): Translator {
+export function translator(locale: Locale, overrides?: Overrides | null, font?: DisplayFace | null): Translator {
   return {
     locale,
     draft: PACKS[locale].draft,
+    font: font ?? null,
     t: (key, params) => t(locale, key, params, overrides),
     n: (key, count, params) => n(locale, key, count, params, overrides),
   };

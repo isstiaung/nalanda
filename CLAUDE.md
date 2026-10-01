@@ -135,7 +135,8 @@ the code that enforces it and why — read its section before changing anything 
 - Strings from another instance render only as escaped text — never inside an inline handler such
   as `onsubmit="confirm('…')"`. A comment thread is shown only to its two households.
 - `/covers/:key` is public by design: keys are random UUIDs — never enumerable or derived from item
-  data.
+  data. So is `/fonts/:key` (§16 #96): a household's display font, uploaded by an admin alone, its
+  file nothing personal; a page's `<style>` takes only its UUID-checked key and its format.
 - Discogs' credit ("Data provided by Discogs." + their notice): `discogsLink()` decides — never on a
   record typed in by hand — and builds the href from a numeric release id only. Never `nofollow`.
 - **The service worker never stores a page or an API answer** — only `STATIC` in `public/sw.js` —
@@ -178,10 +179,11 @@ npm run federation:keygen  # Ed25519 identity → FEDERATION_PRIVATE_KEY, printe
 
 ## Layout
 File by file: [docs/layout.md](docs/layout.md). The rules it carries:
-- `src/index.ts`: route order matters — public (share, covers, auth) first, then `requireAuth`,
+- `src/index.ts`: route order matters — public (share, covers, fonts, auth) first, then `requireAuth`,
   then protected routes; Origin-check CSRF on mutations.
 - `src/db/` is the ONLY code touching D1 (`schema.ts`, `queries.ts`, `federation.ts`);
-  `src/metadata/` the only code calling external APIs; `src/lib/covers.ts` the only R2 code.
+  `src/metadata/` the only code calling external APIs; `src/lib/covers.ts` and `src/lib/fonts.ts`
+  (a household's display fonts, §16 #96) the only R2 code.
 - `src/routes/share.tsx` is the public share pages, `shares.tsx` admin share management — don't
   confuse them. Whitelists: `src/lib/share.ts` (public), `src/federation/items.ts` (connections).
 - `migrations/` is append-only. `changelog/` holds `vX.Y.Z.md` per release and `unreleased.md`;

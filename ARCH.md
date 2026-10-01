@@ -607,9 +607,12 @@ GET  /export.csv               everything; ?library=:id to scope; ?after=:id for
                                items or 1,000 loans (x-export-next names the next page) — the
                                Export button's way
 GET  /covers/:key              cover art from R2 (public, unguessable, immutable cache)
+GET  /fonts/:key               a household's display font from R2 (public, unguessable, immutable cache; §16 #96)
 
 GET  /settings/users           admin: create/remove members, reissue temp passwords; the household currency
 POST /settings/currency        admin: set the household currency — an ISO 4217 code (§16 #61)
+POST /settings/display-fonts   admin: upload a display font for a shipped locale, multipart (§16 #96) ·
+                               POST /settings/display-fonts/:locale/delete removes it
 POST /shares                   admin: publish a view (captures shelf + filters + name), or wantUserId=:id — a gift list
 POST /shares/:id               admin: action=rotate | delete
 POST /shares/settings          admin: setting=progress | names (the share-page switches, §16 #34, #45)
@@ -676,7 +679,8 @@ Every authenticated page route returns a full document normally and a partial wh
 │   │                                 # musicbrainz.ts (a record's cover, §16 #67)
 │   ├── federation/                   # connections between instances (§16 #29)
 │   └── lib/                          # auth.ts (pbkdf2, cookie), share.ts (public-field
-│                                     # whitelist), csv.ts, covers.ts, reads.ts, reviews.ts,
+│                                     # whitelist), csv.ts, covers.ts, fonts.ts (§16 #96),
+│                                     # reads.ts, reviews.ts,
 │                                     # plays.ts, names.ts, goals.ts (a goal's pace, §16 #49),
 │                                     # record-covers.ts (§16 #67's provenance and SQL)
 ├── public/                           # app.css, app.js, scanner.js, import.js, covers.js;
@@ -739,8 +743,9 @@ architecture change.
 - CSV export from the UI at any time covers the data in app-agnostic form.
 - Worst-case migration off Cloudflare: the dump is standard SQLite; Hono runs unchanged on
   Node/Bun/Deno; **Drizzle helps here** — it speaks `better-sqlite3` natively, so the port
-  swaps the D1 driver for a file-backed one plus `src/lib/covers.ts` for the filesystem.
-  Covers are re-fetchable from providers even if you skip copying the bucket.
+  swaps the D1 driver for a file-backed one plus `src/lib/covers.ts` and `src/lib/fonts.ts`
+  for the filesystem. Covers are re-fetchable from providers even if you skip copying the
+  bucket; a household's display fonts (§16 #96) are not — keep the files you uploaded.
 
 ## 14. Scope
 
@@ -882,6 +887,7 @@ is a section of this document and "#N" another decision.
 | 91 | 2026-10-01 | [The export guards formula-leading cells with `'`, and a Nalanda import strips exactly one — a title a connection sent never reaches a spreadsheet as a formula](docs/decisions/091-csv-formula-guard.md) |
 | 92 | 2026-10-01 | [`FEDERATION_OFFLINE`: a plain runtime variable under which an instance contacts no connected household, for a copy of the database restored anywhere but production](docs/decisions/092-federation-offline.md) |
 | 95 | 2026-10-01 | [Custom fields: up to ten household fields (text, yes/no, date) on every item form, kept in `items.custom`, private unless a field's own share switch is on, never to connections](docs/decisions/095-custom-fields.md) |
+| 96 | 2026-10-02 | [A household's own display font: one per shipped locale, uploaded by an admin under Members, stored in R2 under a random key, public at `/fonts/<key>`, set in front of Eczar on every page in that language](docs/decisions/096-display-font.md) |
 | 94 | 2026-10-01 | [Rapid batch scanning: "Keep scanning" holds each barcode on the device; "Add all" resolves them twenty a request, as bare records, covers later](docs/decisions/094-rapid-batch-scanning.md) (#93 is taken on another branch) |
 | 93 | 2026-10-01 | [The interface language: one strings table, English the source, Hindi and Tamil machine-drafted and marked so; the interface follows the household's language, a member's own choice over it; a household imports its own translation](docs/decisions/093-interface-language.md) |
 

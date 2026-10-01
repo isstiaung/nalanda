@@ -113,6 +113,11 @@ for a surface before changing anything it shows to someone outside the household
   escaped like any string — on share pages too, where it stands in for the shipped words of those
   same keys and nothing else; never inside an inline handler (the item page's delete confirmation
   moved to `data-confirm` for it).
+- **The household's display font** (ARCH.md §16 #96) changes a share page only by a `<style>` in its
+  head: an `@font-face` from `/fonts/<key>` and `--serif` with it in front — for the **household's**
+  locale, never a member's, so a share page says nothing about what anyone reads the app in. Only the
+  font's key, after its UUID check, and its format's fixed name reach the page (`displayFaceOf()`,
+  `displayFaceCss()`); the file's name and size are shown on Members alone.
 - **The read-only API** (ARCH.md §16 #88, `/api/v1/…`) is a member's own view, behind their token:
   it returns what that member's pages show — private notes, locations, prices included — to the
   holder of the token and nobody else. It is not a share: no route is public, a cookie never signs
@@ -260,6 +265,12 @@ for a surface before changing anything it shows to someone outside the household
 
 - `/covers/:key` is intentionally public — keys are random UUIDs; never make them
   enumerable or derived from item data.
+- `/fonts/:key` is public too (ARCH.md §16 #96), before the session middleware, since the login page
+  and share pages set their titles in the household's display font: its key is a random UUID like a
+  cover's, and a font file carries nothing about the household — no name, no item, no member. Only
+  an admin uploads or removes one (`/settings/*`); the upload form says the file becomes public like
+  a cover, and that its licence is the household's responsibility. `/fonts/` serves only objects
+  stored as fonts and `/covers/` never serves one, though they share the bucket.
 - **The service worker never stores a page or an API answer** (ARCH.md §16 #48): only the
   files in `STATIC` in `public/sw.js`, and it leaves `/share/*` entirely alone. Held scans —
   offline, or with "Keep scanning" on (§16 #94): one queue — hold a barcode and a time, nothing

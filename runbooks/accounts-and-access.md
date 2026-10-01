@@ -32,6 +32,16 @@ under **Members → Interface translations** (this household's own words, key by
 included; **Remove** clears it) or open a pull request so everyone gets it. A file larger than 200 KB
 is refused; keys the table doesn't know are ignored and counted in the message.
 
+**Display font** (ARCH.md §16 #96). Titles and the brand are set in Eczar, with Tiro Tamil for Tamil.
+Under **Members → Display font** an admin can upload a face of the household's own for a language —
+a `.woff2`, `.woff`, `.ttf` or `.otf` file of 1 KB to 2 MB, recognised by its contents, not its name —
+and every page in that language, the login page and share pages included, sets its titles in it;
+any letter it lacks falls back to the shipped faces. Uploading again for that language replaces it;
+**Remove** goes back to the shipped faces. The file becomes public like a cover (anyone with its
+address can download it), and its licence is the household's responsibility: upload only a font you
+may use on a website. Keep the file — unlike covers, nothing can fetch it again
+([backup runbook](backup-and-restore.md)).
+
 ## Someone forgot their password
 
 Settings → *Reset password* next to their name → a new one-time temp password is shown.

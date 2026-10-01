@@ -30,6 +30,7 @@ export const TABLES = [
   'site_settings',
   'custom_fields', // the household's custom fields (ARCH.md §16 #95): their values ride on items, keyed by these ids
   'translations', // the household's own interface translations (ARCH.md §16 #93): no references
+  'display_fonts', // the household's display fonts (ARCH.md §16 #96): no references; the files themselves are in R2
   'series', // before items, which reference it (§16 #52)
   'items',
   'editions', // "also held as" lines (ARCH.md §16 #75): after items, which they reference
