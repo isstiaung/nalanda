@@ -21,25 +21,35 @@ export const TZ_COOKIE = 'tz';
 /** Plausible IANA zone names only — "Asia/Kolkata", "America/Argentina/Buenos_Aires", "UTC" — before Intl sees one. */
 const ZONE_SHAPE = /^[A-Za-z][A-Za-z0-9_+-]{0,30}(?:\/[A-Za-z0-9_+-]{1,30}){0,2}$/;
 
+// One formatter per zone, kept for the isolate's life: a page asks for today several times a request, and there are
+// a few hundred zones at most. A zone the runtime refuses is remembered as null, so it's probed once.
+const formatters = new Map<string, Intl.DateTimeFormat | null>();
+
+function formatterFor(zone: string): Intl.DateTimeFormat | null {
+  let f = formatters.get(zone);
+  if (f === undefined) {
+    try {
+      f = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    } catch {
+      f = null;
+    }
+    formatters.set(zone, f);
+  }
+  return f;
+}
+
 /**
  * The zone a `tz` cookie names, when this runtime can keep time in it; otherwise 'UTC'. The name as given, not the
  * runtime's canonical one (ICU answers "Asia/Calcutta" for Asia/Kolkata): either keeps the same time.
  */
 export function zoneOf(cookie: string | undefined): string {
   if (!cookie || !ZONE_SHAPE.test(cookie)) return 'UTC';
-  try {
-    new Intl.DateTimeFormat('en-CA', { timeZone: cookie });
-    return cookie;
-  } catch {
-    return 'UTC';
-  }
+  return formatterFor(cookie) ? cookie : 'UTC';
 }
 
 /** "2026-10-02": the calendar day it is in `zone` at `at` (milliseconds since the epoch; now by default). */
 export function todayIn(zone: string, at: number = Date.now()): string {
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(
-    new Date(at),
-  );
+  const parts = (formatterFor(zone) ?? formatterFor('UTC')!).formatToParts(new Date(at));
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
   return `${get('year').padStart(4, '0')}-${get('month')}-${get('day')}`;
 }
