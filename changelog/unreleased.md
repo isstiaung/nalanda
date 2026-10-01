@@ -16,6 +16,7 @@ for what a host must do; link runbooks as ../runbooks/…); a release commit ren
 
 ### Fixed
 - **A Goodreads, StoryGraph, LibraryThing or Kindle import no longer merges one book onto another.** Matching by title and author reduced every title in Tamil, Cyrillic, Devanagari or CJK to nothing, so a second book by the same author merged its rating, review, notes and reads onto the first and was never added; and a title's subtitle was dropped before matching, so Brian Herbert's *Dune: House Atreides* merged onto Frank Herbert's *Dune*. Titles in every script now keep their words, a title with none left matches nothing, and a title-and-author match needs the whole first-author name to agree — "Le Guin, Ursula K." still meets "Ursula K. Le Guin" ([ARCH.md §16 #14](../docs/decisions/014-goodreads-csv-import-match-merge.md), amended).
+- **Quotes keep their writer through a Nalanda re-import.** An admin importing a household's export got every quote as their own, a former member's included; a quote now stays with the member of that name, a former member's with nobody, as the reads and reviews beside it do.
 
 ### Upgrading
 - **One migration, 0051: a new `api_tokens` table, no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. The backup's table order gains `api_tokens`.

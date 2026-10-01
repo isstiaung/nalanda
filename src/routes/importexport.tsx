@@ -263,8 +263,9 @@ importexport.post('/api/import', async (c) => {
   const members = new Map(people.map((p) => [p.username, p.id]));
   const tally: PeopleTally = new Map();
   const withOwners = mapped.map((m) => {
-    const { reads, reviews, plays, wants } = attributePeople(m, members, user.id, tally, keepNames);
-    return { ...m, reads, reviews, plays, wants, item: { ...m.item, libraryId, addedBy: user.id } };
+    // quotes too (§16 #77): left as the file names them, every one would be the importer's (quoteInsertStatements)
+    const { reads, reviews, plays, wants, quotes } = attributePeople(m, members, user.id, tally, keepNames);
+    return { ...m, reads, reviews, plays, wants, quotes, item: { ...m.item, libraryId, addedBy: user.id } };
   });
 
   if (body.dryRun) {

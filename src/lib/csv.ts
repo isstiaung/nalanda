@@ -22,7 +22,7 @@ import {
 import { formatLinksCell, formatWantsCell, parseLinksCell, parseWantsCell, type CellWant, type LinkDraft } from './links';
 import { formatEditionsCell, formatFormatsCell, parseEditionsCell, parseFormatsCell, type EditionDraft, normalizeFormats } from './formats';
 import { DEFAULT_LANGUAGE, languageFromProvider } from './language';
-import { formatQuotesCell, parseQuotesCell, type CellQuote } from './quotes';
+import { formatQuotesCell, parseQuotesCell, type CellQuote, type PersonQuote } from './quotes';
 import { formatLoansCell, parseLoansCell, type LoanDraft } from './loans';
 import { formatPlaysCell, parsePlaysCell, type CellPlay, type PersonPlay } from './plays';
 import { formatReviewsCell, parseReviewsCell, summarizeReviews, type CellReview, type PersonReview } from './reviews';
@@ -548,7 +548,7 @@ export function attributePeople(
   importer: number,
   tally?: PeopleTally,
   keepNames = true,
-): { reads?: PersonRead[]; reviews?: PersonReview[]; plays?: PersonPlay[]; wants?: Array<{ userId: number; at: string | null }> } {
+): { reads?: PersonRead[]; reviews?: PersonReview[]; plays?: PersonPlay[]; wants?: Array<{ userId: number; at: string | null }>; quotes?: PersonQuote[] } {
   const resolve = (name: string | null | undefined): number | null =>
     !keepNames || name === undefined ? importer : name === null ? null : (members.get(name) ?? importer);
   const count = (name: string | null | undefined, what: 'reads' | 'reviews' | 'wants', n = 1) => {
