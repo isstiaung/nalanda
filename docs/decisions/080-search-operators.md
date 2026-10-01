@@ -20,6 +20,10 @@ column is indexed and plain filters where it isn't, and an unknown prefix left a
   code or an English name (`languageCode()`). `type:` is book, game, record and their plurals and
   synonyms. **A value an operator can't read, like an unknown prefix, is searched as the text it
   is** (`status:maybe`, `re:zero`, `12:30`), so nothing typed is silently dropped.
+- **Ten values per operator.** Each tag:, status:, year:, lang: and type: value is a bound
+  parameter (a range two) and D1 refuses a statement with more than a hundred, so a pasted query
+  of fifty `type:book` tokens must still be a search: the same value counts once, the first ten
+  distinct values of an operator apply, the rest are ignored (`MAX_PER_OPERATOR`; review on #119).
 - **One id query, two calls, as before.** `searchItems()` builds the FTS5 MATCH expression
   (`ftsMatch()`) and puts the filters inside the same statement as `rowid IN (SELECT id FROM items
   WHERE …)`, so a narrowed search still finds up to the limit and the page's D1 calls don't change.
