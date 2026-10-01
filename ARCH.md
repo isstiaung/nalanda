@@ -513,6 +513,12 @@ portable, and makes share routes trivially public. CF Access remains available l
 - **Money is never published** (§16 #61). The purchase price and its currency are columns no whitelist carries, and
   `toPublicItem()` drops money keys — libib's `price`, which a libib import used to put in `details` — from the
   details it publishes, so share pages and connections never carry a price, however it got into the catalog.
+- **Custom fields are private unless a field says otherwise** (§16 #95). The household's own fields —
+  up to ten, text, yes/no or date, defined by an admin under Members — keep their values in `items.custom`,
+  never in `details`. `toPublicItem()` adds a `custom` key, each value by its field's *name*, only for
+  fields whose own "Show on share pages" switch is on (off by default), and only on a shared item's page,
+  which passes the fields in; listings, feeds and gift lists are unchanged. Never to connections, whatever
+  the switch says.
 - **Who read what is never published.** The shelf's "Read by" filter isn't one of the
   filters a view captures, so no link can be made of it (§16 #43).
 - **Reading goals never reach a share page** (§16 #49): no field of `toPublicItem()` carries one, and
@@ -875,6 +881,7 @@ is a section of this document and "#N" another decision.
 | 90 | 2026-10-01 | [An import dates a book by the file's "date added"; a re-import re-dates the books already here only when asked, the row's own time kept for the stamp connections hold](docs/decisions/090-import-date-added.md) |
 | 91 | 2026-10-01 | [The export guards formula-leading cells with `'`, and a Nalanda import strips exactly one — a title a connection sent never reaches a spreadsheet as a formula](docs/decisions/091-csv-formula-guard.md) |
 | 92 | 2026-10-01 | [`FEDERATION_OFFLINE`: a plain runtime variable under which an instance contacts no connected household, for a copy of the database restored anywhere but production](docs/decisions/092-federation-offline.md) |
+| 95 | 2026-10-01 | [Custom fields: up to ten household fields (text, yes/no, date) on every item form, kept in `items.custom`, private unless a field's own share switch is on, never to connections](docs/decisions/095-custom-fields.md) |
 | 94 | 2026-10-01 | [Rapid batch scanning: "Keep scanning" holds each barcode on the device; "Add all" resolves them twenty a request, as bare records, covers later](docs/decisions/094-rapid-batch-scanning.md) (#93 is taken on another branch) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React

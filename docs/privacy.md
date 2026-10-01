@@ -95,6 +95,14 @@ for a surface before changing anything it shows to someone outside the household
 - **Item history** (ARCH.md §16 #84) is admin-only and inside the app: `item_history` holds before and
   after values of an item's own fields — notes and location among them — and who changed them; no
   whitelist has a key for it, and a share page's bytes are unchanged by it.
+- **Custom fields** (ARCH.md §16 #95) — the household's own, up to ten, text, yes/no or date, defined by an
+  admin under Members — keep their values in `items.custom`, their own column and never `details`, which is
+  published. A field is **private by default**: its values reach a share page only while its own "Show on
+  share pages" switch is on, and then only on the shared item's page, by the field's name
+  (`toPublicItem(item, { customFields })` → `custom: [{ name, kind, value }]`, filtered by `publicCustom()`
+  whatever list it is given) — never a field's id, never the raw column, never on listings, feeds, link
+  previews or gift lists, whose bytes are unchanged by a field's existence. The export's `custom` cell is
+  by name and `custom` is in `PRIVATE_COLUMNS`, so no other format's import puts one into `details`.
 - **The read-only API** (ARCH.md §16 #88, `/api/v1/…`) is a member's own view, behind their token:
   it returns what that member's pages show — private notes, locations, prices included — to the
   holder of the token and nobody else. It is not a share: no route is public, a cookie never signs
@@ -192,6 +200,10 @@ for a surface before changing anything it shows to someone outside the household
   activity only while a connection view exists (migration 0007), dated by when it happened —
   an import's batch brackets itself with `import_in_progress` so old reads aren't news
   (migration 0021, ARCH.md §16 #40).
+- **Custom fields never reach a connection** (ARCH.md §16 #95): `ConnectionItem` omits `toPublicItem()`'s
+  `custom` key and `toConnectionItem()` passes no fields, so shelves, item pages, feeds and recommendations
+  carry neither a field's name nor a value, whatever its share switch says — the switch is about share pages,
+  and the fields are the household's own.
 - Strings from another instance — household names, view names, feed entries, members' names (`by`, `reviews`), comments,
   recommendations (title, creators, the name it's signed with, the note) —
   render only as escaped text. Every *name* among them — a feed entry's `by`, a review's, a recommender's, a

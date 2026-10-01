@@ -1,13 +1,30 @@
-import { Hono } from 'hono';
-import type { User } from '../db/schema';
-import { createUser, deleteUser, getSiteSettings, getUserById, listUsers, setDisplayName, setPassword, updateSiteSettings } from '../db/queries';
+import { Hono, type Context } from 'hono';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import type { CustomField, User } from '../db/schema';
+import { CUSTOM_KINDS } from '../db/schema';
+import {
+  createCustomField,
+  createUser,
+  deleteCustomField,
+  deleteUser,
+  getSiteSettingsAndCustomFields,
+  getUserById,
+  listUsers,
+  setDisplayName,
+  setPassword,
+  updateCustomField,
+  updateSiteSettings,
+} from '../db/queries';
 import type { AppEnv } from '../env';
 import { hashPassword, tempPassword } from '../lib/auth';
+import { cleanCustomName, CUSTOM_FIELD_LIMIT, isCustomKind, KIND_LABEL, MAX_CUSTOM_NAME } from '../lib/custom';
 import { currencyCodes, currencyName, isCurrencyCode } from '../lib/money';
 import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
+import { invalid } from '../views/components';
 import { page } from '../views/layout';
 import { isLanguageCode, LANGUAGES, languageName } from '../lib/language';
 import { ledgerDate } from '../lib/dates';
+import { writerOf } from './items';
 
 const settings = new Hono<AppEnv>();
 
@@ -69,6 +86,112 @@ const CurrencySection = ({ currency, error }: { currency: string | null; error?:
   </section>
 );
 
+/**
+ * The household's custom fields (ARCH.md §16 #95), admins only: each one renamed or switched on for share pages in
+ * place, deleted with its values, and a new one added below until the cap. Values are typed on every item's form and
+ * shown on its page; a field's values reach a share page only while its own switch is on, and never a connection.
+ */
+const CustomFieldsSection = ({ fields, error, errorField }: { fields: CustomField[]; error?: string; errorField?: number | null }) => (
+  <section class="settings-section" id="custom-fields" aria-labelledby="custom-fields-head">
+    <p class="eyebrow" id="custom-fields-head">
+      Custom fields
+    </p>
+    {error ? (
+      <p class="error" role="alert" id="custom-fields-error">
+        {error}
+      </p>
+    ) : null}
+    {fields.length ? (
+      <div class="data-table cards">
+        <table>
+          <thead>
+            <tr>
+              <th>Field</th>
+              <th>Kind</th>
+              <th class="actions-cell">
+                <span class="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {fields.map((f) => (
+              <tr>
+                <td data-label="Field">
+                  {/* the name and the share switch save together; the kind is fixed, since the values already hold it */}
+                  <form method="post" action={`/settings/custom-fields/${f.id}`} class="inline-form custom-field-form">
+                    <input
+                      name="name"
+                      value={f.name}
+                      maxlength={MAX_CUSTOM_NAME}
+                      required
+                      aria-label={`Name of the field “${f.name}”`}
+                      {...invalid(errorField === f.id && error, 'custom-fields-error')}
+                    />
+                    <label>
+                      <input type="checkbox" name="onShares" value="1" checked={f.onShares} /> Show on share pages
+                    </label>
+                    <button type="submit" class="btn">
+                      Save
+                    </button>
+                  </form>
+                </td>
+                <td data-label="Kind">
+                  <span class="pill">{KIND_LABEL[f.kind]}</span>
+                </td>
+                <td class="actions-cell">
+                  <form
+                    method="post"
+                    action={`/settings/custom-fields/${f.id}/delete`}
+                    class="inline"
+                    data-confirm={`Delete the field “${f.name}”? Every item's value for it is lost — there is no undo.`}
+                  >
+                    <button class="btn-danger" type="submit">
+                      Delete
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    ) : (
+      <p class="muted">None yet.</p>
+    )}
+    {fields.length < CUSTOM_FIELD_LIMIT ? (
+      <form method="post" action="/settings/custom-fields" class="inline-form custom-field-form">
+        <input
+          name="name"
+          placeholder="e.g. Signed"
+          maxlength={MAX_CUSTOM_NAME}
+          required
+          aria-label="Name of the new field"
+          {...invalid(errorField === null && error, 'custom-fields-error')}
+        />
+        <select name="kind" aria-label="Kind of the new field">
+          {CUSTOM_KINDS.map((k) => (
+            <option value={k}>{KIND_LABEL[k]}</option>
+          ))}
+        </select>
+        <label>
+          <input type="checkbox" name="onShares" value="1" /> Show on share pages
+        </label>
+        <button type="submit">Add field</button>
+      </form>
+    ) : (
+      <p class="muted">
+        {CUSTOM_FIELD_LIMIT} fields is the limit — delete one to add another.
+      </p>
+    )}
+    <p class="muted">
+      Up to {CUSTOM_FIELD_LIMIT} fields of the household's own — a line of text, a yes/no or a date — on every item's form,
+      shown on its page when set. <strong>Private by default:</strong> a field's values appear on share pages only while its
+      own switch is on, and never go to connected households. They leave with the export, by the field's name, in its{' '}
+      <code>custom</code> column. Deleting a field deletes every item's value for it.
+    </p>
+  </section>
+);
+
 const UsersPage = ({
   users,
   self,
@@ -77,6 +200,9 @@ const UsersPage = ({
   currency,
   currencyError,
   language,
+  fields,
+  fieldsError,
+  fieldsErrorField,
 }: {
   users: User[];
   self: number;
@@ -85,6 +211,9 @@ const UsersPage = ({
   currency: string | null;
   currencyError?: string;
   language: string;
+  fields: CustomField[];
+  fieldsError?: string;
+  fieldsErrorField?: number | null; // which field a refusal names; null is the add form
 }) => (
   <>
     <div class="page-head">
@@ -202,14 +331,57 @@ const UsersPage = ({
       </p>
     </section>
 
+    <CustomFieldsSection fields={fields} error={fieldsError} errorField={fieldsErrorField} />
     <CurrencySection currency={currency} error={currencyError} />
     <LanguageSection language={language} />
   </>
 );
 
-settings.get('/settings/users', async (c) => {
-  const [users, site] = await Promise.all([listUsers(c.env.DB), getSiteSettings(c.env.DB)]);
-  return page(c, 'Members', <UsersPage users={users} self={c.get('user').id} currency={site.currency} language={site.language} />);
+type UsersPageExtras = Partial<Pick<Parameters<typeof UsersPage>[0], 'minted' | 'error' | 'currencyError' | 'fieldsError' | 'fieldsErrorField'>>;
+
+/** The Members page with everything it lists — the members, the household's settings and its custom fields — read in parallel; `status` for a refusal shown on it. */
+async function membersPage(c: Context<AppEnv>, extras: UsersPageExtras = {}, status?: ContentfulStatusCode) {
+  // the settings and the custom fields in one call (§16 #95): the page makes the calls it did before fields existed
+  const [users, { settings: site, customFields: fields }] = await Promise.all([listUsers(c.env.DB), getSiteSettingsAndCustomFields(c.env.DB)]);
+  if (status) c.status(status);
+  return page(c, 'Members', <UsersPage users={users} self={c.get('user').id} currency={site.currency} language={site.language} fields={fields} {...extras} />);
+}
+
+settings.get('/settings/users', (c) => membersPage(c));
+
+// ---------- custom fields (ARCH.md §16 #95) ----------
+
+/** The add form's name and share switch, or the edit form's: the name cleaned, or why not. */
+const fieldDraft = (body: Record<string, unknown>) => ({ name: cleanCustomName(body['name']), onShares: body['onShares'] === '1' });
+
+settings.post('/settings/custom-fields', async (c) => {
+  const body = await c.req.parseBody();
+  const { name, onShares } = fieldDraft(body);
+  if (!name) return membersPage(c, { fieldsError: `A field needs a name of up to ${MAX_CUSTOM_NAME} characters.`, fieldsErrorField: null }, 400);
+  const kind = body['kind'];
+  if (!isCustomKind(kind)) return membersPage(c, { fieldsError: 'Choose a kind: text, yes / no or date.', fieldsErrorField: null }, 400);
+  const made = await createCustomField(c.env.DB, { name, kind, onShares });
+  if (made === 'full') return membersPage(c, { fieldsError: `${CUSTOM_FIELD_LIMIT} fields is the limit — delete one to add another.`, fieldsErrorField: null }, 400);
+  if (made === 'taken') return membersPage(c, { fieldsError: `There is already a field named “${name}”.`, fieldsErrorField: null }, 400);
+  return c.redirect('/settings/users#custom-fields');
+});
+
+settings.post('/settings/custom-fields/:id', async (c) => {
+  const id = Number(c.req.param('id'));
+  const body = await c.req.parseBody();
+  const { name, onShares } = fieldDraft(body);
+  if (!name) return membersPage(c, { fieldsError: `A field needs a name of up to ${MAX_CUSTOM_NAME} characters.`, fieldsErrorField: id }, 400);
+  const saved = await updateCustomField(c.env.DB, id, { name, onShares });
+  if (saved === 'gone') return c.notFound();
+  if (saved === 'taken') return membersPage(c, { fieldsError: `There is already a field named “${name}”.`, fieldsErrorField: id }, 400);
+  return c.redirect('/settings/users#custom-fields');
+});
+
+/** Deletes a field and every item's value for it, in one batch; the admin is named in each item's history (§16 #84). */
+settings.post('/settings/custom-fields/:id/delete', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!(await deleteCustomField(c.env.DB, id, writerOf(c)))) return c.notFound();
+  return c.redirect('/settings/users#custom-fields');
 });
 
 /** Sets the household's currency (§16 #61). Admins only, like everything under /settings. */
@@ -254,14 +426,8 @@ settings.post('/settings/language', async (c) => {
 settings.post('/settings/currency', async (c) => {
   const body = await c.req.parseBody();
   const code = typeof body['currency'] === 'string' ? body['currency'].trim() : '';
-  if (!isCurrencyCode(code)) {
-    const [users, site] = await Promise.all([listUsers(c.env.DB), getSiteSettings(c.env.DB)]);
-    c.status(400);
-    // a fixed message: never the value sent, which a crafted form could fill with anything
-    return page(c, 'Members', (
-      <UsersPage users={users} self={c.get('user').id} currency={site.currency} language={site.language} currencyError="Choose a currency from the list." />
-    ));
-  }
+  // a fixed message: never the value sent, which a crafted form could fill with anything
+  if (!isCurrencyCode(code)) return membersPage(c, { currencyError: 'Choose a currency from the list.' }, 400);
   await updateSiteSettings(c.env.DB, { currency: code });
   return c.redirect('/settings/users#currency');
 });
@@ -270,12 +436,7 @@ settings.post('/settings/users', async (c) => {
   const body = await c.req.parseBody();
   const username = String(body['username'] ?? '').trim();
   const role = body['role'] === 'admin' ? 'admin' : 'member';
-  const render = async (opts: { minted?: { username: string; password: string }; error?: string }) => {
-    const [users, site] = await Promise.all([listUsers(c.env.DB), getSiteSettings(c.env.DB)]);
-    return page(c, 'Members', (
-      <UsersPage users={users} self={c.get('user').id} minted={opts.minted} error={opts.error} currency={site.currency} language={site.language} />
-    ));
-  };
+  const render = (opts: { minted?: { username: string; password: string }; error?: string }) => membersPage(c, opts);
 
   if (!username) return render({ error: 'Username is required.' });
   const temp = tempPassword();
@@ -301,10 +462,7 @@ settings.post('/settings/users/:id/reset', async (c) => {
   if (!user) return c.notFound();
   const temp = tempPassword();
   await setPassword(c.env.DB, id, await hashPassword(temp), true);
-  const [users, site] = await Promise.all([listUsers(c.env.DB), getSiteSettings(c.env.DB)]);
-  return page(c, 'Members', (
-    <UsersPage users={users} self={c.get('user').id} minted={{ username: user.username, password: temp }} currency={site.currency} language={site.language} />
-  ));
+  return membersPage(c, { minted: { username: user.username, password: temp } });
 });
 
 settings.post('/settings/users/:id/display-name', async (c) => {

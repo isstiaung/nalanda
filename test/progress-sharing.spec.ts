@@ -56,6 +56,7 @@ const reading: Item = {
   formats: '',
   language: null,
   originalTitle: null,
+  custom: '{}',
 };
 
 describe('the whitelist', () => {

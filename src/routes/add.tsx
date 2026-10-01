@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { FC } from 'hono/jsx';
-import { addScannedItems, catalogMatches, getLibraryAndSettings, getSiteSettings, isbnlessBookIndex, itemTitles, listLibraries, listPeople, seriesNames, shelfForType, type IsbnlessBook } from '../db/queries';
+import { addScannedItems, catalogMatches, getLibraryAndSettings, getSiteSettings, isbnlessBookIndex, itemTitles, listCustomFields, listLibraries, listPeople, seriesNames, shelfForType, type IsbnlessBook } from '../db/queries';
 import type { Item, MediaType, NewItem } from '../db/schema';
 import type { AppEnv } from '../env';
 import { classifyBarcode, isbn13Of, lookupByBarcode, searchByName, type Candidate, type SearchType } from '../metadata';
@@ -37,11 +37,12 @@ function prefillFor(raw: string | undefined): Item | null {
 }
 
 add.get('/add', async (c) => {
-  const [libs, people, names, settings] = await Promise.all([
+  const [libs, people, names, settings, customFields] = await Promise.all([
     listLibraries(c.env.DB),
     listPeople(c.env.DB),
     seriesNames(c.env.DB),
     getSiteSettings(c.env.DB), // the household's currency, for the manual form's purchase price (§16 #61)
+    listCustomFields(c.env.DB), // the household's custom fields, on the manual form (§16 #95)
   ]);
   // "Add by hand" on a scan nothing was found for (§16 #94): the page opens on the manual form with the barcode in it
   const prefill = prefillFor(c.req.query('barcode')?.trim());
@@ -170,6 +171,7 @@ add.get('/add', async (c) => {
           seriesNames={names}
           money={{ household: settings.currency, admin: c.get('user').role === 'admin' }}
           language={settings.language}
+          customFields={customFields}
         />
       </section>
       <script src="/scan-queue.js" defer></script>
