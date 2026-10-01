@@ -7,7 +7,8 @@ architectural view.
 ```
 src/index.ts       Hono app entry; route order matters: public (share, covers, auth) first,
                    then requireAuth, then protected routes. Origin-check CSRF on mutations.
-src/routes/        pages + htmx partials + /api/lookup, /api/import + share.tsx (public
+src/routes/        pages + htmx partials + /api/lookup, /api/import + discover.tsx (new from your
+                   authors, ARCH.md §16 #78) + share.tsx (public
                    share pages) and shares.tsx (admin share management — don't confuse)
                    + trash.tsx (what was deleted in the last 30 days, admin-only; the snapshot
                    and restore are trashItems()/restoreFromTrash() in db/queries.ts, ARCH.md §16 #74)
