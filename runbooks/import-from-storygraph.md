@@ -46,6 +46,7 @@ run and merge instead of duplicating.
 | Moods, Pace, Character- or Plot-Driven?, the character questions, Content Warnings | Your private notes — opinions, never on a share page |
 | Date Added | The book's date added — always for a new entry, for a matched one only with the Import page's box ticked (ARCH.md §16 #90) |
 | Contributors | Details (kept) |
+| `Location`, `Notes`, if you added them — or any column of a Nalanda export (`loans`, `reads`, the dates, grades, prices…) | the private location and notes; everything else private is dropped — nothing of it ever lands in details, which share pages show |
 
 StoryGraph has no publisher, page count or notes; those stay empty for a new entry and are
 never blanked on a matched one.

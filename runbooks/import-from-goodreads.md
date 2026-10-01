@@ -99,6 +99,7 @@ time, not its history — and connections keep every reference they hold.
 | `Owned Copies` | copies — 0 (the Goodreads default) = "Not owned" reading-log entry |
 | `Date Added` | the book's date added — always for a new entry, for a matched one only with the box ticked |
 | `Book Id` | `goodreads_book_id` in details |
+| `Location`, `Notes`, if you added them — or any column of a Nalanda export (`loans`, `reads`, the dates, grades, prices…) | the private location and notes; everything else private is dropped — nothing of it ever lands in details, which share pages show |
 | anything else (`Average Rating`, `Binding`, …) | kept losslessly in the item's details JSON |
 
 Rows without a title are skipped and counted; nothing is silently dropped.

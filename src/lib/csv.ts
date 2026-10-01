@@ -227,7 +227,85 @@ export type MappedRow = {
   series?: SeriesDraft | null;
 };
 
-/** Columns we map onto real item fields; everything else lands in `details` (lossless). */
+/**
+ * Columns no mapper lets fall through into `details`, which share pages and connections render (§9), under every
+ * name a file might carry them: Nalanda's own export missing a column and so read as libib's, or one of these added
+ * to a Goodreads, StoryGraph or LibraryThing file before import. Where it lives and the notes on it (§16 #51), everyone's
+ * reading and its dates (§16 #41, #43), loans and borrows (§16 #57, #82), when a game was played (§16 #54), who wants
+ * what and where to buy it (§16 #53), the editions' identifiers (§16 #75), quotes (§16 #77), the copy's grades and
+ * what it cost (§16 #55, #61), the copies count, and who added it. Each mapper maps what it can of these onto their own
+ * columns (`location` and `notes` everywhere); the rest is dropped, never kept.
+ */
+export const PRIVATE_COLUMNS: ReadonlySet<string> = new Set([
+  'location',
+  'notes',
+  'private_notes',
+  'comment',
+  'private_comment',
+  'other_call_number',
+  'began',
+  'completed',
+  'began_on',
+  'completed_on',
+  'date_read',
+  'date_started',
+  'last_date_read',
+  'dates_read',
+  'reading_dates',
+  'read_count',
+  'reads',
+  'reviews',
+  'progress_page',
+  'progress_history',
+  'loans',
+  'borrowed',
+  'lending_patron',
+  'lending_status',
+  'lending_start',
+  'lending_end',
+  'plays',
+  'wanted_by',
+  'purchase_links',
+  'editions',
+  'quotes',
+  'media_condition',
+  'sleeve_condition',
+  'condition',
+  'condition_description',
+  'purchase_price',
+  'purchase_currency',
+  'list_price',
+  'value',
+  'original_purchase_date',
+  'original_purchase_location',
+  'acquired',
+  'date_acquired',
+  'from_where',
+  'source',
+  'copies',
+  'owned_copies',
+  'owned',
+  'added_by',
+  'recommended_for',
+  'recommended_by',
+  'barcode',
+  'bcid',
+]);
+
+/**
+ * A row's leftover columns, for `details`: what the mapper doesn't know by name, never a private column
+ * (PRIVATE_COLUMNS), never an empty cell, and none `skip` names.
+ */
+function leftover(r: Record<string, string>, known: ReadonlySet<string>, skip: (key: string) => boolean = () => false): Record<string, string> {
+  const details: Record<string, string> = {};
+  for (const [k, v] of Object.entries(r)) if (v && !known.has(k) && !PRIVATE_COLUMNS.has(k) && !skip(k)) details[k] = v;
+  return details;
+}
+
+/**
+ * Columns we map onto real item fields; everything else lands in `details` (lossless) — except a private column by any
+ * name, which PRIVATE_COLUMNS keeps out whatever the mapper.
+ */
 const KNOWN_COLUMNS = new Set([
   // Nalanda's own export: reading progress is private and must never fall through into `details`,
   // which share pages and connections render. Re-importing a Nalanda export doesn't restore it.
@@ -269,6 +347,13 @@ const KNOWN_COLUMNS = new Set([
   'isbn13',
   'upc_isbn10',
   'isbn10',
+  // a Nalanda export that lost a column reads as libib: its type and UPC still map, and what names its shelf, its
+  // time added or a series' size says nothing about the item
+  'media_type',
+  'isbn10_upc',
+  'library',
+  'added_at',
+  'series_total',
   'title',
   'creators',
   'first_name',
@@ -348,7 +433,7 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
 
   const creators = r['creators'] || [r['first_name'], r['last_name']].filter(Boolean).join(' ') || undefined;
   const isbn13 = digits(r['ean_isbn13'] ?? r['isbn13']);
-  const isbn10Upc = (r['upc_isbn10'] ?? r['isbn10'] ?? '').trim();
+  const isbn10Upc = (r['upc_isbn10'] ?? r['isbn10'] ?? r['isbn10_upc'] ?? '').trim();
   const lengthNum = Number.parseInt(digits(r['length']), 10);
   const copiesNum = Number.parseInt(digits(r['copies']), 10);
 
@@ -360,10 +445,8 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
   // libib's `added`, the day it was catalogued there, dates the item here (§16 #90) when it reads as a date; a known
   // column, so it never lands in details
   const added = addedAtOf(r['added']);
-  const details: Record<string, string> = {};
-  for (const [k, v] of Object.entries(r)) {
-    if (!KNOWN_COLUMNS.has(k) && v && !(k === 'price' && libibPrice)) details[k] = v;
-  }
+  // libib's price stays in details only when it couldn't be read as one; published pages strip it there (§16 #61)
+  const details = leftover(r, KNOWN_COLUMNS, (k) => k === 'price' && !!libibPrice);
 
   const tags = (r['tags'] ?? '')
     .split(',')
@@ -375,7 +458,7 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
   const seriesName = cleanSeriesName(r['series'] || r['group']);
   const series = seriesName ? { name: seriesName, number: parseSeriesNumber(r['series_number']) ?? null } : null;
 
-  const mediaType = mapMediaType(r['item_type'] ?? r['type'], opts);
+  const mediaType = mapMediaType(r['item_type'] ?? r['type'] ?? r['media_type'], opts);
   return {
     series,
     item: {
@@ -394,8 +477,9 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
       notes: r['notes'] || null,
       location: oneLine(r['location']),
       copies: Number.isFinite(copiesNum) && copiesNum >= 0 ? copiesNum : 1, // 0 = cataloged, not owned
-      beganOn: r['began'] || null,
-      completedOn: r['completed'] || null,
+      // libib's dates, or a Nalanda export's that lost a column and is read as libib (its reads cell is not read)
+      beganOn: r['began'] || r['began_on'] || null,
+      completedOn: r['completed'] || r['completed_on'] || null,
       ...added,
       details: Object.keys(details).length ? JSON.stringify(details) : '{}',
       ...rowGrades(mediaType, r['media_condition'], r['sleeve_condition']),
@@ -835,8 +919,7 @@ export function mapStoryGraphRow(row: Record<string, string>): MappedRow | null 
   // review than to catalogue data, so they go to the private notes and never to details, which share pages publish;
   // what is left over (contributors, say) is catalogue data and stays in details
   const impressions = STORYGRAPH_IMPRESSIONS.map(([key, label]) => (r[key] ? `${label}: ${r[key]}` : null)).filter((x): x is string => x !== null);
-  const details: Record<string, string> = {};
-  for (const [k, v] of Object.entries(r)) if (!KNOWN_STORYGRAPH.has(k) && !STORYGRAPH_PRIVATE.has(k) && v) details[k] = v;
+  const details = leftover(r, KNOWN_STORYGRAPH, (k) => STORYGRAPH_PRIVATE.has(k));
   if (rawUid && !isbn13 && !isbn10) details['storygraph_uid'] = rawUid; // StoryGraph's own id, kept as it is
   const split = parseTitleSeries(title);
   const format = bookFormat(r['format']);
@@ -855,7 +938,9 @@ export function mapStoryGraphRow(row: Record<string, string>): MappedRow | null 
       status: state.status,
       rating: starsToRating(r['star_rating']),
       review: r['review'] || null,
-      notes: impressions.length ? `StoryGraph — ${impressions.join('; ')}` : null,
+      // a notes column someone added to the file, then the impressions; a location column likewise (never details)
+      notes: [r['notes'], impressions.length ? `StoryGraph — ${impressions.join('; ')}` : null].filter(Boolean).join('\n\n') || null,
+      location: oneLine(r['location']),
       copies: /^(yes|true|y)$/i.test(r['owned'] ?? '') ? 1 : 0,
       beganOn: state.beganOn,
       completedOn: state.completedOn,
@@ -969,8 +1054,7 @@ export function mapLibraryThingRow(row: Record<string, string>): MappedRow | nul
   const year = r['date'] || r['original_publication_year'] || /\((\d{4})\)/.exec(publication)?.[1] || null;
   const pages = Number.parseInt((r['page_count'] ?? '').replace(/\D/g, ''), 10);
   const language = languageCode((r['languages'] ?? '').split(/[|,]/)[0] ?? '');
-  const details: Record<string, string> = {};
-  for (const [k, v] of Object.entries(r)) if (!KNOWN_LIBRARYTHING.has(k) && v) details[k] = v;
+  const details = leftover(r, KNOWN_LIBRARYTHING);
   if (r['book_id']) details['librarything_book_id'] = r['book_id'];
   const split = parseTitleSeries(title);
   const volume = Number.parseFloat(r['volume'] ?? '');
@@ -991,9 +1075,10 @@ export function mapLibraryThingRow(row: Record<string, string>): MappedRow | nul
       status: state.status,
       rating: starsToRating(r['rating']),
       review: r['review'] || null,
-      notes: [r['comment'], r['private_comment']].filter(Boolean).join('\n\n') || null,
-      // the household's own shelf mark, which is what the column is used for: where it is kept, never published (§16 #51)
-      location: r['other_call_number'] || null,
+      notes: [r['comment'], r['private_comment'], r['notes']].filter(Boolean).join('\n\n') || null,
+      // a location column someone added, else the household's own shelf mark, which is what Other Call Number is used
+      // for: where it is kept, never published (§16 #51)
+      location: oneLine(r['location'] || r['other_call_number']),
       copies: owned ? (Number.isFinite(copiesNum) && copiesNum > 0 ? copiesNum : 1) : 0,
       beganOn: state.beganOn,
       completedOn: state.completedOn,
@@ -1037,10 +1122,7 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
   const tagShelves = new Set(shelves);
   if (exclusive) tagShelves.add(exclusive);
 
-  const details: Record<string, string> = {};
-  for (const [k, v] of Object.entries(r)) {
-    if (!KNOWN_GOODREADS.has(k) && v) details[k] = v;
-  }
+  const details = leftover(r, KNOWN_GOODREADS);
   if (r['book_id']) details['goodreads_book_id'] = r['book_id'];
 
   // Read Count: a whole number, or nothing — "abc" isn't a count of anything
@@ -1074,7 +1156,9 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
       status: state.status,
       rating: Number.isFinite(ratingNum) && ratingNum >= 1 && ratingNum <= 5 ? ratingNum * 2 : null,
       review: r['my_review'] ? r['my_review'].replace(/<br\s*\/?>/gi, '\n') : null,
-      notes: r['private_notes'] || null,
+      // Private Notes, then a notes column someone added to the file; a location column likewise (never details)
+      notes: [r['private_notes'], r['notes']].filter(Boolean).join('\n\n') || null,
+      location: oneLine(r['location']),
       copies: Number.isFinite(ownedNum) && ownedNum > 0 ? ownedNum : 0, // default: reading log, not owned
       beganOn: state.beganOn,
       completedOn: state.completedOn,

@@ -189,7 +189,8 @@
       }
       if (data.importer) append(`These reads, ratings and reviews become yours (${data.importer}); everyone else's stay as they are.`);
     } else {
-      append(`Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
+      // named, so a Nalanda export that lost a column (and so its reads, reviews and loans) is noticed here
+      append(`Read as a libib file — no Nalanda, Goodreads, StoryGraph or LibraryThing columns found. Rows are added, never merged. Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
       if (data.importer) append(`Reads, ratings and reviews in this file become yours (${data.importer}).`);
     }
     // purchase prices (ARCH.md §16 #61): kept in the app, never on a share page; a price with no currency of its own is

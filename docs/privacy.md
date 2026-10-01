@@ -27,6 +27,15 @@ for a surface before changing anything it shows to someone outside the household
   being read now — in progress, or finished and being read again (`rereading`) — as the
   latest page anyone reading it recorded; `toPublicItem(item, { progress })` omits the key
   otherwise. Share pages get `noindex`.
+- **An import never lets a private value into `details`** (`PRIVATE_COLUMNS` in `src/lib/csv.ts`, applied
+  by every mapper — libib, Goodreads, StoryGraph, LibraryThing — before the leftover columns are kept there):
+  a column by any name the private things travel under — `location`, `notes`, `private_notes`, `comment`,
+  the reading dates and `reads`, `reviews`, `loans`, `borrowed`, `plays`, `wanted_by`, `purchase_links`,
+  `editions`, `quotes`, the grades, money, `copies`, `added_by` — is mapped onto its own column where the
+  mapper can (`location` and `notes` everywhere) and dropped otherwise, never kept. So a Nalanda export that
+  lost a column in a spreadsheet and is read as a libib file, or a Goodreads export someone added a Location
+  column to, publishes nothing it shouldn't; the preview names the format it read, so a mis-read file is
+  noticed. A Nalanda export's own `details` cell is the only way into `details` for that format.
 - **Formats are public, editions' identifiers are not** (ARCH.md §16 #75): `formats` (the forms an
   item is held in) is in `toPublicItem()` like the publisher, on shelves' and gift lists' pages and to
   connections; the `editions` table (another edition's ISBN or barcode, publisher, year) is as private as

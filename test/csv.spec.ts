@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { csvEscape, csvLine, looksLikeGoodreads, mapGoodreadsRow, mapLibibRow } from '../src/lib/csv';
+import type { Item } from '../src/db/schema';
+import { csvEscape, csvLine, EXPORT_COLUMNS, looksLikeGoodreads, looksLikeNalandaExport, mapGoodreadsRow, mapLibibRow, mapLibraryThingRow, mapStoryGraphRow } from '../src/lib/csv';
+import { toPublicItem } from '../src/lib/share';
 
 describe('csv escaping', () => {
   it('quotes only when needed and doubles quotes', () => {
@@ -158,5 +160,68 @@ describe('goodreads row mapping', () => {
     const dnf = mapGoodreadsRow({ 'Title': 'Y', 'Exclusive Shelf': 'dnf', 'Bookshelves': '' })!;
     expect(dnf.item.status).toBe('abandoned');
     expect(dnf.tags).toEqual(['dnf']); // status set AND shelf kept as a tag
+  });
+});
+
+describe('private columns never fall into details, whatever the file (§9)', () => {
+  const opts = { defaultType: 'book' as const, musicAsVinyl: true };
+  // columns someone might add to a reading site's export before importing it — the page says unknown columns are kept
+  const secrets = {
+    'Location': 'bedroom  safe',
+    'Notes': 'spare key under the mat',
+    'began_on': '2024-01-02',
+    'completed_on': '2024-02-03',
+    'loans': '2025-01-01..@Priya',
+    'purchase_price': '12.50',
+    'media_condition': 'VG+',
+    'added_by': 'asha',
+  };
+  const published = (item: Record<string, unknown>) => JSON.stringify(toPublicItem({ id: 1, libraryId: 1, ...item } as unknown as Item));
+
+  it('a Goodreads, StoryGraph or LibraryThing row maps location and notes onto their columns and keeps the rest out', () => {
+    const gr = mapGoodreadsRow({ 'Title': 'X', 'Exclusive Shelf': 'read', 'Private Notes': 'from Goodreads', 'Binding': 'Paperback', ...secrets })!;
+    expect(gr.item.location).toBe('bedroom safe');
+    expect(gr.item.notes).toBe('from Goodreads\n\nspare key under the mat');
+    expect(JSON.parse(gr.item.details as string)).toEqual({ binding: 'Paperback' });
+
+    const sg = mapStoryGraphRow({ 'Title': 'X', 'Read Status': 'read', 'Dates Read': '', 'Moods': 'tense', 'Contributors': 'Someone', ...secrets })!;
+    expect(sg.item.location).toBe('bedroom safe');
+    expect(sg.item.notes).toBe('spare key under the mat\n\nStoryGraph — moods: tense');
+    expect(JSON.parse(sg.item.details as string)).toEqual({ contributors: 'Someone' });
+
+    const lt = mapLibraryThingRow({ 'Title': 'X', 'Primary Author': 'Y', 'Entry Date': '2020-01-01', 'Comment': 'signed', 'Subjects': 'Sf', ...secrets })!;
+    expect(lt.item.location).toBe('bedroom safe'); // a location column first, Other Call Number otherwise
+    expect(lt.item.notes).toBe('signed\n\nspare key under the mat');
+    expect(JSON.parse(lt.item.details as string)).toEqual({ subjects: 'Sf' });
+
+    for (const m of [gr, sg, lt]) {
+      const out = published(m.item);
+      for (const secret of ['bedroom', 'spare key', '2024-02-03', 'Priya', '12.50', 'VG+', 'asha']) expect(out, m.item.title).not.toContain(secret);
+    }
+  });
+
+  it('a Nalanda export missing its details column reads as libib, its dates on the item and nothing private in details', () => {
+    const headers = EXPORT_COLUMNS.filter((c) => c !== 'details'); // deleted in a spreadsheet; every other column intact
+    expect(looksLikeNalandaExport(headers)).toBe(false);
+    const row: Record<string, string> = Object.fromEntries(headers.map((h) => [h, '']));
+    Object.assign(row, {
+      title: 'Kindred',
+      media_type: 'book',
+      status: 'completed',
+      began_on: '2024-01-02',
+      completed_on: '2024-02-03',
+      location: 'Study',
+      notes: 'private',
+      reads: 'completed:2024-01-02..2024-02-03@asha',
+      loans: '2025-01-01..@Priya',
+      added_by: 'asha',
+      purchase_price: '12.50',
+      purchase_currency: 'INR',
+    });
+    const m = mapLibibRow(row, opts)!;
+    expect(m.item).toMatchObject({ beganOn: '2024-01-02', completedOn: '2024-02-03', location: 'Study', notes: 'private', purchasePrice: 1250, purchaseCurrency: 'INR' });
+    expect(JSON.parse(m.item.details as string)).toEqual({});
+    const out = published(m.item);
+    for (const secret of ['2024-02-03', 'Study', 'private', 'Priya', 'asha', '12.50']) expect(out).not.toContain(secret);
   });
 });

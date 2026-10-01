@@ -43,6 +43,11 @@ so a do-over is just delete-and-retry.
 
 Rows without a title are skipped and counted; nothing is silently dropped.
 
+A **Nalanda export that lost a column** in a spreadsheet (`details`, say) is no longer recognised
+as one and is read as a libib file — the preview says so. Its type, identifiers, dates, location,
+notes and price still map, and nothing private reaches details; but its reads, reviews, loans,
+plays, wants and quotes are dropped, so keep every column (or put it back) before importing.
+
 The reading status and dates, rating and review become **the importing member's own** read and
 review (ARCH.md §16 #43) — import while signed in as the person whose catalogue it is. A
 **Nalanda export** is different: it names each read's reader and each review's writer, and when an
