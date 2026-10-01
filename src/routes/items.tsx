@@ -52,7 +52,7 @@ import {
 import type { AppEnv } from '../env';
 import { scanQueueOwner } from '../lib/auth';
 import { isRecord, parseGrade } from '../lib/condition';
-import { deleteCover, isDiscogsUrl, storeCover, storeUploadedCover } from '../lib/covers';
+import { deleteCover, isDiscogsUrl, isUploadableCover, storeCover, storeUploadedCover } from '../lib/covers';
 import { bggIdOf, fillGame, type GameFill } from '../lib/games';
 import { isPlayable, MAX_PLAYS_PER_ITEM, playDateProblem } from '../lib/plays';
 import { fillPressing, recordBarcode, releaseIdOf, type Filled } from '../lib/pressing';
@@ -98,7 +98,7 @@ import {
   WantedPill,
 } from '../views/components';
 import { page, todayOf } from '../views/layout';
-import { CoverPhotoForm } from '../views/cover-photo';
+import { CoverPhotoForm, PHOTO_REFUSED } from '../views/cover-photo';
 import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
 import { recommendOnItemPage } from './recommendations';
@@ -329,9 +329,16 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
   };
 }
 
-/** Why the form can't be saved — a grade off the scale (§16 #55), Discogs' image (§16 #67), its reading, or its series — or null. */
-const formProblem = (readProblem: string | null, parsed: ParsedForm) =>
-  parsed.gradeProblem ?? parsed.coverProblem ?? readProblem ?? parsed.seriesProblem;
+/**
+ * Why the form can't be saved — a grade off the scale (§16 #55), Discogs' image (§16 #67), a photo that isn't one
+ * (§16 #73), its reading, or its series — or null.
+ */
+const formProblem = (readProblem: string | null, parsed: ParsedForm, photoProblem: string | null = null) =>
+  parsed.gradeProblem ?? parsed.coverProblem ?? photoProblem ?? readProblem ?? parsed.seriesProblem;
+
+/** A photo on the form that can't be a cover: said back on the form, tied to its field, rather than silently kept out. */
+const photoProblemOf = async (parsed: ParsedForm): Promise<string | null> =>
+  parsed.photo && !(await isUploadableCover(parsed.photo)) ? PHOTO_REFUSED : null;
 
 /** The form's status and dates, as the read they describe. */
 const readFields = (v: ParsedForm['values']) => ({ status: v.status ?? 'not_started', beganOn: v.beganOn ?? null, completedOn: v.completedOn ?? null });
@@ -390,7 +397,8 @@ items.post('/items', async (c) => {
   const household = 'purchasePrice' in body ? (await getSiteSettings(c.env.DB)).currency : null;
   const price = formPrice(body, household, null);
   if (price.values) Object.assign(parsed.values, price.values);
-  const problem = formProblem(formReadProblem(null, readFields(parsed.values)), parsed) ?? price.problem;
+  const photoProblem = await photoProblemOf(parsed);
+  const problem = formProblem(formReadProblem(null, readFields(parsed.values)), parsed, photoProblem) ?? price.problem;
   if (problem && htmx) return c.text(problem, 400);
   if (problem) {
     const [libs, people, names, currency] = await Promise.all([
@@ -417,6 +425,7 @@ items.post('/items', async (c) => {
           coverUrl={parsed.coverUrl}
           error={problem}
           coverError={problem === parsed.coverProblem}
+          photoError={problem === photoProblem}
           perMember={people.length > 1}
           series={parsed.seriesSent}
           seriesNames={names}
@@ -1577,6 +1586,7 @@ items.post('/items/:id', async (c) => {
   const sent = readFields(parsed.values);
   const unchanged =
     sent.status === mine.status && sent.beganOn === (mine.beganOn || null) && sent.completedOn === (mine.completedOn || null);
+  const photoProblem = await photoProblemOf(parsed);
   const problem = formProblem(
     locked
       ? 'status' in body && !unchanged
@@ -1584,6 +1594,7 @@ items.post('/items/:id', async (c) => {
         : null
       : formReadProblem(mine, sent),
     parsed,
+    photoProblem,
   ) ?? price.problem;
   if (problem) {
     const [libs, names] = await Promise.all([listLibraries(c.env.DB), seriesNames(c.env.DB)]);
@@ -1608,6 +1619,7 @@ items.post('/items/:id', async (c) => {
           removeCover={parsed.removeCover}
           error={problem}
           coverError={problem === parsed.coverProblem}
+          photoError={problem === photoProblem}
           perMember={people.length > 1}
           series={parsed.seriesSent}
           seriesNames={names}

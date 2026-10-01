@@ -15,14 +15,21 @@ records and board games alike.
   `createImageBitmap(…, { imageOrientation: 'from-image' })`, so a sideways phone photo comes
   out upright), and put back into the field with a `DataTransfer`, which the form then sends as
   any file. A browser that can't sends the original, and the server's limit decides. Nothing is
-  sent on its own: the person still presses the button (WCAG 3.2.2).
+  sent on its own: the person still presses the button (WCAG 3.2.2). The field carries no
+  `capture` attribute: with it, a phone opens the camera and offers no way to pick a photo
+  already taken; with `accept="image/*"` alone, it offers the camera, the photo library and files.
 - **The Worker stores bytes, and reads the type from them.** `storeUploadedCover()` in
-  `src/lib/covers.ts` (still the only R2 code) takes 500 bytes to 8 MB, sniffs the magic
+  `src/lib/covers.ts` (still the only R2 code) takes 500 bytes to 4 MB, sniffs the magic
   numbers for JPEG, PNG, GIF, WebP or AVIF, and puts the bytes under a new UUID with *that*
   type — never the type the upload declares, since an SVG named `.jpg` would otherwise be
   served from this origin as an image and could carry script (#58's rule for covers copied
   from a connection, applied to covers that walk in the door). Anything else is refused, with
-  the reason on the page. `serveCover()`'s sandboxing CSP still fronts every object.
+  the reason on the page: under the cover, an alert; on the item form, a field error on the
+  photo field through `invalid()`, and nothing saved. `serveCover()`'s sandboxing CSP still
+  fronts every object. **4 MB, measured:** parsing a multipart body and buffering it is CPU
+  work in proportion to its size, and in workerd 8 MB took about 7 ms before any D1 or R2
+  call — too close to the request's 10 ms (§12) — while 4 MB took about 4 ms. The limit only
+  matters for a browser that couldn't shrink the picture; the resized path is a few hundred KB.
 - **Three ways in, one function.** `POST /items/:id/cover` from the form under an item's cover
   (take or pick a picture, "Use this photo"; "Remove cover" beside it), and a `photo` field on
   the item form for an add or an edit — where a photo takes the place of a cover URL typed

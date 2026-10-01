@@ -162,6 +162,28 @@ describe('the item form', () => {
     expect(await stored(item.coverKey!)).toEqual({ type: 'image/jpeg', size: 2_000 });
   });
 
+  it('says so on the form, tied to the field, when the photo can’t be kept — and saves nothing', async () => {
+    const asha = await member('asha', 'admin');
+    const shelf = await createLibrary(env.DB, 'Fiction');
+    const b = await book(asha, { libraryId: shelf.id, title: 'Piranesi', coverKey: null });
+    const res = await upload(asha, `/items/${b.id}`, { bytes: bytes(SVG), type: 'image/svg+xml', name: 'c.svg' }, {
+      title: 'Renamed anyway?',
+      libraryId: String(shelf.id),
+      mediaType: 'book',
+    });
+    expect(res.status).toBe(400);
+    const text = await res.text();
+    expect(text).toContain('isn’t a picture Nalanda can keep');
+    expect(text).toMatch(/<input type="file" name="photo"[^>]*aria-invalid="true"/);
+    const after = (await getItem(env.DB, b.id))!;
+    expect(after.title).toBe('Piranesi');
+    expect(after.coverKey).toBeNull();
+    // the add form likewise
+    const add = await upload(asha, '/items', { bytes: bytes(JPEG, 10), type: 'image/jpeg' }, { title: 'Tiny', libraryId: String(shelf.id), mediaType: 'book' });
+    expect(add.status).toBe(400);
+    expect(await add.text()).toContain('isn’t a picture Nalanda can keep');
+  });
+
   it('still saves a form with no photo chosen', async () => {
     const asha = await member('asha', 'admin');
     const shelf = await createLibrary(env.DB, 'Fiction');
@@ -186,7 +208,8 @@ describe('the item form', () => {
     const b = await book(asha, { libraryId: shelf.id, title: 'Piranesi' });
     const text = await html(asha, `/items/${b.id}/edit`);
     expect(text).toContain('enctype="multipart/form-data"');
-    expect(text).toContain('type="file" name="photo" id="cover-photo" accept="image/*" capture="environment" data-resize="cover"');
+    expect(text).toContain('type="file" name="photo" id="cover-photo" accept="image/*" data-resize="cover"');
+    expect(text).not.toContain('capture='); // with capture a phone offers only the camera, never a photo already taken
   });
 });
 

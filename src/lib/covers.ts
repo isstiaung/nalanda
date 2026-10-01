@@ -105,8 +105,12 @@ export async function storeCover(
   }
 }
 
-/** What an upload may be, and how large: a phone's photo, resized in the browser (public/app.js) to a few hundred KB. */
-export const UPLOAD_MAX_BYTES = 8 * 1024 * 1024;
+/**
+ * What an upload may be, and how large. The browser resizes a photo to a few hundred KB (public/app.js); the limit is
+ * for a browser that couldn't. Parsing a multipart body and buffering it is CPU work in proportion to its size (§12:
+ * 10 ms a request): measured in workerd, 8 MB took about 7 ms before any D1 or R2 call, 4 MB about 4 ms. So 4 MB.
+ */
+export const UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 export const UPLOAD_MIN_BYTES = 500;
 
 /**
@@ -131,9 +135,9 @@ export function sniffImageType(bytes: Uint8Array): string | null {
  * the same raster-only rule as a fetched cover. Null for anything that isn't a raster image of a plausible size.
  */
 export async function storeUploadedCover(covers: R2Bucket, file: Blob | null | undefined): Promise<string | null> {
-  if (!file || file.size < UPLOAD_MIN_BYTES || file.size > UPLOAD_MAX_BYTES) return null;
+  if (!(await isUploadableCover(file))) return null;
   try {
-    const body = await file.arrayBuffer();
+    const body = await file!.arrayBuffer();
     const contentType = sniffImageType(new Uint8Array(body, 0, Math.min(16, body.byteLength)));
     if (!contentType || !COVER_TYPES.has(contentType)) return null;
     const key = crypto.randomUUID();
@@ -141,6 +145,18 @@ export async function storeUploadedCover(covers: R2Bucket, file: Blob | null | u
     return key;
   } catch {
     return null;
+  }
+}
+
+/** Whether an upload would be kept: a plausible size, and bytes that open as a raster image — read from its first 16. */
+export async function isUploadableCover(file: Blob | null | undefined): Promise<boolean> {
+  if (!file || file.size < UPLOAD_MIN_BYTES || file.size > UPLOAD_MAX_BYTES) return false;
+  try {
+    const head = new Uint8Array(await file.slice(0, 16).arrayBuffer());
+    const type = sniffImageType(head);
+    return !!type && COVER_TYPES.has(type);
+  } catch {
+    return false;
   }
 }
 
