@@ -174,6 +174,9 @@ And a lamp-lit dark mode that follows the system setting:
 Screenshots come from seeded demo data — `npm run dev:demo` and `npm run seed:demo` will
 reproduce them on your own machine.
 
+A **read-only demo** of the same seeded data is published to GitHub Pages on each release — see
+[runbooks/demo.md](runbooks/demo.md) for the address and how it is built; sign in with `demo` / `demo`.
+
 ## Local development
 
 ```sh
@@ -242,6 +245,7 @@ lists them for you to add to a shelf or drop. Logging out clears anything still 
 | [accounts-and-access.md](runbooks/accounts-and-access.md) | Family accounts, lost passwords, admin lockout, share links |
 | [connections.md](runbooks/connections.md) | Connecting with another household's Nalanda: keys, feed, comments, borrowing, disconnecting |
 | [import-from-goodreads.md](runbooks/import-from-goodreads.md) | Bringing your Goodreads history over (and leaving) |
+| [demo.md](runbooks/demo.md) | The read-only demo on GitHub Pages: how it is built and published |
 | [import-from-libib.md](runbooks/import-from-libib.md) | Migrating your libib collection |
 | [metadata-backfill.md](runbooks/metadata-backfill.md) | Filling in covers and descriptions for a large catalog, from your machine |
 | [record-covers.md](runbooks/record-covers.md) | Replacing record covers stored from Discogs with the Cover Art Archive's (a one-off) |

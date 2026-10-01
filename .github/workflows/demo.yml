@@ -1,0 +1,55 @@
+name: Demo
+
+# Builds the static demo (scripts/demo-build.mjs, ARCH.md §16 #89) and publishes it to GitHub Pages: on each release
+# tag, and by hand. It needs no secret and touches no Cloudflare account: the build runs a scratch `wrangler dev` on
+# the runner, seeds it offline (no provider tokens; book covers come from Open Library, which is keyless), crawls it
+# and uploads the files. The only credential is the job's own GITHUB_TOKEN, allowed to write Pages. Pages must be set
+# to "GitHub Actions" as its source once, in the repository's settings (runbooks/demo.md).
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: demo
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # the site lives under /<repo>/ on github.io: every link and asset is written for that base
+      - run: npm run demo:build -- --base=/${{ github.event.repository.name }}
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: demo
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
