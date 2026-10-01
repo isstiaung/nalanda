@@ -54,7 +54,10 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    from BGG" may fill; the filtering SQL is gamesForTonight in queries.ts, the page
                    routes/play.tsx, ARCH.md §16 #60),
                    money.ts (purchase prices: minor units, parsing, exact formatting, currency codes —
-                   ARCH.md §16 #61)
+                   ARCH.md §16 #61),
+                   custom.ts (the household's custom fields: what a value may be by kind, the item form's
+                   values, what a share page may show, the export's `custom` cell by name — ARCH.md §16 #95;
+                   the panel is in routes/settings.tsx, the queries in db/queries.ts)
 src/federation/    connections between instances (docs/proposals/connections.md): keys,
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments, borrowing and recommendations

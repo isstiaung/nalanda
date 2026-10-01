@@ -135,3 +135,27 @@ have leaked.
   link can keep answering from a location you haven't touched for up to an hour.
   If a leak is genuinely urgent, rotate AND remove, and accept the tail.
 - **Remove** to unpublish that view; other links on the same shelf keep working.
+
+## Custom fields
+
+**Members → Custom fields** (admins only, ARCH.md §16 #95). Up to ten fields of the household's own, each a
+name and a kind — **text** (up to 500 characters), **yes / no**, or a **date** — and a **Show on share pages**
+switch, off until you turn it on. Every item's add and edit form shows the fields; the item's page lists what
+is set under **Fields**. Members fill them in like any other field; only an admin defines, renames, switches
+or deletes one.
+
+- **Private by default.** A field's values appear on a shared item's page only while its switch is on, by the
+  field's name, and never on a share link's listing or feed, and never to connected households whatever the
+  switch says. Turning a switch off takes the values off share pages at once (a cached page can lag up to an
+  hour on other isolates, as any share change can).
+- **Renaming keeps the values.** A field's kind can't change: the values already hold it.
+- **Deleting a field deletes every item's value for it**, in the same step — there is no undo, and the confirm
+  says so. Each changed item's History names you for it.
+- **The CSV carries them** in a `custom` column, as JSON by the field's name: `{"Signed":true,"Gifted by":"Ravi"}`.
+  Importing a Nalanda export keeps every value whose field exists here under the same name (case doesn't
+  matter) and drops the rest — the preview says "N custom values had no field here" — so define the fields
+  under Members **before** importing a file from another household, or your own backup after a field was
+  deleted. A `custom` column in a libib, Goodreads, StoryGraph or LibraryThing file is dropped, never kept in
+  the item's details.
+- **Backups** carry the `custom_fields` table; the restore order in the backup runbook has it before `items`.
+
