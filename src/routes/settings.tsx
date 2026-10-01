@@ -98,7 +98,7 @@ const UsersPage = ({
         <strong>Temporary password for “{minted.username}”:</strong> <code>{minted.password}</code>
         <br />
         <small class="muted">
-          Shown once — share it now. They'll set their own password at first login.
+          Shown once — share it now. They're signed out everywhere, and set their own password at first login.
         </small>
       </article>
     ) : null}

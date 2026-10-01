@@ -118,7 +118,8 @@ app.use(async (c, next) => {
   const token = getCookie(c, SESSION_COOKIE);
   const session = await verifySessionToken(c.env.SESSION_SECRET, token, Math.floor(Date.now() / 1000));
   // The row check is instant revocation, and its key is who the cookie was made for: an id can be reused, a key
-  // can't (§16 #56), so a removed member's cookie signs in nobody — not whoever is given their id next.
+  // can't (§16 #56), so a removed member's cookie signs in nobody — not whoever is given their id next. Its generation
+  // is whether this session still counts (§16 #70): "Sign out other devices", a new password or a reset moves it on.
   const row = session ? await getUserById(c.env.DB, session.userId) : null;
   const user = row && sessionMatches(session, row) ? row : null;
   if (!user) {
@@ -131,6 +132,7 @@ app.use(async (c, next) => {
     role: user.role,
     mustChangePassword: user.mustChangePassword,
     sessionKey: user.sessionKey,
+    sessionGeneration: user.sessionGeneration,
   });
   if (user.mustChangePassword && !c.req.path.startsWith('/account')) {
     return sendTo(c, '/account', 403, 'Choose a new password first — reload the page.');

@@ -89,15 +89,18 @@ export async function createFirstAdmin(
  * all. Only what isSessionKey() refuses is replaced (the same test, in SQL): of two logins racing, the second keeps the
  * first's. The account's id and key, or null if it's gone.
  */
-export async function ensureSessionKey(d1: D1Database, id: number): Promise<{ id: number; sessionKey: string } | null> {
+export async function ensureSessionKey(
+  d1: D1Database,
+  id: number,
+): Promise<{ id: number; sessionKey: string; sessionGeneration: number } | null> {
   const unusable = `length(session_key) NOT BETWEEN 22 AND 64 OR session_key GLOB '*[^A-Za-z0-9_-]*'`;
   const row = await d1
     .prepare(
       `UPDATE users SET session_key = CASE WHEN ${unusable} THEN ?2 ELSE session_key END
-       WHERE id = ?1 RETURNING id, session_key AS sessionKey`,
+       WHERE id = ?1 RETURNING id, session_key AS sessionKey, session_generation AS sessionGeneration`,
     )
     .bind(id, newSessionKey())
-    .first<{ id: number; sessionKey: string }>();
+    .first<{ id: number; sessionKey: string; sessionGeneration: number }>();
   return row ?? null;
 }
 
@@ -262,13 +265,44 @@ export async function deleteUser(d1: D1Database, id: number): Promise<void> {
   ]);
 }
 
+/**
+ * A new password, and the account's other sessions signed out with it (§16 #70): the generation moves on in the same
+ * statement, so there is no moment with the new password and the old sessions both good. The device that changed its
+ * own password re-issues its cookie from the row this returns; an admin's reset leaves the member to log in again.
+ */
 export async function setPassword(
   d1: D1Database,
   id: number,
   passwordHash: string,
   mustChangePassword: boolean,
-): Promise<void> {
-  await db(d1).update(s.users).set({ passwordHash, mustChangePassword }).where(eq(s.users.id, id));
+): Promise<{ id: number; sessionKey: string; sessionGeneration: number } | null> {
+  const row = await d1
+    .prepare(
+      `UPDATE users SET password_hash = ?2, must_change_password = ?3, session_generation = session_generation + 1
+       WHERE id = ?1 RETURNING id, session_key AS sessionKey, session_generation AS sessionGeneration`,
+    )
+    .bind(id, passwordHash, mustChangePassword ? 1 : 0)
+    .first<{ id: number; sessionKey: string; sessionGeneration: number }>();
+  return row ?? null;
+}
+
+/**
+ * Signs an account out everywhere but the device asking (§16 #70): its sessions' generation moves on, and the caller
+ * re-issues this device's cookie from the row returned. An admin's remedy for a member's lost phone is a reset, which
+ * does the same and hands out a temporary password besides.
+ */
+export async function signOutOtherDevices(
+  d1: D1Database,
+  id: number,
+): Promise<{ id: number; sessionKey: string; sessionGeneration: number } | null> {
+  const row = await d1
+    .prepare(
+      `UPDATE users SET session_generation = session_generation + 1
+       WHERE id = ?1 RETURNING id, session_key AS sessionKey, session_generation AS sessionGeneration`,
+    )
+    .bind(id)
+    .first<{ id: number; sessionKey: string; sessionGeneration: number }>();
+  return row ?? null;
 }
 
 // ---------- login throttling ----------

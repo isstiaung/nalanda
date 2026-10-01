@@ -208,7 +208,9 @@ Long forms in [docs/conventions.md](docs/conventions.md).
 - Auth (ARCH.md §8): roles are just `admin`/`member` — no permission matrix; admins create members
   with one-time temp passwords. User ids are reused, so a session names the id **and**
   `users.session_key` (set in every user insert, never changed); anything that remembers a person
-  across time binds `accountIdentity()`, never the bare id.
+  across time binds `accountIdentity()`, never the bare id. Beside it, `users.session_generation`
+  (ARCH.md §16 #70) is which sessions still count: the cookie names it, and "Sign out other
+  devices", a password change and a reset each add one — never rotate the key for that.
 - Never hand-edit drizzle-generated migrations (hand-written SQL goes in `--custom` ones); never
   edit a migration that has been applied anywhere.
 - Barcode routing (`src/metadata/index.ts`): EAN-13 `978`/`979` → book providers (merged); any

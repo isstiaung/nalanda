@@ -26,6 +26,7 @@ import { clearSharedViewsCache } from '../src/federation/routes';
 import { todayUtc } from '../src/lib/reads';
 import * as v130 from './fixtures/items-v1.3.0';
 import { answerOutbound, connectPeer, instanceA, json, makeKeys, makePeer, sessionCookie, setUpA, sqlAgo, type Peer } from './federation-helpers';
+import { newSessionKey } from '../src/lib/auth';
 import { actor, book, member, rows, type Member } from './member-helpers';
 
 const today = () => todayUtc();
@@ -541,10 +542,17 @@ describe('migration 0036', () => {
   it('keeps every entry and its id, and never hands out an id a connection may already hold', async () => {
     await reset();
     await applyD1Migrations(env.DB, env.TEST_MIGRATIONS.filter((x) => x.name < '0036'));
-    const asha = await member('u-asha', 'admin');
+    // Raw SQL, not member() or book(): a Drizzle insert names every column schema.ts has today, and migrations after
+    // 0036 add some (0039's purchase price on items, 0041's session generation on users) that this database, stopped
+    // before 0036, lacks.
+    const sessionKey = newSessionKey();
+    const row = (await env.DB.prepare(
+      "INSERT INTO users (username, password_hash, role, must_change_password, session_key) VALUES ('u-asha', 'pbkdf2$1$x$y', 'admin', 0, ?1) RETURNING id",
+    )
+      .bind(sessionKey)
+      .first<{ id: number }>())!;
+    const asha: Member = { id: row.id, name: 'u-asha', cookie: '', admin: true, sessionKey };
     await createConnectionView(env.DB, { name: 'All', libraryId: null, mediaType: null, status: null, owned: null });
-    // Raw SQL, not book(): a Drizzle insert names every column schema.ts has today, and migrations after 0036 add some
-    // (0037's want lists touch no item column; 0038's recommendations none either; 0039's purchase price does) that this database, stopped before 0036, lacks.
     const shelf = await createLibrary(env.DB, 'Household shelf');
     for (const title of ['One', 'Two', 'Three']) {
       const item = await env.DB.prepare("INSERT INTO items (library_id, media_type, title, length, details, added_by) VALUES (?1, 'book', ?2, 300, '{}', ?3) RETURNING id")

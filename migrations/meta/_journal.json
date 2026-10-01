@@ -288,6 +288,13 @@
       "when": 1790828675548,
       "tag": "0040_query-indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1790833076011,
+      "tag": "0041_session-generation",
+      "breakpoints": true
     }
   ]
 }

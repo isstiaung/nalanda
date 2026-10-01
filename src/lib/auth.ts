@@ -85,8 +85,14 @@ export function isSessionKey(key: string): boolean {
 /** An account as a session names it: its id, and the key that tells it from anyone given that id before or after. */
 export type AccountRef = { id: number; sessionKey: string };
 
-/** The id and key a genuine cookie names — still to be checked against the user row, by `sessionMatches()`. */
-export type Session = { userId: number; key: string };
+/**
+ * An account as a cookie is made for it (§16 #70): the identity, and which generation of its sessions this is. Absent
+ * means 0, the generation every account starts in — a row inserted before the column, a stamp that needs no generation.
+ */
+export type SessionRef = AccountRef & { sessionGeneration?: number };
+
+/** The id, key and generation a genuine cookie names — still to be checked against the user row, by `sessionMatches()`. */
+export type Session = { userId: number; key: string; generation: number };
 
 /**
  * One account and no other, ever: its id and its key. For anything derived from who someone is that must not carry
@@ -97,11 +103,13 @@ export function accountIdentity(user: AccountRef): string {
   return `${user.id}:${user.sessionKey}`;
 }
 
-export async function createSessionToken(secret: string, user: AccountRef, nowSeconds: number): Promise<string> {
+export async function createSessionToken(secret: string, user: SessionRef, nowSeconds: number): Promise<string> {
   if (!hasSessionSecret(secret)) throw new Error('SESSION_SECRET is not set');
   if (!SESSION_KEY.test(user.sessionKey)) throw new Error('this account has no session key');
+  // `g` only from 1 on: a cookie made in generation 0 is as it always was, byte for byte
+  const g = user.sessionGeneration ?? 0;
   const payload = b64url.encode(
-    enc.encode(JSON.stringify({ u: user.id, k: user.sessionKey, e: nowSeconds + SESSION_TTL_SECONDS })),
+    enc.encode(JSON.stringify({ u: user.id, k: user.sessionKey, ...(g > 0 ? { g } : {}), e: nowSeconds + SESSION_TTL_SECONDS })),
   );
   const sig = b64url.encode(await crypto.subtle.sign('HMAC', await hmacKey(secret), enc.encode(payload)));
   return `${payload}.${sig}`;
@@ -151,25 +159,33 @@ export async function verifySessionToken(
   try {
     const ok = await crypto.subtle.verify('HMAC', await hmacKey(secret), b64url.decode(sig), enc.encode(payload));
     if (!ok) return null;
-    const data = JSON.parse(new TextDecoder().decode(b64url.decode(payload))) as { u?: unknown; k?: unknown; e?: unknown };
+    const data = JSON.parse(new TextDecoder().decode(b64url.decode(payload))) as { u?: unknown; k?: unknown; g?: unknown; e?: unknown };
     if (typeof data.u !== 'number' || !Number.isInteger(data.u) || typeof data.e !== 'number') return null;
     if (typeof data.k !== 'string' || !SESSION_KEY.test(data.k)) return null;
+    // no `g` is generation 0 — every cookie from before generations (§16 #70), still good until its account moves on
+    if (data.g !== undefined && (typeof data.g !== 'number' || !Number.isInteger(data.g) || data.g < 0)) return null;
     if (data.e < nowSeconds) return null;
-    return { userId: data.u, key: data.k };
+    return { userId: data.u, key: data.k, generation: data.g ?? 0 };
   } catch {
     return null;
   }
 }
 
 /**
- * Whether a genuine session belongs to this user row: same id and same key. A removed member's cookie names their key,
- * and whoever is given their id next has another, so it signs in nobody. A plain comparison is enough: only a cookie
- * whose HMAC checked out gets here, and its holder can already read the key inside it — the key is no secret, it is
- * just never reused.
+ * Whether a genuine session belongs to this user row, now: same id, same key, and the row's current generation. A
+ * removed member's cookie names their key, and whoever is given their id next has another, so it signs in nobody; a
+ * cookie from before "Sign out other devices", a password change or a reset names an earlier generation (§16 #70), and
+ * signs in nobody either. A plain comparison is enough: only a cookie whose HMAC checked out gets here, and its holder
+ * can already read what is inside it — the key is no secret, it is just never reused, and the generation is a count.
  */
-export function sessionMatches(session: Session | null, user: AccountRef | null): boolean {
+export function sessionMatches(session: Session | null, user: SessionRef | null): boolean {
   if (!session || !user) return false;
-  return user.id === session.userId && SESSION_KEY.test(user.sessionKey) && user.sessionKey === session.key;
+  return (
+    user.id === session.userId &&
+    SESSION_KEY.test(user.sessionKey) &&
+    user.sessionKey === session.key &&
+    (user.sessionGeneration ?? 0) === session.generation
+  );
 }
 
 /** Unambiguous alphabet (no 0/O/1/l/I) for admin-issued temp passwords. */
