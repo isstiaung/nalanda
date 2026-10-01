@@ -37,6 +37,22 @@ constraints bullets.
   how late a date may be (`latestReadDate()`, tomorrow in UTC, at or after today anywhere). Stored
   timestamps are still shown as their UTC date.
 
+## Interface strings
+
+- **Every string a covered page shows is a key in `src/i18n/strings.ts`** (ARCH.md §16 #93), English
+  the source, with `hi.ts` and `ta.ts` translating every key (a typecheck and test/i18n.spec.ts both
+  hold them complete). A route reads the request's translator with `c.get('i18n')` (`i18nOf(c)` on a
+  page with no session); a component with `useI18n()`; a sentence with a link or a `<strong>` in it
+  goes through `Fill` with named slots, so the translation sets the word order. Placeholders are
+  `{name}`; a count's forms are `<key>_one`/`<key>_other` through `n()`; never ICU. Add a key when
+  you add a string to a covered page, and draft its Hindi and Tamil beside it — a page not yet
+  covered stays English until the PR that covers it. Item data, usernames, display names and
+  anything a member typed are never translated. A translated string is text: hono/jsx escapes it,
+  and it never goes inside an inline handler (confirmations use `data-confirm`). The pages' own
+  language is the resolved locale on `<html lang>`; share pages carry the household's, never a
+  member's. The reads cost no call: the session's batch, the share lookup's batch, Members' settings
+  batch (`sessionAccount()`, `shareWithLocale()`, `membersSettings()`).
+
 ## Writes, accounts and permissions
 
 - Deleting an item is `trashItems()` (ARCH.md §16 #74), never a bare `DELETE FROM items`: the
@@ -132,7 +148,8 @@ constraints bullets.
   Pala-era scriptorium: palm-leaf buff paper, lampblack ink, indigo working accent,
   vermilion rubrication reserved for circulation/danger, turmeric gold for ratings,
   monospace for all data (counts, ISBNs, dates, pills, accession numbers via `accNo()`),
-  Eczar (vendored woff2, Devanagari-first face) for page titles and brand only, light +
+  Eczar (vendored woff2, Latin and Devanagari subsets — Tiro Tamil behind it for Tamil headings,
+  declared for Tamil's range alone, §16 #93) for page titles and brand only, light +
   dark (lamp-lit) via `prefers-color-scheme`. The brand hangs from its vermilion
   headstroke (śirorekhā) — that rule lives in `.brand-rule` only. Extend with the
   existing tokens/components (`.pill`, `.data-table`, `.props`, `.eyebrow`) — don't add

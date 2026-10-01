@@ -8,8 +8,9 @@ import { BggAttribution, DiscogsNotice } from '../views/attribution';
 import { scanQueueOwner } from '../lib/auth';
 import { isRecord } from '../lib/condition';
 import { formatsFromPressing, normalizeFormats } from '../lib/formats';
-import { CandidateCard, ItemForm, ReviewEntry, SCANNED_AT } from '../views/components';
-import { page } from '../views/layout';
+import { CandidateCard, ItemForm, MEDIA_ICON, ReviewEntry, SCANNED_AT } from '../views/components';
+import { Fill, mediaLabel, useI18n } from '../views/i18n';
+import { page, partial } from '../views/layout';
 import { writerOf } from './items';
 
 const add = new Hono<AppEnv>();
@@ -50,14 +51,16 @@ add.get('/add', async (c) => {
     const active = prefill ? name === 'manual' : name === 'scan';
     return { class: active ? 'tab active' : 'tab', pressed: active ? 'true' : 'false', panel: active ? 'tab-panel active' : 'tab-panel', hidden: !active };
   };
+  const i18n = c.get('i18n');
+  const { t } = i18n;
   return page(
     c,
-    'Add items',
+    t('add.title'),
     <>
       <div class="page-head">
         <div>
-          <h1>Add items</h1>
-          <span class="sub">SCAN · SEARCH · MANUAL ENTRY</span>
+          <h1>{t('add.title')}</h1>
+          <span class="sub">{t('add.sub')}</span>
         </div>
       </div>
       {/* Barcodes held on this device (ARCH.md §16 #48, #94): scanned with no signal, or with "Keep scanning" on. One list,
@@ -65,24 +68,20 @@ add.get('/add', async (c) => {
           presses a button. "Add all" sends them twenty at a time to POST /api/scans/add, which looks each one up; "Look
           up" on one entry fetches it alone through /add/review, to pick its shelf, want it or drop it. */}
       <section id="scan-review" class="scan-review" hidden>
-        <p class="eyebrow">Held on this device</p>
+        <p class="eyebrow">{t('add.held')}</p>
         <article class="notice scan-review-head">
           <div>
             <strong>
               <span id="scan-review-count" class="mono">
                 0
               </span>{' '}
-              <span id="scan-review-noun">held on this device</span>
+              <span id="scan-review-noun">{t('add.held_noun')}</span>
             </strong>
-            <p class="muted">
-              Each is a barcode and when it was scanned. Add them all to one shelf — each is looked up as it goes in, and
-              one the catalog already has is left alone — or look one up to pick its shelf, want it or drop it. A barcode
-              nothing is found for stays here to add by hand. New items arrive without covers.
-            </p>
+            <p class="muted">{t('add.held_intro')}</p>
           </div>
           {libs.length ? (
             <form id="scan-review-all" class="inline-form">
-              <select name="libraryId" aria-label="Shelf for all of them">
+              <select name="libraryId" aria-label={t('add.shelf_for_all')}>
                 {libs.map((l) => (
                   <option value={String(l.id)}>{l.name}</option>
                 ))}
@@ -90,7 +89,7 @@ add.get('/add', async (c) => {
               <button type="submit" disabled>
                 {/* one inline run: a button lays its children out with a gap */}
                 <span>
-                  Add all to <span data-shelf-name>{libs[0]?.name}</span>
+                  <Fill text={t('add.add_all_to')} with={{ shelf: <span data-shelf-name>{libs[0]?.name}</span> }} />
                 </span>
               </button>
             </form>
@@ -103,33 +102,31 @@ add.get('/add', async (c) => {
       {/* toggle buttons: aria-pressed says which panel is showing (app.js keeps it in step) */}
       <div class="tab-bar">
         <button type="button" class={tab('scan').class} data-tab="scan" aria-pressed={tab('scan').pressed}>
-          <span aria-hidden="true">📷</span> Scan
+          <span aria-hidden="true">📷</span> {t('add.tab_scan')}
         </button>
         <button type="button" class={tab('search').class} data-tab="search" aria-pressed={tab('search').pressed}>
-          <span aria-hidden="true">🔎</span> Search
+          <span aria-hidden="true">🔎</span> {t('add.tab_search')}
         </button>
         <button type="button" class={tab('manual').class} data-tab="manual" aria-pressed={tab('manual').pressed}>
-          <span aria-hidden="true">✍️</span> Manual
+          <span aria-hidden="true">✍️</span> {t('add.tab_manual')}
         </button>
       </div>
 
       <section id="tab-scan" class={tab('scan').panel} hidden={tab('scan').hidden}>
-        <p class="muted">
-          Point the camera at a book or record barcode — or type its digits below, no camera needed. ISBNs look up
-          books; other barcodes look up vinyl on Discogs. Board games have no barcodes on BGG — use the Search tab.
-        </p>
+        <p class="muted">{t('add.scan_intro')}</p>
         <video id="scanner-video" playsinline muted></video>
         <div class="inline-form">
           <button type="button" id="scanner-start">
-            Start camera
+            {t('add.start_camera')}
           </button>
           <button type="button" id="scanner-stop" class="btn" hidden>
-            Stop
+            {t('add.stop')}
           </button>
-          {/* a shelf in one go (§16 #94): each barcode is held for the list above, the camera stays on; remembered per device */}
+          {/* a shelf in one go (§16 #94): each barcode is held for the list above, the camera stays on; remembered per device.
+              The hint never says "barcode": the audit's locator for the Barcode field below must match one label alone */}
           <label class="scanner-keep">
-            <input type="checkbox" id="scanner-keep" /> Keep scanning
-            <small class="muted">(hold each code for the list, add them all at once)</small>
+            <input type="checkbox" id="scanner-keep" /> {t('add.keep_scanning')}
+            <small class="muted">{t('add.keep_scanning_hint')}</small>
           </label>
         </div>
         <p id="scanner-status" class="muted" aria-live="polite"></p>
@@ -140,23 +137,23 @@ add.get('/add', async (c) => {
           hx-swap="innerHTML"
         >
           <label>
-            Barcode <small>(ISBN, EAN or UPC digits)</small>
-            <input name="barcode" placeholder="e.g. 9780441478125" inputmode="numeric" autocomplete="off" />
+            {t('add.barcode')} <small>{t('add.barcode_hint')}</small>
+            <input name="barcode" placeholder={t('add.barcode_placeholder')} inputmode="numeric" autocomplete="off" />
           </label>
-          <button type="submit">Look up</button>
+          <button type="submit">{t('add.look_up')}</button>
         </form>
         <div id="scan-results"></div>
       </section>
 
       <section id="tab-search" class={tab('search').panel} hidden={tab('search').hidden}>
         <form hx-get="/add/results" hx-target="#search-results" hx-swap="innerHTML" class="inline-form">
-          <input type="search" name="q" placeholder="Title, artist, game name…" aria-label="Title, artist or game name" required />
-          <select name="type" aria-label="What is it?">
-            <option value="book">📖 Book</option>
-            <option value="boardgame">🎲 Board game</option>
-            <option value="vinyl">💿 Vinyl</option>
+          <input type="search" name="q" placeholder={t('add.search_placeholder')} aria-label={t('add.search_label')} required />
+          <select name="type" aria-label={t('add.what_is_it')}>
+            <option value="book">{MEDIA_ICON.book} {mediaLabel(i18n, 'book')}</option>
+            <option value="boardgame">{MEDIA_ICON.boardgame} {mediaLabel(i18n, 'boardgame')}</option>
+            <option value="vinyl">{MEDIA_ICON.vinyl} {mediaLabel(i18n, 'vinyl')}</option>
           </select>
-          <button type="submit">Search</button>
+          <button type="submit">{t('add.search')}</button>
         </form>
         <div id="search-results"></div>
       </section>
@@ -165,7 +162,7 @@ add.get('/add', async (c) => {
         <ItemForm
           libraries={libs}
           action="/items"
-          submitLabel="Add item"
+          submitLabel={t('add.submit')}
           item={prefill}
           perMember={people.length > 1}
           seriesNames={names}
@@ -195,7 +192,7 @@ const MoreResults: FC<{ q: string; type: SearchType; page: number }> = ({ q, typ
   return (
     <div id={id} class="results-more">
       <button type="button" class="btn" hx-get={`/add/results?${new URLSearchParams({ q, type, page: String(page) })}`} hx-target={`#${id}`} hx-swap="outerHTML">
-        More results
+        {useI18n().t('add.more_results')}
       </button>
     </div>
   );
@@ -236,13 +233,15 @@ add.get('/add/results', async (c) => {
   );
   // a later page takes the place of the button that asked for it, under the same id; the credits are already there
   if (pageNo > 1) {
-    return c.html(
+    return partial(
+      c,
       <div id={`results-more-${pageNo}`} class="results-page">
         {cards}
       </div>,
     );
   }
-  return c.html(
+  return partial(
+    c,
     <>
       {cards}
       {result.candidates.some((candidate) => candidate.provider === 'bgg') ? <BggAttribution /> : null}

@@ -25,7 +25,7 @@ import type { AppEnv } from '../env';
 import { deleteCover } from '../lib/covers';
 import { formatCount } from '../lib/money';
 import { isPlayable } from '../lib/plays';
-import { shareVisibility, shareVisibilityLabel } from '../lib/share';
+import { shareVisibility } from '../lib/share';
 import {
   ColumnsMenu,
   ItemGrid,
@@ -37,6 +37,7 @@ import {
   STATUS_LABEL,
 } from '../views/components';
 import { BulkBar, BulkNotice } from '../views/bulk';
+import { Fill, mediaLabel, statusLabel, useI18n, visibilityLabel } from '../views/i18n';
 import { page, todayOf } from '../views/layout';
 import { ALL_FORMATS } from '../lib/formats';
 
@@ -98,6 +99,7 @@ export function readByValue(raw: string | undefined): string {
 
 /** The Read by select — shown once the household has more than one member; one person's shelf is already theirs. */
 export const ReadByMenu: FC<{ value: string; me: number; people: Array<{ id: number; username: string }> }> = ({ value, me, people }) => {
+  const { t } = useI18n();
   const others = people.filter((p) => p.id !== me);
   const option = (v: string, text: string) => (
     <option value={v} selected={value === v}>
@@ -105,18 +107,18 @@ export const ReadByMenu: FC<{ value: string; me: number; people: Array<{ id: num
     </option>
   );
   return (
-    <select name="readBy" aria-label="Read by">
-      {option('', 'Read by…')}
-      <optgroup label="Finished by">
-        {option('me', 'Read by me')}
-        {option('not-me', 'Not read by me')}
-        {others.map((p) => option(String(p.id), `Read by ${p.username}`))}
-        {option('anyone', 'Read by anyone')}
+    <select name="readBy" aria-label={t('readby.label')}>
+      {option('', t('readby.any'))}
+      <optgroup label={t('readby.finished_by')}>
+        {option('me', t('readby.me'))}
+        {option('not-me', t('readby.not_me'))}
+        {others.map((p) => option(String(p.id), t('readby.person', { name: p.username })))}
+        {option('anyone', t('readby.anyone'))}
       </optgroup>
-      <optgroup label="Reading now">
-        {option('now-me', 'Being read by me')}
-        {others.map((p) => option(`now-${p.id}`, `Being read by ${p.username}`))}
-        {option('now-anyone', 'Being read by anyone')}
+      <optgroup label={t('readby.reading_now')}>
+        {option('now-me', t('readby.now_me'))}
+        {others.map((p) => option(`now-${p.id}`, t('readby.now_person', { name: p.username })))}
+        {option('now-anyone', t('readby.now_anyone'))}
       </optgroup>
     </select>
   );
@@ -199,8 +201,8 @@ export function shelfQueryString(q: ShelfQuery): string {
 
 /** The two decluttering views every shelf offers (§16 #81): bought and never read, and not played in a year (games and records only). */
 export const PRESET_VIEWS = [
-  { slug: 'unread-for-years', name: 'Unread for years', params: 'owned=1&status=not_started&addedYears=3', playable: false },
-  { slug: 'not-played-lately', name: 'Not played lately', params: 'owned=1&unplayedMonths=12', playable: true },
+  { slug: 'unread-for-years', name: 'Unread for years', key: 'shelf.preset.unread_for_years', params: 'owned=1&status=not_started&addedYears=3', playable: false },
+  { slug: 'not-played-lately', name: 'Not played lately', key: 'shelf.preset.not_played_lately', params: 'owned=1&unplayedMonths=12', playable: true },
 ] as const;
 
 /** The same filters, however the keys are ordered. */
@@ -217,30 +219,31 @@ const ViewsBar: FC<{ libraryId: number; views: SavedView[]; active: SavedView | 
   query,
   playable,
 }) => {
+  const { t } = useI18n();
   const pill = (href: string, name: string, current: boolean) => (
     <a href={href} class={current ? 'pill active' : 'pill'} aria-current={current ? 'page' : undefined}>
       {name}
     </a>
   );
   return (
-    <nav class="views" aria-label="Views">
-      <span class="eyebrow">Views</span>
-      {PRESET_VIEWS.filter((p) => !p.playable || playable).map((p) => pill(`/libraries/${libraryId}?${p.params}`, p.name, !active && sameQuery(query, p.params)))}
+    <nav class="views" aria-label={t('shelf.views')}>
+      <span class="eyebrow">{t('shelf.views')}</span>
+      {PRESET_VIEWS.filter((p) => !p.playable || playable).map((p) => pill(`/libraries/${libraryId}?${p.params}`, t(p.key), !active && sameQuery(query, p.params)))}
       {views.map((v) => pill(`/libraries/${libraryId}?saved=${v.id}`, v.name, active?.id === v.id))}
       {active ? (
         <form method="post" action={`/libraries/${libraryId}/views/${active.id}/delete`} class="inline-form">
           <button type="submit" class="btn-danger">
-            Delete view
+            {t('shelf.delete_view')}
           </button>
         </form>
       ) : views.length >= MAX_SAVED_VIEWS_PER_SHELF ? (
-        <span class="muted">This shelf has its {MAX_SAVED_VIEWS_PER_SHELF} views — delete one to save another.</span>
+        <span class="muted">{t('shelf.views_full', { max: MAX_SAVED_VIEWS_PER_SHELF })}</span>
       ) : (
         <form method="post" action={`/libraries/${libraryId}/views`} class="inline-form">
           <input type="hidden" name="params" value={query} />
-          <input name="name" placeholder="Save this view as…" aria-label="View name" required maxlength={MAX_VIEW_NAME} />
+          <input name="name" placeholder={t('shelf.save_view_placeholder')} aria-label={t('shelf.view_name')} required maxlength={MAX_VIEW_NAME} />
           <button type="submit" class="btn">
-            Save view
+            {t('shelf.save_view')}
           </button>
         </form>
       )}
@@ -325,6 +328,8 @@ libraries.get('/libraries/:id', async (c) => {
 
   const shares = user.role === 'admin' ? await listShares(c.env.DB, id) : [];
   const origin = new URL(c.req.url).origin;
+  const i18n = c.get('i18n');
+  const { t, n } = i18n;
 
   return page(
     c,
@@ -334,19 +339,19 @@ libraries.get('/libraries/:id', async (c) => {
         <div>
           <h1>{lib.name}</h1>
           <span class="sub">
-            {formatCount(total)} {total === 1 ? 'ITEM' : 'ITEMS'}
-            {shares.length ? ` · ${shareVisibilityLabel(shareVisibility(shares)).toUpperCase()}` : ''}
+            {n('shelf.sub', total, { count: formatCount(total) })}
+            {shares.length ? ` · ${visibilityLabel(i18n, shareVisibility(shares)).toUpperCase()}` : ''}
           </span>
         </div>
         <div class="page-actions">
           {/* the board games here, or a view filtered to them: "What should we play tonight?" is a click away (§16 #60) */}
           {mediaTypes.includes('boardgame') || items.some((i) => i.mediaType === 'boardgame') ? (
             <a href="/play" class="btn">
-              Play tonight
+              {t('shelf.play_tonight')}
             </a>
           ) : null}
           <a href="/add" class="btn">
-            Add items
+            {t('shelf.add_items')}
           </a>
         </div>
       </div>
@@ -365,50 +370,50 @@ libraries.get('/libraries/:id', async (c) => {
             type="search"
             name="q"
             value={name ?? ''}
-            placeholder="Title, author or location…"
-            aria-label="Filter by title, author or location"
+            placeholder={t('shelf.filter_placeholder')}
+            aria-label={t('shelf.filter_label')}
           />
-          <FilterMenu label="Type" name="type" options={MEDIA_TYPES.map((t) => [t, MEDIA_LABEL[t]] as const)} selected={mediaTypes} />
+          <FilterMenu label={t('filter.type')} name="type" options={MEDIA_TYPES.map((type) => [type, mediaLabel(i18n, type)] as const)} selected={mediaTypes} />
           {showStatus ? (
             <FilterMenu
-              label="Status"
+              label={t('filter.status')}
               name="status"
-              options={ITEM_STATUSES.map((st) => [st, STATUS_LABEL[st]] as const)}
+              options={ITEM_STATUSES.map((st) => [st, statusLabel(i18n, st)] as const)}
               selected={statuses}
             />
           ) : null}
           <FilterMenu
-            label="Holding"
+            label={t('filter.holding')}
             name="owned"
             options={[
-              ['1', 'Owned'],
-              ['0', 'Logged — not owned'],
-              ['b', 'Borrowed from someone'],
+              ['1', t('filter.owned')],
+              ['0', t('filter.logged')],
+              ['b', t('filter.borrowed')],
             ]}
             selected={ownedSel}
           />
-          <FilterMenu label="Format" name="format" options={ALL_FORMATS.map((f) => [f.code, f.label] as const)} selected={formatsSel} />
+          <FilterMenu label={t('filter.format')} name="format" options={ALL_FORMATS.map((f) => [f.code, f.label] as const)} selected={formatsSel} />
           {/* "Read by" is reading too: not for a view of games and records only, unless it is already applied */}
           {(people.length > 1 && showStatus) || reader ? <ReadByMenu value={readBy} me={user.id} people={people} /> : null}
-          <select name="sort" aria-label="Sort">
+          <select name="sort" aria-label={t('sort.label')}>
             <option value="added" selected={sort === 'added'}>
-              Newest first
+              {t('sort.added')}
             </option>
             <option value="title" selected={sort === 'title'}>
-              Title A–Z
+              {t('sort.title')}
             </option>
             <option value="author" selected={sort === 'author'}>
-              Author A–Z
+              {t('sort.author')}
             </option>
             <option value="rating" selected={sort === 'rating'}>
-              Highest rated
+              {t('sort.rating')}
             </option>
             <option value="completed" selected={sort === 'completed'}>
-              Date completed
+              {t('sort.completed')}
             </option>
           </select>
           <button type="submit" class="btn">
-            Apply
+            {t('shelf.apply')}
           </button>
           {/* Columns and the view toggle stay together at the row's end, and wrap as one */}
           <span class="toolbar-end">
@@ -422,10 +427,10 @@ libraries.get('/libraries/:id', async (c) => {
             ) : null}
             <span class="view-toggle">
               <a href={makeHref(1, 'table')} class={view === 'table' ? 'active' : undefined}>
-                Table
+                {t('shelf.table')}
               </a>
               <a href={makeHref(1, 'grid')} class={view === 'grid' ? 'active' : undefined}>
-                Covers
+                {t('shelf.covers')}
               </a>
             </span>
           </span>
@@ -441,10 +446,10 @@ libraries.get('/libraries/:id', async (c) => {
         )
       ) : total === 0 && !filtered ? (
         <p class="muted">
-          Nothing on this shelf yet — <a href="/add">add items</a> or <a href="/import">import a CSV</a>.
+          <Fill text={t('shelf.empty')} with={{ addItems: <a href="/add">{t('shelf.empty_add')}</a>, importCsv: <a href="/import">{t('shelf.empty_import')}</a> }} />
         </p>
       ) : (
-        <p class="muted">No items match these filters.</p>
+        <p class="muted">{t('shelf.no_match')}</p>
       )}
       {items.length ? (
         <BulkBar back={makeHref(current)} admin={user.role === 'admin'} libraries={shelves} currentLibrary={id} />
@@ -452,14 +457,14 @@ libraries.get('/libraries/:id', async (c) => {
       <Pagination page={current} pages={pages} makeHref={(p) => makeHref(p)} />
 
       <details>
-        <summary>Shelf settings</summary>
+        <summary>{t('shelf.settings')}</summary>
         <form method="post" action={`/libraries/${id}`} class="inline-form">
-          <input name="name" value={lib.name} aria-label="Shelf name" required />
-          <button type="submit">Rename</button>
+          <input name="name" value={lib.name} aria-label={t('shelf.name')} required />
+          <button type="submit">{t('shelf.rename')}</button>
         </form>
         {user.role === 'admin' ? (
           <div class="share-panel">
-            <h2 class="share-panel-head">Public share links</h2>
+            <h2 class="share-panel-head">{t('shelf.share_links')}</h2>
             {shares.map((v) => (
               <div class="share-row">
                 <span>
@@ -472,10 +477,10 @@ libraries.get('/libraries/:id', async (c) => {
                 <form method="post" action={`/shares/${v.id}`} class="inline-form">
                   <input type="hidden" name="libraryId" value={String(id)} />
                   <button name="action" value="rotate" class="btn">
-                    Rotate
+                    {t('shelf.rotate')}
                   </button>
                   <button name="action" value="delete" class="btn-danger">
-                    Remove
+                    {t('shelf.remove')}
                   </button>
                 </form>
               </div>
@@ -487,8 +492,8 @@ libraries.get('/libraries/:id', async (c) => {
               {statuses.length === 1 ? <input type="hidden" name="status" value={statuses[0]} /> : null}
               {owned !== undefined ? <input type="hidden" name="owned" value={owned ? '1' : '0'} /> : null}
               <input type="hidden" name="sort" value={sort} />
-              <input name="name" class="share-name" placeholder="Link name (shown as the public page title)" aria-label="Link name" required />
-              <button type="submit">Publish current view</button>
+              <input name="name" class="share-name" placeholder={t('shelf.link_name_placeholder')} aria-label={t('shelf.link_name')} required />
+              <button type="submit">{t('shelf.publish')}</button>
             </form>
             <small class="muted">
               "Current view" captures the filters applied above
@@ -535,12 +540,12 @@ libraries.get('/libraries/:id', async (c) => {
               action={`/libraries/${id}/delete`}
               data-confirm={
                 shelfCount
-                  ? `Delete “${lib.name}” and ${shelfCount === 1 ? 'the 1 item' : `all ${shelfCount} items`} in it? An admin can restore the ${shelfCount === 1 ? 'item' : 'items'} from the trash for ${TRASH_DAYS} days, onto a shelf of this name.`
-                  : `Delete the empty shelf “${lib.name}”?`
+                  ? n('shelf.delete_confirm', shelfCount, { name: lib.name, days: TRASH_DAYS })
+                  : t('shelf.delete_confirm_empty', { name: lib.name })
               }
             >
               <button type="submit" class="btn-danger">
-                Delete shelf
+                {t('shelf.delete')}
               </button>
             </form>
           </>

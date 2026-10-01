@@ -41,7 +41,7 @@ import {
 import { findCover, findDescription } from '../metadata';
 import { parseDetails } from '../lib/share';
 import { parseCustom } from '../lib/custom';
-import { MEDIA_LABEL } from '../views/components';
+import { mediaLabel } from '../views/i18n';
 import { page, todayOf } from '../views/layout';
 
 const importexport = new Hono<AppEnv>();
@@ -49,18 +49,20 @@ const importexport = new Hono<AppEnv>();
 importexport.get('/import', async (c) => {
   const [libs, backfill] = await Promise.all([listLibraries(c.env.DB), countBackfillable(c.env.DB)]);
   const items = (n: number) => (n === 1 ? 'item' : 'items');
+  const i18n = c.get('i18n');
+  const { t } = i18n; // the headings and buttons (§16 #93); the explanations stay English for now
   return page(
     c,
-    'Import / export',
+    t('import.title'),
     <>
       <div class="page-head">
         <div>
-          <h1>Import / export</h1>
-          <span class="sub">LIBIB · GOODREADS · STORYGRAPH · LIBRARYTHING CSV IN · FULL CSV OUT</span>
+          <h1>{t('import.title')}</h1>
+          <span class="sub">{t('import.sub')}</span>
         </div>
         <div class="page-actions">
           <a href="/export.csv" class="btn" data-export>
-            Export everything as CSV
+            {t('import.export')}
           </a>
         </div>
       </div>
@@ -78,12 +80,12 @@ importexport.get('/import', async (c) => {
       </p>
       <form id="import-form" onsubmit="return false" class="panel form-card">
         <label>
-          CSV file
+          {t('import.csv_file')}
           <input type="file" id="import-file" accept=".csv,text/csv" required />
         </label>
         <div class="grid">
           <label>
-            Into shelf
+            {t('import.into_shelf')}
             <select id="import-library">
               {libs.map((l) => (
                 <option value={String(l.id)}>{l.name}</option>
@@ -91,11 +93,11 @@ importexport.get('/import', async (c) => {
             </select>
           </label>
           <label>
-            Default type <small class="muted">(when the CSV has no type column)</small>
+            {t('import.default_type')} <small class="muted">{t('import.default_type_hint')}</small>
             <select id="import-default-type">
-              {MEDIA_TYPES.map((t) => (
-                <option value={t} selected={t === 'book'}>
-                  {MEDIA_LABEL[t]}
+              {MEDIA_TYPES.map((type) => (
+                <option value={type} selected={type === 'book'}>
+                  {mediaLabel(i18n, type)}
                 </option>
               ))}
             </select>
@@ -103,26 +105,26 @@ importexport.get('/import', async (c) => {
         </div>
         <label>
           <input type="checkbox" id="import-music-as-vinyl" checked />
-          Treat libib “music” items as vinyl
+          {t('import.music_as_vinyl')}
         </label>
         <label>
           <input type="checkbox" id="import-dates" />
-          Also set the date added of books already here from the file{' '}
+          {t('import.dates')}{' '}
           <small class="muted">(Goodreads’ and StoryGraph’s Date Added, LibraryThing’s Entry Date; a book the file adds always takes it)</small>
         </label>
         <div class="inline-form">
           <button type="button" id="import-preview" class="btn">
-            Preview (dry run)
+            {t('import.preview')}
           </button>
           <button type="button" id="import-run" class="btn-primary">
-            Import
+            {t('import.run')}
           </button>
         </div>
       </form>
       <div id="import-status" class="prewrap muted mono" aria-live="polite"></div>
 
       <section style="margin-top:2rem" id="kindle">
-        <p class="eyebrow">Kindle highlights</p>
+        <p class="eyebrow">{t('import.kindle')}</p>
         <p class="muted">
           Drop <span class="mono">My Clippings.txt</span> from a Kindle, or the notebook a Kindle app emails you (HTML). Each
           highlight becomes a quote of yours on the book it is from — matched by title and author, or added as a “Not
@@ -131,11 +133,11 @@ importexport.get('/import', async (c) => {
         </p>
         <form id="kindle-form" onsubmit="return false" class="panel form-card">
           <label>
-            Kindle file
+            {t('import.kindle_file')}
             <input type="file" id="kindle-file" accept=".txt,.html,.htm,text/plain,text/html" required />
           </label>
           <label>
-            New books go on shelf
+            {t('import.kindle_shelf')}
             <select id="kindle-library">
               {libs.map((l) => (
                 <option value={String(l.id)}>{l.name}</option>
@@ -144,10 +146,10 @@ importexport.get('/import', async (c) => {
           </label>
           <div class="inline-form">
             <button type="button" id="kindle-preview" class="btn">
-              Preview (dry run)
+              {t('import.preview')}
             </button>
             <button type="button" id="kindle-run" class="btn-primary">
-              Import highlights
+              {t('import.kindle_run')}
             </button>
           </div>
         </form>
@@ -155,7 +157,7 @@ importexport.get('/import', async (c) => {
       </section>
 
       <section style="margin-top:2rem">
-        <p class="eyebrow">Cover backfill</p>
+        <p class="eyebrow">{t('import.backfill')}</p>
         {backfill.total > 0 ? (
           <>
             <p>
@@ -172,12 +174,12 @@ importexport.get('/import', async (c) => {
               yourself. Re-run any time.
             </p>
             <button type="button" id="backfill-run">
-              Run backfill
+              {t('import.run_backfill')}
             </button>
             <div id="backfill-status" class="prewrap muted mono" aria-live="polite"></div>
           </>
         ) : (
-          <p class="muted">Every item already has cover art and a description. Import more and come back.</p>
+          <p class="muted">{t('import.backfill_done')}</p>
         )}
       </section>
       <script src="/import.js" defer></script>

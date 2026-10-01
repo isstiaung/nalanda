@@ -14,6 +14,23 @@ src/routes/        pages + htmx partials + /api/lookup, /api/import; share.tsx (
                    trash.tsx (what was deleted in the last 30 days, admin-only; the snapshot and
                    restore are trashItems()/restoreFromTrash() in db/queries.ts, ARCH.md §16 #74)
 src/views/         hono/jsx layout + components (page() helper wraps Layout + doctype)
+src/routes/        pages + htmx partials + /api/lookup, /api/import + discover.tsx (new from your
+                   api.tsx is the read-only token API (/api/v1/…, ARCH.md §16 #88), mounted before the session
+                   middleware — a token, never a cookie;
+                   authors, ARCH.md §16 #78) + share.tsx (public
+                   share pages) and shares.tsx (admin share management — don't confuse)
+                   + trash.tsx (what was deleted in the last 30 days, admin-only; the snapshot
+                   and restore are trashItems()/restoreFromTrash() in db/queries.ts, ARCH.md §16 #74)
+src/views/         hono/jsx layout + components (page() helper wraps Layout + doctype; partial() an htmx swap)
+                   + i18n.tsx (the request's Translator as a hono/jsx context: useI18n() in any component,
+                   Fill for a sentence with elements in it, the label helpers — ARCH.md §16 #93)
+src/i18n/          the interface strings (ARCH.md §16 #93): strings.ts the English source, one key per string;
+                   hi.ts and ta.ts full translations, `draft: true` until a native reader checks them;
+                   index.ts — t(), n(), resolveLocale(), translator(), stringsFor() (the download),
+                   parseTranslation() (the import). Pure data and functions: nothing here touches D1 or hono.
+                   The download is routes/strings.tsx; the import lives in routes/settings.tsx with
+                   public/translations.js reading the file in the browser; the per-request reads are
+                   sessionAccount(), householdLocale(), shareWithLocale() in db/queries.ts
 src/db/            schema.ts (Drizzle) + queries.ts — the ONLY code touching D1
 src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googlebooks, bgg,
                    discogs, itunes, musicbrainz — nothing else calls external APIs
@@ -68,10 +85,11 @@ src/federation/    connections between instances (docs/proposals/connections.md)
                    shelves/requests/Borrowed and the Loans-page section in routes/borrowing — Borrowed
                    is every household's page since ARCH.md §16 #82, its people section first,
                    in-app notifications in routes/notifications (recorded in src/db/federation.ts)
-public/            app.css, scanner.js, import.js, qr.js (each share link's QR code, drawn on the Shared links
+public/            app.css, scanner.js, import.js, translations.js (the Members page reads a translation file in the
+                   browser and posts it as JSON — ARCH.md §16 #93), qr.js (each share link's QR code, drawn on the Shared links
                    page from the vendored qrcode.js — ARCH.md §16 #85), app.js (also shrinks a chosen cover photo before the form
                    sends it, ARCH.md §16 #73), covers.js (swaps a cover that fails to
-                   load for its media-icon box; app and share pages) + vendor/ (htmx, zxing, eczar fonts)
+                   load for its media-icon box; app and share pages) + vendor/ (htmx, zxing, the Eczar and Tiro Tamil fonts)
                    + the installed app (ARCH.md §16 #48): manifest.webmanifest, icons/, sw.js (keeps
                    only static files — never a page or API answer, never touches /share), offline.html
                    (static scan-only page), scan-queue.js (the device's IndexedDB queue of offline

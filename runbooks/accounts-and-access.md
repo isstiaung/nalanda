@@ -22,6 +22,16 @@ reads, recorded pages, rating and review are their own (ARCH.md §16 #43): membe
 theirs, and admins can change, delete or **move** anyone's — a read (with its pages) or a review
 credited to the wrong person moves from the book's page, under *Edit* on it.
 
+**Interface language** (ARCH.md §16 #93). The interface follows the household language set under
+**Members → Household language** where a translation is shipped — हिन्दी and தமிழ் so far, both
+machine-drafted until a native reader checks them — and stays English otherwise. Each member can
+pick another for themselves under **Account → Language**; share pages always show the household's.
+To correct a draft or add a language: download the strings from Account (`/strings/hi.json`,
+`/strings/ta.json`; `/strings/en.json` for the English source), edit the file, and either import it
+under **Members → Interface translations** (this household's own words, key by key, share pages
+included; **Remove** clears it) or open a pull request so everyone gets it. A file larger than 200 KB
+is refused; keys the table doesn't know are ignored and counted in the message.
+
 ## Someone forgot their password
 
 Settings → *Reset password* next to their name → a new one-time temp password is shown.

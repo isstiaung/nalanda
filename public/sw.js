@@ -11,7 +11,7 @@
 // STATIC or this file's behaviour changes: installing the new worker fills a fresh cache, and activating it
 // deletes every older one.
 
-const VERSION = 1;
+const VERSION = 2; // 2: the Devanagari Eczar and Tiro Tamil faces joined STATIC (§16 #93)
 const CACHE = `nalanda-static-v${VERSION}`;
 
 // Every one of these is a file in public/. A test fetches each (test/pwa.spec.ts), since one missing file fails
@@ -24,6 +24,9 @@ const STATIC = [
   '/scanner.js',
   '/vendor/fonts/eczar-latin-600-normal.woff2',
   '/vendor/fonts/eczar-latin-700-normal.woff2',
+  '/vendor/fonts/eczar-devanagari-600-normal.woff2',
+  '/vendor/fonts/eczar-devanagari-700-normal.woff2',
+  '/vendor/fonts/tiro-tamil-tamil-400-normal.woff2',
   '/vendor/zxing/reader/index.js',
   '/vendor/zxing/share.js',
   '/vendor/zxing/zxing_reader.wasm',

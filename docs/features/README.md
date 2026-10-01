@@ -12,5 +12,5 @@ it. The short version is the [README](../../README.md); the privacy rules behind
 - [Sharing](sharing.md) — a public link per view, gift lists, feeds, QR codes, and what never appears on a share page.
 - [Lending](lending.md) — loans with due dates and history, and what you've borrowed from someone.
 - [Connections](connections.md) — two households that both run Nalanda follow, comment, borrow and recommend, pairwise and off by default.
-- [Members and privacy](members-and-privacy.md) — admins and members, display names and the switches, sessions, a read-only API, item history, the trash.
+- [Members and privacy](members-and-privacy.md) — admins and members, display names and the switches, the interface language (हिन्दी and தமிழ் drafts, your own translation), sessions, a read-only API, item history, the trash.
 - [On your phone](on-your-phone.md) — install it to the home screen, scan with no signal, or scan a whole shelf in one go, with nothing of yours kept on the phone.

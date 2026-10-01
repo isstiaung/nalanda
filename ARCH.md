@@ -883,6 +883,7 @@ is a section of this document and "#N" another decision.
 | 92 | 2026-10-01 | [`FEDERATION_OFFLINE`: a plain runtime variable under which an instance contacts no connected household, for a copy of the database restored anywhere but production](docs/decisions/092-federation-offline.md) |
 | 95 | 2026-10-01 | [Custom fields: up to ten household fields (text, yes/no, date) on every item form, kept in `items.custom`, private unless a field's own share switch is on, never to connections](docs/decisions/095-custom-fields.md) |
 | 94 | 2026-10-01 | [Rapid batch scanning: "Keep scanning" holds each barcode on the device; "Add all" resolves them twenty a request, as bare records, covers later](docs/decisions/094-rapid-batch-scanning.md) (#93 is taken on another branch) |
+| 93 | 2026-10-01 | [The interface language: one strings table, English the source, Hindi and Tamil machine-drafted and marked so; the interface follows the household's language, a member's own choice over it; a household imports its own translation](docs/decisions/093-interface-language.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

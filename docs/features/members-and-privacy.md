@@ -23,6 +23,21 @@ beneath the second. A new instance starts with all three on; an upgraded one kee
 with both names switches off every published byte is as it was before names existed. Comments,
 borrow requests and recommendations are signed with the display name or "A member".
 
+## The interface language
+
+The household language set under Members ([#76](../decisions/076-language-and-original-title.md))
+gives the interface its language too, where a translation is shipped — हिन्दी and தமிழ் so far,
+machine-drafted and marked so until a native reader checks them; a household in any other language
+keeps its items in it and the interface in English. Each member can pick another for themselves
+under **Account → Language**. Share pages always carry the household's, and only their own few
+strings change — never an item's data or a name
+([#93](../decisions/093-interface-language.md)). To correct a draft or add a language, download the
+strings from Account (`/strings/hi.json`, `/strings/ta.json`), edit the file, and either import it
+under **Members → Interface translations** — this household's words, key by key, share pages
+included, with **Remove** to clear it — or open a pull request so everyone gets it. The pages
+not yet covered stay English and are translated page by page.
+[runbooks/accounts-and-access.md](../../runbooks/accounts-and-access.md).
+
 ## Sessions and sign-in
 
 A session is a signed cookie, good for 30 days, naming the account by its id and a random key that

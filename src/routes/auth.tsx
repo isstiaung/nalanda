@@ -22,7 +22,8 @@ import {
   type SessionRef,
 } from '../lib/auth';
 import { invalid } from '../views/components';
-import { Brand, page } from '../views/layout';
+import { useI18n } from '../views/i18n';
+import { Brand, i18nOf, page } from '../views/layout';
 
 const auth = new Hono<AppEnv>();
 
@@ -39,30 +40,33 @@ export async function signIn(c: Context<AppEnv>, secret: string, account: Sessio
 }
 
 /** `fieldsWrong`: whether the error is about what was typed (a wrong password) rather than about waiting. */
-const LoginForm = ({ error, note, fieldsWrong = true }: { error?: string; note?: string; fieldsWrong?: boolean }) => (
-  <article class="auth-card">
-    <Brand />
-    <h1>Log in</h1>
-    {note ? <p class="notice">{note}</p> : null}
-    {error ? (
-      <p class="error" role="alert" id="login-error">
-        {error}
-      </p>
-    ) : null}
-    <form method="post" action="/auth/login">
-      <label>
-        Username
-        {/* eslint-disable-next-line no-restricted-syntax -- the login page is one form: its first field is where everyone starts */}
-        <input name="username" required autofocus autocomplete="username" {...invalid(fieldsWrong && error, 'login-error')} />
-      </label>
-      <label>
-        Password
-        <input type="password" name="password" required autocomplete="current-password" {...invalid(fieldsWrong && error, 'login-error')} />
-      </label>
-      <button type="submit">Log in</button>
-    </form>
-  </article>
-);
+const LoginForm = ({ error, note, fieldsWrong = true }: { error?: string; note?: string; fieldsWrong?: boolean }) => {
+  const { t } = useI18n();
+  return (
+    <article class="auth-card">
+      <Brand />
+      <h1>{t('login.title')}</h1>
+      {note ? <p class="notice">{note}</p> : null}
+      {error ? (
+        <p class="error" role="alert" id="login-error">
+          {error}
+        </p>
+      ) : null}
+      <form method="post" action="/auth/login">
+        <label>
+          {t('login.username')}
+          {/* eslint-disable-next-line no-restricted-syntax -- the login page is one form: its first field is where everyone starts */}
+          <input name="username" required autofocus autocomplete="username" {...invalid(fieldsWrong && error, 'login-error')} />
+        </label>
+        <label>
+          {t('login.password')}
+          <input type="password" name="password" required autocomplete="current-password" {...invalid(fieldsWrong && error, 'login-error')} />
+        </label>
+        <button type="submit">{t('login.submit')}</button>
+      </form>
+    </article>
+  );
+};
 
 // Without a session secret nobody can be signed in: the cookie is signed with it. Setup and login say so before
 // they write anything. (An empty one once let setup create the admin and then fail on signing — which closed
@@ -106,12 +110,10 @@ async function setupWithoutSecret(c: Context<AppEnv>, posted: boolean) {
 auth.get('/login', async (c) => {
   if (!hasSessionSecret(c.env.SESSION_SECRET)) return noSessionSecret(c);
   if ((await countUsers(c.env.DB)) === 0) return c.redirect('/setup');
+  const { t } = await i18nOf(c); // the household's language: nobody is signed in yet (§16 #93)
   // a setup that lost the race to another (below) lands here
-  const note =
-    c.req.query('raced') === undefined
-      ? undefined
-      : 'Setup was already done: another setup finished first. Log in with that account — if it isn’t yours, ask whoever made it to add you.';
-  return page(c, 'Log in', <LoginForm note={note} />);
+  const note = c.req.query('raced') === undefined ? undefined : t('login.raced');
+  return page(c, t('login.title'), <LoginForm note={note} />);
 });
 
 /** The lockout, as the login page and Account both answer it: the sentence, and 429 so a script can tell it from a wrong guess. */
@@ -130,19 +132,20 @@ auth.post('/auth/login', async (c) => {
   // from this address, or at this account from anywhere, and the guess isn't checked at all — the right password
   // included, until they age out.
   const attempt = await recordLoginAttempt(c.env.DB, clientIp(c), username);
+  const { t } = await i18nOf(c);
   if (!attempt) {
     c.status(429);
-    return page(c, 'Log in', <LoginForm error={TOO_MANY_ATTEMPTS} fieldsWrong={false} />);
+    return page(c, t('login.title'), <LoginForm error={t('login.too_many', { minutes: LOGIN_ATTEMPT_WINDOW_MINUTES })} fieldsWrong={false} />);
   }
   const user = username ? await getUserByUsername(c.env.DB, username) : null;
   // a name nobody has is checked against a fixed hash: the answer takes as long either way, and says nothing about
   // which usernames exist
   const ok = (await verifyPassword(password, user?.passwordHash ?? DUMMY_HASH)) && user !== null;
-  if (!user || !ok) return page(c, 'Log in', <LoginForm error="Wrong username or password." />);
+  if (!user || !ok) return page(c, t('login.title'), <LoginForm error={t('login.wrong')} />);
   await forgetLoginAttempt(c.env.DB, attempt); // no failure: a login counts towards nobody's ten
   // an account restored from an older backup, or added by hand, has no key yet: it gets one now
   const account = isSessionKey(user.sessionKey) ? user : await ensureSessionKey(c.env.DB, user.id);
-  if (!account) return page(c, 'Log in', <LoginForm error="Wrong username or password." />);
+  if (!account) return page(c, t('login.title'), <LoginForm error={t('login.wrong')} />);
   await signIn(c, secret, account);
   return c.redirect('/');
 });
@@ -158,39 +161,42 @@ auth.post('/auth/logout', (c) => {
 type SetupField = 'username' | 'password' | 'confirm';
 
 /** `wrong`: the fields the error is about, which point at it. */
-const SetupForm = ({ error, wrong = [] }: { error?: string; wrong?: SetupField[] }) => (
-  <article class="auth-card">
-    <Brand />
-    <h1>Welcome</h1>
-    <p class="muted">Create the admin account. Family members can be added later under Members.</p>
-    {error ? (
-      <p class="error" role="alert" id="setup-error">
-        {error}
-      </p>
-    ) : null}
-    <form method="post" action="/setup">
-      <label>
-        Username
-        {/* eslint-disable-next-line no-restricted-syntax -- setup is one form, on a fresh instance: its first field is where everyone starts */}
-        <input name="username" required autofocus autocomplete="username" {...invalid(wrong.includes('username') && error, 'setup-error')} />
-      </label>
-      <label>
-        Password <small>(at least 8 characters)</small>
-        <input type="password" name="password" required minlength={8} autocomplete="new-password" {...invalid(wrong.includes('password') && error, 'setup-error')} />
-      </label>
-      <label>
-        Confirm password
-        <input type="password" name="confirm" required autocomplete="new-password" {...invalid(wrong.includes('confirm') && error, 'setup-error')} />
-      </label>
-      <button type="submit">Create account</button>
-    </form>
-  </article>
-);
+const SetupForm = ({ error, wrong = [] }: { error?: string; wrong?: SetupField[] }) => {
+  const { t } = useI18n();
+  return (
+    <article class="auth-card">
+      <Brand />
+      <h1>{t('setup.welcome')}</h1>
+      <p class="muted">{t('setup.intro')}</p>
+      {error ? (
+        <p class="error" role="alert" id="setup-error">
+          {error}
+        </p>
+      ) : null}
+      <form method="post" action="/setup">
+        <label>
+          {t('login.username')}
+          {/* eslint-disable-next-line no-restricted-syntax -- setup is one form, on a fresh instance: its first field is where everyone starts */}
+          <input name="username" required autofocus autocomplete="username" {...invalid(wrong.includes('username') && error, 'setup-error')} />
+        </label>
+        <label>
+          {t('login.password')} <small>{t('setup.password_hint')}</small>
+          <input type="password" name="password" required minlength={8} autocomplete="new-password" {...invalid(wrong.includes('password') && error, 'setup-error')} />
+        </label>
+        <label>
+          {t('setup.confirm')}
+          <input type="password" name="confirm" required autocomplete="new-password" {...invalid(wrong.includes('confirm') && error, 'setup-error')} />
+        </label>
+        <button type="submit">{t('setup.submit')}</button>
+      </form>
+    </article>
+  );
+};
 
 auth.get('/setup', async (c) => {
   if (!hasSessionSecret(c.env.SESSION_SECRET)) return setupWithoutSecret(c, false);
   if ((await countUsers(c.env.DB)) > 0) return c.notFound();
-  return page(c, 'Setup', <SetupForm />);
+  return page(c, (await i18nOf(c)).t('setup.title'), <SetupForm />);
 });
 
 // starter shelves for the three media types this household collects
@@ -204,11 +210,12 @@ auth.post('/setup', async (c) => {
   const username = String(body['username'] ?? '').trim();
   const password = String(body['password'] ?? '');
   const confirm = String(body['confirm'] ?? '');
+  const { t } = await i18nOf(c);
   if (!username || password.length < 8) {
-    return page(c, 'Setup', <SetupForm error="Username required; password must be at least 8 characters." wrong={['username', 'password']} />);
+    return page(c, t('setup.title'), <SetupForm error={t('setup.invalid')} wrong={['username', 'password']} />);
   }
   if (password !== confirm) {
-    return page(c, 'Setup', <SetupForm error="Passwords do not match." wrong={['confirm']} />);
+    return page(c, t('setup.title'), <SetupForm error={t('setup.mismatch')} wrong={['confirm']} />);
   }
   // The count above only saves hashing on a closed setup. The batch decides: of two setups racing, one wins. The
   // loser goes to login, which says why: usually it's the second click of a double-click, whose response is the

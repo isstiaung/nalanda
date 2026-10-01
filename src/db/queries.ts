@@ -22,6 +22,7 @@ import { countName, nameKey, sortNames, splitCreators, type NameCount } from '..
 import { CUSTOM_FIELD_LIMIT } from '../lib/custom';
 import { MAX_EDITIONS_PER_ITEM, type EditionDraft } from '../lib/formats';
 import { DEFAULT_LANGUAGE, isLanguageCode } from '../lib/language';
+import { locales, parseTranslation, resolveLocale, type Locale, type Overrides } from '../i18n';
 import { MAX_PROGRESS_PER_READ } from '../lib/progress';
 import { MAX_QUOTES_PER_ITEM, type CellQuote, type KindleBook, type PersonQuote, type QuoteDraft } from '../lib/quotes';
 import { ftsMatch, parseSearch } from '../lib/search';
@@ -125,6 +126,134 @@ export async function setDisplayName(d1: D1Database, id: number, displayName: st
     ...rekeyMemberActivity(d1, id, displayName),
     d1.prepare('UPDATE users SET display_name = ?2 WHERE id = ?1').bind(id, displayName),
   ]);
+}
+
+// ---------- the interface language (ARCH.md §16 #93) ----------
+
+/** The shipped locales as a SQL list, so the resolution below says what resolveLocale() says. */
+const shippedLocales = () => sql.join(locales.map((l) => sql`${l}`), sql`, `);
+
+/**
+ * A household translation's strings, parsed and kept only where they would be kept on import — a row written by an
+ * older version, or by hand, is read by today's rule. Null when there is nothing to override with.
+ */
+function overridesOf(row: { locale: string; strings: string } | undefined): Overrides | null {
+  if (!row) return null;
+  try {
+    const parsed = parseTranslation(JSON.parse(row.strings));
+    return parsed && parsed.kept > 0 ? parsed.strings : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The session's account with what its pages render in (§16 #93), in the one call the session middleware already
+ * made for the row: the user, the household's default language, and the household's own translation for the locale
+ * those two resolve to — resolved in SQL by the same rule as resolveLocale(), so the third statement names the row
+ * before the first has been read. No translation for that locale, and the third statement is simply empty: reading
+ * it costs no call of its own, ever.
+ */
+export async function sessionAccount(
+  d1: D1Database,
+  id: number,
+): Promise<{ user: User | null; language: string; translation: Overrides | null }> {
+  const dbi = db(d1);
+  const resolved = sql`(SELECT CASE WHEN u.locale IN (${shippedLocales()}) THEN u.locale WHEN st.language IN (${shippedLocales()}) THEN st.language ELSE ${'en'} END
+    FROM users u LEFT JOIN site_settings st ON st.id = 1 WHERE u.id = ${id})`;
+  const [users, settings, rows] = await dbi.batch([
+    dbi.select().from(s.users).where(eq(s.users.id, id)),
+    dbi.select({ language: s.siteSettings.language }).from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
+    dbi.select({ locale: s.translations.locale, strings: s.translations.strings }).from(s.translations).where(eq(s.translations.locale, resolved)),
+  ]);
+  const language = settings[0]?.language;
+  const user = users[0] ?? null;
+  const translation = overridesOf(rows[0]);
+  // the row is for the locale SQL resolved; the page resolves again in code, and a disagreement — none is possible
+  // while the two rules match — leaves the translation out rather than showing one for another language
+  const expected = resolveLocale(user, { language: isLanguageCode(language) ? language : DEFAULT_LANGUAGE });
+  return {
+    user,
+    language: isLanguageCode(language) ? language : DEFAULT_LANGUAGE,
+    translation: rows[0]?.locale === expected ? translation : null,
+  };
+}
+
+/**
+ * What a page with no session renders in (§16 #93) — the login page, setup, a share page: the household's default
+ * language and its own translation for the locale that gives, one call.
+ */
+export async function householdLocale(d1: D1Database): Promise<{ language: string; translation: Overrides | null }> {
+  const dbi = db(d1);
+  const resolved = sql`coalesce((SELECT CASE WHEN language IN (${shippedLocales()}) THEN language ELSE ${'en'} END FROM site_settings WHERE id = 1), ${'en'})`;
+  const [settings, rows] = await dbi.batch([
+    dbi.select({ language: s.siteSettings.language }).from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
+    dbi.select({ locale: s.translations.locale, strings: s.translations.strings }).from(s.translations).where(eq(s.translations.locale, resolved)),
+  ]);
+  const language = settings[0]?.language;
+  return { language: isLanguageCode(language) ? language : DEFAULT_LANGUAGE, translation: overridesOf(rows[0]) };
+}
+
+/**
+ * A share link's row and what its public pages render in (§16 #93), in the one call the share routes already made
+ * for the row: the household's language and its translation for the locale that gives — never a member's choice.
+ */
+export async function shareWithLocale(
+  d1: D1Database,
+  token: string,
+): Promise<{ share: Share | null; language: string; translation: Overrides | null }> {
+  const dbi = db(d1);
+  const resolved = sql`coalesce((SELECT CASE WHEN language IN (${shippedLocales()}) THEN language ELSE ${'en'} END FROM site_settings WHERE id = 1), ${'en'})`;
+  const [shares, settings, rows] = await dbi.batch([
+    dbi.select().from(s.shares).where(eq(s.shares.token, token || '\u0000')), // '' names no link; the bind keeps the batch's shape
+    dbi.select({ language: s.siteSettings.language }).from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
+    dbi.select({ locale: s.translations.locale, strings: s.translations.strings }).from(s.translations).where(eq(s.translations.locale, resolved)),
+  ]);
+  const language = settings[0]?.language;
+  return { share: token ? (shares[0] ?? null) : null, language: isLanguageCode(language) ? language : DEFAULT_LANGUAGE, translation: overridesOf(rows[0]) };
+}
+
+/**
+ * Everything the Members page shows beside its members, in one call: the settings, the household's custom fields
+ * (§16 #95) and its own interface translations (§16 #93) — the page makes the calls it made before either existed.
+ */
+export async function membersSettings(
+  d1: D1Database,
+): Promise<{ settings: SiteSettings; customFields: CustomField[]; translations: Array<{ locale: string; count: number; updatedAt: string }> }> {
+  const dbi = db(d1);
+  const [rows, fields, trs] = await dbi.batch([
+    dbi.select().from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
+    dbi.select().from(s.customFields).orderBy(asc(s.customFields.position), asc(s.customFields.id)),
+    dbi.select().from(s.translations).orderBy(asc(s.translations.locale)),
+  ]);
+  return {
+    settings: settingsOf(rows[0]),
+    customFields: fields,
+    translations: trs.map((r) => ({ locale: r.locale, count: Object.keys(overridesOf(r) ?? {}).length, updatedAt: r.updatedAt })),
+  };
+}
+
+/** The interface language a member chose on Account (§16 #93): a shipped locale, or null to follow the household's. */
+export async function setUserLocale(d1: D1Database, id: number, locale: Locale | null): Promise<void> {
+  await d1.prepare('UPDATE users SET locale = ?2 WHERE id = ?1').bind(id, locale).run();
+}
+
+/** The household's own translation for a locale, as the strings download merges it; null when there is none. */
+export async function getTranslation(d1: D1Database, locale: Locale): Promise<Overrides | null> {
+  const [row] = await db(d1).select({ locale: s.translations.locale, strings: s.translations.strings }).from(s.translations).where(eq(s.translations.locale, locale));
+  return overridesOf(row);
+}
+
+/** Stores a household translation (§16 #93) — already parsed and reduced to known keys — replacing any for that locale. */
+export async function setTranslation(d1: D1Database, locale: Locale, strings: Overrides): Promise<void> {
+  await db(d1)
+    .insert(s.translations)
+    .values({ locale, strings: JSON.stringify(strings) })
+    .onConflictDoUpdate({ target: s.translations.locale, set: { strings: JSON.stringify(strings), updatedAt: sql`(datetime('now'))` } });
+}
+
+export async function deleteTranslation(d1: D1Database, locale: Locale): Promise<void> {
+  await db(d1).delete(s.translations).where(eq(s.translations.locale, locale));
 }
 
 /**
@@ -375,13 +504,18 @@ export async function listApiTokens(d1: D1Database, userId: number): Promise<Arr
  * call — the two statements as one batch, as getUserById was one. Columns are aliased to their names in code: a raw
  * row keeps SQL's names (display_name), which the page would read past.
  */
-export async function userWithTokens(d1: D1Database, userId: number): Promise<{ displayName: string | null; tokens: Array<{ id: number; name: string; createdAt: string }> }> {
+export async function userWithTokens(
+  d1: D1Database,
+  userId: number,
+): Promise<{ displayName: string | null; locale: string | null; tokens: Array<{ id: number; name: string; createdAt: string }> }> {
   const [u, t] = await d1.batch([
-    d1.prepare('SELECT display_name AS displayName FROM users WHERE id = ?1').bind(userId),
+    d1.prepare('SELECT display_name AS displayName, locale FROM users WHERE id = ?1').bind(userId),
     d1.prepare('SELECT id, name, created_at AS createdAt FROM api_tokens WHERE user_id = ?1 ORDER BY id').bind(userId),
   ]);
+  const row = (u?.results ?? [])[0] as { displayName: string | null; locale: string | null } | undefined;
   return {
-    displayName: ((u?.results ?? [])[0] as { displayName: string | null } | undefined)?.displayName ?? null,
+    displayName: row?.displayName ?? null,
+    locale: row?.locale ?? null, // the interface language chosen here (§16 #93), in the same call
     tokens: (t?.results ?? []) as Array<{ id: number; name: string; createdAt: string }>,
   };
 }
@@ -5243,16 +5377,6 @@ const customFieldsOf = (res: D1Result | undefined): CustomField[] =>
 
 export async function listCustomFields(d1: D1Database): Promise<CustomField[]> {
   return customFieldsOf(await customFieldsStatement(d1).all());
-}
-
-/** The household's settings and its custom fields in one call, for the Members page, which shows both. */
-export async function getSiteSettingsAndCustomFields(d1: D1Database): Promise<{ settings: SiteSettings; customFields: CustomField[] }> {
-  const dbi = db(d1);
-  const [rows, fields] = await dbi.batch([
-    dbi.select().from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
-    dbi.select().from(s.customFields).orderBy(asc(s.customFields.position), asc(s.customFields.id)),
-  ]);
-  return { settings: settingsOf(rows[0]), customFields: fields };
 }
 
 /**

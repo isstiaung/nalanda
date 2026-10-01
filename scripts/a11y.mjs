@@ -877,7 +877,10 @@ async function interactions(context, ids, variant) {
     // Add → Scan: typing a barcode, the path that needs no camera
     await step('Add → typed barcode', async () => {
       await open(page, '/add');
-      const barcode = page.getByLabel(/barcode/i);
+      // the field itself, by name: its label reads "Barcode (ISBN, EAN or UPC digits)", so no exact label text is
+      // stable, and a label elsewhere that mentions a barcode (the Keep scanning hint once did) must never make
+      // this locator ambiguous again
+      const barcode = page.locator('input[name="barcode"]');
       await barcode.fill('12345', { timeout: 5000 });
       await barcode.press('Enter');
       await page.locator('#scan-results .notice').waitFor({ timeout: 10_000 });

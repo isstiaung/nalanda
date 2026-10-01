@@ -50,6 +50,7 @@ api.use('/api/v1/*', async (c, next) => {
     mustChangePassword: user.mustChangePassword,
     sessionKey: user.sessionKey,
     sessionGeneration: user.sessionGeneration,
+    locale: null, // the API renders no page: nothing here is in any language (§16 #93)
   });
   await next();
 });

@@ -34,7 +34,8 @@ deployment's shape from this file.
 - Styling: the hand-written design system in `public/app.css`, "the manuscript ledger" (ARCH.md
   §16 #16) — no CSS framework. Indigo working accent; vermilion only for circulation/danger;
   turmeric gold for ratings; monospace for all data (counts, ISBNs, dates, pills, `accNo()`);
-  Eczar for page titles and brand only; light + lamp-lit dark via `prefers-color-scheme`; the
+  Eczar (Latin + Devanagari, Tiro Tamil behind it for Tamil, §16 #93) for page titles and brand only;
+  light + lamp-lit dark via `prefers-color-scheme`; the
   vermilion headstroke rule lives in `.brand-rule` only. Extend the existing tokens/components
   (`.pill`, `.data-table`, `.props`, `.eyebrow`) — don't add frameworks (docs/conventions.md).
 - htmx and ZXing-WASM are pinned devDependencies copied to `public/vendor/` by
@@ -73,7 +74,9 @@ the code that enforces it and why — read its section before changing anything 
 - Never on share pages: private `notes`, `location` (never published, never a key of
   `toPublicItem()` or `toConnectionItem()`), loans/borrowers, the `copies` count, a record's
   condition, money, `added_by`, usernames, reads or their dates, whose reads, links into the
-  authenticated app, or anything per member unless names are switched on.
+  authenticated app, or anything per member unless names are switched on. Their language is the
+  **household's** (never a member's `users.locale`), and only their own strings are translated
+  (§16 #93).
 - Share pages may show only these derived values: `inCollection` ("Not owned"); `readCount` from
   two on; a game's or record's `playCount` (never a play's date or who logged it); series name and
   number on the item page (never the gaps or anyone's "next up", not on listings or to
@@ -238,6 +241,13 @@ Long forms in [docs/conventions.md](docs/conventions.md).
 - Members change only their own reads, pages and review; admins anyone's, and only admins move one
   to another member — checked in the route (403 with a reason) *and* the writing statement
   (`Actor` guards).
+- **Interface strings** (ARCH.md §16 #93): every string a covered page shows is a key in
+  `src/i18n/strings.ts` (English, the source), translated in full in `hi.ts` and `ta.ts` (machine
+  drafts, `draft: true` until a native reader checks). Routes use `c.get('i18n').t(key, params)`
+  (`i18nOf(c)` with no session), components `useI18n()`, sentences with elements `Fill`. The
+  interface follows `site_settings.language` where shipped, a member's `users.locale` first; share
+  pages the household's. Never translate item data or names; never render a string as raw HTML or in
+  an inline handler. The reads ride in existing batches — a translated page costs no D1 call more.
 - `copies = 0` = catalogued, not owned: not lendable, badged "Not owned" everywhere incl. share
   pages. The Holding toggle spans only 0 and 1; the route refuses to zero 2+ copies (§16 #13, #27).
 
