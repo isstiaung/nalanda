@@ -7,9 +7,12 @@ import type { AppEnv } from '../env';
 import { BACKGROUND_QUERY_BUDGET, OUTBOX_QUERY_SHARE } from './config';
 import { refreshDue } from './feed';
 import type { Identity } from './keys';
+import { federationOffline } from './offline';
 import { refreshOutboxes } from './outbox';
 
 export function refreshInBackground(c: Context<AppEnv>, identity: Identity, settings: FederationSettings, feeds: boolean): void {
+  // a restored copy's connections name the real households (§16 #92): nothing is pulled from or pushed to them
+  if (federationOffline(c.env)) return;
   c.executionCtx.waitUntil(
     (async () => {
       // Messages addressed to this household first — pulling is their delivery guarantee — within a share of the

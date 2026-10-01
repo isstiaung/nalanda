@@ -14,3 +14,7 @@ SESSION_SECRET=change-me-to-anything-long-and-random
 # Optional: this instance's identity for connections between Nalanda instances.
 # Generate with `npm run federation:keygen`. Unset = connections disabled entirely.
 # FEDERATION_PRIVATE_KEY='{"kty":"OKP","crv":"Ed25519","x":"…","d":"…"}'
+# A restored copy of a production database (runbooks/backup-and-restore.md): set before the first
+# page load, and this instance contacts none of the households its connections table names — no
+# pull, no push, no live read. A plain variable, not a secret; production never sets it (ARCH.md §16 #92).
+# FEDERATION_OFFLINE=1

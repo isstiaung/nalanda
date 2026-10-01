@@ -33,6 +33,7 @@ import { getSigned } from '../federation/http';
 import { coverUrl, isId, parseItemDetail, parseShelfItem, type ShelfItem } from '../federation/items';
 import { loadIdentity, type Identity } from '../federation/keys';
 import { borrowAccept, borrowDecline, borrowRequest, borrowWithdraw, type DirectedMessage } from '../federation/messages';
+import { federationOffline, OFFLINE_NOTICE } from '../federation/offline';
 import { pushNow, pushQueued } from '../federation/outbox';
 import { DiscogsAttribution, discogsLink } from '../views/attribution';
 import { DetailsList, MEDIA_ICON, MEDIA_LABEL, Pagination, stars } from '../views/components';
@@ -41,13 +42,14 @@ import { ledgerDate } from '../lib/dates';
 
 const borrowing = new Hono<AppEnv>();
 
-type Enabled = { identity: Identity; settings: FederationSettings };
+/** `offline`: this copy contacts no household (FEDERATION_OFFLINE, §16 #92) — the pages render, and say so instead of asking. */
+type Enabled = { identity: Identity; settings: FederationSettings; offline: boolean };
 
 async function enabled(c: Context<AppEnv>): Promise<Enabled | null> {
   const identity = await loadIdentity(c.env.FEDERATION_PRIVATE_KEY);
   if (!identity) return null;
   const settings = await getFederationSettings(c.env.DB);
-  return settings ? { identity, settings } : null;
+  return settings ? { identity, settings, offline: federationOffline(c.env) } : null;
 }
 
 const digits = (raw: unknown) => (typeof raw === 'string' && /^\d{1,15}$/.test(raw) ? Number(raw) : null);
@@ -72,6 +74,7 @@ async function readFromHousehold<T>(
   path: string,
   parse: (body: unknown) => T | null,
 ): Promise<{ status: number | null; value: T | null }> {
+  if (ctx.offline) return { status: null, value: null }; // nothing asked of anyone (§16 #92)
   const key = `${connection.id}|${connection.baseUrl}|${path}`;
   const hit = shelfCache.get(key);
   if (hit && hit.expires > Date.now()) return { status: 200, value: hit.value as T };
@@ -127,8 +130,10 @@ export const TheirCover: FC<{ baseUrl: string; coverKey: string | null; title: s
 };
 
 /** A notice, not an error: a household being offline is ordinary, and vermilion stays for circulation and danger. */
-const Unreachable: FC<{ connection: Connection }> = ({ connection }) => (
-  <article class="notice">Couldn’t reach {connection.householdName} just now. Their library may be offline — try again later.</article>
+const Unreachable: FC<{ connection: Connection; offline: boolean }> = ({ connection, offline }) => (
+  <article class="notice">
+    {offline ? OFFLINE_NOTICE : <>Couldn’t reach {connection.householdName} just now. Their library may be offline — try again later.</>}
+  </article>
 );
 
 /** The shelves a household shares. */
@@ -148,7 +153,7 @@ borrowing.get('/households/:id', async (c) => {
         </div>
       </div>
       {views === null ? (
-        <Unreachable connection={connection} />
+        <Unreachable connection={connection} offline={ctx.offline} />
       ) : views.length === 0 ? (
         <p class="muted">{connection.householdName} isn’t sharing any shelves.</p>
       ) : (
@@ -193,7 +198,7 @@ borrowing.get('/households/:id/views/:viewId', async (c) => {
       {status === 404 ? (
         <p class="muted">{connection.householdName} no longer shares this shelf.</p>
       ) : !shelf ? (
-        <Unreachable connection={connection} />
+        <Unreachable connection={connection} offline={ctx.offline} />
       ) : (
         <>
           <div class="item-grid">
@@ -251,7 +256,7 @@ borrowing.get('/households/:id/views/:viewId/items/:itemId', async (c) => {
             <span class="sub">{status === 404 ? 'NO LONGER SHARED' : 'UNREACHABLE'}</span>
           </div>
         </div>
-        {status === 404 ? <p class="muted">That book isn’t on a shelf they share any more.</p> : <Unreachable connection={connection} />}
+        {status === 404 ? <p class="muted">That book isn’t on a shelf they share any more.</p> : <Unreachable connection={connection} offline={ctx.offline} />}
         <p class="back-link">
           <a href={back}>← back to the shelf</a>
         </p>
@@ -390,6 +395,7 @@ borrowing.post('/households/:id/requests', async (c) => {
   if ((await sentToday(c.env.DB, connection.id)) >= MAX_SENT_PER_DAY) {
     return renderBorrowed(c, ctx, { error: `You’ve sent ${connection.householdName} as many messages as one day allows. Try again tomorrow.` });
   }
+  if (ctx.offline) return renderBorrowed(c, ctx, { error: OFFLINE_NOTICE }); // neither asked nor queued (§16 #92)
 
   // Their current word, not a cached page: the title kept, and whether a copy is still free.
   const res = await getSigned(ctx.identity, ctx.settings.baseUrl, connection.baseUrl, `/federation/item?view=${viewId}&id=${itemId}`);
@@ -428,7 +434,7 @@ borrowing.post('/households/:id/requests', async (c) => {
   if (requestId === null) return c.redirect('/borrowed');
   // refused in their inbox's own words: declined here and gone from the outbox; anything else — delivered, or an
   // answer that settles nothing — leaves the request waiting on its page
-  if ((await pushNow(c.env.DB, ctx.identity, ctx.settings, connection, message)) === 'refused') {
+  if ((await pushNow(c, ctx.identity, ctx.settings, connection, message)) === 'refused') {
     return renderBorrowed(c, ctx, { error: `${connection.householdName} couldn’t take that request: the book isn’t available any more.` });
   }
   return c.redirect('/borrowed');

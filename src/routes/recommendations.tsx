@@ -45,6 +45,7 @@ import { fetchDescriptor, peerAccepts } from '../federation/http';
 import { coverUrl, itemStamp, toRecommendedItem } from '../federation/items';
 import { loadIdentity, type Identity } from '../federation/keys';
 import { recommend, RECOMMEND_ID_KEYS, recommendId, type RecommendIds } from '../federation/messages';
+import { federationOffline } from '../federation/offline';
 import { pushNow } from '../federation/outbox';
 import { isRecord } from '../lib/condition';
 import { deleteCover, storeCover } from '../lib/covers';
@@ -224,6 +225,8 @@ recommendations.post('/items/:id/recommend', async (c) => {
   if ((await sentToday(c.env.DB, connection.id)) >= MAX_SENT_PER_DAY) return back('limit', connection.id);
   if ((await recommendedToday(c.env.DB, connection.id)) >= MAX_RECOMMENDATIONS_PER_DAY) return back('limit', connection.id);
 
+  // a restored copy contacts nobody (§16 #92): to its pages every household is out of reach, and nothing is queued
+  if (federationOffline(c.env)) return back('unreachable', connection.id);
   const descriptor = await fetchDescriptor(connection.baseUrl);
   if (!descriptor) return back('unreachable', connection.id);
   if (!peerAccepts(descriptor, 'Recommend')) return back('old', connection.id);
@@ -256,7 +259,7 @@ recommendations.post('/items/:id/recommend', async (c) => {
   );
   if (id === null) return back('duplicate', connection.id);
   // A refusal takes it out of the outbox and marks it refused, together (dropRefused); nothing is retried after it.
-  const outcome = await pushNow(c.env.DB, ctx.identity, ctx.settings, connection, message);
+  const outcome = await pushNow(c, ctx.identity, ctx.settings, connection, message);
   if (outcome === 'delivered') return back('sent', connection.id);
   if (outcome === 'refused') return back('refused', connection.id);
   return back('queued', connection.id);

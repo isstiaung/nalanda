@@ -59,7 +59,8 @@ src/federation/    connections between instances (docs/proposals/connections.md)
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments, borrowing and recommendations
                    (comments.ts, borrowing.ts, recommendations.ts, dispatched by directed.ts),
-                   the outbox (outbox.ts), public routes. Its D1 queries live in
+                   the outbox (outbox.ts), public routes, and the FEDERATION_OFFLINE switch
+                   (offline.ts, ARCH.md §16 #92: a restored copy contacts no peer). Its D1 queries live in
                    src/db/federation.ts; admin pages in routes/connections, Feed in routes/feed,
                    comments in routes/comments, recommendations in routes/recommendations,
                    shelves/requests/Borrowed and the Loans-page section in routes/borrowing — Borrowed

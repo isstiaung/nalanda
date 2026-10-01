@@ -40,6 +40,7 @@ import { getSigned, postSigned } from './http';
 import { isId } from './items';
 import type { Identity } from './keys';
 import { isDirected, parseInboxMessage, type DirectedMessage } from './messages';
+import { federationOffline } from './offline';
 
 type Answer = { status: number; body: unknown };
 
@@ -74,6 +75,7 @@ export function pushQueued(
   connection: Connection,
   message: DirectedMessage,
 ): void {
+  if (federationOffline(c.env)) return; // queued, never pushed: a restored copy contacts nobody (§16 #92)
   c.executionCtx.waitUntil(
     postSigned(identity, settings.baseUrl, connection.baseUrl, '/federation/inbox', message)
       .then(async (res) => {
@@ -102,20 +104,21 @@ export async function sendToConnection(
  * ours is declined with it.
  */
 export async function pushNow(
-  d1: D1Database,
+  c: Context<AppEnv>,
   identity: Identity,
   settings: FederationSettings,
   connection: Connection,
   message: DirectedMessage,
 ): Promise<PushOutcome> {
+  if (federationOffline(c.env)) return 'waiting'; // queued, never pushed: a restored copy contacts nobody (§16 #92)
   const res = await postSigned(identity, settings.baseUrl, connection.baseUrl, '/federation/inbox', message);
   if (!res) return 'waiting';
   if (delivered(res)) {
-    await markDelivered(d1, message.id);
+    await markDelivered(c.env.DB, message.id);
     return 'delivered';
   }
   if (refused(res)) {
-    await dropRefused(d1, message);
+    await dropRefused(c.env.DB, message);
     return 'refused';
   }
   return 'waiting';
