@@ -72,6 +72,7 @@ export const EXPORT_COLUMNS = [
   'original_title',
   'quotes', // quotes and highlights (§16 #77): JSON, each with its writer's username
   'borrowed', // borrowed from someone not on Nalanda (§16 #82): as the loans cell, the lender in the borrower's place
+  'added_by', // who added it, by username as the reads cell names people; empty for a member removed since
   'details',
 ] as const;
 
@@ -115,7 +116,8 @@ export function progressHistoryCell(
  * everyone's, and `reads` names each read's reader, so a re-import gives every member back their own. `loans` is
  * every loan, open and returned (§16 #57), and `plays` is the household's play log, oldest first, each date with
  * who logged it (§16 #54). `wanted_by` names whose want list it is on and since when, and `purchase_links` holds its
- * links (§16 #53).
+ * links (§16 #53). `addedBy` is the username of whoever added it — shown on the item's page, so it round-trips —
+ * or null for a member removed since.
  */
 export function itemToCsvLine(
   item: Item,
@@ -132,6 +134,7 @@ export function itemToCsvLine(
   editions: EditionDraft[] = [],
   quotes: CellQuote[] = [],
   borrows: LoanDraft[] = [],
+  addedBy: string | null = null,
 ): string {
   const ordered = inDisplayOrder(reads);
   const position = new Map(ordered.map((r, i) => [r.id, i + 1]));
@@ -177,6 +180,7 @@ export function itemToCsvLine(
     item.originalTitle,
     formatQuotesCell(quotes),
     formatLoansCell(borrows),
+    addedBy,
     item.details === '{}' ? '' : item.details,
   ]);
 }
@@ -234,6 +238,9 @@ export type MappedRow = {
   loans?: LoanDraft[];
   // its series (§16 #52): a Nalanda export's columns, libib's "group", or the suffix a Goodreads title carries
   series?: SeriesDraft | null;
+  // who added it, by username, as a Nalanda export names them; absent when the file names nobody (a former member,
+  // an older export, any other format) — then the importer's, as every row's added_by was before
+  addedBy?: string;
 };
 
 /**
@@ -613,6 +620,7 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
     quotes: parseQuotesCell(r['quotes']),
     // an owned row keeps only the borrows given back: a copy of yours is never also someone's (§16 #82), whatever a hand-edited cell says
     borrows: parseLoansCell(r['borrowed']).filter((b) => (copies ?? 1) === 0 || b.returnedOn !== null),
+    ...(r['added_by'] ? { addedBy: r['added_by'] } : {}),
     tags: (r['tags'] ?? '')
       .split(',')
       .map((t) => t.trim())
@@ -635,6 +643,7 @@ export type PeopleTally = Map<string | null | undefined, { reads: number; review
  * names (`keepNames`): members change only their own reading, so a member's import is theirs, whatever the file says
  * — it can't make reads or reviews in anyone else's name, or ones only an admin could then change. Two reviews that
  * land on one person keep the one written last, as a person has one review. `tally` counts it all for the preview.
+ * Who added the item (`addedBy`) follows the same rule, and is the importer when the file names nobody.
  */
 export function attributePeople(
   m: MappedRow,
@@ -642,7 +651,7 @@ export function attributePeople(
   importer: number,
   tally?: PeopleTally,
   keepNames = true,
-): { reads?: PersonRead[]; reviews?: PersonReview[]; plays?: PersonPlay[]; wants?: Array<{ userId: number; at: string | null }>; quotes?: PersonQuote[] } {
+): { reads?: PersonRead[]; reviews?: PersonReview[]; plays?: PersonPlay[]; wants?: Array<{ userId: number; at: string | null }>; quotes?: PersonQuote[]; addedBy: number } {
   const resolve = (name: string | null | undefined): number | null =>
     !keepNames || name === undefined ? importer : name === null ? null : (members.get(name) ?? importer);
   const count = (name: string | null | undefined, what: 'reads' | 'reviews' | 'wants', n = 1) => {
@@ -694,7 +703,9 @@ export function attributePeople(
   }
   // Quotes (§16 #77) resolve as a review's writer does; a former member's stay nobody's
   const quotes = m.quotes?.map(({ by, ...quote }) => ({ ...quote, userId: resolve(by) }));
-  return { ...(reads ? { reads } : {}), ...(reviews ? { reviews } : {}), ...(plays ? { plays } : {}), ...(wants ? { wants } : {}), ...(quotes ? { quotes } : {}) };
+  // and who added it: a name resolves to a member or the importer, never to nobody — an item is always someone's to add
+  const addedBy = (m.addedBy ? resolve(m.addedBy) : null) ?? importer;
+  return { ...(reads ? { reads } : {}), ...(reviews ? { reviews } : {}), ...(plays ? { plays } : {}), ...(wants ? { wants } : {}), ...(quotes ? { quotes } : {}), addedBy };
 }
 
 // ---------- Goodreads import mapping ----------

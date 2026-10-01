@@ -10,6 +10,7 @@ import {
   createItem,
   createLibrary,
   createUser,
+  deleteUser,
   gamesForTonight,
   getItem,
   setItemTags,
@@ -133,6 +134,34 @@ describe('a Nalanda export, imported again', () => {
       for (const field of FIELDS) expect(after[field], `${before.title}: ${field}`).toEqual(before[field]);
       expect(await tagsForItem(env.DB, copy)).toEqual(await tagsForItem(env.DB, original));
     }
+  });
+
+  it('says who added each item, and gives it back to them — a member of that name in an admin’s import, else the importer', async () => {
+    const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
+    const ravi = await createUser(env.DB, { username: 'ravi', passwordHash: 'pbkdf2$1$x$y', role: 'member', mustChangePassword: false });
+    const gone = await createUser(env.DB, { username: 'gone', passwordHash: 'pbkdf2$1$x$y', role: 'member', mustChangePassword: false });
+    const cookieOf = async (u: typeof admin) => `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, u, Math.floor(Date.now() / 1000))}`;
+    const shelf = await createLibrary(env.DB, 'Shelf');
+    await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'Ravi’s', addedBy: ravi.id, details: '{}' });
+    await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'A former member’s', addedBy: gone.id, details: '{}' });
+    await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'Nobody’s', details: '{}' });
+    await deleteUser(env.DB, gone.id);
+
+    const rows = parseCsv((await call('/export.csv', await cookieOf(admin))).text);
+    expect(rows.map((r) => r.added_by)).toEqual(['ravi', '', '']); // the username; a former member is nobody now
+    rows.push({ ...rows[0]!, title: 'A stranger’s', added_by: 'nobody-here' });
+
+    const adderOf = async (libraryId: number) =>
+      (await env.DB.prepare('SELECT title, added_by AS by FROM items WHERE library_id = ?1 ORDER BY id').bind(libraryId).all<{ title: string; by: number | null }>()).results.map((r) => r.by);
+    // an admin's import keeps the member of that name; nobody named, or a name not here, is the importer's
+    const byAdmin = await createLibrary(env.DB, 'By the admin');
+    expect(JSON.parse((await call('/api/import', await cookieOf(admin), { libraryId: byAdmin.id, rows })).text)).toMatchObject({ inserted: 4 });
+    expect(await adderOf(byAdmin.id)).toEqual([ravi.id, admin.id, admin.id, admin.id]);
+    // a member's import is all theirs
+    const byRavi = await createLibrary(env.DB, 'By ravi');
+    const mira = await createUser(env.DB, { username: 'mira', passwordHash: 'pbkdf2$1$x$y', role: 'member', mustChangePassword: false });
+    expect(JSON.parse((await call('/api/import', await cookieOf(mira), { libraryId: byRavi.id, rows })).text)).toMatchObject({ inserted: 4 });
+    expect(await adderOf(byRavi.id)).toEqual([mira.id, mira.id, mira.id, mira.id]);
   });
 
   it('carries a title that reads as a formula, and a note that starts with a quote, out and back unchanged (§16 #91)', async () => {
