@@ -22,7 +22,10 @@ not just the newest. It says:
 
 ## 2. Get the code
 
-You deploy from your own copy of the repository, a fork or a clone. Bring in the release you want:
+You deploy from your own copy of the repository, a fork or a clone. **If the notes ask for a backup, take it
+first (step 3), before you bring in the release:** a newer release's backup script lists the tables its
+migrations add, which your database doesn't have yet, so it can't back up the version you're running. Then
+bring in the release you want:
 
 ```sh
 git fetch https://github.com/isstiaung/nalanda.git --tags
@@ -39,8 +42,10 @@ If you've never changed the code, `git checkout v1.2.0` works just as well.
 npm run backup
 ```
 
-A code rollback never undoes a migration, so this backup is how you would get back
-([backup-and-restore.md](backup-and-restore.md)).
+Run it with the version you're running now, before step 2 — see the note there. A code rollback never
+undoes a migration, so this backup is how you would get back ([backup-and-restore.md](backup-and-restore.md)).
+Moving across several releases at once, one backup before the first is enough; then follow each release's
+Upgrading notes in order.
 
 ## 4. Deploy
 
