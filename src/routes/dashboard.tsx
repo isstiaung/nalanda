@@ -3,9 +3,10 @@ import { goalOf, listShares, pickNextRead, recentItems, shelvesWithTotals, type 
 import { formatCount, formatMoney } from '../lib/money';
 import type { Share } from '../db/schema';
 import type { AppEnv } from '../env';
-import { shareVisibility, shareVisibilityLabel } from '../lib/share';
-import { GoalMeter, ItemGrid, MEDIA_LABEL, MEDIA_PLURAL, ReadNextCard, Stat } from '../views/components';
-import { page, todayOf } from '../views/layout';
+import { shareVisibility } from '../lib/share';
+import { GoalMeter, ItemGrid, ReadNextCard, Stat } from '../views/components';
+import { Fill, mediaCount, visibilityLabel } from '../views/i18n';
+import { page, partial, todayOf } from '../views/layout';
 import { ledgerDate } from '../lib/dates';
 
 const dashboard = new Hono<AppEnv>();
@@ -24,8 +25,10 @@ dashboard.get('/', async (c) => {
   const reader = c.get('user').id;
   const notId = shownPick(c.req.query('not'));
   c.header('Vary', 'HX-Request');
-  if (c.req.header('HX-Request')) return c.html(<ReadNextCard pick={await pickNextRead(c.env.DB, reader, notId)} />);
+  if (c.req.header('HX-Request')) return partial(c, <ReadNextCard pick={await pickNextRead(c.env.DB, reader, notId)} />);
 
+  const i18n = c.get('i18n');
+  const { t, n } = i18n;
   const today = todayOf(c);
   const year = Number(today.slice(0, 4));
   const [{ shelves: libraries, totals, holdings, views: savedViews, loans }, recent, shares, pick, goal] = await Promise.all([
@@ -63,49 +66,49 @@ dashboard.get('/', async (c) => {
   const typeLine = (pick: (h: (typeof holdings)[number]) => number) =>
     holdings
       .filter((h) => pick(h) > 0)
-      .map((h) => `${pick(h)} ${pick(h) === 1 ? MEDIA_LABEL[h.mediaType].toLowerCase() : MEDIA_PLURAL[h.mediaType]}`)
+      .map((h) => mediaCount(i18n, h.mediaType, pick(h)))
       .join(' · ');
 
   return page(
     c,
-    'Overview',
+    t('overview.title'),
     <>
       <div class="page-head">
-        <h1>Overview</h1>
+        <h1>{t('overview.title')}</h1>
         <div class="page-actions">
           <a href="/add" class="btn btn-primary">
-            Add items
+            {t('nav.add')}
           </a>
         </div>
       </div>
 
       <form method="get" action="/search" role="search">
-        <input type="search" name="q" placeholder="Search the whole collection…" aria-label="Search" />
+        <input type="search" name="q" placeholder={t('overview.search_placeholder')} aria-label={t('overview.search')} />
       </form>
 
       <section>
         <div class="stat-row">
-          <Stat n={owned} label="Owned" detail={typeLine((h) => h.owned)} />
-          {notOwned > 0 ? <Stat n={notOwned} label="Not owned" detail={typeLine((h) => h.notOwned)} /> : null}
-          <Stat n={libraries.length} label="Shelves" />
-          <Stat n={loans.open} label="On loan" />
-          <Stat n={loans.overdue} label="Overdue" warn={loans.overdue > 0} />
+          <Stat n={owned} label={t('overview.owned')} detail={typeLine((h) => h.owned)} />
+          {notOwned > 0 ? <Stat n={notOwned} label={t('overview.not_owned')} detail={typeLine((h) => h.notOwned)} /> : null}
+          <Stat n={libraries.length} label={t('overview.shelves')} />
+          <Stat n={loans.open} label={t('overview.on_loan')} />
+          <Stat n={loans.overdue} label={t('overview.overdue')} warn={loans.overdue > 0} />
         </div>
       </section>
 
       {goal || hasBooks ? (
       <section class="goal" id="goal">
-        <p class="eyebrow">Reading goal · {year}</p>
+        <p class="eyebrow">{t('overview.goal', { year })}</p>
         {goal ? (
           <>
             <GoalMeter count={goal.count} target={goal.target} year={year} today={today} />
             <a href="/goals" class="goal-edit">
-              Change goal
+              {t('overview.change_goal')}
             </a>
           </>
         ) : (
           <p class="muted">
-            No reading goal for {year}. <a href="/goals">Set one</a> — how many books you mean to finish this year.
+            <Fill text={t('overview.no_goal', { year })} with={{ setOne: <a href="/goals">{t('overview.set_one')}</a> }} />
           </p>
         )}
       </section>
@@ -114,7 +117,7 @@ dashboard.get('/', async (c) => {
       {hasBooks ? (
         <section aria-labelledby="read-next-head">
           <p class="eyebrow" id="read-next-head">
-            Read next
+            {t('overview.read_next')}
           </p>
           <div id="read-next" aria-live="polite">
             <ReadNextCard pick={pick} />
@@ -125,31 +128,27 @@ dashboard.get('/', async (c) => {
       {gamesOwned > 0 ? (
         <section aria-labelledby="game-night-head">
           <p class="eyebrow" id="game-night-head">
-            Game night
+            {t('overview.game_night')}
           </p>
           <p class="game-night">
-            <a href="/play">What should we play tonight?</a>{' '}
-            <span class="muted">
-              {gamesOwned === 1
-                ? 'Check your one board game against players, time and weight.'
-                : `Pick from ${gamesOwned} board games by players, time and weight.`}
-            </span>
+            <a href="/play">{t('overview.play_tonight')}</a>{' '}
+            <span class="muted">{gamesOwned === 1 ? t('overview.one_game') : t('overview.pick_games', { count: gamesOwned })}</span>
           </p>
         </section>
       ) : null}
 
       <section>
-        <p class="eyebrow">Shelves</p>
+        <p class="eyebrow">{t('overview.shelves')}</p>
         {libraries.length ? (
           <div class="data-table">
             <table>
               <thead>
                 <tr>
-                  <th>Shelf</th>
-                  <th>Items</th>
-                  <th>Visibility</th>
-                  {anyPaid ? <th class="num">Paid</th> : null}
-                  <th class="hide-sm">Created</th>
+                  <th>{t('overview.shelf')}</th>
+                  <th>{t('overview.items')}</th>
+                  <th>{t('overview.visibility')}</th>
+                  {anyPaid ? <th class="num">{t('overview.paid')}</th> : null}
+                  <th class="hide-sm">{t('overview.created')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -174,7 +173,7 @@ dashboard.get('/', async (c) => {
                       <td class="num">{formatCount(l.itemCount)}</td>
                       <td>
                         <span class={visibility.kind === 'private' ? 'pill' : 'pill shared'}>
-                          {shareVisibilityLabel(visibility)}
+                          {visibilityLabel(i18n, visibility)}
                         </span>
                       </td>
                       {anyPaid ? <td class="num money-cell">{paidCell(l.id) || '—'}</td> : null}
@@ -187,37 +186,37 @@ dashboard.get('/', async (c) => {
           </div>
         ) : null}
         <details>
-          <summary>New shelf</summary>
+          <summary>{t('overview.new_shelf')}</summary>
           <form method="post" action="/libraries" class="inline-form">
-            <input name="name" placeholder="e.g. Wishlist" aria-label="Shelf name" required />
-            <button type="submit">Create shelf</button>
+            <input name="name" placeholder={t('overview.shelf_name_placeholder')} aria-label={t('overview.shelf_name')} required />
+            <button type="submit">{t('overview.create_shelf')}</button>
           </form>
         </details>
       </section>
 
       {loans.open ? (
         <section>
-          <p class="eyebrow">Circulation</p>
+          <p class="eyebrow">{t('overview.circulation')}</p>
           <p>
-            {formatCount(loans.open)} {loans.open === 1 ? 'item' : 'items'} out
+            {n('overview.items_out', loans.open, { count: formatCount(loans.open) })}
             {loans.overdue ? (
               <>
                 {' · '}
-                <span class="error">{formatCount(loans.overdue)} overdue</span>
+                <span class="error">{t('overview.overdue_count', { count: formatCount(loans.overdue) })}</span>
               </>
             ) : null}
             {' — '}
-            <a href="/loans">manage loans</a>
+            <a href="/loans">{t('overview.manage_loans')}</a>
           </p>
         </section>
       ) : null}
 
       <section>
-        <p class="eyebrow">Recently accessioned</p>
+        <p class="eyebrow">{t('overview.recent')}</p>
         {recent.length ? (
           <ItemGrid items={recent} onLoanIds={onLoanIds} wantedIds={wantedIds} />
         ) : (
-          <p class="muted">Nothing on the shelves yet — add your first item by scanning its barcode.</p>
+          <p class="muted">{t('overview.empty')}</p>
         )}
       </section>
     </>,

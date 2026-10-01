@@ -161,7 +161,7 @@ export const en = {
   'goal.pace.ahead': '{count} ahead of pace',
   'goal.pace.behind': '{count} behind pace',
   'goal.pace.upcoming': 'not started yet',
-  'goal.pace.missed': 'missed',
+  'goal.pace.missed': 'year ended',
   'goal.tick': "Where you'd be reading evenly since 1 January",
   'goal.note': "The mark shows where you'd be reading evenly since 1 January.",
 

@@ -5,7 +5,8 @@ import { discardTrash, getTrash, listLibraries, listMembersWithKeys, listTrash, 
 import type { AppEnv } from '../env';
 import { deleteCover } from '../lib/covers';
 import { ledgerDateTime } from '../lib/dates';
-import { MEDIA_ICON, MEDIA_LABEL } from '../views/components';
+import { MEDIA_ICON } from '../views/components';
+import { Fill, mediaLabel, useI18n } from '../views/i18n';
 import { page } from '../views/layout';
 
 const trash = new Hono<AppEnv>();
@@ -31,48 +32,49 @@ trash.get('/trash', async (c) => {
   const gone = c.req.query('gone') === '1';
   const refusedId = /^\d{1,15}$/.test(c.req.query('noshelf') ?? '') ? Number(c.req.query('noshelf')) : null;
   const refused = refusedId === null ? null : await getTrash(c.env.DB, refusedId);
+  const { t, n } = c.get('i18n');
   return page(
     c,
-    'Trash',
+    t('trash.title'),
     <>
       <div class="page-head">
         <div>
-          <h1>Trash</h1>
-          <span class="sub">
-            {rows.length} {rows.length === 1 ? 'ITEM' : 'ITEMS'} · KEPT {TRASH_DAYS} DAYS
-          </span>
+          <h1>{t('trash.title')}</h1>
+          <span class="sub">{n('trash.sub', rows.length, { days: TRASH_DAYS })}</span>
         </div>
       </div>
       {restored ? (
         <p class="notice">
-          Restored. <a href={`/items/${restored}`}>Open it</a> — it is back on its shelf, with its tags, reads, reviews, plays and loans.
+          <Fill text={t('trash.restored')} with={{ openIt: <a href={`/items/${restored}`}>{t('trash.open_it')}</a> }} />
         </p>
       ) : null}
-      {gone ? <p class="notice">Deleted for good.</p> : null}
+      {gone ? <p class="notice">{t('trash.gone')}</p> : null}
       {c.req.query('expired') === '1' ? (
         <p class="error" role="alert">
-          That item was past its {TRASH_DAYS} days, and has gone for good.
+          {t('trash.expired', { days: TRASH_DAYS })}
         </p>
       ) : null}
       {refused ? (
         <p class="error" role="alert">
-          “{refused.title}” can’t be restored yet: its shelf{refused.libraryName ? ` “${refused.libraryName}”` : ''} is no longer here. Make a
-          shelf {refused.libraryName ? `named “${refused.libraryName}”` : 'for it'} and try again.
+          {refused.libraryName
+            ? t('trash.no_shelf_named', { title: refused.title, shelf: refused.libraryName })
+            : t('trash.no_shelf', { title: refused.title })}
         </p>
       ) : null}
-      <p class="muted">
-        A deleted item waits here for {TRASH_DAYS} days with everything it had, then goes for good. Restoring gives it a new
-        number on its shelf; a connected household sees it as newly added.
-      </p>
+      <p class="muted">{t('trash.intro', { days: TRASH_DAYS })}</p>
       {rows.length ? (
         <table class="data-table trash-table">
           <thead>
             <tr>
-              <th scope="col">Item</th>
-              <th scope="col" class="hide-sm">Shelf</th>
-              <th scope="col" class="hide-sm">Deleted</th>
+              <th scope="col">{t('trash.item')}</th>
+              <th scope="col" class="hide-sm">
+                {t('trash.shelf')}
+              </th>
+              <th scope="col" class="hide-sm">
+                {t('trash.deleted')}
+              </th>
               <th scope="col">
-                <span class="sr-only">Actions</span>
+                <span class="sr-only">{t('trash.actions')}</span>
               </th>
             </tr>
           </thead>
@@ -83,40 +85,44 @@ trash.get('/trash', async (c) => {
           </tbody>
         </table>
       ) : (
-        <p class="muted">Nothing in the trash.</p>
+        <p class="muted">{t('trash.empty')}</p>
       )}
     </>,
   );
 });
 
-const TrashLine = ({ row, shelf, by }: { row: TrashRow; shelf: string | null; by: string | null }) => (
-  <tr>
-    <td data-label="Item">
-      <span aria-hidden="true">{MEDIA_ICON[row.mediaType] ?? ''}</span> <strong>{row.title}</strong>
-      {row.creators ? <small class="muted"> · {row.creators}</small> : null}
-      <small class="muted"> · {MEDIA_LABEL[row.mediaType] ?? row.mediaType}</small>
-    </td>
-    <td data-label="Shelf" class="hide-sm">
-      {shelf ?? <span class="muted">a shelf since removed</span>}
-    </td>
-    <td data-label="Deleted" class="hide-sm">
-      <span class="mono">{ledgerDateTime(row.deletedAt)}</span>
-      {by ? <small class="muted"> by {by}</small> : null}
-    </td>
-    <td class="actions-cell">
-      <form method="post" action={`/trash/${row.id}/restore`} class="inline">
-        <button type="submit" class="btn">
-          Restore
-        </button>
-      </form>{' '}
-      <form method="post" action={`/trash/${row.id}/discard`} class="inline" data-confirm={`Delete “${row.title}” for good? It can’t be restored after this.`}>
-        <button type="submit" class="btn-danger">
-          Delete for good
-        </button>
-      </form>
-    </td>
-  </tr>
-);
+const TrashLine = ({ row, shelf, by }: { row: TrashRow; shelf: string | null; by: string | null }) => {
+  const i18n = useI18n();
+  const { t } = i18n;
+  return (
+    <tr>
+      <td data-label={t('trash.item')}>
+        <span aria-hidden="true">{MEDIA_ICON[row.mediaType] ?? ''}</span> <strong>{row.title}</strong>
+        {row.creators ? <small class="muted"> · {row.creators}</small> : null}
+        <small class="muted"> · {MEDIA_ICON[row.mediaType] ? mediaLabel(i18n, row.mediaType) : row.mediaType}</small>
+      </td>
+      <td data-label={t('trash.shelf')} class="hide-sm">
+        {shelf ?? <span class="muted">{t('trash.shelf_removed')}</span>}
+      </td>
+      <td data-label={t('trash.deleted')} class="hide-sm">
+        <span class="mono">{ledgerDateTime(row.deletedAt)}</span>
+        {by ? <small class="muted"> {t('trash.by', { name: by })}</small> : null}
+      </td>
+      <td class="actions-cell">
+        <form method="post" action={`/trash/${row.id}/restore`} class="inline">
+          <button type="submit" class="btn">
+            {t('trash.restore')}
+          </button>
+        </form>{' '}
+        <form method="post" action={`/trash/${row.id}/discard`} class="inline" data-confirm={t('trash.discard_confirm', { title: row.title })}>
+          <button type="submit" class="btn-danger">
+            {t('trash.discard')}
+          </button>
+        </form>
+      </td>
+    </tr>
+  );
+};
 
 const idOf = (raw: string) => (/^\d{1,15}$/.test(raw) ? Number(raw) : null);
 

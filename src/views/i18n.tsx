@@ -6,6 +6,7 @@
 import { createContext, useContext, type Child, type FC } from 'hono/jsx';
 import type { ItemStatus, MediaType } from '../db/schema';
 import { ENGLISH, type Translator } from '../i18n';
+import type { ShareVisibility } from '../lib/share';
 
 export const I18n = createContext<Translator>(ENGLISH);
 
@@ -28,3 +29,10 @@ export const mediaLabel = (i18n: Translator, type: MediaType): string => i18n.t(
 export const mediaCount = (i18n: Translator, type: MediaType, count: number): string => i18n.n(`media.${type}_count`, count);
 export const statusLabel = (i18n: Translator, status: ItemStatus): string => i18n.t(`status.${status}`);
 export const lengthUnit = (i18n: Translator, type: MediaType): string => (type === 'other' ? '' : i18n.t(`unit.${type}`));
+
+/** shareVisibilityLabel() (src/lib/share.ts) in the page's language: title case, uppercased at a call site that wants it. */
+export function visibilityLabel(i18n: Translator, v: ShareVisibility): string {
+  if (v.kind === 'private') return i18n.t('visibility.private');
+  if (v.kind === 'shelf') return v.links === 1 ? i18n.t('visibility.shared') : i18n.t('visibility.shared_links', { count: v.links });
+  return i18n.n('visibility.views', v.links);
+}

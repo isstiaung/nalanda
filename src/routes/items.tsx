@@ -40,6 +40,7 @@ import {
   seriesWithVolumes,
   startRead,
   tagsForItem,
+  TRASH_DAYS,
   updateItemWithTags,
   updateRead,
   updateReview,
@@ -93,8 +94,6 @@ import {
   type PriceFieldProps,
   ItemStatusPills,
   LendingHistory,
-  LENGTH_UNIT,
-  MEDIA_LABEL,
   AllPlays,
   Pagination,
   PlaysSection,
@@ -115,7 +114,8 @@ import {
   LanguagePill,
   ItemHistory,
 } from '../views/components';
-import { page, todayOf } from '../views/layout';
+import { Fill, lengthUnit, mediaLabel, useI18n } from '../views/i18n';
+import { page, partial, todayOf } from '../views/layout';
 import { CreatorLinks } from '../views/creators';
 import { CoverPhotoForm, PHOTO_REFUSED } from '../views/cover-photo';
 import { cleanEdition, FORMATS, formatLabel, formatsFromPressing, formatsOf, MAX_EDITIONS_PER_ITEM, normalizeFormats, type EditionDraft } from '../lib/formats';
@@ -750,17 +750,19 @@ function GameDetails({ item, details, token, notice }: { item: Item; details: Re
  * so the rows stay in the list's grid; a <div> is a valid way to group a <dl>'s rows.
  */
 function FilledProps({ item, oob }: { item: Pick<Item, 'mediaType' | 'published' | 'publisher' | 'length'>; oob?: boolean }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   return (
     <div id="item-filled" class="props-group" hx-swap-oob={oob ? 'true' : undefined}>
       {item.published ? (
         <>
-          <dt>Published</dt>
+          <dt>{t('item.published')}</dt>
           <dd>{item.published}</dd>
         </>
       ) : null}
       {item.publisher ? (
         <>
-          <dt>Publisher</dt>
+          <dt>{t('item.publisher')}</dt>
           <dd>
             <a href={`/publishers/${encodeURIComponent(item.publisher.trim())}`}>{item.publisher}</a>
           </dd>
@@ -768,9 +770,9 @@ function FilledProps({ item, oob }: { item: Pick<Item, 'mediaType' | 'published'
       ) : null}
       {item.length ? (
         <>
-          <dt>Length</dt>
+          <dt>{t('item.length')}</dt>
           <dd class="mono">
-            {item.length} {LENGTH_UNIT[item.mediaType] ?? ''}
+            {item.length} {lengthUnit(i18n, item.mediaType)}
           </dd>
         </>
       ) : null}
@@ -816,6 +818,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const discussion = await itemComments(c, item); // null unless connections are enabled and someone commented
   const recommending = recommend.render(log.extra); // null unless connections are enabled and one is active (§16 #58)
   const changes = viewer.admin ? historyOf(log.extra[recommend.statements.length]) : null;
+  const i18n = c.get('i18n');
+  const { t } = i18n; // the page's own labels, pills and buttons (§16 #93); its sections keep their English for now
 
   return page(
     c,
@@ -843,22 +847,22 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
         <WantBar item={item} wanters={log.want.wanters} viewer={viewer} />
 
         <dl class="props">
-          <dt>Accession</dt>
+          <dt>{t('item.accession')}</dt>
           <dd class="mono">{accNo(item.id)}</dd>
-          <dt>Shelf</dt>
+          <dt>{t('item.shelf')}</dt>
           <dd>{lib ? <a href={`/libraries/${lib.id}`}>{lib.name}</a> : '—'}</dd>
-          <dt>Type</dt>
+          <dt>{t('item.type')}</dt>
           <dd>
-            {MEDIA_LABEL[item.mediaType]} <FormatPills formats={formatsOf(item)} /> <LanguagePill language={item.language} household={log.householdLanguage} />
+            {mediaLabel(i18n, item.mediaType)} <FormatPills formats={formatsOf(item)} /> <LanguagePill language={item.language} household={log.householdLanguage} />
           </dd>
           {editions.length ? (
             <>
-              <dt>Also held as</dt>
+              <dt>{t('item.also_held_as')}</dt>
               <dd>
                 <ul class="editions-list">
                   {editions.map((e) => (
                     <li>
-                      {[e.format ? formatLabel(e.format) : null, e.publisher, e.year].filter(Boolean).join(', ') || 'another edition'}
+                      {[e.format ? formatLabel(e.format) : null, e.publisher, e.year].filter(Boolean).join(', ') || t('item.another_edition')}
                       {e.isbn ? <span class="mono muted"> · {e.isbn}</span> : null}
                     </li>
                   ))}
@@ -869,14 +873,14 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           {/* a game or record has no reading status (it takes plays): the row stays only to say it's out */}
           {!isPlayable(item.mediaType) || loan ? (
             <>
-              <dt>Status</dt>
+              <dt>{t('item.status')}</dt>
               <dd>
                 <ItemStatusPills item={item} />
-                {loan ? <span class={overdue ? 'pill overdue' : 'pill lent'}>{overdue ? 'Overdue' : 'Lent'}</span> : null}
+                {loan ? <span class={overdue ? 'pill overdue' : 'pill lent'}>{overdue ? t('pill.overdue') : t('pill.lent')}</span> : null}
               </dd>
             </>
           ) : null}
-          <dt>Holding</dt>
+          <dt>{t('item.holding')}</dt>
           <dd>
             <HoldingPill item={item} />
             {item.copies === 0 && log.want.wanters.length ? <WantedPill /> : null}
@@ -885,14 +889,14 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           {/* where it lives (§16 #51) — private, like notes: share pages and connections never carry it */}
           {item.location ? (
             <>
-              <dt>Location</dt>
+              <dt>{t('item.location')}</dt>
               <dd>{item.location}</dd>
             </>
           ) : null}
           {/* what was paid (§16 #61): this page only — money is never on share pages or to connections */}
           {isStoredPrice(item.purchasePrice, item.purchaseCurrency) ? (
             <>
-              <dt>Paid</dt>
+              <dt>{t('item.paid')}</dt>
               <dd>
                 <Money minor={item.purchasePrice!} currency={item.purchaseCurrency} />
               </dd>
@@ -901,7 +905,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           {/* the copy's own condition (§16 #55): this page only — never on share pages or to connections */}
           {record && item.mediaCondition ? (
             <>
-              <dt>Media grade</dt>
+              <dt>{t('item.media_grade')}</dt>
               <dd>
                 <Grade grade={item.mediaCondition} />
               </dd>
@@ -909,7 +913,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           ) : null}
           {record && item.sleeveCondition ? (
             <>
-              <dt>Sleeve grade</dt>
+              <dt>{t('item.sleeve_grade')}</dt>
               <dd>
                 <Grade grade={item.sleeveCondition} />
               </dd>
@@ -917,47 +921,47 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           ) : null}
           {item.rating ? (
             <>
-              <dt>Rating</dt>
+              <dt>{t('item.rating')}</dt>
               <dd>
                 <span class="rating">{stars(item.rating)}</span>
                 {/* the household's: everyone's ratings averaged, as share pages and connections see it */}
-                {grouped && ratings > 1 ? <span class="muted rating-note"> average of {ratings}</span> : null}
+                {grouped && ratings > 1 ? <span class="muted rating-note"> {t('item.rating_average', { count: ratings })}</span> : null}
               </dd>
             </>
           ) : null}
           <FilledProps item={item} />
           {item.isbn13 ? (
             <>
-              <dt>ISBN-13</dt>
+              <dt>{t('item.isbn13')}</dt>
               <dd class="mono">{item.isbn13}</dd>
             </>
           ) : null}
           {item.isbn10Upc ? (
             <>
-              <dt>ISBN-10 / UPC</dt>
+              <dt>{t('item.isbn10')}</dt>
               <dd class="mono">{item.isbn10Upc}</dd>
             </>
           ) : null}
           {item.copies > 1 ? (
             <>
-              <dt>Copies</dt>
+              <dt>{t('item.copies')}</dt>
               <dd class="mono">{item.copies}</dd>
             </>
           ) : null}
           {/* a book's dates are its reads, in the Reading section below; a game or record has no reading dates to show */}
           {item.beganOn && item.mediaType !== 'book' && !isPlayable(item.mediaType) ? (
             <>
-              <dt>Began</dt>
+              <dt>{t('item.began')}</dt>
               <dd class="mono">{item.beganOn}</dd>
             </>
           ) : null}
           {item.completedOn && item.mediaType !== 'book' && !isPlayable(item.mediaType) ? (
             <>
-              <dt>Completed</dt>
+              <dt>{t('item.completed')}</dt>
               <dd class="mono">{item.completedOn}</dd>
             </>
           ) : null}
-          <dt>Added</dt>
+          <dt>{t('item.added')}</dt>
           <dd class="mono">
             {ledgerDate(item.addedAt)}
             {addedBy ? ` · ${addedBy.username}` : ''}
@@ -978,7 +982,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           <GameDetails item={item} details={details} token={!!c.env.BGG_TOKEN} notice={bggNotice(c)} />
         ) : Object.keys(details).length ? (
           <div class="detail-section">
-            <p class="eyebrow">Details</p>
+            <p class="eyebrow">{t('item.details')}</p>
             <DetailsList details={details} />
           </div>
         ) : null}
@@ -1000,7 +1004,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           </>
         ) : item.review ? (
           <div class="detail-section">
-            <p class="eyebrow">Review</p>
+            <p class="eyebrow">{t('item.review')}</p>
             <p class="prewrap">{item.review}</p>
           </div>
         ) : null}
@@ -1040,15 +1044,15 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
 
         {item.notes ? (
           <div class="detail-section">
-            <p class="eyebrow">Private notes — never on share pages</p>
+            <p class="eyebrow">{t('item.notes')}</p>
             <p class="prewrap">{item.notes}</p>
           </div>
         ) : null}
 
         <div class={loan ? 'circulation' : 'circulation free'}>
-          <p class="eyebrow">Circulation</p>
+          <p class="eyebrow">{t('item.circulation')}</p>
           {item.copies === 0 && !loans.length ? (
-            <p class="muted">Not in the physical collection — nothing to lend.</p>
+            <p class="muted">{t('item.nothing_to_lend')}</p>
           ) : null}
           {/* borrowed from someone not on Nalanda (§16 #82): the mirror of a loan, on an item not owned */}
           {item.copies === 0 ? <BorrowedFrom itemId={item.id} borrows={log.borrows} today={today} /> : null}
@@ -1056,39 +1060,42 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           {loans.map((l) => (
             <form method="post" action={`/loans/${l.id}/return`} class="inline-form">
               <span class={isOverdue(l) ? 'error' : undefined}>
-                Lent to <strong>{l.borrower}</strong>
-                {l.edition ? <> ({formatLabel(l.edition).toLowerCase()})</> : null} on <span class="mono">{l.loanedOn}</span>
-                {l.dueOn ? (
-                  <>
-                    , due <span class="mono">{l.dueOn}</span>
-                  </>
-                ) : null}
+                {/* the sentence's order is the translation's: the borrower, the copy and the date go where it puts them */}
+                <Fill
+                  text={t('item.lent_line')}
+                  with={{
+                    borrower: <strong>{l.borrower}</strong>,
+                    edition: l.edition ? <> ({formatLabel(l.edition).toLowerCase()})</> : '',
+                    date: <span class="mono">{l.loanedOn}</span>,
+                  }}
+                />
+                {l.dueOn ? <Fill text={t('item.lent_due')} with={{ date: <span class="mono">{l.dueOn}</span> }} /> : null}
                 {/* said in words, not by the vermilion alone */}
-                {isOverdue(l) ? <strong> — overdue</strong> : null}
+                {isOverdue(l) ? <strong>{t('item.lent_overdue')}</strong> : null}
               </span>
               <button type="submit" class="btn">
-                Mark returned
+                {t('item.mark_returned')}
               </button>
             </form>
           ))}
           {copyFree ? (
             <form method="post" action={`/items/${item.id}/loan`} class="inline-form lend-form">
-              <input name="borrower" placeholder="Borrower" aria-label="Borrower" required />
-              <input name="contact" placeholder="Contact (optional)" aria-label="Contact (optional)" />
+              <input name="borrower" placeholder={t('item.borrower')} aria-label={t('item.borrower')} required />
+              <input name="contact" placeholder={t('item.contact')} aria-label={t('item.contact')} />
               {/* which copy, when the item is held in more than one form (§16 #75) */}
               {formatsOf(item).length > 1 ? (
-                <select name="edition" aria-label="Which copy">
-                  <option value="">Which copy?</option>
+                <select name="edition" aria-label={t('item.which_copy')}>
+                  <option value="">{t('item.which_copy_q')}</option>
                   {formatsOf(item).map((code) => (
                     <option value={code}>{formatLabel(code)}</option>
                   ))}
                 </select>
               ) : null}
               <label>
-                <span class="muted">Due</span>
-                <input type="date" name="dueOn" aria-label="Due date" />
+                <span class="muted">{t('item.due')}</span>
+                <input type="date" name="dueOn" aria-label={t('item.due_date')} />
               </label>
-              <button type="submit">Lend</button>
+              <button type="submit">{t('item.lend')}</button>
             </form>
           ) : null}
         </div>
@@ -1100,16 +1107,12 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
 
         <div class="actions">
           <a href={`/items/${item.id}/edit`} class="btn">
-            Edit
+            {t('item.edit')}
           </a>
-          <form
-            method="post"
-            action={`/items/${item.id}/delete`}
-            class="inline"
-            onsubmit="return confirm('Delete this item? An admin can restore it from the trash for 30 days.')"
-          >
+          {/* data-confirm, never an inline handler: a translated sentence is text, and the head's listener reads it (§16 #93) */}
+          <form method="post" action={`/items/${item.id}/delete`} class="inline" data-confirm={t('item.delete_confirm', { days: TRASH_DAYS })}>
             <button type="submit" class="btn-danger">
-              Delete
+              {t('item.delete')}
             </button>
           </form>
         </div>
@@ -1731,7 +1734,8 @@ items.post('/items/:id/mark-owned', async (c) => {
   if (item.copies === 0 && !(await markOwnedUnlessBorrowed(c.env.DB, id, writerOf(c)))) {
     // borrowed from someone (§16 #82): theirs until it is marked returned — the button stays, and says why
     const lender = await openBorrowLender(c.env.DB, id);
-    return c.html(
+    return partial(
+      c,
       <>
         <MarkOwnedButton id={id} />{' '}
         <small class="error" role="alert">
@@ -1740,7 +1744,7 @@ items.post('/items/:id/mark-owned', async (c) => {
       </>,
     );
   }
-  return c.html(<MarkNotOwnedButton id={id} />);
+  return partial(c, <MarkNotOwnedButton id={id} />);
 });
 
 items.post('/items/:id/mark-not-owned', async (c) => {
@@ -1750,15 +1754,16 @@ items.post('/items/:id/mark-not-owned', async (c) => {
   // Only the single copy the toggle knows how to restore. A real count (2+) is
   // left alone even for a hand-rolled POST — zeroing it would silently discard a
   // number that round-trips through /export.csv.
-  if (item.copies > 1) return c.html(<CopiesPill copies={item.copies} />);
+  if (item.copies > 1) return partial(c, <CopiesPill copies={item.copies} />);
   if (item.copies === 1 && !(await markNotOwnedUnlessLent(c.env.DB, id, writerOf(c)))) {
     // the copy is out on loan — still ours until it is back (§16 #13) — or the count changed since the page was drawn
     const now = await getItem(c.env.DB, id);
     if (!now) return c.notFound();
-    if (now.copies > 1) return c.html(<CopiesPill copies={now.copies} />);
+    if (now.copies > 1) return partial(c, <CopiesPill copies={now.copies} />);
     if (now.copies === 1) {
       const [loan] = await activeLoansForItem(c.env.DB, id);
-      return c.html(
+      return partial(
+        c,
         <>
           <MarkNotOwnedButton id={id} />{' '}
           <small class="error" role="alert">
@@ -1768,7 +1773,7 @@ items.post('/items/:id/mark-not-owned', async (c) => {
       );
     }
   }
-  return c.html(<MarkOwnedButton id={id} />);
+  return partial(c, <MarkOwnedButton id={id} />);
 });
 
 items.post('/items/:id', async (c) => {

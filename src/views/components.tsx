@@ -19,6 +19,7 @@ import { ledgerDate, ledgerDateTime } from '../lib/dates';
 import { CoverPhotoField } from './cover-photo';
 import { ALL_FORMATS, FORMATS, formatLabel, formatsOf, MAX_EDITIONS_PER_ITEM, type EditionDraft } from '../lib/formats';
 import { DEFAULT_LANGUAGE, LANGUAGES, languageName } from '../lib/language';
+import { Fill, lengthUnit, mediaLabel, statusLabel, useI18n } from './i18n';
 
 export const MEDIA_LABEL: Record<MediaType, string> = {
   book: 'Book',
@@ -112,11 +113,11 @@ export function yearOf(published: string | null): string {
 }
 
 export const StatusPill: FC<{ status: ItemStatus }> = ({ status }) => (
-  <span class={STATUS_PILL_CLASS[status]}>{STATUS_LABEL[status]}</span>
+  <span class={STATUS_PILL_CLASS[status]}>{statusLabel(useI18n(), status)}</span>
 );
 
 /** copies = 0: in the ledger, not on the shelf — a reading-log entry. */
-export const NotOwnedPill: FC = () => <span class="pill ghost">Not owned</span>;
+export const NotOwnedPill: FC = () => <span class="pill ghost">{useI18n().t('pill.not_owned')}</span>;
 /** What the history calls each of an item's fields (§16 #84); a column it doesn't know is shown by its name. */
 const HISTORY_FIELD: Record<string, string> = {
   title: 'Title',
@@ -186,7 +187,7 @@ export const ItemHistory: FC<{ entries: HistoryEntry[] }> = ({ entries }) => (
 );
 
 /** Borrowed from someone not on Nalanda (§16 #82), beside "Not owned" — in the app only. */
-export const BorrowedPill: FC = () => <span class="pill borrowed">Borrowed</span>;
+export const BorrowedPill: FC = () => <span class="pill borrowed">{useI18n().t('pill.borrowed')}</span>;
 
 /**
  * Borrowed from someone not on Nalanda (§16 #82), on a Not owned item's page: the open borrow with its return, the
@@ -245,14 +246,14 @@ export const BorrowedFrom: FC<{ itemId: number; borrows: Borrow[]; today: string
 };
 
 /** Someone in the household wants it, and it isn't owned (§16 #53): beside "Not owned", never saying whose want. */
-export const WantedPill: FC = () => <span class="pill wanted">Wanted</span>;
+export const WantedPill: FC = () => <span class="pill wanted">{useI18n().t('pill.wanted')}</span>;
 
 /**
  * A book finished before and being read again (§16 #41). Its status column stays Completed, but it is being read now,
  * so it is listed under In progress too (§16 #64), and this pill stands in for "Completed" wherever status shows — a
  * re-read in an In progress list shouldn't look finished. Shelf cards, which show no status, carry it on its own.
  */
-export const RereadingPill: FC = () => <span class="pill rereading">Re-reading</span>;
+export const RereadingPill: FC = () => <span class="pill rereading">{useI18n().t('pill.rereading')}</span>;
 
 /** An item's status as the app shows it: its status pill, or "Re-reading" for a book being read again (§16 #64). A game
  *  or record (it takes plays, not reads) shows none: reading status means nothing there, though the column keeps its
@@ -889,18 +890,21 @@ export const ReviewsSection: FC<{ item: Item; reviews: ReviewLine[]; viewer: Vie
 /** Same as NotOwnedPill but clickable — one tap sets copies to 1 in place (htmx),
  *  swapping itself for a MarkNotOwnedButton. No edit form. Authenticated views
  *  only; share pages keep the plain NotOwnedPill. */
-export const MarkOwnedButton: FC<{ id: number }> = ({ id }) => (
-  <button
-    type="button"
-    id={`holding-${id}`}
-    class="pill ghost pill-btn"
-    hx-post={`/items/${id}/mark-owned`}
-    hx-swap="outerHTML"
-    title="Mark as owned"
-  >
-    Not owned
-  </button>
-);
+export const MarkOwnedButton: FC<{ id: number }> = ({ id }) => {
+  const { t } = useI18n();
+  return (
+    <button
+      type="button"
+      id={`holding-${id}`}
+      class="pill ghost pill-btn"
+      hx-post={`/items/${id}/mark-owned`}
+      hx-swap="outerHTML"
+      title={t('pill.mark_owned')}
+    >
+      {t('pill.not_owned')}
+    </button>
+  );
+};
 
 /** The reverse of MarkOwnedButton — one tap sets copies to 0 (a reading-log
  *  entry, same as the "Log — not owned" add action), swapping itself back for
@@ -909,28 +913,34 @@ export const MarkOwnedButton: FC<{ id: number }> = ({ id }) => (
  *  specific copy count is still an edit-form job. Reuses the "done" treatment
  *  (same indigo as a Completed status pill) as the positive/success color —
  *  the palette has no green (CLAUDE.md). */
-export const MarkNotOwnedButton: FC<{ id: number }> = ({ id }) => (
-  <button
-    type="button"
-    id={`holding-${id}`}
-    class="pill done pill-btn"
-    hx-post={`/items/${id}/mark-not-owned`}
-    hx-swap="outerHTML"
-    title="Mark as not owned"
-  >
-    Owned
-  </button>
-);
+export const MarkNotOwnedButton: FC<{ id: number }> = ({ id }) => {
+  const { t } = useI18n();
+  return (
+    <button
+      type="button"
+      id={`holding-${id}`}
+      class="pill done pill-btn"
+      hx-post={`/items/${id}/mark-not-owned`}
+      hx-swap="outerHTML"
+      title={t('pill.mark_not_owned')}
+    >
+      {t('pill.owned')}
+    </button>
+  );
+};
 
 /** A real multi-copy count: shown, never toggled. The quick action only knows how
  *  to land on 0 or 1, so offering it here would silently discard a number someone
  *  recorded — and `copies` round-trips through /export.csv. Adjusting it stays an
  *  edit-form job. */
-export const CopiesPill: FC<{ copies: number }> = ({ copies }) => (
-  <span class="pill" title="Edit the item to change the copy count">
-    {copies} copies
-  </span>
-);
+export const CopiesPill: FC<{ copies: number }> = ({ copies }) => {
+  const { t } = useI18n();
+  return (
+    <span class="pill" title={t('pill.copies_title')}>
+      {t('pill.copies', { count: copies })}
+    </span>
+  );
+};
 
 /** The Holding column/row: whichever toggle button matches current copies, or a
  *  plain count for items held in more than one copy. */
@@ -997,7 +1007,7 @@ export const Cover: FC<{ coverKey: string | null; title: string; mediaType: Medi
   mediaType,
 }) =>
   coverKey ? (
-    <img class="cover-img" src={`/covers/${coverKey}`} alt={`Cover of ${title}`} loading="lazy" data-fallback={MEDIA_ICON[mediaType]} />
+    <img class="cover-img" src={`/covers/${coverKey}`} alt={useI18n().t('cover.alt', { title })} loading="lazy" data-fallback={MEDIA_ICON[mediaType]} />
   ) : (
     <div class="cover-fallback" aria-hidden="true">
       {MEDIA_ICON[mediaType]}
@@ -1019,7 +1029,7 @@ export const ItemCard: FC<{ item: Item; onLoan?: boolean; href?: string; wanted?
         {item.copies === 0 ? <NotOwnedPill /> : null}
         {item.copies === 0 && wanted ? <WantedPill /> : null}
         {item.copies === 0 && borrowed ? <BorrowedPill /> : null}
-        {onLoan ? <span class="pill lent">Lent</span> : null}
+        {onLoan ? <span class="pill lent">{useI18n().t('pill.lent')}</span> : null}
       </span>
     </div>
   </a>
@@ -1033,8 +1043,9 @@ export const ItemCard: FC<{ item: Item; onLoan?: boolean; href?: string; wanted?
  */
 export const ReadNextCard: FC<{ pick: (Pick<Item, 'id' | 'title' | 'creators' | 'coverKey' | 'copies' | 'mediaType'> & { wanted?: boolean }) | null }> = ({
   pick,
-}) =>
-  pick ? (
+}) => {
+  const { t } = useI18n();
+  return pick ? (
     <div class="panel read-next">
       {/* the title below is the link a reader or keyboard uses; the cover is a second, larger target for a pointer */}
       <a href={`/items/${pick.id}`} class="read-next-cover" tabindex={-1} aria-hidden="true">
@@ -1053,25 +1064,26 @@ export const ReadNextCard: FC<{ pick: (Pick<Item, 'id' | 'title' | 'creators' | 
           <p class="read-next-line read-next-unowned">
             <NotOwnedPill />
             {pick.wanted ? <WantedPill /> : null}
-            <span>No copy here — borrow or buy one to read it.</span>
+            <span>{t('readnext.no_copy')}</span>
           </p>
         ) : null}
         <div class="read-actions">
           <form method="post" action={`/items/${pick.id}/reads/start`}>
-            <button type="submit">Start reading</button>
+            <button type="submit">{t('readnext.start')}</button>
           </form>
           <form method="get" action="/" hx-get="/" hx-target="#read-next" hx-swap="innerHTML">
             <input type="hidden" name="not" value={String(pick.id)} />
             <button type="submit" class="btn" id="read-next-another">
-              Another
+              {t('readnext.another')}
             </button>
           </form>
         </div>
       </div>
     </div>
   ) : (
-    <p class="muted read-next-empty">Nothing to suggest: you’ve finished or are reading every book in the catalog.</p>
+    <p class="muted read-next-empty">{t('readnext.empty')}</p>
   );
+};
 
 /**
  * The covers view. `selectable` gives each card a checkbox for bulk edit (§16 #47), beside the card's link rather than
@@ -1094,7 +1106,7 @@ export const ItemGrid: FC<{ items: Item[]; onLoanIds?: Set<number>; wantedIds?: 
             {/* the label is the bigger tap target; its words are the ones the box is named by */}
             <label class="pick">
               <PickBox id={item.id} title={item.title} />
-              <span class="sr-only">Select {item.title}</span>
+              <span class="sr-only">{useI18n().t('table.select', { title: item.title })}</span>
             </label>
           </div>
         ))}
@@ -1133,19 +1145,22 @@ export type ColumnKey = (typeof TABLE_COLUMNS)[number]['key'];
  * query. app.js reads them, writes localStorage, and flips `data-hide-cols` on
  * <html>; with JS off the menu simply does nothing and every column stays put.
  */
-export const ColumnsMenu: FC<{ available: readonly ColumnKey[] }> = ({ available }) => (
-  <details class="filter" id="columns-menu">
-    <summary>Columns</summary>
-    <div class="filter-menu">
-      {TABLE_COLUMNS.filter((c) => available.includes(c.key)).map((c) => (
-        <label>
-          <input type="checkbox" data-col={c.key} checked />
-          {c.label}
-        </label>
-      ))}
-    </div>
-  </details>
-);
+export const ColumnsMenu: FC<{ available: readonly ColumnKey[] }> = ({ available }) => {
+  const { t } = useI18n();
+  return (
+    <details class="filter" id="columns-menu">
+      <summary>{t('columns.label')}</summary>
+      <div class="filter-menu">
+        {TABLE_COLUMNS.filter((c) => available.includes(c.key)).map((c) => (
+          <label>
+            <input type="checkbox" data-col={c.key} checked />
+            {t(`column.${c.key}`)}
+          </label>
+        ))}
+      </div>
+    </details>
+  );
+};
 
 // ---- bulk edit's selection (ARCH.md §16 #47; the bar itself is in views/bulk.tsx) ----
 
@@ -1154,7 +1169,7 @@ export const BULK_FORM = 'bulk';
 
 /** One item's checkbox. */
 export const PickBox: FC<{ id: number; title: string }> = ({ id, title }) => (
-  <input type="checkbox" class="bulk-pick" name="id" value={String(id)} form={BULK_FORM} aria-label={`Select ${title}`} />
+  <input type="checkbox" class="bulk-pick" name="id" value={String(id)} form={BULK_FORM} aria-label={useI18n().t('table.select', { title })} />
 );
 
 /** Select all on this page. It needs JavaScript, so it stays hidden until app.js shows it. */
@@ -1162,10 +1177,10 @@ export const PickAll: FC<{ label?: boolean }> = ({ label }) =>
   label ? (
     <label class="bulk-all" hidden>
       <input type="checkbox" data-bulk-all />
-      Select all on this page
+      {useI18n().t('table.select_all')}
     </label>
   ) : (
-    <input type="checkbox" data-bulk-all aria-label="Select all on this page" hidden />
+    <input type="checkbox" data-bulk-all aria-label={useI18n().t('table.select_all')} hidden />
   );
 
 /** The default library view: a proper registry table. */
@@ -1178,7 +1193,10 @@ export const ItemTable: FC<{
   libraryNames?: Map<number, string>;
   /** A checkbox per row, and select-all in the header, for bulk edit (§16 #47). */
   selectable?: boolean;
-}> = ({ items, onLoanIds, wantedIds, borrowedIds, tagsMap, libraryNames, selectable }) => (
+}> = ({ items, onLoanIds, wantedIds, borrowedIds, tagsMap, libraryNames, selectable }) => {
+  const i18n = useI18n();
+  const { t } = i18n;
+  return (
   <div class="data-table">
     <table>
       <thead>
@@ -1188,16 +1206,16 @@ export const ItemTable: FC<{
               <PickAll />
             </th>
           ) : null}
-          <th>Title</th>
-          <th class="col-type">Type</th>
-          {libraryNames ? <th class="hide-sm col-shelf">Shelf</th> : null}
-          <th class="hide-sm col-year">Year</th>
-          <th class="hide-sm col-completed">Completed</th>
-          <th class="col-rating">Rating</th>
-          <th class="col-status">Status</th>
-          <th class="col-holding">Holding</th>
-          {tagsMap ? <th class="hide-sm col-tags">Tags</th> : null}
-          <th class="hide-sm col-acc">№</th>
+          <th>{t('column.title')}</th>
+          <th class="col-type">{t('column.type')}</th>
+          {libraryNames ? <th class="hide-sm col-shelf">{t('column.shelf')}</th> : null}
+          <th class="hide-sm col-year">{t('column.year')}</th>
+          <th class="hide-sm col-completed">{t('column.completed')}</th>
+          <th class="col-rating">{t('column.rating')}</th>
+          <th class="col-status">{t('column.status')}</th>
+          <th class="col-holding">{t('column.holding')}</th>
+          {tagsMap ? <th class="hide-sm col-tags">{t('column.tags')}</th> : null}
+          <th class="hide-sm col-acc">{t('column.acc_short')}</th>
         </tr>
       </thead>
       <tbody>
@@ -1225,7 +1243,7 @@ export const ItemTable: FC<{
                 </span>
               </span>
             </td>
-            <td class="num col-type">{MEDIA_LABEL[item.mediaType]}</td>
+            <td class="num col-type">{mediaLabel(i18n, item.mediaType)}</td>
             {libraryNames ? <td class="num hide-sm col-shelf">{libraryNames.get(item.libraryId) ?? ''}</td> : null}
             <td class="num hide-sm col-year">{yearOf(item.published)}</td>
             <td class="date hide-sm col-completed">
@@ -1233,13 +1251,13 @@ export const ItemTable: FC<{
               {isPlayable(item.mediaType) ? <span class="muted">—</span> : (item.completedOn ?? <span class="muted">—</span>)}
               {/* the last finish, and how many there have been once there's more than one (§16 #41) */}
               {item.readCount > 1 && !isPlayable(item.mediaType) ? (
-                <span class="muted read-count" title={`Finished ${item.readCount} times`}> ×{item.readCount}</span>
+                <span class="muted read-count" title={t('table.finished_times', { count: item.readCount })}> ×{item.readCount}</span>
               ) : null}
             </td>
             <td class="col-rating">{item.rating ? <span class="rating">{stars(item.rating)}</span> : <span class="muted">—</span>}</td>
             <td class="col-status">
               <StatusPills item={item} />{' '}
-              {onLoanIds?.has(item.id) ? <span class="pill lent">Lent</span> : null}
+              {onLoanIds?.has(item.id) ? <span class="pill lent">{t('pill.lent')}</span> : null}
             </td>
             <td class="col-holding">
               <HoldingPill item={item} />
@@ -1273,7 +1291,8 @@ export const ItemTable: FC<{
       </tbody>
     </table>
   </div>
-);
+  );
+};
 
 /**
  * A reading goal where it stands (§16 #49): "14 of 24", its pace — on pace, N behind pace, N ahead of pace, reached —
@@ -1282,6 +1301,7 @@ export const ItemTable: FC<{
  * Counts are the registrar's voice, so monospace; the pace is a pill.
  */
 export const GoalMeter: FC<{ count: number; target: number; year: number; today: string }> = ({ count, target, year, today }) => {
+  const { t, n } = useI18n();
   const pace = goalPace(count, target, year, today);
   const tick = pace.state === 'reached' ? null : pacePercent(year, today);
   const pill =
@@ -1295,19 +1315,18 @@ export const GoalMeter: FC<{ count: number; target: number; year: number; today:
   return (
     <div class="goal-meter">
       <p class="goal-line">
-        <span class="goal-count">
-          {count} of {target}
-        </span>{' '}
-        <span class="muted mono">{target === 1 ? 'book' : 'books'}</span> <span class={pill}>{paceLabel(pace)}</span>
+        <span class="goal-count">{t('goal.of', { count, target })}</span>{' '}
+        <span class="muted mono">{n('goal.books', target)}</span>{' '}
+        <span class={pill}>{t(`goal.pace.${pace.state}`, { count: 'by' in pace ? pace.by : 0 })}</span>
       </p>
       {/* the count and the pace are in words just above, and the tick in words just below */}
       <div class="goal-track" aria-hidden="true">
         <div class="progress-track">
           <div class="progress-fill" style={`width:${goalPercent(count, target)}%`} />
         </div>
-        {tick !== null ? <span class="goal-pace" style={`left:${tick}%`} title="Where you'd be reading evenly since 1 January" /> : null}
+        {tick !== null ? <span class="goal-pace" style={`left:${tick}%`} title={t('goal.tick')} /> : null}
       </div>
-      {tick !== null ? <p class="goal-note">The mark shows where you'd be reading evenly since 1 January.</p> : null}
+      {tick !== null ? <p class="goal-note">{t('goal.note')}</p> : null}
     </div>
   );
 };
@@ -1862,11 +1881,11 @@ export const Pagination: FC<{ page: number; pages: number; makeHref: (page: numb
 }) =>
   pages > 1 ? (
     <nav class="pagination">
-      {page > 1 ? <a href={makeHref(page - 1)}>← Prev</a> : <span />}
+      {page > 1 ? <a href={makeHref(page - 1)}>{useI18n().t('page.prev')}</a> : <span />}
       <span class="muted">
         {page} / {pages}
       </span>
-      {page < pages ? <a href={makeHref(page + 1)}>Next →</a> : <span />}
+      {page < pages ? <a href={makeHref(page + 1)}>{useI18n().t('page.next')}</a> : <span />}
     </nav>
   ) : null;
 

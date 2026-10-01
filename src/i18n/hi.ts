@@ -159,7 +159,7 @@ export const hi: Pack = {
     'goal.pace.ahead': 'गति से {count} आगे',
     'goal.pace.behind': 'गति से {count} पीछे',
     'goal.pace.upcoming': 'अभी शुरू नहीं',
-    'goal.pace.missed': 'चूक गया',
+    'goal.pace.missed': 'साल खत्म',
     'goal.tick': '1 जनवरी से एक समान गति से पढ़ते हुए आप यहाँ होते',
     'goal.note': 'निशान बताता है कि 1 जनवरी से एक समान गति से पढ़ते हुए आप कहाँ होते।',
 
