@@ -71,8 +71,10 @@
         if (qr.isDark(r, c)) ctx.fillRect(offset + c * cell, offset + r * cell, cell, cell);
       }
     }
-    // the mark's ground: a palm-leaf square over the centre, about a sixth of the area — within what level H can lose
-    var box = cell * Math.round(n * 0.4);
+    // the mark's ground: a palm-leaf square over the centre, under a tenth of the area — it covers the central alignment
+    // pattern from version 7 up, which level H's 30% doesn't restore, so the square stays small: ZXing decoded a
+    // share-length code at 0.4 and at 0.3 of the side, down to 114px; 0.3 is the margin (ARCH.md §16 #85)
+    var box = cell * Math.round(n * 0.3);
     var x = Math.round((SIZE - box) / 2);
     ctx.fillStyle = paper;
     ctx.fillRect(x, x, box, box);
