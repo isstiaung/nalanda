@@ -387,8 +387,9 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
     seriesSent: { name: str('seriesName'), number: str('seriesNumber') },
     gradeProblem,
     // A Discogs result's own form never sends its image now, and one from a page rendered before that is ignored on
-    // save (POST /items): only a URL someone typed is refused, with the reason.
-    coverProblem: body['source'] !== 'discogs' && isDiscogsUrl(str('coverUrl')) ? DISCOGS_COVER : null,
+    // save (POST /items): only a URL someone typed is refused, with the reason — Discogs' image, or a host by number.
+    coverProblem:
+      body['source'] !== 'discogs' && isDiscogsUrl(str('coverUrl')) ? DISCOGS_COVER : null,
   };
 }
 

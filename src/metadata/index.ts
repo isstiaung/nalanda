@@ -15,17 +15,33 @@ export type { RecordCoverResult, RecordCoverSubject } from './musicbrainz';
 export { cleanDescription, creatorsMatch, normTitle, searchableTitle, titlesMatch } from './provider';
 export { recordCover } from './musicbrainz';
 
-export type BarcodeKind = 'isbn13' | 'upc';
+export type BarcodeKind = 'isbn13' | 'isbn10' | 'upc';
 
-/** EAN-13 starting 978/979 is an ISBN (books); any other EAN/UPC routes to Discogs. */
+/**
+ * EAN-13 starting 978/979 is an ISBN (books); an ISBN-10 — nine digits and a check digit, which can be X — is a book
+ * too, the number older printings carry; any other EAN/UPC routes to Discogs. The ISBN-10 is kept as typed, its X
+ * included: stripping it to digits left nine, which read as a UPC and asked Discogs about a book.
+ */
 export function classifyBarcode(raw: string): { kind: BarcodeKind; code: string } | null {
+  const typed = raw.replace(/[\s.-]/g, '').toUpperCase();
+  if (/^\d{9}[\dX]$/.test(typed)) return { kind: 'isbn10', code: typed };
   const code = raw.replace(/\D/g, '');
   if (code.length < 8 || code.length > 14) return null;
   if (code.length === 13 && (code.startsWith('978') || code.startsWith('979'))) {
     return { kind: 'isbn13', code };
   }
-  if (code.length === 10) return { kind: 'isbn13', code }; // old ISBN-10, book providers accept it
+  if (code.length === 10) return { kind: 'isbn10', code }; // ten digits among other characters: still an old ISBN
   return { kind: 'upc', code };
+}
+
+/**
+ * The ISBN-13 an ISBN-10 stands for — 978, its first nine digits and the EAN check digit: the number the same
+ * edition's barcode carries, so a book scanned by its ISBN-10 is the same book when its EAN-13 is scanned later.
+ */
+export function isbn13Of(isbn10: string): string {
+  const twelve = `978${isbn10.slice(0, 9)}`;
+  const sum = [...twelve].reduce((acc, digit, i) => acc + Number(digit) * (i % 2 ? 3 : 1), 0);
+  return `${twelve}${(10 - (sum % 10)) % 10}`;
 }
 
 /** Prefer Open Library bibliographically; Google Books fills description/cover gaps. */
@@ -40,6 +56,8 @@ export function mergeBookCandidates(ol: Candidate | null, gb: Candidate | null):
     length: ol.length ?? gb.length,
     publisher: ol.publisher || gb.publisher,
     published: ol.published || gb.published,
+    // an ISBN-10 lookup: Open Library's candidate carries the ten digits, Google Books names the ISBN-13 beside them
+    isbn13: ol.isbn13 || gb.isbn13,
     isbn10Upc: ol.isbn10Upc || gb.isbn10Upc,
     // Open Library's alone in practice — Google Books never names a series (§16 #52) — but kept symmetric
     series: ol.series ?? gb.series,
@@ -51,16 +69,22 @@ export async function lookupByBarcode(env: Bindings, raw: string): Promise<Looku
   const classified = classifyBarcode(raw);
   if (!classified) return { candidates: [], notices: ['That does not look like a valid barcode.'] };
 
-  if (classified.kind === 'isbn13') {
+  if (classified.kind === 'isbn13' || classified.kind === 'isbn10') {
     const gb = googleBooks(env.GOOGLE_BOOKS_KEY);
     const [olHit, gbHit] = await Promise.all([
       openLibrary.lookupByBarcode(classified.code).catch(() => null),
       gb.lookupByBarcode(classified.code).catch(() => null),
     ]);
     const merged = mergeBookCandidates(olHit, gbHit);
+    // The ISBN recorded is the one scanned — and an ISBN-10 beside the ISBN-13 it stands for, Google Books' when it
+    // names one, else derived: the isbn13 column is what "In your catalog" and a later EAN-13 scan match on.
+    const hit =
+      merged && classified.kind === 'isbn10'
+        ? { ...merged, isbn13: merged.isbn13 || isbn13Of(classified.code), isbn10Upc: merged.isbn10Upc || classified.code }
+        : merged;
     return {
-      candidates: merged ? [merged] : [],
-      notices: merged ? [] : [`No book found for ISBN ${classified.code}. Try the search tab or add manually.`],
+      candidates: hit ? [hit] : [],
+      notices: hit ? [] : [`No book found for ISBN ${classified.code}. Try the search tab or add manually.`],
     };
   }
 
@@ -129,7 +153,7 @@ export async function findCover(
   const satisfied = () => (!!key || !wantCover) && !!details?.description;
 
   const classified = subject.barcode ? classifyBarcode(subject.barcode) : null;
-  if (classified?.kind === 'isbn13') {
+  if (classified?.kind === 'isbn13' || classified?.kind === 'isbn10') {
     // Unattended rule: never store a cover whose record title doesn't match the item.
     // ISBN indexes contain junk (typos, recycled/polluted ranges) and Google Books
     // fuzzy-matches unknown ISBNs as keywords — a title check catches both.

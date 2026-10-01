@@ -35,7 +35,8 @@ so the record shows its placeholder.
   `storeCover()` so the laptop scripts fetch by the same rules. coverartarchive.org answers with a 307 to
   archive.org, which answers with a 302 to a storage host. Each hop must stay on coverartarchive.org,
   archive.org or `*.archive.org`, and is asked over https whatever the redirect says, for at most five hops.
-  Raster types only, 500 B to 5 MB, as before.
+  Raster types only, 500 B to 5 MB, as before — the cap applied before the body is buffered: a declared length
+  over it is refused unread, and a body is read a chunk at a time and dropped the moment it passes it.
 - **Never Discogs, on every path.** `fetchCover()` refuses any discogs.com host, and a redirect that ends at
   one. The paths:
   - *An add from a Discogs result* (POST /items with `source=discogs`): a search result, a barcode
