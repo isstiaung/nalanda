@@ -48,6 +48,7 @@ import {
   type ReadEntry,
   type ReviewEntry,
   setCover,
+  editionsOf,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { scanQueueOwner } from '../lib/auth';
@@ -96,10 +97,12 @@ import {
   type Viewer,
   WantBar,
   WantedPill,
+  FormatPills,
 } from '../views/components';
 import { page, todayOf } from '../views/layout';
 import { CreatorLinks } from '../views/creators';
 import { CoverPhotoForm, PHOTO_REFUSED } from '../views/cover-photo';
+import { cleanEdition, FORMATS, formatLabel, formatsFromPressing, formatsOf, MAX_EDITIONS_PER_ITEM, normalizeFormats, type EditionDraft } from '../lib/formats';
 import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
 import { recommendOnItemPage } from './recommendations';
@@ -170,6 +173,7 @@ type ParsedForm = {
   tags: string[];
   coverUrl: string;
   photo: File | null; // a picture taken or picked on a multipart form (§16 #73)
+  editions: EditionDraft[]; // "also held as" lines, tidied (§16 #75)
   removeCover: boolean;
   // the item's series (§16 #52): null for none. `seriesSent` is the typed text, for a refused form to give back, and
   // `seriesProblem` why it can't be saved.
@@ -254,6 +258,21 @@ const priceField = (c: Context<AppEnv>, household: string | null, price?: Return
   error: price?.problem ?? null,
 });
 
+/** The "also held as" lines a form sent (`edition-<n>-<field>`), each tidied, empty ones dropped, at most MAX_EDITIONS_PER_ITEM. */
+function editionsFromForm(body: Record<string, unknown>, mediaType: MediaType): EditionDraft[] {
+  const out: EditionDraft[] = [];
+  for (let i = 0; i < MAX_EDITIONS_PER_ITEM + 2 && out.length < MAX_EDITIONS_PER_ITEM; i++) {
+    const line = cleanEdition(mediaType, {
+      format: body[`edition-${i}-format`],
+      isbn: body[`edition-${i}-isbn`],
+      publisher: body[`edition-${i}-publisher`],
+      year: body[`edition-${i}-year`],
+    });
+    if (line) out.push(line);
+  }
+  return out;
+}
+
 /** A rating from a form: half-stars 1–10, or none. */
 const formRating = (raw: unknown): number | null => {
   const n = Number.parseInt(typeof raw === 'string' ? raw.trim() : '', 10);
@@ -314,8 +333,14 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
       beganOn: orNull(str('beganOn')),
       completedOn: orNull(str('completedOn')),
       details,
+      // held as (§16 #75): the kind's checkboxes (`format-<code>`), plus what a provider's hidden field said
+      formats: normalizeFormats(mediaType, [
+        ...FORMATS[mediaType].filter((f) => str(`format-${f.code}`) === '1').map((f) => f.code),
+        ...str('formats').split(','),
+      ]),
       ...grades,
     },
+    editions: editionsFromForm(body, mediaType),
     tags: str('tags').split(',').map((t) => t.trim()).filter(Boolean),
     coverUrl: str('coverUrl'),
     // a photo taken or a file picked (§16 #73): a File from a multipart form, else nothing
@@ -431,6 +456,7 @@ items.post('/items', async (c) => {
           series={parsed.seriesSent}
           seriesNames={names}
           money={priceField(c, currency, price)}
+          editions={parsed.editions}
         />
       </>,
       libs, // nothing was written: the sidebar's list too (§16 #68)
@@ -450,6 +476,11 @@ items.post('/items', async (c) => {
         'add',
       );
       Object.assign(v, { details: fill.details, publisher: fill.publisher, published: fill.published, length: fill.length });
+    }
+    // the carrier Discogs names — LP, CD, cassette — as the record's formats, unless the form already said (§16 #75)
+    if (!parsed.values.formats) {
+      const pressing = parseDetails(parsed.values.details)['format'];
+      parsed.values.formats = normalizeFormats(parsed.values.mediaType ?? 'vinyl', formatsFromPressing(typeof pressing === 'string' ? pressing : null));
     }
   }
 
@@ -479,7 +510,7 @@ items.post('/items', async (c) => {
       { ...parsed.values, coverKey, addedBy: c.get('user').id },
       parsed.tags,
       parsed.series,
-      want ? { wantedBy: c.get('user').id } : {},
+      { ...(want ? { wantedBy: c.get('user').id } : {}), editions: parsed.editions },
     );
   } catch (err) {
     c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // nothing points at it
@@ -715,7 +746,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const viewer = viewerOf(c);
   // "Recommend to…" (§16 #58): its queries ride in the reading log's batch — no call of their own
   const recommend = await recommendOnItemPage(c, item);
-  const [lib, tags, loans, people, log, lent, plays, inSeries] = await Promise.all([
+  const [lib, tags, loans, people, log, lent, plays, inSeries, editions] = await Promise.all([
     getLibrary(c.env.DB, item.libraryId),
     tagsForItem(c.env.DB, id),
     activeLoansForItem(c.env.DB, id),
@@ -726,6 +757,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
     playLog(c.env.DB, id),
     // its series, with the viewer's own reading of every volume (§16 #52): one call, only for an item in one
     item.seriesId !== null ? seriesWithVolumes(c.env.DB, item.seriesId, viewer.id) : null,
+    editionsOf(c.env.DB, id), // "also held as" (§16 #75)
   ]);
   const addedBy = item.addedBy ? (people.find((p) => p.id === item.addedBy) ?? null) : null;
   const grouped = showsPeople(people, viewer, log);
@@ -770,7 +802,24 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           <dt>Shelf</dt>
           <dd>{lib ? <a href={`/libraries/${lib.id}`}>{lib.name}</a> : '—'}</dd>
           <dt>Type</dt>
-          <dd>{MEDIA_LABEL[item.mediaType]}</dd>
+          <dd>
+            {MEDIA_LABEL[item.mediaType]} <FormatPills formats={formatsOf(item)} />
+          </dd>
+          {editions.length ? (
+            <>
+              <dt>Also held as</dt>
+              <dd>
+                <ul class="editions-list">
+                  {editions.map((e) => (
+                    <li>
+                      {[e.format ? formatLabel(e.format) : null, e.publisher, e.year].filter(Boolean).join(', ') || 'another edition'}
+                      {e.isbn ? <span class="mono muted"> · {e.isbn}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              </dd>
+            </>
+          ) : null}
           {/* a game or record has no reading status (it takes plays): the row stays only to say it's out */}
           {!isPlayable(item.mediaType) || loan ? (
             <>
@@ -942,7 +991,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           {loans.map((l) => (
             <form method="post" action={`/loans/${l.id}/return`} class="inline-form">
               <span class={isOverdue(l) ? 'error' : undefined}>
-                Lent to <strong>{l.borrower}</strong> on <span class="mono">{l.loanedOn}</span>
+                Lent to <strong>{l.borrower}</strong>
+                {l.edition ? <> ({formatLabel(l.edition).toLowerCase()})</> : null} on <span class="mono">{l.loanedOn}</span>
                 {l.dueOn ? (
                   <>
                     , due <span class="mono">{l.dueOn}</span>
@@ -960,6 +1010,15 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
             <form method="post" action={`/items/${item.id}/loan`} class="inline-form lend-form">
               <input name="borrower" placeholder="Borrower" aria-label="Borrower" required />
               <input name="contact" placeholder="Contact (optional)" aria-label="Contact (optional)" />
+              {/* which copy, when the item is held in more than one form (§16 #75) */}
+              {formatsOf(item).length > 1 ? (
+                <select name="edition" aria-label="Which copy">
+                  <option value="">Which copy?</option>
+                  {formatsOf(item).map((code) => (
+                    <option value={code}>{formatLabel(code)}</option>
+                  ))}
+                </select>
+              ) : null}
               <label>
                 <span class="muted">Due</span>
                 <input type="date" name="dueOn" aria-label="Due date" />
@@ -999,7 +1058,7 @@ items.get('/items/:id/edit', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
-  const [libs, tags, log, people, names, current, settings] = await Promise.all([
+  const [libs, tags, log, people, names, current, settings, editions] = await Promise.all([
     listLibraries(c.env.DB),
     tagsForItem(c.env.DB, id),
     readingLog(c.env.DB, id),
@@ -1007,6 +1066,7 @@ items.get('/items/:id/edit', async (c) => {
     seriesNames(c.env.DB),
     item.seriesId !== null ? getSeries(c.env.DB, item.seriesId) : null,
     getSiteSettings(c.env.DB), // the household's currency, for the price field (§16 #61)
+    editionsOf(c.env.DB, id), // "also held as" (§16 #75)
   ]);
   return page(
     c,
@@ -1028,6 +1088,7 @@ items.get('/items/:id/edit', async (c) => {
         series={current ? { name: current.name, number: item.seriesNumber !== null ? formatSeriesNumber(item.seriesNumber) : '' } : null}
         seriesNames={names}
         money={priceField(c, settings.currency)}
+        editions={editions}
       />
     </>,
     libs, // the sidebar's list too (§16 #68)
@@ -1623,6 +1684,7 @@ items.post('/items/:id', async (c) => {
           error={problem}
           coverError={problem === parsed.coverProblem}
           photoError={problem === photoProblem}
+          editions={parsed.editions}
           perMember={people.length > 1}
           series={parsed.seriesSent}
           seriesNames={names}
@@ -1651,6 +1713,8 @@ items.post('/items/:id', async (c) => {
       { rating: parsed.values.rating ?? null, review: reviewText(parsed.values.review) },
       // a form without the series fields (one opened before they existed) leaves the series as it is
       'seriesName' in body || 'seriesNumber' in body ? parsed.series : undefined,
+      // likewise "also held as": a form without its lines leaves them as they are (§16 #75)
+      'edition-0-isbn' in body ? parsed.editions : undefined,
     );
   } catch (err) {
     if (coverKey !== existing.coverKey) c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // the new one: unused

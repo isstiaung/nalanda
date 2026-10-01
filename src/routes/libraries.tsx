@@ -31,6 +31,7 @@ import {
 } from '../views/components';
 import { BulkBar, BulkNotice } from '../views/bulk';
 import { page } from '../views/layout';
+import { ALL_FORMATS } from '../lib/formats';
 
 /** A toolbar dropdown of any-of checkboxes — one per filter dimension. */
 const FilterMenu: FC<{
@@ -128,6 +129,8 @@ libraries.get('/libraries/:id', async (c) => {
   // both or neither means "owned + logged" (no filter).
   const ownedSel = [...new Set(c.req.queries('owned') ?? [])].filter((v) => v === '1' || v === '0');
   const owned = ownedSel.length === 1 ? ownedSel[0] === '1' : undefined;
+  // held in any of these forms (§16 #75): the shelf's own filter, never captured by a share link
+  const formatsSel = [...new Set(c.req.queries('format') ?? [])].filter((f) => ALL_FORMATS.some((k) => k.code === f));
   const name = (c.req.query('q') ?? '').trim() || undefined;
   const user = c.get('user');
   const people = await listPeople(c.env.DB);
@@ -139,7 +142,7 @@ libraries.get('/libraries/:id', async (c) => {
   const pageNum = Number.parseInt(c.req.query('page') ?? '1', 10) || 1;
 
   // No filter at all, and nothing found: the shelf itself is empty, and the filters have nothing to work on.
-  const filtered = mediaTypes.length > 0 || statuses.length > 0 || owned !== undefined || name !== undefined || !!reader;
+  const filtered = mediaTypes.length > 0 || statuses.length > 0 || owned !== undefined || name !== undefined || !!reader || formatsSel.length > 0;
   const { items, total, page: current, pages } = await listItems(
     c.env.DB,
     id,
@@ -147,6 +150,7 @@ libraries.get('/libraries/:id', async (c) => {
       mediaTypes,
       statuses,
       owned,
+      formats: formatsSel,
       q: name,
       sort,
       page: pageNum,
@@ -172,6 +176,7 @@ libraries.get('/libraries/:id', async (c) => {
     for (const t of mediaTypes) params.append('type', t);
     for (const st of statuses) params.append('status', st);
     for (const o of ownedSel) params.append('owned', o);
+    for (const f of formatsSel) params.append('format', f);
     if (name) params.set('q', name);
     if (readBy) params.set('readBy', readBy);
     if (sort !== 'added') params.set('sort', sort);
@@ -241,6 +246,7 @@ libraries.get('/libraries/:id', async (c) => {
             ]}
             selected={ownedSel}
           />
+          <FilterMenu label="Format" name="format" options={ALL_FORMATS.map((f) => [f.code, f.label] as const)} selected={formatsSel} />
           {/* "Read by" is reading too: not for a view of games and records only, unless it is already applied */}
           {(people.length > 1 && showStatus) || reader ? <ReadByMenu value={readBy} me={user.id} people={people} /> : null}
           <select name="sort" aria-label="Sort">

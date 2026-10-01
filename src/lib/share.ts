@@ -2,6 +2,7 @@
 // new item columns stay private until explicitly added here (ARCH.md §9).
 import { checkPurchaseLink } from './links';
 import { withoutMoney } from './money';
+import { formatsOf } from './formats';
 import { isPlayable } from './plays';
 import { progressPercent } from './progress';
 import { matchesStatus } from './reads';
@@ -96,6 +97,9 @@ export type PublicItem = {
   rating: number | null;
   review: string | null;
   inCollection: boolean; // derived from copies > 0 — the count itself stays private
+  // The forms it is held in (§16 #75): public catalogue data, like the publisher — the codes, for the page's pills.
+  // Never the editions' identifiers, which are as private as the main ISBN.
+  formats: string[];
   // Someone in the household wants it, and the household doesn't have it (§16 #53): a derived boolean, only ever `true`
   // — absent otherwise — and never whose want. The key is left out unless the caller says so, so pages that don't ask
   // serialize exactly as before.
@@ -165,6 +169,7 @@ export function toPublicItem(
     rating: item.rating,
     review: item.review,
     inCollection: item.copies > 0,
+    formats: formatsOf(item),
     ...(opts.wanted === true && item.copies === 0 ? { wanted: true as const } : {}),
     // never money (§16 #61): a libib file's `price` lands in details, and details are otherwise published whole
     details: withoutMoney(parseDetails(item.details)),
@@ -189,7 +194,7 @@ export function toPublicItem(
  */
 export type GiftItem = Pick<
   PublicItem,
-  'id' | 'mediaType' | 'title' | 'creators' | 'publisher' | 'published' | 'description' | 'length' | 'coverKey' | 'inCollection'
+  'id' | 'mediaType' | 'title' | 'creators' | 'publisher' | 'published' | 'description' | 'length' | 'coverKey' | 'inCollection' | 'formats'
 > & { purchaseLinks: Array<{ label: string; url: string }> };
 
 export function toGiftItem(item: Item, links: Array<{ label: string; url: string }>): GiftItem {
@@ -205,6 +210,7 @@ export function toGiftItem(item: Item, links: Array<{ label: string; url: string
     length: p.length,
     coverKey: p.coverKey,
     inCollection: p.inCollection,
+    formats: p.formats, // which form is held: what someone buying another needs to know (§16 #75)
     // re-checked on the way out: an http(s) address and a label, nothing else, whatever the table holds
     purchaseLinks: links.flatMap((l) => {
       const ok = checkPurchaseLink(l.label, l.url);

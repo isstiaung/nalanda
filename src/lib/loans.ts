@@ -11,6 +11,7 @@ export type LoanDraft = {
   returnedOn: string | null; // null: still out
   contact: string | null;
   note: string | null;
+  edition?: string | null; // which copy went out (§16 #75): one of the item's format codes, or none
 };
 
 /**
@@ -55,7 +56,8 @@ export function formatLoansCell(loans: LoanDraft[]): string {
         // encoded too: the lend form's due date was never checked, and a stored `;` must not start a loan of its own
         (l.dueOn ? `|due:${enc(l.dueOn)}` : '') +
         (l.contact ? `|contact:${enc(l.contact)}` : '') +
-        (l.note ? `|note:${enc(l.note)}` : ''),
+        (l.note ? `|note:${enc(l.note)}` : '') +
+        (l.edition ? `|edition:${enc(l.edition)}` : ''),
     )
     .join(';');
 }
@@ -88,7 +90,7 @@ export function parseLoansCell(cell: string | null | undefined): LoanDraft[] {
     const loanedOn = span[1]!.trim();
     const returned = span[2]!.trim();
     if (!isIsoDate(loanedOn) || (returned !== '' && !isIsoDate(returned))) continue;
-    const loan: LoanDraft = { borrower, loanedOn, dueOn: null, returnedOn: returned || null, contact: null, note: null };
+    const loan: LoanDraft = { borrower, loanedOn, dueOn: null, returnedOn: returned || null, contact: null, note: null, edition: null };
     for (const field of fields) {
       const colon = field.indexOf(':');
       if (colon < 0) continue;
@@ -97,6 +99,7 @@ export function parseLoansCell(cell: string | null | undefined): LoanDraft[] {
       if (key === 'due' && loan.dueOn === null) loan.dueOn = dec(value).slice(0, MAX_DUE_TEXT) || null;
       else if (key === 'contact' && loan.contact === null) loan.contact = dec(value) || null;
       else if (key === 'note' && loan.note === null) loan.note = dec(value) || null;
+      else if (key === 'edition' && loan.edition === null) loan.edition = dec(value).slice(0, 40) || null;
     }
     out.push(loan);
   }
