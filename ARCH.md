@@ -863,6 +863,7 @@ is a section of this document and "#N" another decision.
 | 85 | 2026-10-01 | [A share link's QR code is drawn in the browser from its address — the mark under the vermilion rule, level H — and nothing new is published](docs/decisions/085-share-qr.md) |
 | 86 | 2026-10-01 | [A share link has an Atom and an RSS feed of its newest additions — the page's whitelist, dated by the addition, never by a read](docs/decisions/086-share-feeds.md) |
 | 87 | 2026-10-01 | [StoryGraph and LibraryThing exports import as Goodreads' does: matched and merged, the importer's own reads and reviews](docs/decisions/087-storygraph-librarything.md) |
+| 88 | 2026-10-01 | [A read-only API behind per-member tokens: made on the Account page, shown once, bound to the account as a session is; a token sees what its member sees and changes nothing](docs/decisions/088-token-api.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
