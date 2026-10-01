@@ -17,10 +17,18 @@ order every bookshelf in the house keeps. **The owner decided** to add it, by su
   as `surname()` does for matching: "Ursula K. Le Guin" under *guin*, "N. K. Jemisin" under
   *jemisin*, "Terry Pratchett, Neil Gaiman" under *pratchett*. SQLite has no "last word": the
   trailing word is what remains when `rtrim()` strips every non-space character from the right.
+  A trailing suffix without a comma — "Martin Luther King Jr.", "Ralph Bunche II" — gives way to
+  the word before it, so they file under *king* and *bunche* (review on #122).
 - **Then the full creators string, then the title**, all lower-cased; items with nobody named
   come last, not first under an empty key.
 - **Measured nothing new:** the sort is an expression over the rows a page already reads; the D1
   calls per shelf page are unchanged, and the budget tests say so.
+
+**Known limits:** `lower()` folds ASCII only and D1 has no ICU collation, so a surname starting
+with Å, Ø, Č or Ł keeps its capital and sorts after every ASCII name; a JS-side sort would break
+the page's LIMIT/OFFSET, so this stays. An expression sort can't use #68's indexes: a shelf sorted
+by author is read through a temp B-tree, about twice its item count, as sort by rating is — fine
+for an opt-in sort.
 
 **What it rules out:** a stored sort key or a creators table (the creators pages chose strings
 over a table, #72, and this follows); a "Surname, Given" display — the sort changes order, never

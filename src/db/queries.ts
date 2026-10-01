@@ -615,7 +615,9 @@ const CREATORS_SQL = "trim(coalesce(creators, ''))";
  * splitCreators()'s "Last, First" rule (YEAR_CREATORS carries it too): one person written "Le Guin, Ursula K." sorts
  * under "le guin"; otherwise the first person — before a ',', ';' or ' & ' — sorts under their last word ("Ursula K.
  * Le Guin" under "guin", "N. K. Jemisin" under "jemisin"), as surname() takes it. SQLite has no "last word", so the
- * trailing word is what remains when rtrim() strips every non-space character from the right. Nobody named sorts last.
+ * trailing word is what remains when rtrim() strips every non-space character from the right; a trailing suffix
+ * ("Martin Luther King Jr.", "Ralph Bunche II") gives way to the word before it. Nobody named sorts last. lower() folds
+ * ASCII only — a surname starting with Å or Č keeps its capital and sorts after every ASCII name (a known limit).
  */
 const AUTHOR_SORT_SQL = (() => {
   const cr = CREATORS_SQL;
@@ -624,8 +626,11 @@ const AUTHOR_SORT_SQL = (() => {
   const onePerson = `(instr(${cr}, ',') > 0 AND instr(${b}, ',') = 0 AND instr(${cr}, ';') = 0 AND instr(${cr}, '&') = 0 AND ${a} <> '' AND ${b} <> '' AND instr(${a}, '.') = 0 AND lower(${b}) NOT IN ('jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv') AND (instr(${b}, ' ') = 0 OR ${b} GLOB '*[A-Z].'))`;
   const names = `replace(replace(${cr}, ';', ','), ' & ', ',')`;
   const first = `trim(substr(${names}, 1, instr(${names} || ',', ',') - 1))`;
-  const lastWord = `substr(${first}, length(rtrim(${first}, replace(${first}, ' ', ''))) + 1)`;
-  return `lower(CASE WHEN ${onePerson} THEN ${a} ELSE ${lastWord} END)`;
+  const lastWordOf = (x: string) => `substr(${x}, length(rtrim(${x}, replace(${x}, ' ', ''))) + 1)`;
+  const last = lastWordOf(first);
+  const beforeSuffix = `trim(substr(${first}, 1, length(${first}) - length(${last})))`;
+  const surname = `CASE WHEN lower(${last}) IN ('jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv') AND ${beforeSuffix} <> '' THEN ${lastWordOf(beforeSuffix)} ELSE ${last} END`;
+  return `lower(CASE WHEN ${onePerson} THEN ${a} ELSE ${surname} END)`;
 })();
 
 /** The WHERE behind both listItems and countMatchingItems — one definition, so a

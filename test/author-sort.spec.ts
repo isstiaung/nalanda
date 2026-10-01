@@ -30,12 +30,18 @@ describe('Author A–Z', () => {
     await item({ title: 'A Wizard of Earthsea', creators: 'Ursula K. Le Guin' }); // guin, then the title
     await item({ title: 'Ammonite', creators: 'Nicola Griffith' }); // griffith
     await item({ title: 'Blank name', creators: '   ' }); // nobody named: last too
+    await item({ title: 'Why We Can’t Wait', creators: 'Martin Luther King Jr.' }); // a suffix without a comma: king
+    await item({ title: 'Stride Toward Freedom', creators: 'Martin Luther King, Jr.' }); // with one: still king, not a "Last, First"
+    await item({ title: 'A Mediator', creators: 'Ralph Bunche II' }); // bunche
     const { items } = await listItems(env.DB, lib.id, { sort: 'author' });
     expect(items.map((i) => i.title)).toEqual([
+      'A Mediator', // bunche
       'Ammonite', // griffith
       'A Wizard of Earthsea', // guin, "Ursula K. Le Guin", then by title
       'The Dispossessed', // guin, same name, later title
       'The Fifth Season', // jemisin
+      'Stride Toward Freedom', // king — "Martin Luther King, Jr." then "Martin Luther King Jr." by the full string
+      'Why We Can’t Wait',
       'Earthsea', // le guin — the "Last, First" person sorts under the whole last name
       'Mort', // pratchett, then by the full string: "pratchett & gaiman" before "terry pratchett, neil gaiman"
       'Good Omens', // pratchett — "Terry Pratchett, Neil Gaiman" is two people, the first of them
