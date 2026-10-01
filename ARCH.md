@@ -472,6 +472,8 @@ portable, and makes share routes trivially public. CF Access remains available l
   a derived boolean `inCollection` (`copies > 0`) so reading-log entries (`copies = 0`)
   carry a "Not owned" badge (§16 #13), and `readCount` — how many times the household
   finished it, only from twice on ("Read N times"), never the reads or their dates (§16 #41),
+  and only of an item it owns: a Not owned item never claims a read, so neither `readCount` nor
+  reading progress is added while `copies` is 0 (§16 #13) —
   and, on a shared board game's or record's own page, `playCount` — how many times the
   household played it, from the first play on ("Played N times"), never a play's date or who
   logged it (§16 #54). Listing cards don't carry it. And, on a shared item's page, its series name and number,

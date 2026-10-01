@@ -16,7 +16,9 @@ for a surface before changing anything it shows to someone outside the household
   app — and nothing per member unless names are switched on (next bullet). (The derived boolean
   `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge. So is
   `readCount`, the household's finishes, only from two on — "Read N times", ARCH.md §16 #41 —
-  and, on a shared game's or record's page, `playCount`, the household's plays, never a play's
+  and only of an item the household owns: **a Not owned item never claims a read** (§16 #13),
+  so `toPublicItem()` adds neither `readCount` nor `progress` while `copies` is 0, whatever the
+  household read of it — and, on a shared game's or record's page, `playCount`, the household's plays, never a play's
   date or who logged it, §16 #54. And a shared item's page shows its series name and number —
   public catalogue data, like the publisher — only through `toPublicItem(item, { series })`,
   ARCH.md §16 #52: never the numbers missing from a series or anyone's "next up", and not on
@@ -103,7 +105,7 @@ for a surface before changing anything it shows to someone outside the household
   (shelf cards, item pages, feed entries) the same way — absent otherwise, so every other item's
   bytes are unchanged, and older peers drop the unknown key. Never whose want, never a count. It
   shows wherever "Not owned" does; a peer's `wanted` renders as our own fixed text. A Not owned
-  item's share page never claims it was read (share pages have no status to say so).
+  item never claims a read: no status, no read count and no progress reach its share page (above).
 - **Purchase links** are pasted, never generated, the item's (any member adds or removes one),
   and **public only on gift lists** — never on a shelf's share page or to connections
   (`toConnectionItem()` has no field for them). `checkPurchaseLink()` (`src/lib/links.ts`) takes
