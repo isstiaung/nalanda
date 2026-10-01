@@ -47,7 +47,9 @@ page only sequences them.
 ## 3. Wiring it in: `src/metadata/index.ts`
 
 - **Barcodes** route by kind in `lookupByBarcode()`: EAN-13 starting 978/979 is a book, any
-  other EAN/UPC a record. A provider for a new kind of barcode extends `classifyBarcode()`.
+  other EAN/UPC a record; an ISBN-10 (its `X` kept) is a book too, with the ISBN-13 it stands for
+  derived by `isbn13Of()` unless a provider names one. A provider for a new kind of barcode extends
+  `classifyBarcode()`.
 - **Names** route by type in `searchByName()`, one page at a time (`PAGE_SIZE`, "More results").
 - **Merging**: `mergeBookCandidates()` keeps the first hit and fills its blanks from the next —
   providers are complementary, not competing. A new book source joins the merge; a source for a

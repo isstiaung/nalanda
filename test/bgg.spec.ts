@@ -4,7 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Bindings } from '../src/env';
 import { searchByName } from '../src/metadata';
-import { bgg } from '../src/metadata/bgg';
+import { bgg, bggGame } from '../src/metadata/bgg';
 import { activateFetchMock, assertNoPendingInterceptors, intercept } from './fetch-mock';
 
 type Seen = { url: string; auth: string | null };
@@ -78,6 +78,34 @@ describe('BoardGameGeek', () => {
     const [catan] = await bgg('tok-123').search('Catan');
 
     expect(catan!.description).toBe("Settlers' island — 3–4 players.\n\nTrade & build ❤ &unknown; &#0;");
+  });
+
+  it('reads a description that is all digits as the text it is — one such game used to fail the whole page', async () => {
+    const thing = THING.replace('<yearpublished', '<description>1830</description><yearpublished');
+    stubBgg((url) => (url.includes('/search') ? xml(SEARCH) : xml(thing)));
+
+    const [catan] = await bgg('tok-123').search('Catan');
+
+    expect(catan!.description).toBe('1830');
+    expect(catan!.published).toBe('1995'); // attributes read as before: a year as text, an id as a number in details
+    expect(catan!.details['bgg_id']).toBe(13);
+  });
+
+  it('gives the game "1830", whose description is "1830", back from a refresh too', async () => {
+    const thing = '<items><item type="boardgame" id="1830"><name type="primary" value="1830"/><description>1830</description><yearpublished value="1986"/></item></items>';
+    stubBgg(() => xml(thing));
+
+    expect(await bggGame('tok-123', 1830)).toMatchObject({ ok: true, game: { title: '1830', description: '1830', published: '1986', details: { bgg_id: 1830, year: 1986 } } });
+  });
+
+  it('skips the one game whose record can’t be read, and keeps the rest of the page', async () => {
+    // markup where text belongs parses to an object, which the decoder can't read: that game is left out, not the page
+    const broken = '<item type="boardgame" id="278"><name type="primary" value="Catan: Cities"/><description><b>Markup</b> where text belongs</description></item>';
+    stubBgg((url) => (url.includes('/search') ? xml(SEARCH) : xml(THING.replace('</items>', `${broken}</items>`))));
+
+    const found = await bgg('tok-123').search('Catan');
+
+    expect(found.map((c) => c.title)).toEqual(['Catan']);
   });
 
   it("reads a 403 from BGG's edge as BGG not answering, not as a bad token", async () => {

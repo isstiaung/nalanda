@@ -1,12 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { classifyBarcode, cleanDescription, creatorsMatch, mergeBookCandidates, searchableTitle, titlesMatch } from '../src/metadata';
+import { classifyBarcode, cleanDescription, creatorsMatch, isbn13Of, mergeBookCandidates, searchableTitle, titlesMatch } from '../src/metadata';
 import type { Candidate } from '../src/metadata';
 
 describe('barcode routing', () => {
   it('routes ISBN EANs to books', () => {
     expect(classifyBarcode('9780060512750')).toEqual({ kind: 'isbn13', code: '9780060512750' });
     expect(classifyBarcode('979-8-88-777666-5')).toEqual({ kind: 'isbn13', code: '9798887776665' });
-    expect(classifyBarcode('0060512750')).toEqual({ kind: 'isbn13', code: '0060512750' }); // ISBN-10
+  });
+
+  it('routes an ISBN-10 to books as its own kind — one ending in X included, never as a nine-digit UPC', () => {
+    expect(classifyBarcode('0060512750')).toEqual({ kind: 'isbn10', code: '0060512750' });
+    expect(classifyBarcode('080442957X')).toEqual({ kind: 'isbn10', code: '080442957X' });
+    expect(classifyBarcode('0-8044-2957-x')).toEqual({ kind: 'isbn10', code: '080442957X' });
+    expect(classifyBarcode(' 0 8044 2957 X ')).toEqual({ kind: 'isbn10', code: '080442957X' });
+    expect(classifyBarcode('ISBN 0060512750')).toEqual({ kind: 'isbn10', code: '0060512750' });
+  });
+
+  it('names the ISBN-13 an ISBN-10 stands for: 978, nine digits, the EAN check digit', () => {
+    expect(isbn13Of('0060512750')).toBe('9780060512750');
+    expect(isbn13Of('080442957X')).toBe('9780804429573');
+    expect(isbn13Of('0441478123')).toBe('9780441478125'); // The Left Hand of Darkness, both numbers on the same edition
+    expect(isbn13Of('0000000000')).toBe('9780000000002');
   });
 
   it('routes other EAN/UPC codes to Discogs', () => {
@@ -36,6 +50,8 @@ describe('book candidate merging', () => {
     description: 'A description only Google has.',
     coverUrl: 'https://books.google/cover.jpg',
     length: 320,
+    isbn13: '9780060512750',
+    isbn10Upc: '0060512750',
     details: {},
     provider: 'googlebooks',
   };
@@ -48,6 +64,13 @@ describe('book candidate merging', () => {
     expect(merged.coverUrl).toBe('https://books.google/cover.jpg');
     expect(merged.length).toBe(320);
     expect(merged.provider).toBe('openlibrary+googlebooks');
+  });
+
+  it('takes the ISBN-13 Google Books names when Open Library’s candidate has none — an ISBN-10 lookup', () => {
+    const merged = mergeBookCandidates({ ...ol, isbn10Upc: '0060512750' }, gb)!;
+    expect(merged.isbn13).toBe('9780060512750');
+    expect(merged.isbn10Upc).toBe('0060512750');
+    expect(mergeBookCandidates({ ...ol, isbn13: '9780441478125' }, gb)!.isbn13).toBe('9780441478125'); // Open Library's first
   });
 
   it('handles one-sided and empty results', () => {
