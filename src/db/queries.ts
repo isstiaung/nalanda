@@ -614,7 +614,7 @@ export type NewShare = {
   status?: ItemStatus | null;
   owned?: boolean | null;
   tag?: string | null;
-  sort?: 'added' | 'title' | 'rating' | 'completed';
+  sort?: 'added' | 'title' | 'author' | 'rating' | 'completed';
   wantUserId?: number | null; // a gift list: this member's want list (§16 #53)
 };
 
@@ -671,7 +671,7 @@ export type ItemFilters = {
   // only items on this member's want list (§16 #53) — what a gift list captures, and the want-list page shows
   wantedBy?: number;
   // 'wanted': newest on the want list first — only with wantedBy
-  sort?: 'added' | 'title' | 'rating' | 'completed' | 'wanted';
+  sort?: 'added' | 'title' | 'author' | 'rating' | 'completed' | 'wanted'; // author: the first creator's surname (§16 #83)
   page?: number; // 1-based
 };
 
@@ -718,6 +718,31 @@ export function statusWhere(statuses: readonly ItemStatus[]): SQL | undefined {
   const any = inArray(s.items.status, [...statuses]);
   return statuses.includes('in_progress') ? or(any, eq(s.items.rereading, true)) : any;
 }
+
+const CREATORS_SQL = "trim(coalesce(creators, ''))";
+
+/**
+ * The first creator's surname, lower-cased, for the shelf's "Author A–Z" (ARCH.md §16 #83) — the SQL twin of
+ * splitCreators()'s "Last, First" rule (YEAR_CREATORS carries it too): one person written "Le Guin, Ursula K." sorts
+ * under "le guin"; otherwise the first person — before a ',', ';' or ' & ' — sorts under their last word ("Ursula K.
+ * Le Guin" under "guin", "N. K. Jemisin" under "jemisin"), as surname() takes it. SQLite has no "last word", so the
+ * trailing word is what remains when rtrim() strips every non-space character from the right; a trailing suffix
+ * ("Martin Luther King Jr.", "Ralph Bunche II") gives way to the word before it. Nobody named sorts last. lower() folds
+ * ASCII only — a surname starting with Å or Č keeps its capital and sorts after every ASCII name (a known limit).
+ */
+const AUTHOR_SORT_SQL = (() => {
+  const cr = CREATORS_SQL;
+  const a = `trim(substr(${cr}, 1, instr(${cr}, ',') - 1))`;
+  const b = `trim(substr(${cr}, instr(${cr}, ',') + 1))`;
+  const onePerson = `(instr(${cr}, ',') > 0 AND instr(${b}, ',') = 0 AND instr(${cr}, ';') = 0 AND instr(${cr}, '&') = 0 AND ${a} <> '' AND ${b} <> '' AND instr(${a}, '.') = 0 AND lower(${b}) NOT IN ('jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv') AND (instr(${b}, ' ') = 0 OR ${b} GLOB '*[A-Z].'))`;
+  const names = `replace(replace(${cr}, ';', ','), ' & ', ',')`;
+  const first = `trim(substr(${names}, 1, instr(${names} || ',', ',') - 1))`;
+  const lastWordOf = (x: string) => `substr(${x}, length(rtrim(${x}, replace(${x}, ' ', ''))) + 1)`;
+  const last = lastWordOf(first);
+  const beforeSuffix = `trim(substr(${first}, 1, length(${first}) - length(${last})))`;
+  const surname = `CASE WHEN lower(${last}) IN ('jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv') AND ${beforeSuffix} <> '' THEN ${lastWordOf(beforeSuffix)} ELSE ${last} END`;
+  return `lower(CASE WHEN ${onePerson} THEN ${a} ELSE ${surname} END)`;
+})();
 
 /** The WHERE behind both listItems and countMatchingItems — one definition, so a
  *  count can never disagree with the list it is counting. */
@@ -820,6 +845,8 @@ export async function listItems(
         ]
       : f.sort === 'title'
       ? [asc(s.items.title)]
+      : f.sort === 'author'
+        ? [sql.raw(`${CREATORS_SQL} = ''`), sql.raw(AUTHOR_SORT_SQL), sql`lower(${s.items.creators})`, asc(s.items.title)]
       : f.sort === 'rating'
         ? [sql`${s.items.rating} IS NULL, ${s.items.rating} DESC`, asc(s.items.title)]
         : f.sort === 'completed'
@@ -2025,6 +2052,26 @@ async function viewsWithoutReader(d1: D1Database, id: number): Promise<D1Prepare
 export async function deleteSavedView(d1: D1Database, libraryId: number, id: number): Promise<boolean> {
   const res = await d1.prepare('DELETE FROM saved_views WHERE id = ?1 AND library_id = ?2').bind(id, libraryId).run();
   return res.meta.changes > 0;
+}
+
+// ---------- share feeds (ARCH.md §16 #86) ----------
+
+/** A share link's feed: the newest items among those it exposes, each with when it was added — never a read's date. */
+export async function feedItems(d1: D1Database, libraryId: number | null, f: ItemFilters, limit: number): Promise<Array<{ item: Item; at: string }>> {
+  const rows = await db(d1).select().from(s.items).where(itemFilterWhere(libraryId, f)).orderBy(desc(s.items.addedAt), desc(s.items.id)).limit(limit);
+  return rows.map((item) => ({ item, at: item.addedAt }));
+}
+
+/** A gift list's feed (§16 #53): the member's newest wants among the items the list exposes, each dated by the want. */
+export async function wantFeedItems(d1: D1Database, userId: number, f: ItemFilters, limit: number): Promise<Array<{ item: Item; at: string }>> {
+  const rows = await db(d1)
+    .select({ item: s.items, at: s.wants.createdAt })
+    .from(s.wants)
+    .innerJoin(s.items, eq(s.items.id, s.wants.itemId))
+    .where(and(eq(s.wants.userId, userId), itemFilterWhere(null, f)))
+    .orderBy(desc(s.wants.createdAt), desc(s.items.id))
+    .limit(limit);
+  return rows.map((r) => ({ item: r.item, at: r.at }));
 }
 
 // ---------- full-text search ----------
@@ -4394,16 +4441,19 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
       // review only when they differ — the item then moves only if the household's summary of them did.
       const touched = ids.filter((id) => work.get(id)?.some((r) => r.changed));
       const untouched = ids.filter((id) => !touched.includes(id));
+      // the household's notes are kept, and the file's added (§16 #87): empty takes them; ones already holding the text
+      // stay as they are — a re-import changes nothing, and an unchanged row isn't re-dated — else a blank line and the text
       const notes = merges
         .filter((m) => m.set.notes)
-        .map((m) => {
-          const q = dbi
-            .update(s.items)
-            .set({ notes: m.set.notes, updatedAt: sql`(datetime('now'))` })
-            .where(and(eq(s.items.id, m.id), sql`${s.items.notes} IS NOT ${m.set.notes}`))
-            .toSQL();
-          return d1.prepare(q.sql).bind(...q.params);
-        });
+        .map((m) =>
+          d1
+            .prepare(
+              `UPDATE items SET notes = CASE WHEN notes IS NULL OR notes = '' THEN ?2 ELSE notes || char(10) || char(10) || ?2 END,
+                 updated_at = datetime('now')
+               WHERE id = ?1 AND (notes IS NULL OR instr(notes, ?2) = 0)`,
+            )
+            .bind(m.id, m.set.notes),
+        );
       const reviews = merges
         .filter((m) => m.set.rating != null || m.set.review)
         .flatMap((m) => reviewWriteStatements(d1, m.id, person, { rating: m.set.rating ?? null, review: m.set.review ?? null }, 'merge'));

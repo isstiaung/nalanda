@@ -32,6 +32,10 @@ import {
   mapNalandaRow,
   type ImportOptions,
   type PeopleTally,
+  looksLikeLibraryThing,
+  looksLikeStoryGraph,
+  mapLibraryThingRow,
+  mapStoryGraphRow,
 } from '../lib/csv';
 import { findCover, findDescription } from '../metadata';
 import { parseDetails } from '../lib/share';
@@ -213,13 +217,31 @@ importexport.post('/api/import', async (c) => {
 
   const headers = rows.length > 0 ? Object.keys(rows[0]!) : [];
   // our own export first: its columns are specific enough that it can't be mistaken for either of the others
-  const format = looksLikeNalandaExport(headers) ? 'nalanda' : looksLikeGoodreads(headers) ? 'goodreads' : 'libib';
-  const isGoodreads = format === 'goodreads';
+  const format = looksLikeNalandaExport(headers)
+    ? 'nalanda'
+    : looksLikeGoodreads(headers)
+      ? 'goodreads'
+      : looksLikeStoryGraph(headers)
+        ? 'storygraph'
+        : looksLikeLibraryThing(headers)
+          ? 'librarything'
+          : 'libib';
+  // the reading-site exports match and merge onto the books already here (§16 #14, #87); libib's and our own only add
+  const isGoodreads = format === 'goodreads' || format === 'storygraph' || format === 'librarything';
 
   const mapped = [];
   let skipped = sent.length - rows.length;
   for (const row of rows) {
-    const m = format === 'nalanda' ? mapNalandaRow(row, settings.currency, settings.language) : isGoodreads ? mapGoodreadsRow(row) : mapLibibRow(row, opts);
+    const m =
+      format === 'nalanda'
+        ? mapNalandaRow(row, settings.currency, settings.language)
+        : format === 'goodreads'
+          ? mapGoodreadsRow(row)
+          : format === 'storygraph'
+            ? mapStoryGraphRow(row)
+            : format === 'librarything'
+              ? mapLibraryThingRow(row)
+              : mapLibibRow(row, opts);
     if (m) mapped.push(m);
     else skipped++;
   }

@@ -13,10 +13,13 @@ import {
   playCount,
   shareGuardFacts,
   wantedAmong,
+  feedItems,
+  wantFeedItems,
 } from '../db/queries';
 import type { Item, Share } from '../db/schema';
 import type { AppEnv } from '../env';
 import { timesPlayed } from '../lib/plays';
+import { atomFeed, entryHtml, FEED_ENTRIES, rfc3339, rssFeed, type FeedEntry } from '../lib/feeds';
 import { formatSeriesNumber } from '../lib/series';
 import { isRecord } from '../lib/condition';
 import {
@@ -83,12 +86,13 @@ share.use('*', async (c, next) => {
  * `bgg`: the page shows a board game, so BoardGameGeek's logo is owed in the footer (ARCH.md §16 #44). `mark`: what
  * kind of page it is, above its name — a gift list says so (§16 #53).
  */
-const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: boolean; mark?: string; preview?: LinkPreview }>> = ({
+const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: boolean; mark?: string; preview?: LinkPreview; feeds?: string }>> = ({
   title,
   shelf,
   bgg,
   mark = 'Nalanda · shared shelf',
   preview,
+  feeds,
   children,
 }) => (
   <html lang="en">
@@ -113,6 +117,13 @@ const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: bo
         </>
       ) : null}
       <link rel="icon" href="/logo.svg" type="image/svg+xml" />
+      {/* the listing's feeds (§16 #86), for a reader to find */}
+      {feeds ? (
+        <>
+          <link rel="alternate" type="application/atom+xml" title={`${title} — Atom`} href={`${feeds}/feed.atom`} />
+          <link rel="alternate" type="application/rss+xml" title={`${title} — RSS`} href={`${feeds}/feed.rss`} />
+        </>
+      ) : null}
       <link rel="stylesheet" href="/app.css" />
       {/* a cover that fails to load falls back to its media icon */}
       <script src="/covers.js" defer></script>
@@ -173,9 +184,9 @@ function renderShare(
   title: string,
   shelf: string,
   body: Child,
-  opts: { bgg?: boolean; mark?: string; preview?: LinkPreview } = {},
+  opts: { bgg?: boolean; mark?: string; preview?: LinkPreview; feeds?: string } = {},
 ) {
-  return c.html(`<!doctype html>${ShareLayout({ title, shelf, bgg: opts.bgg, mark: opts.mark, preview: opts.preview, children: body })}`);
+  return c.html(`<!doctype html>${ShareLayout({ title, shelf, bgg: opts.bgg, mark: opts.mark, preview: opts.preview, feeds: opts.feeds, children: body })}`);
 }
 
 // ---------- link previews (ARCH.md §16 #71) ----------
@@ -271,7 +282,7 @@ async function giftListPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
       )}
       <Pagination page={current} pages={pages} makeHref={(p) => `/share/${token}?page=${p}`} />
     </>,
-    { bgg: gifts.some(fromBgg), mark: GIFT_MARK, preview },
+    { bgg: gifts.some(fromBgg), mark: GIFT_MARK, preview, feeds: `/share/${token}` },
   );
 }
 
@@ -409,9 +420,51 @@ share.get('/:token', async (c) => {
       </div>
       <Pagination page={current} pages={pages} makeHref={(p) => `/share/${token}?page=${p}`} />
     </>,
-    { bgg: publicItems.some(fromBgg), mark: shareMark(view), preview },
+    { bgg: publicItems.some(fromBgg), mark: shareMark(view), preview, feeds: `/share/${token}` },
   );
 });
+
+/**
+ * The link's feed (ARCH.md §16 #86), Atom or RSS: the newest additions among the items it exposes — for a gift list,
+ * the newest wants — as the page shows them (toPublicItem, toGiftItem), each dated by when it was added or wanted,
+ * never by a read. Cached with the pages (the middleware above), and gone with the token.
+ */
+async function feed(c: Context<AppEnv>, token: string, kind: 'atom' | 'rss') {
+  const view = await getShareByToken(c.env.DB, token);
+  if (!view) return c.notFound();
+  const gift = isWantListShare(view);
+  const found = gift
+    ? await wantFeedItems(c.env.DB, view.wantUserId, shareFilters(view), FEED_ENTRIES)
+    : await feedItems(c.env.DB, view.libraryId, shareFilters(view), FEED_ENTRIES);
+  const wanted = gift ? new Set<number>() : await wantedAmong(c.env.DB, found.filter((x) => x.item.copies === 0).map((x) => x.item.id));
+  const title = gift ? wantListTitle((await giftExtras(c.env.DB, view.wantUserId, [])).owner) : view.name;
+  // what a feed dates by (§16 #86): a shelf's entry by the day — never the time — its item was added; a gift list's
+  // entries all by the day of the newest want, so one member's wanting is never dated item by item
+  const newest = found[0]?.at;
+  const entries: FeedEntry[] = found.map(({ item, at }) => {
+    const pub = gift ? toGiftItem(item, []) : toPublicItem(item, { wanted: wanted.has(item.id) });
+    const link = absolute(c, `/share/${token}/items/${pub.id}`);
+    const image = pub.coverKey ? absolute(c, `/covers/${pub.coverKey}`) : null;
+    const rating = 'rating' in pub ? pub.rating : null;
+    const review = 'review' in pub ? pub.review : null;
+    const summary = [pub.creators, rating !== null ? `Rated ${rating}/10` : null].filter(Boolean).join(' · ');
+    const updated = rfc3339(gift ? (newest ?? at) : at);
+    return { id: link, title: pub.title, link, updated, summary, html: entryHtml({ image, title: pub.title, creators: pub.creators, rating, review }), image };
+  });
+  const meta = {
+    title,
+    link: absolute(c, `/share/${token}`),
+    self: absolute(c, `/share/${token}/feed.${kind}`),
+    updated: entries[0]?.updated ?? rfc3339(view.createdAt),
+    description: gift ? 'A want list shared from a Nalanda home library' : 'Shared from a Nalanda home library',
+  };
+  return c.body(kind === 'atom' ? atomFeed(meta, entries) : rssFeed(meta, entries), 200, {
+    'content-type': kind === 'atom' ? 'application/atom+xml; charset=utf-8' : 'application/rss+xml; charset=utf-8',
+  });
+}
+
+share.get('/:token/feed.atom', (c) => feed(c, c.req.param('token'), 'atom'));
+share.get('/:token/feed.rss', (c) => feed(c, c.req.param('token'), 'rss'));
 
 share.get('/:token/items/:id', async (c) => {
   const token = c.req.param('token');
