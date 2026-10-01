@@ -133,10 +133,11 @@ the code that enforces it and why — read its section before changing anything 
 - Discogs' credit ("Data provided by Discogs." + their notice): `discogsLink()` decides — never on a
   record typed in by hand — and builds the href from a numeric release id only. Never `nofollow`.
 - **The service worker never stores a page or an API answer** — only `STATIC` in `public/sw.js` —
-  and leaves `/share/*` alone. Offline scans hold a barcode and a time only and belong to the
-  signed-in account (another account's pages or logout empty the queue; POST /items refuses
-  anyone else's held scan via `scanOwner`). Bump `VERSION` in sw.js when `STATIC` or its behaviour
-  changes. The browser keeps no signed-in answer either: every response behind the session
+  and leaves `/share/*` alone. Held scans — offline, or with "Keep scanning" on (§16 #94) — hold a
+  barcode and a time only and belong to the signed-in account (another account's pages or logout
+  empty the queue; POST /items and `POST /api/scans/add` — "Add all", twenty barcodes a request, bare
+  records, no covers — each refuse anyone else's held scan via `scanOwner`). Bump `VERSION` in sw.js
+  when `STATIC` or its behaviour changes. The browser keeps no signed-in answer either: every response behind the session
   middleware is `Cache-Control: no-store` (set in `src/index.ts`) and logout sends
   `Clear-Site-Data: "cache"`; `/share/*`, covers, static files and the login page cache as before.
 
