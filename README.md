@@ -19,6 +19,8 @@ manuscripts.
   become reads; the rest arrive as reading-log entries. Everything it brings is the importing
   member's own. Re-runs merge instead of duplicating, and never remove a read. libib CSV
   import too.
+- **StoryGraph and LibraryThing imports**: their exports too, matched and merged the same way — your
+  reads, rating and review onto the books already here, the rest as reading-log entries.
 - **Public share links, per view**: publish any filtered slice of a shelf ("my reviews",
   "owned sci-fi"), or everything carrying a tag, at its own unguessable URL — rotate or remove each link independently.
   Private notes, where things are kept, loans, copy counts, what you paid and a record's
@@ -97,11 +99,20 @@ manuscripts.
 - **Search operators**: `author:`, `title:`, `tag:`, `status:`, `year:`, `lang:` and `type:` beside
   plain words in the search box — `author:"le guin" status:unread year:1960-1979` — and anything
   the box doesn't understand is searched as text.
+- **Feeds for share links**: every share link has an Atom and an RSS feed of its newest additions,
+  the page's whitelist and nothing more.
+- **QR codes for share links**: on Shared links, each address as a branded QR code, drawn in the
+  browser, with a PNG to download — for a card on the shelf.
 - **Saved views**: a shelf's filters under a name, the household's, opened from the shelf or the
   Overview; two decluttering views on every shelf — unread for years, not played lately.
 - **Borrowed from someone**: a book borrowed from a friend is a Not owned item with a borrow record —
   who from, due back when, returned — a Borrowed pill, a Holding filter, and a Borrowed page for every
   household; private like loans.
+- **Item history**: for admins, each change to an item's own fields with who and when, kept 90
+  days — not reads or reviews, which say who already.
+- **A read-only API**: a token made on your Account page lets a script or a blog read your library
+  as JSON — shelves with their filters, an item with its reads, search, loans, your want list and
+  goal — as you see it, changing nothing.
 - **A trash**: a deleted item waits 30 days with everything it had — reads, reviews, pages,
   plays, loans, tags, cover — and an admin can restore it or let it go. The delete itself is
   still a delete: nothing trashed stays on a share link or in a connection's view.
@@ -242,6 +253,9 @@ lists them for you to add to a shelf or drop. Logging out clears anything still 
 | [accounts-and-access.md](runbooks/accounts-and-access.md) | Family accounts, lost passwords, admin lockout, share links |
 | [connections.md](runbooks/connections.md) | Connecting with another household's Nalanda: keys, feed, comments, borrowing, disconnecting |
 | [import-from-goodreads.md](runbooks/import-from-goodreads.md) | Bringing your Goodreads history over (and leaving) |
+| [api.md](runbooks/api.md) | Reading your library as JSON with a token of your own |
+| [import-from-storygraph.md](runbooks/import-from-storygraph.md) | Bringing your StoryGraph library over |
+| [import-from-librarything.md](runbooks/import-from-librarything.md) | Bringing your LibraryThing catalog over |
 | [import-from-libib.md](runbooks/import-from-libib.md) | Migrating your libib collection |
 | [metadata-backfill.md](runbooks/metadata-backfill.md) | Filling in covers and descriptions for a large catalog, from your machine |
 | [record-covers.md](runbooks/record-covers.md) | Replacing record covers stored from Discogs with the Cover Art Archive's (a one-off) |

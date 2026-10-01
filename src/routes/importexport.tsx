@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { writerOf } from './items';
 import { cleanKindleBook, MAX_KINDLE_BOOKS_PER_REQUEST, MAX_KINDLE_HIGHLIGHTS_PER_REQUEST, type KindleBook } from '../lib/quotes';
 import type { MediaType, NewItem } from '../db/schema';
 import { MEDIA_TYPES } from '../db/schema';
@@ -31,6 +32,10 @@ import {
   mapNalandaRow,
   type ImportOptions,
   type PeopleTally,
+  looksLikeLibraryThing,
+  looksLikeStoryGraph,
+  mapLibraryThingRow,
+  mapStoryGraphRow,
 } from '../lib/csv';
 import { findCover, findDescription } from '../metadata';
 import { parseDetails } from '../lib/share';
@@ -212,13 +217,31 @@ importexport.post('/api/import', async (c) => {
 
   const headers = rows.length > 0 ? Object.keys(rows[0]!) : [];
   // our own export first: its columns are specific enough that it can't be mistaken for either of the others
-  const format = looksLikeNalandaExport(headers) ? 'nalanda' : looksLikeGoodreads(headers) ? 'goodreads' : 'libib';
-  const isGoodreads = format === 'goodreads';
+  const format = looksLikeNalandaExport(headers)
+    ? 'nalanda'
+    : looksLikeGoodreads(headers)
+      ? 'goodreads'
+      : looksLikeStoryGraph(headers)
+        ? 'storygraph'
+        : looksLikeLibraryThing(headers)
+          ? 'librarything'
+          : 'libib';
+  // the reading-site exports match and merge onto the books already here (§16 #14, #87); libib's and our own only add
+  const isGoodreads = format === 'goodreads' || format === 'storygraph' || format === 'librarything';
 
   const mapped = [];
   let skipped = sent.length - rows.length;
   for (const row of rows) {
-    const m = format === 'nalanda' ? mapNalandaRow(row, settings.currency, settings.language) : isGoodreads ? mapGoodreadsRow(row) : mapLibibRow(row, opts);
+    const m =
+      format === 'nalanda'
+        ? mapNalandaRow(row, settings.currency, settings.language)
+        : format === 'goodreads'
+          ? mapGoodreadsRow(row)
+          : format === 'storygraph'
+            ? mapStoryGraphRow(row)
+            : format === 'librarything'
+              ? mapLibraryThingRow(row)
+              : mapLibibRow(row, opts);
     if (m) mapped.push(m);
     else skipped++;
   }
@@ -282,7 +305,7 @@ importexport.post('/api/import', async (c) => {
   }
 
   if (isGoodreads) {
-    const { inserted, merged, reads } = await mergeImportItems(c.env.DB, withOwners);
+    const { inserted, merged, reads } = await mergeImportItems(c.env.DB, withOwners, false, writerOf(c));
     return c.json({ inserted, merged, reads, skipped });
   }
   const inserted = await importItems(c.env.DB, withOwners);
@@ -365,7 +388,7 @@ importexport.post('/api/backfill-covers', async (c) => {
         const fromWork = await findDescription(match ?? null);
         if (fromWork) patch.description = fromWork;
       }
-      if (Object.keys(patch).length) await updateItem(c.env.DB, item.id, patch);
+      if (Object.keys(patch).length) await updateItem(c.env.DB, item.id, patch, writerOf(c));
       if (patch.coverKey) {
         found++;
         if (result?.method === 'title') byTitle++;

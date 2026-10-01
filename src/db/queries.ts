@@ -286,13 +286,18 @@ export async function setPassword(
   passwordHash: string,
   mustChangePassword: boolean,
 ): Promise<{ id: number; sessionKey: string; sessionGeneration: number } | null> {
-  const row = await d1
-    .prepare(
-      `UPDATE users SET password_hash = ?2, must_change_password = ?3, session_generation = session_generation + 1
-       WHERE id = ?1 RETURNING id, session_key AS sessionKey, session_generation AS sessionGeneration`,
-    )
-    .bind(id, passwordHash, mustChangePassword ? 1 : 0)
-    .first<{ id: number; sessionKey: string; sessionGeneration: number }>();
+  // their API tokens go too (§16 #88), as with "Sign out other devices": the generation would refuse them anyway, and
+  // a dead token must not sit in the list or count towards the cap — one batch, both or neither
+  const [moved] = await d1.batch([
+    d1
+      .prepare(
+        `UPDATE users SET password_hash = ?2, must_change_password = ?3, session_generation = session_generation + 1
+         WHERE id = ?1 RETURNING id, session_key AS sessionKey, session_generation AS sessionGeneration`,
+      )
+      .bind(id, passwordHash, mustChangePassword ? 1 : 0),
+    d1.prepare('DELETE FROM api_tokens WHERE user_id = ?1').bind(id),
+  ]);
+  const row = moved?.results?.[0] as { id: number; sessionKey: string; sessionGeneration: number } | undefined;
   return row ?? null;
 }
 
@@ -305,14 +310,103 @@ export async function signOutOtherDevices(
   d1: D1Database,
   id: number,
 ): Promise<{ id: number; sessionKey: string; sessionGeneration: number } | null> {
+  // their API tokens go with the other devices (§16 #88): the generation check would refuse them anyway, this keeps
+  // the Account page's list honest — one batch, both or neither
+  const [moved] = await d1.batch([
+    d1
+      .prepare(
+        `UPDATE users SET session_generation = session_generation + 1
+         WHERE id = ?1 RETURNING id, session_key AS sessionKey, session_generation AS sessionGeneration`,
+      )
+      .bind(id),
+    d1.prepare('DELETE FROM api_tokens WHERE user_id = ?1').bind(id),
+  ]);
+  const row = moved?.results?.[0] as { id: number; sessionKey: string; sessionGeneration: number } | undefined;
+  return row ?? null;
+}
+
+// ---------- read-only API tokens (ARCH.md §16 #88) ----------
+
+export const MAX_API_TOKENS = 10;
+export const MAX_TOKEN_NAME = 60;
+/** The API's page: items a request, by id, as the export pages (§16 #38). */
+export const API_PAGE = 250;
+
+/** Keeps a new token's hash for the account as it is now — its key and generation — at most MAX_API_TOKENS a member. The id, or null when the member has as many as allowed. */
+export async function createApiToken(d1: D1Database, user: { id: number; sessionKey: string; sessionGeneration: number }, name: string, tokenHash: string): Promise<number | null> {
   const row = await d1
     .prepare(
-      `UPDATE users SET session_generation = session_generation + 1
-       WHERE id = ?1 RETURNING id, session_key AS sessionKey, session_generation AS sessionGeneration`,
+      `INSERT INTO api_tokens (user_id, session_key, generation, name, token_hash)
+       SELECT ?1, ?2, ?3, ?4, ?5 WHERE (SELECT count(*) FROM api_tokens WHERE user_id = ?1) < ?6 RETURNING id`,
     )
-    .bind(id)
-    .first<{ id: number; sessionKey: string; sessionGeneration: number }>();
-  return row ?? null;
+    .bind(user.id, user.sessionKey, user.sessionGeneration, name, tokenHash, MAX_API_TOKENS)
+    .first<{ id: number }>();
+  return row?.id ?? null;
+}
+
+/** A member's tokens, oldest first. Every path that moves the account's generation on deletes them, so each listed one works. */
+export async function listApiTokens(d1: D1Database, userId: number): Promise<Array<{ id: number; name: string; createdAt: string }>> {
+  return (await d1.prepare('SELECT id, name, created_at AS createdAt FROM api_tokens WHERE user_id = ?1 ORDER BY id').bind(userId).all<{ id: number; name: string; createdAt: string }>()).results;
+}
+
+/**
+ * What the Account page shows of the member beside their tokens (§16 #88): the display name, and every token, in one
+ * call — the two statements as one batch, as getUserById was one. Columns are aliased to their names in code: a raw
+ * row keeps SQL's names (display_name), which the page would read past.
+ */
+export async function userWithTokens(d1: D1Database, userId: number): Promise<{ displayName: string | null; tokens: Array<{ id: number; name: string; createdAt: string }> }> {
+  const [u, t] = await d1.batch([
+    d1.prepare('SELECT display_name AS displayName FROM users WHERE id = ?1').bind(userId),
+    d1.prepare('SELECT id, name, created_at AS createdAt FROM api_tokens WHERE user_id = ?1 ORDER BY id').bind(userId),
+  ]);
+  return {
+    displayName: ((u?.results ?? [])[0] as { displayName: string | null } | undefined)?.displayName ?? null,
+    tokens: (t?.results ?? []) as Array<{ id: number; name: string; createdAt: string }>,
+  };
+}
+
+/** Revokes one of the member's own tokens. */
+export async function revokeApiToken(d1: D1Database, userId: number, id: number): Promise<boolean> {
+  const res = await d1.prepare('DELETE FROM api_tokens WHERE id = ?1 AND user_id = ?2').bind(id, userId).run();
+  return res.meta.changes > 0;
+}
+
+/**
+ * The account a token signs in, or null: the token's hash, then the user row it names — still the same key and the
+ * same generation, as a session must be (sessionMatches) — in one call.
+ */
+export type TokenUser = Pick<User, 'id' | 'username' | 'role' | 'mustChangePassword' | 'sessionKey' | 'sessionGeneration'>;
+export async function apiTokenUser(d1: D1Database, tokenHash: string): Promise<TokenUser | null> {
+  const row = await d1
+    .prepare(
+      `SELECT u.id, u.username, u.role, u.must_change_password AS mustChangePassword, u.session_key AS sessionKey,
+              u.session_generation AS sessionGeneration
+       FROM api_tokens t JOIN users u ON u.id = t.user_id
+       WHERE t.token_hash = ?1 AND u.session_key = t.session_key AND u.session_generation = t.generation`,
+    )
+    .bind(tokenHash)
+    .first<Omit<TokenUser, 'mustChangePassword'> & { mustChangePassword: number }>();
+  return row ? { ...row, mustChangePassword: !!row.mustChangePassword } : null;
+}
+
+/**
+ * The API's items (§16 #88): the shelf's filters — a token sees what its member sees, "Read by" and the decluttering
+ * filters included — paged by id after `afterId`, API_PAGE + 1 rows so the caller knows whether a page follows.
+ */
+export async function apiItems(
+  d1: D1Database,
+  libraryId: number | null,
+  f: ItemFilters,
+  reader: ReaderFilter | undefined,
+  stale: StaleFilter | undefined,
+  afterId: number,
+): Promise<Item[]> {
+  return db(d1)
+    .select()
+    .from(s.items)
+    .where(and(itemFilterWhere(libraryId, f, reader, stale), gt(s.items.id, afterId)))
+    .orderBy(asc(s.items.id))
+    .limit(API_PAGE + 1);
 }
 
 // ---------- login throttling ----------
@@ -524,7 +618,7 @@ export type NewShare = {
   status?: ItemStatus | null;
   owned?: boolean | null;
   tag?: string | null;
-  sort?: 'added' | 'title' | 'rating' | 'completed';
+  sort?: 'added' | 'title' | 'author' | 'rating' | 'completed';
   wantUserId?: number | null; // a gift list: this member's want list (§16 #53)
 };
 
@@ -581,7 +675,7 @@ export type ItemFilters = {
   // only items on this member's want list (§16 #53) — what a gift list captures, and the want-list page shows
   wantedBy?: number;
   // 'wanted': newest on the want list first — only with wantedBy
-  sort?: 'added' | 'title' | 'rating' | 'completed' | 'wanted';
+  sort?: 'added' | 'title' | 'author' | 'rating' | 'completed' | 'wanted'; // author: the first creator's surname (§16 #83)
   page?: number; // 1-based
 };
 
@@ -628,6 +722,31 @@ export function statusWhere(statuses: readonly ItemStatus[]): SQL | undefined {
   const any = inArray(s.items.status, [...statuses]);
   return statuses.includes('in_progress') ? or(any, eq(s.items.rereading, true)) : any;
 }
+
+const CREATORS_SQL = "trim(coalesce(creators, ''))";
+
+/**
+ * The first creator's surname, lower-cased, for the shelf's "Author A–Z" (ARCH.md §16 #83) — the SQL twin of
+ * splitCreators()'s "Last, First" rule (YEAR_CREATORS carries it too): one person written "Le Guin, Ursula K." sorts
+ * under "le guin"; otherwise the first person — before a ',', ';' or ' & ' — sorts under their last word ("Ursula K.
+ * Le Guin" under "guin", "N. K. Jemisin" under "jemisin"), as surname() takes it. SQLite has no "last word", so the
+ * trailing word is what remains when rtrim() strips every non-space character from the right; a trailing suffix
+ * ("Martin Luther King Jr.", "Ralph Bunche II") gives way to the word before it. Nobody named sorts last. lower() folds
+ * ASCII only — a surname starting with Å or Č keeps its capital and sorts after every ASCII name (a known limit).
+ */
+const AUTHOR_SORT_SQL = (() => {
+  const cr = CREATORS_SQL;
+  const a = `trim(substr(${cr}, 1, instr(${cr}, ',') - 1))`;
+  const b = `trim(substr(${cr}, instr(${cr}, ',') + 1))`;
+  const onePerson = `(instr(${cr}, ',') > 0 AND instr(${b}, ',') = 0 AND instr(${cr}, ';') = 0 AND instr(${cr}, '&') = 0 AND ${a} <> '' AND ${b} <> '' AND instr(${a}, '.') = 0 AND lower(${b}) NOT IN ('jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv') AND (instr(${b}, ' ') = 0 OR ${b} GLOB '*[A-Z].'))`;
+  const names = `replace(replace(${cr}, ';', ','), ' & ', ',')`;
+  const first = `trim(substr(${names}, 1, instr(${names} || ',', ',') - 1))`;
+  const lastWordOf = (x: string) => `substr(${x}, length(rtrim(${x}, replace(${x}, ' ', ''))) + 1)`;
+  const last = lastWordOf(first);
+  const beforeSuffix = `trim(substr(${first}, 1, length(${first}) - length(${last})))`;
+  const surname = `CASE WHEN lower(${last}) IN ('jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv') AND ${beforeSuffix} <> '' THEN ${lastWordOf(beforeSuffix)} ELSE ${last} END`;
+  return `lower(CASE WHEN ${onePerson} THEN ${a} ELSE ${surname} END)`;
+})();
 
 /** The WHERE behind both listItems and countMatchingItems — one definition, so a
  *  count can never disagree with the list it is counting. */
@@ -730,6 +849,8 @@ export async function listItems(
         ]
       : f.sort === 'title'
       ? [asc(s.items.title)]
+      : f.sort === 'author'
+        ? [sql.raw(`${CREATORS_SQL} = ''`), sql.raw(AUTHOR_SORT_SQL), sql`lower(${s.items.creators})`, asc(s.items.title)]
       : f.sort === 'rating'
         ? [sql`${s.items.rating} IS NULL, ${s.items.rating} DESC`, asc(s.items.title)]
         : f.sort === 'completed'
@@ -779,11 +900,32 @@ export async function createItem(d1: D1Database, values: NewItem): Promise<Item>
   return item;
 }
 
-export async function updateItem(d1: D1Database, id: number, values: Partial<NewItem>): Promise<void> {
-  await db(d1)
+/** Who is writing an item (ARCH.md §16 #84): the member's id and session key, for the history triggers; null when nobody is. */
+export type Writer = Deleter;
+
+/**
+ * `writes` between the statements that set and clear the `acting` row (§16 #84), so the item-history triggers know who
+ * — one batch, one transaction, so no other request ever sees the row. With nobody writing, the writes as they are.
+ */
+function asWriter(d1: D1Database, who: Writer | undefined, writes: D1PreparedStatement[]): D1PreparedStatement[] {
+  // every item write also lets the history past HISTORY_DAYS go — one indexed delete, so retention holds without a page
+  const sweep = d1.prepare(`DELETE FROM item_history WHERE at < datetime('now', '-${HISTORY_DAYS} days')`);
+  if (!who) return [...writes, sweep];
+  return [
+    d1.prepare('INSERT OR REPLACE INTO acting (id, user_id, session_key) VALUES (1, ?1, ?2)').bind(who.id, who.sessionKey),
+    ...writes,
+    sweep,
+    d1.prepare('DELETE FROM acting WHERE id = 1'),
+  ];
+}
+
+export async function updateItem(d1: D1Database, id: number, values: Partial<NewItem>, who?: Writer): Promise<void> {
+  const q = db(d1)
     .update(s.items)
     .set({ ...values, updatedAt: sql`(datetime('now'))` })
-    .where(eq(s.items.id, id));
+    .where(eq(s.items.id, id))
+    .toSQL();
+  await d1.batch(asWriter(d1, who, [d1.prepare(q.sql).bind(...q.params)]));
 }
 
 /**
@@ -796,15 +938,16 @@ export async function applyPressingFill(
   id: number,
   before: Pick<Item, 'details' | 'publisher' | 'published' | 'length'>,
   after: Pick<Item, 'details' | 'publisher' | 'published' | 'length'>,
+  who?: Writer,
 ): Promise<boolean> {
-  const res = await d1
+  const stmt = d1
     .prepare(
       `UPDATE items SET details = ?1, publisher = ?2, published = ?3, length = ?4, updated_at = datetime('now')
        WHERE id = ?5 AND details = ?6 AND publisher IS ?7 AND published IS ?8 AND length IS ?9`,
     )
-    .bind(after.details, after.publisher, after.published, after.length, id, before.details, before.publisher, before.published, before.length)
-    .run();
-  return res.meta.changes > 0;
+    .bind(after.details, after.publisher, after.published, after.length, id, before.details, before.publisher, before.published, before.length);
+  const results = await d1.batch(asWriter(d1, who, [stmt]));
+  return (results[who ? 1 : 0]?.meta.changes ?? 0) > 0;
 }
 
 /**
@@ -816,15 +959,16 @@ export async function applyGameFill(
   id: number,
   before: Pick<Item, 'details' | 'length'>,
   after: Pick<Item, 'details' | 'length'>,
+  who?: Writer,
 ): Promise<boolean> {
-  const res = await d1
+  const stmt = d1
     .prepare(
       `UPDATE items SET details = ?1, length = ?2, updated_at = datetime('now')
        WHERE id = ?3 AND media_type = 'boardgame' AND details = ?4 AND length IS ?5`,
     )
-    .bind(after.details, after.length, id, before.details, before.length)
-    .run();
-  return res.meta.changes > 0;
+    .bind(after.details, after.length, id, before.details, before.length);
+  const results = await d1.batch(asWriter(d1, who, [stmt]));
+  return (results[who ? 1 : 0]?.meta.changes ?? 0) > 0;
 }
 
 /**
@@ -1306,6 +1450,7 @@ export async function updateItemWithTags(
   formReview?: FormReview,
   series?: SeriesDraft | null, // undefined leaves the item's series as it is; null takes it out of one (§16 #52)
   editions?: EditionDraft[], // undefined leaves "also held as" as it is; a list replaces it (§16 #75)
+  who?: Writer, // who is saving, for the item's history (§16 #84)
 ): Promise<void> {
   // reading state and the rating and review come from reads and reviews alone; the series only from `series`
   const {
@@ -1326,7 +1471,7 @@ export async function updateItemWithTags(
     .set({ ...(series === undefined ? rest : withSeries(rest, series)), updatedAt: sql`(datetime('now'))` })
     .where(eq(s.items.id, id))
     .toSQL();
-  await d1.batch([
+  await d1.batch(asWriter(d1, who, [
     ...seriesUpsert(d1, series),
     d1.prepare(q.sql).bind(...q.params),
     // the series it left, if this was that series' last volume
@@ -1340,7 +1485,7 @@ export async function updateItemWithTags(
     ...(formReview ? reviewWriteStatements(d1, id, person, formReview, 'replace') : []),
     refreshReviewState(d1, [id]),
     redateReviewActivity(d1, [id]),
-  ]);
+  ]));
 }
 
 export async function tagsForItem(d1: D1Database, itemId: number): Promise<string[]> {
@@ -1486,14 +1631,14 @@ export async function bulkRemoveTags(d1: D1Database, ids: number[], names: strin
  * existing entries under their old ids, below every follower's cursor, and one they leave withdraws them at the next
  * removal check — as moving each on its edit form would.
  */
-export async function bulkMove(d1: D1Database, ids: number[], libraryId: number): Promise<BulkResult> {
+export async function bulkMove(d1: D1Database, ids: number[], libraryId: number, who?: Writer): Promise<BulkResult> {
   const json = JSON.stringify(ids);
   const moves = `library_id <> ?2 AND EXISTS (SELECT 1 FROM libraries WHERE id = ?2)`;
-  const [tally] = await d1.batch([
+  const results = await d1.batch(asWriter(d1, who, [
     d1.prepare(`SELECT count(*) AS found, sum(${moves}) AS changed FROM items WHERE ${SELECTED}`).bind(json, libraryId),
     d1.prepare(`UPDATE items SET library_id = ?2, updated_at = datetime('now') WHERE ${SELECTED} AND ${moves}`).bind(json, libraryId),
-  ]);
-  return tallied(tally?.results[0] as Tally | undefined);
+  ]));
+  return tallied(results[who ? 1 : 0]?.results[0] as Tally | undefined);
 }
 
 /**
@@ -1501,18 +1646,18 @@ export async function bulkMove(d1: D1Database, ids: number[], libraryId: number)
  * two moves (§16 #27), in one batch. An item held in two or more copies is skipped either way: the toggle only lands
  * on 0 or 1, and zeroing or flattening a real count would lose a number that round-trips through /export.csv.
  */
-export async function bulkSetOwned(d1: D1Database, ids: number[], owned: boolean): Promise<BulkResult> {
+export async function bulkSetOwned(d1: D1Database, ids: number[], owned: boolean, who?: Writer): Promise<BulkResult> {
   const json = JSON.stringify(ids);
   const [from, to] = owned ? [0, 1] : [1, 0];
   // an item borrowed from someone (§16 #82) is theirs until marked returned: "Mark owned" skips it, as the toggle refuses
   const borrowed = 'EXISTS (SELECT 1 FROM borrows b WHERE b.item_id = items.id AND b.returned_on IS NULL)';
   const changes = owned ? `copies = ?2 AND NOT ${borrowed}` : 'copies = ?2';
   const skips = owned ? `copies >= 2 OR (copies = 0 AND ${borrowed})` : 'copies >= 2';
-  const [tally] = await d1.batch([
+  const results = await d1.batch(asWriter(d1, who, [
     d1.prepare(`SELECT count(*) AS found, sum(${changes}) AS changed, sum(${skips}) AS skipped FROM items WHERE ${SELECTED}`).bind(json, from),
     d1.prepare(`UPDATE items SET copies = ?3, updated_at = datetime('now') WHERE ${SELECTED} AND ${changes}`).bind(json, from, to),
-  ]);
-  return tallied(tally?.results[0] as Tally | undefined);
+  ]));
+  return tallied(results[who ? 1 : 0]?.results[0] as Tally | undefined);
 }
 
 /**
@@ -1786,12 +1931,14 @@ export async function openBorrowLender(d1: D1Database, itemId: number): Promise<
  * The Holding toggle's owning half: copies 0 → 1, unless a borrow is open — a borrowed book is theirs until it is marked
  * returned, so it is never owned and borrowed at once (checked in the statement). True when it changed.
  */
-export async function markOwnedUnlessBorrowed(d1: D1Database, id: number): Promise<boolean> {
-  const res = await d1
-    .prepare('UPDATE items SET copies = 1 WHERE id = ?1 AND copies = 0 AND NOT EXISTS (SELECT 1 FROM borrows WHERE item_id = ?1 AND returned_on IS NULL)')
-    .bind(id)
-    .run();
-  return res.meta.changes > 0;
+export async function markOwnedUnlessBorrowed(d1: D1Database, id: number, who?: Writer): Promise<boolean> {
+  const stmt = d1
+    .prepare(
+      `UPDATE items SET copies = 1, updated_at = datetime('now') WHERE id = ?1 AND copies = 0 AND NOT EXISTS (SELECT 1 FROM borrows WHERE item_id = ?1 AND returned_on IS NULL)`,
+    )
+    .bind(id);
+  const results = await d1.batch(asWriter(d1, who, [stmt]));
+  return (results[who ? 1 : 0]?.meta.changes ?? 0) > 0;
 }
 
 /** Marks a borrow returned on `today`, the device's day (§16 #69) — once; one already back keeps its date. */
@@ -1909,6 +2056,26 @@ async function viewsWithoutReader(d1: D1Database, id: number): Promise<D1Prepare
 export async function deleteSavedView(d1: D1Database, libraryId: number, id: number): Promise<boolean> {
   const res = await d1.prepare('DELETE FROM saved_views WHERE id = ?1 AND library_id = ?2').bind(id, libraryId).run();
   return res.meta.changes > 0;
+}
+
+// ---------- share feeds (ARCH.md §16 #86) ----------
+
+/** A share link's feed: the newest items among those it exposes, each with when it was added — never a read's date. */
+export async function feedItems(d1: D1Database, libraryId: number | null, f: ItemFilters, limit: number): Promise<Array<{ item: Item; at: string }>> {
+  const rows = await db(d1).select().from(s.items).where(itemFilterWhere(libraryId, f)).orderBy(desc(s.items.addedAt), desc(s.items.id)).limit(limit);
+  return rows.map((item) => ({ item, at: item.addedAt }));
+}
+
+/** A gift list's feed (§16 #53): the member's newest wants among the items the list exposes, each dated by the want. */
+export async function wantFeedItems(d1: D1Database, userId: number, f: ItemFilters, limit: number): Promise<Array<{ item: Item; at: string }>> {
+  const rows = await db(d1)
+    .select({ item: s.items, at: s.wants.createdAt })
+    .from(s.wants)
+    .innerJoin(s.items, eq(s.items.id, s.wants.itemId))
+    .where(and(eq(s.wants.userId, userId), itemFilterWhere(null, f)))
+    .orderBy(desc(s.wants.createdAt), desc(s.items.id))
+    .limit(limit);
+  return rows.map((r) => ({ item: r.item, at: r.at }));
 }
 
 // ---------- full-text search ----------
@@ -4187,7 +4354,7 @@ const readingOf = (item: NewItem): GoodreadsReading => ({
  * theirs alone, and its rating and review are theirs — someone else's reads and reviews of the same book are
  * never touched. Private notes stay the item's own, as before.
  */
-export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun = false): Promise<MergeImportResult> {
+export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun = false, who?: Writer): Promise<MergeImportResult> {
   if (!rows.length) return { inserted: 0, merged: 0, reads: 0 };
   const dbi = db(d1);
   const person = rows[0]!.item.addedBy ?? null;
@@ -4278,16 +4445,19 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
       // review only when they differ — the item then moves only if the household's summary of them did.
       const touched = ids.filter((id) => work.get(id)?.some((r) => r.changed));
       const untouched = ids.filter((id) => !touched.includes(id));
+      // the household's notes are kept, and the file's added (§16 #87): empty takes them; ones already holding the text
+      // stay as they are — a re-import changes nothing, and an unchanged row isn't re-dated — else a blank line and the text
       const notes = merges
         .filter((m) => m.set.notes)
-        .map((m) => {
-          const q = dbi
-            .update(s.items)
-            .set({ notes: m.set.notes, updatedAt: sql`(datetime('now'))` })
-            .where(and(eq(s.items.id, m.id), sql`${s.items.notes} IS NOT ${m.set.notes}`))
-            .toSQL();
-          return d1.prepare(q.sql).bind(...q.params);
-        });
+        .map((m) =>
+          d1
+            .prepare(
+              `UPDATE items SET notes = CASE WHEN notes IS NULL OR notes = '' THEN ?2 ELSE notes || char(10) || char(10) || ?2 END,
+                 updated_at = datetime('now')
+               WHERE id = ?1 AND (notes IS NULL OR instr(notes, ?2) = 0)`,
+            )
+            .bind(m.id, m.set.notes),
+        );
       const reviews = merges
         .filter((m) => m.set.rating != null || m.set.review)
         .flatMap((m) => reviewWriteStatements(d1, m.id, person, { rating: m.set.rating ?? null, review: m.set.review ?? null }, 'merge'));
@@ -4296,7 +4466,7 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
         ...(untouched.length ? [refreshReadState(d1, untouched)] : []),
       ];
       // reads and their refresh first, so a rating merged in the same batch is dated by the finish it arrived with
-      await d1.batch(asImport(d1, [...writes, ...refreshes, ...reviews, ...notes, refreshReviewState(d1, ids)]));
+      await d1.batch(asImport(d1, asWriter(d1, who, [...writes, ...refreshes, ...reviews, ...notes, refreshReviewState(d1, ids)])));
       const pairs: Array<{ itemId: number; tag: string }> = [];
       for (const m of merges) for (const tag of normalizeTags(m.tags)) pairs.push({ itemId: m.id, tag });
       await linkTags(dbi, pairs);
@@ -4384,13 +4554,61 @@ const finishedByViewer = (viewer: number) =>
  * Points an item at a cover, or at none (§16 #73): the key it had before, so the caller can delete that object. One
  * batch — a RETURNING clause sees the row as updated, so the old key is read in the statement before the write.
  */
-export async function setCover(d1: D1Database, id: number, coverKey: string | null): Promise<{ before: string | null } | null> {
-  const [was, did] = await d1.batch([
+export async function setCover(d1: D1Database, id: number, coverKey: string | null, who?: Writer): Promise<{ before: string | null } | null> {
+  const results = await d1.batch(asWriter(d1, who, [
     d1.prepare('SELECT cover_key AS before FROM items WHERE id = ?1').bind(id),
     d1.prepare(`UPDATE items SET cover_key = ?2, updated_at = datetime('now') WHERE id = ?1`).bind(id, coverKey),
-  ]);
+  ]));
+  const [was, did] = results.slice(who ? 1 : 0);
   const row = (was?.results?.[0] as { before: string | null } | undefined) ?? null;
   return row && did?.meta?.changes ? row : null;
+}
+
+// ---------- item history (ARCH.md §16 #84) ----------
+
+/** How long a change to an item's own fields is kept. */
+export const HISTORY_DAYS = 90;
+/** The most entries the item page lists. */
+export const HISTORY_SHOWN = 200;
+
+export type HistoryEntry = {
+  id: number;
+  field: string;
+  before: string | null;
+  after: string | null;
+  at: string;
+  /** who: the member's username while it is still their account (#56), 'a former member' once not, null when nobody was named */
+  by: string | null;
+};
+
+/**
+ * The item page's history read, for admins, in the page's batch — read-only: the item's entries inside HISTORY_DAYS,
+ * newest first, with the username only while the account is still the one that made the change. The sweep past
+ * HISTORY_DAYS is every item write's (asWriter), never a page's; the window here means a row the sweep hasn't reached
+ * yet is never shown either.
+ */
+export function itemHistoryStatements(d1: D1Database, itemId: number): D1PreparedStatement[] {
+  return [
+    d1
+      .prepare(
+        `SELECT h.id, h.field, h.before, h.after, h.at, h.changed_by AS changedBy, u.username, (u.session_key = h.changed_key) AS same
+         FROM item_history h LEFT JOIN users u ON u.id = h.changed_by
+         WHERE h.item_id = ?1 AND h.at >= datetime('now', '-${HISTORY_DAYS} days') ORDER BY h.id DESC LIMIT ${HISTORY_SHOWN}`,
+      )
+      .bind(itemId),
+  ];
+}
+
+export function historyOf(result: D1Result | undefined): HistoryEntry[] {
+  type Row = { id: number; field: string; before: string | null; after: string | null; at: string; changedBy: number | null; username: string | null; same: number | null };
+  return ((result?.results ?? []) as Row[]).map((r) => ({
+    id: r.id,
+    field: r.field,
+    before: r.before,
+    after: r.after,
+    at: r.at,
+    by: r.changedBy === null ? null : r.same && r.username ? r.username : 'a former member',
+  }));
 }
 
 // ---------- the trash (ARCH.md §16 #74) ----------

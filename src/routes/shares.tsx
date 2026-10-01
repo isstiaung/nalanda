@@ -23,6 +23,9 @@ import { shareScopeLabel } from '../views/components';
 import { page } from '../views/layout';
 import { ledgerDate } from '../lib/dates';
 
+/** What a share link's QR image shows until /qr.js draws it: a blank palm-leaf square, nothing fetched. */
+const QR_BLANK = "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3Crect width='1' height='1' fill='%23f6f2e7'/%3E%3C/svg%3E";
+
 const shares = new Hono<AppEnv>();
 
 shares.get('/shares', async (c) => {
@@ -92,6 +95,13 @@ shares.get('/shares', async (c) => {
                       <a href={`${origin}/share/${v.token}`} class="mono break-anywhere">
                         {origin}/share/{v.token}
                       </a>
+                      {/* its QR code (§16 #85), drawn by /qr.js from the address above — nothing else is published */}
+                      <div class="share-qr">
+                        <img data-qr={`${origin}/share/${v.token}`} alt={`QR code for ${v.name}`} width="512" height="512" src={QR_BLANK} />
+                        <button type="button" data-qr-download={`nalanda-${v.name.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').toLowerCase() || 'share'}.png`} class="btn" hidden>
+                          Download PNG
+                        </button>
+                      </div>
                     </td>
                     <td class="hide-sm" data-label="Shelf">
                       {v.wantUserId !== null ? (
@@ -185,6 +195,8 @@ shares.get('/shares', async (c) => {
           <button type="submit">Save</button>
         </form>
       </section>
+      <script src="/vendor/qrcode.js" defer></script>
+      <script src="/qr.js" defer></script>
     </>,
     libraries, // the sidebar's list too (§16 #68)
   );
@@ -237,8 +249,8 @@ shares.post('/shares', async (c) => {
     status: (ITEM_STATUSES as readonly string[]).includes(str('status')) ? (str('status') as ItemStatus) : null,
     owned: str('owned') === '1' ? true : str('owned') === '0' ? false : null,
     sort:
-      str('sort') === 'added' || str('sort') === 'rating' || str('sort') === 'completed'
-        ? (str('sort') as 'added' | 'rating' | 'completed')
+      str('sort') === 'added' || str('sort') === 'author' || str('sort') === 'rating' || str('sort') === 'completed'
+        ? (str('sort') as 'added' | 'author' | 'rating' | 'completed')
         : 'title',
   });
   return c.redirect(lib ? `/libraries/${lib.id}` : `/tags/${encodeURIComponent(tag)}`);

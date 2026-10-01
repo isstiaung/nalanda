@@ -188,6 +188,20 @@ export function sessionMatches(session: Session | null, user: SessionRef | null)
   );
 }
 
+/** A new API token's secret (§16 #88): a prefix that says what it is, then 32 random bytes, base64url — shown once. */
+export function newApiToken(): string {
+  return `nal_${b64url.encode(crypto.getRandomValues(new Uint8Array(32)))}`;
+}
+
+const API_TOKEN = /^nal_[A-Za-z0-9_-]{43}$/;
+export const isApiToken = (raw: string): boolean => API_TOKEN.test(raw);
+
+/** What is stored and looked up for a token: its SHA-256, hex. A leaked table gives nobody a usable token. */
+export async function hashApiToken(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', enc.encode(token));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 /** Unambiguous alphabet (no 0/O/1/l/I) for admin-issued temp passwords. */
 export function tempPassword(): string {
   const alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
