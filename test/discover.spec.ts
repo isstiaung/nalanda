@@ -1,11 +1,13 @@
 // New from your authors (ARCH.md §16 #78): the authors a member has finished, and on a click their works from Open
 // Library — one request, cached in the isolate for a day — with what the catalog holds marked.
-import { env } from 'cloudflare:test';
+import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { addPastRead, createLibrary, finishedAuthors } from '../src/db/queries';
+import { budgeted } from '../src/federation/budget';
+import app from '../src/index';
 import { clearDiscoverCache } from '../src/routes/discover';
 import { activateFetchMock, assertNoPendingInterceptors, intercept, json } from './fetch-mock';
-import { as, book, html, member } from './member-helpers';
+import { as, book, html, member, type Member } from './member-helpers';
 
 const OL = 'https://openlibrary.org';
 // every outbound fetch is stubbed: an unmatched request throws rather than reaching Open Library, and one queued
@@ -95,5 +97,41 @@ describe('looking an author up', () => {
     // the next click asks again and gets the real, empty answer
     intercept(OL, (p) => p.startsWith('/search.json?author=Nobody%20Known&'), json({ docs: [] }));
     expect(await (await as(ravi, '/discover?author=Nobody%20Known')).text()).toContain('Open Library lists nothing for that name right now.');
+  });
+});
+
+// ---------- the D1 budget ----------
+
+describe('D1 calls', () => {
+  async function calls(who: Member, path: string) {
+    const budget = { left: 1000 };
+    const ctx = createExecutionContext();
+    const res = await app.fetch(new Request(`http://nalanda.test${path}`, { headers: { cookie: who.cookie } }), { ...env, DB: budgeted(env.DB, budget) }, ctx);
+    await waitOnExecutionContext(ctx);
+    expect(res.status, path).toBe(200);
+    await res.text();
+    return 1000 - budget.left;
+  }
+
+  it('cost the bare page the session, the authors and the sidebar\'s shelves, and a look-up the cards\' shelves once', async () => {
+    const { asha, ravi, shelf } = await household();
+    const have = await book(asha, { libraryId: shelf.id, title: 'The Dispossessed', creators: 'Ursula K. Le Guin', isbn13: '9780061054884' });
+    await finished(have.id, ravi.id);
+    // 5 before: the shelves and the shelf each type starts on were read for a page with no cards, and the shelves again
+    // for the sidebar
+    expect(await calls(ravi, '/discover')).toBe(3);
+    intercept(OL, (p) => p.startsWith('/search.json?author=Ursula%20K.%20Le%20Guin&sort=new&'), json({ docs: [
+      { key: '/works/a', title: 'The Dispossessed', author_name: ['Ursula K. Le Guin'], first_publish_year: 1974, isbn: ['9780061054884'] },
+      { key: '/works/b', title: 'The Lathe of Heaven', author_name: ['Ursula K. Le Guin'], first_publish_year: 1971, isbn: ['9781416556961'] },
+    ] }));
+    // the session, the authors, the catalog by ISBN (the items, then the editions) and by title, the shelves and the
+    // shelf each type starts on — the sidebar's list is the one read for the cards (8 before)
+    expect(await calls(ravi, '/discover?author=Ursula%20K.%20Le%20Guin')).toBe(7);
+    // Open Library's answer is cached: the same again, with nothing fetched
+    expect(await calls(ravi, '/discover?author=ursula%20k.%20le%20guin')).toBe(7);
+    // when Open Library doesn't answer there are no cards, so nothing is read for them (5 before)
+    clearDiscoverCache();
+    intercept(OL, (p) => p.startsWith('/search.json?author=Ursula%20K.%20Le%20Guin&sort=new&'), { status: 503, body: 'busy' });
+    expect(await calls(ravi, '/discover?author=Ursula%20K.%20Le%20Guin')).toBe(3);
   });
 });
