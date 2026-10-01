@@ -133,4 +133,20 @@ describe('a share link’s feed', () => {
     clearSharePageCache();
     expect((await get(`/share/${token}/feed.rss`)).cache).toBe('miss');
   });
+
+  it('tells search engines not to index it, in a header — a feed has no <head> for the page’s meta tag', async () => {
+    const { lib, item } = await shelf();
+    const book = await item({ title: 'Public book' });
+    const token = newShareToken();
+    await createShare(env.DB, { token, name: 'Our shelf', libraryId: lib.id });
+    for (const path of [`/share/${token}/feed.atom`, `/share/${token}/feed.rss`, `/share/${token}`, `/share/${token}/items/${book.id}`]) {
+      const res = await as(null, path);
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get('x-robots-tag'), path).toBe('noindex');
+      expect(res.headers.get('x-cache'), path).toBe('miss');
+      // the cache hands the header back with the page
+      expect((await as(null, path)).headers.get('x-robots-tag'), path).toBe('noindex');
+    }
+    expect(await (await as(null, `/share/${token}`)).text()).toContain('<meta name="robots" content="noindex"/>'); // and the page keeps its own
+  });
 });

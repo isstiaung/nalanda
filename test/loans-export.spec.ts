@@ -288,7 +288,8 @@ describe('loans through the export and back', () => {
     const book = await createItem(env.DB, { libraryId: shelf, title: 'Given away', copies: 1, details: '{}' });
     await addLoan(book.id, { borrower: 'Asha', loanedOn: '2024-01-01', returnedOn: '2024-02-01' });
     await addLoan(book.id, { borrower: 'Ravi', loanedOn: '2026-09-01' });
-    // the Holding toggle doesn't ask about loans: the app itself reaches copies = 0 with a loan out
+    // the Holding toggle refuses a copy out on loan now (§16 #13); older data can still hold copies = 0 with a loan
+    // out, as the toggle once left it, and the export must carry that as it is
     const ctx = createExecutionContext();
     await app.fetch(
       new Request(`http://nalanda.test/items/${book.id}/mark-not-owned`, { method: 'POST', headers: { cookie, origin: 'http://nalanda.test' } }),
@@ -296,7 +297,8 @@ describe('loans through the export and back', () => {
       ctx,
     );
     await waitOnExecutionContext(ctx);
-    expect((await env.DB.prepare('SELECT copies FROM items WHERE id = ?1').bind(book.id).first<{ copies: number }>())!.copies).toBe(0);
+    expect((await env.DB.prepare('SELECT copies FROM items WHERE id = ?1').bind(book.id).first<{ copies: number }>())!.copies).toBe(1);
+    await env.DB.prepare('UPDATE items SET copies = 0 WHERE id = ?1').bind(book.id).run();
     const before = await loansOf(book.id);
     const rows = await exportRows(cookie);
 

@@ -28,7 +28,9 @@ Settings → *Reset password* next to their name → a new one-time temp passwor
 The reset takes effect immediately — their old password stops working the moment you click,
 they are signed out on every device at the same moment, and they set their own password again
 at next login. So a reset is also the remedy for a member's lost phone: reset, hand them the
-temporary password, and the phone's session is dead.
+temporary password, and the phone's session is dead. Your own row offers no reset — it would
+sign out the device you are on — and points at **Account**, where you change your own password
+(which signs out your other devices and keeps this one).
 
 ## Remove someone
 
@@ -59,11 +61,20 @@ part of its password. **Never add an account with a hand-written `INSERT`**: cre
 Members, which gives it its own session key. (An account inserted without one gets a key at
 its first password login, and nothing signs it in before.)
 
-Log in with the new password. If you racked up failed attempts first, either wait 10
-minutes or clear the throttle:
+Log in with the new password. If you racked up failed attempts first — ten in ten minutes
+from your address, or ten at the account from anywhere, and login answers "Too many attempts"
+(HTTP 429) to the right password too — either wait 10 minutes or clear the throttle:
 
 ```sh
 npm run wrangler:remote -- d1 execute nalanda --remote --command "DELETE FROM login_attempts"
+```
+
+The per-account count is also what someone who knows a username can lean on to keep that
+account from signing in anew (ten wrong guesses every ten minutes, from anywhere); devices
+already signed in are unaffected. To free one account without clearing everyone's throttle:
+
+```sh
+npm run wrangler:remote -- d1 execute nalanda --remote --command "DELETE FROM login_attempts WHERE username = 'the-username'"
 ```
 
 ## Sign one person out everywhere

@@ -24,9 +24,11 @@ import {
   setItemTags,
   shelvesWithTotals,
   tagsForItem,
+  titleKey,
   updateItem,
   deleteItem,
 } from '../src/db/queries';
+import { budgeted } from '../src/federation/budget';
 import { itemStamp } from '../src/federation/items';
 
 async function seedLibrary() {
@@ -241,11 +243,24 @@ describe('bulk import', () => {
         tags: i % 2 ? ['odd', 'imported'] : ['imported'],
       })),
     );
-    expect(n).toBe(25);
+    expect(n).toHaveLength(25);
     const { total } = await listItems(env.DB, lib.id, {});
     expect(total).toBe(25);
     const found = await searchItems(env.DB, 'imported 7');
     expect(found.length).toBeGreaterThan(0);
+  });
+
+  it('links the tags inside the one batch, however many: one D1 call, and a failure there inserts nothing (§16 #39)', async () => {
+    const lib = await seedLibrary();
+    const budget = { left: 100 };
+    const many = Array.from({ length: 300 }, (_, i) => `tag-${i}`);
+    const ids = await importItems(budgeted(env.DB, budget), [{ item: { libraryId: lib.id, mediaType: 'book', title: 'Tagged', details: '{}' }, tags: many }]);
+    expect(100 - budget.left).toBe(1);
+    expect(await tagsForItem(env.DB, ids[0]!)).toHaveLength(300);
+    await env.DB.prepare("CREATE TRIGGER fail_tags BEFORE INSERT ON item_tags BEGIN SELECT RAISE(ABORT, 'no tags today'); END").run();
+    await expect(importItems(env.DB, [{ item: { libraryId: lib.id, mediaType: 'book', title: 'Lost', details: '{}' }, tags: ['x'] }])).rejects.toThrow();
+    expect((await env.DB.prepare("SELECT id FROM items WHERE title = 'Lost'").all()).results).toEqual([]);
+    await env.DB.prepare('DROP TRIGGER fail_tags').run();
   });
 });
 
@@ -332,6 +347,42 @@ describe('goodreads match-and-merge import', () => {
     const after = await getItem(env.DB, owned.id);
     expect(after!.rating).toBe(8);
     expect(after!.review).toBe('My old review.'); // goodreads had none — not blanked
+  });
+
+  it('never merges a non-Latin title onto another by the same author, nor a subtitle onto another author’s book of that name', async () => {
+    const lib = await seedLibrary();
+    // the ASCII-only stem reduced every Cyrillic or Devanagari title to "", so two books by one author met on the surname alone
+    expect(titleKey('Война и мир', 'Лев Толстой')).not.toBe(titleKey('Анна Каренина', 'Лев Толстой'));
+    expect(titleKey('गोदान', 'Premchand')).not.toBe(titleKey('निर्मला', 'Premchand'));
+    const anna = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'Анна Каренина', creators: 'Лев Толстой', copies: 1, details: '{}' });
+    const dune = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'Dune', creators: 'Frank Herbert', copies: 1, details: '{}' });
+    const dots = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: '...', creators: 'Someone', copies: 1, details: '{}' });
+    const leGuin = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'The Dispossessed', creators: 'Ursula K. Le Guin', copies: 1, details: '{}' });
+    const jemisin = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'The Fifth Season', creators: 'N. K. Jemisin', copies: 1, details: '{}' });
+    const row = (title: string, creators: string) => ({
+      item: { libraryId: lib.id, mediaType: 'book' as const, title, creators, status: 'completed' as const, rating: 4, review: 'Not for me', copies: 0, details: '{}' },
+      tags: [],
+    });
+    const result = await mergeImportItems(env.DB, [
+      row('Война и мир', 'Лев Толстой'), // another book by the same author: new
+      row('Dune: House Atreides', 'Brian Herbert'), // the stem and surname agree, the author doesn't: new
+      row('???', 'Someone'), // nothing left of either title: new, never a match on the surname alone
+      row('Dune', 'Herbert, Frank'), // the same author written round the other way: a match
+      row('Анна Каренина (Russian edition)', 'Толстой, Лев'), // and so with a suffix: a match
+      // initials are ignored, as the surname rule always was: three spellings of one person all meet her book
+      row('The Dispossessed: An Ambiguous Utopia', 'Ursula Le Guin'),
+      row('The Dispossessed', 'Ursula K. Le Guin'),
+      row('The Dispossessed', 'Le Guin, Ursula K.'),
+      row('The Fifth Season (The Broken Earth, #1)', 'N.K. Jemisin'),
+    ]);
+    expect(result).toMatchObject({ inserted: 3, merged: 6 });
+    expect((await getItem(env.DB, anna.id))!.rating).toBe(4);
+    expect((await getItem(env.DB, dune.id))!.rating).toBe(4);
+    expect((await getItem(env.DB, dots.id))!.rating).toBeNull();
+    expect((await getItem(env.DB, leGuin.id))!.rating).toBe(4);
+    expect((await getItem(env.DB, jemisin.id))!.rating).toBe(4);
+    const { items } = await listItems(env.DB, lib.id, { owned: false });
+    expect(items.map((i) => i.title).sort()).toEqual(['???', 'Dune: House Atreides', 'Война и мир']);
   });
 
   it('is idempotent across re-runs: first run inserts, second merges', async () => {

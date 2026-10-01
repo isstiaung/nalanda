@@ -199,6 +199,12 @@ export async function getConnectionByBaseUrl(d1: D1Database, baseUrl: string): P
   return row ?? null;
 }
 
+/** Whether a connection still stands, and in what state — one indexed read, made on every request a peer signs. */
+export async function connectionStatus(d1: D1Database, baseUrl: string): Promise<ConnectionStatus | null> {
+  const [row] = await db(d1).select({ status: s.connections.status }).from(s.connections).where(eq(s.connections.baseUrl, baseUrl));
+  return row?.status ?? null;
+}
+
 /** Every connection in any state, so pending requests count toward the limit too. */
 export async function countConnections(d1: D1Database): Promise<number> {
   const [row] = await db(d1).select({ n: count() }).from(s.connections);

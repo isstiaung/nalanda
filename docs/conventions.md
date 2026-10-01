@@ -48,6 +48,16 @@ constraints bullets.
   connection, the notification it records, its replay marker, an item and its tags (ARCH.md §16 #39).
   As separate calls, a failure between them leaves half a change that the path's own idempotency
   check then treats as done. Nothing after the batch may be able to fail the request.
+- A **batch guard** is how a condition checked at write time refuses the whole batch: D1 runs a batch
+  as one transaction and rolls all of it back when any statement fails, and a NULL written into a
+  NOT NULL column is the one way, short of a trigger, to make a guard inside the batch do that. Use
+  one when a write's dependants must not land if its condition fails — the edit form's `copies`
+  against the loans out, a restore's title against its trash row, a removal's `role` against the
+  admins left. The shape is `col = CASE WHEN <cond> THEN <value> ELSE NULL END`, or a subselect
+  that comes back NULL; the route recognises it with `refusedBy(err, 'table.column')` and nothing
+  else, and rethrows any other error. The guarded column must be NOT NULL and must not be able to
+  go NULL for any other reason in that batch, or a real failure reads as a refusal. A WHERE-gated
+  statement plus a check afterwards is not a guard: the rest of the batch has already landed.
   Cookies set `Secure` only on https so local dev login works.
 - Auth model (ARCH.md §8): admin creates member accounts with one-time temp passwords
   (`must_change_password`); roles are just `admin`/`member` — no permission matrix.
@@ -68,11 +78,23 @@ constraints bullets.
 
 - Never hand-edit drizzle-generated migrations; hand-written SQL goes in `--custom`
   migrations. Migrations are append-only — never edit one that has been applied anywhere.
+- The FTS5 index and its three sync triggers (`items_fts_ai`/`_ad`/`_au`) are custom migrations —
+  0001, 0032, 0045, 0054 — since Drizzle's DSL can't express them. The update trigger lists the
+  six indexed columns (`AFTER UPDATE OF …`): an update that touches none of them writes no index
+  rows (test/fts-sync.spec.ts). A column added to the index means a new custom migration that
+  recreates the table, all three triggers with the new column, and a `'rebuild'`.
+- The snapshot chain in `migrations/meta/` has a known gap at 0028: `0028_snapshot.json` was never
+  committed, and `0029_snapshot.json`'s `prevId` names it. It is harmless — `drizzle-kit generate`
+  diffs the schema against the newest snapshot only, which is current — and it stays as it is:
+  don't "repair" it by renumbering or regenerating, which would touch applied migrations.
 
 ## Catalogue data
 
 - Barcode routing lives in `src/metadata/index.ts`: EAN-13 starting `978`/`979` → book
-  providers (Open Library + Google Books merged); any other EAN/UPC → Discogs.
+  providers (Open Library + Google Books merged); an ISBN-10 — nine digits and a check digit,
+  which can be `X` — the same, recorded as `isbn10Upc` beside the ISBN-13 it stands for (Google
+  Books' when it names one, else `isbn13Of()` derives it), so a later EAN-13 scan of the book
+  is "In your catalog"; any other EAN/UPC → Discogs.
 - Tags are normalized lowercase at write time; uniqueness is by exact string.
 - `copies = 0` = "in the catalog, not in the physical collection" (reading-log entries,
   e.g. Goodreads imports). Not lendable; badged "Not owned" everywhere incl. share pages

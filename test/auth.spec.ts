@@ -3,6 +3,7 @@ import {
   accountIdentity,
   b64url,
   createSessionToken,
+  DUMMY_HASH,
   hashPassword,
   isSessionKey,
   newSessionKey,
@@ -31,6 +32,18 @@ describe('password hashing', () => {
   it('rejects malformed stored hashes', async () => {
     expect(await verifyPassword('x', 'not-a-hash')).toBe(false);
     expect(await verifyPassword('x', 'pbkdf2$999999999$AA$BB')).toBe(false);
+  });
+
+  // the hash an unknown username is checked against: well-formed at the full cost, and never a match
+  it('has a stand-in hash that does the full work and verifies nothing', async () => {
+    const [scheme, iterations, salt, hash] = DUMMY_HASH.split('$');
+    expect(scheme).toBe('pbkdf2');
+    expect(iterations).toBe('100000');
+    expect(b64url.decode(salt!)).toHaveLength(16);
+    expect(b64url.decode(hash!)).toHaveLength(32);
+    for (const password of ['', 'password', 'correct horse battery staple', DUMMY_HASH]) {
+      expect(await verifyPassword(password, DUMMY_HASH), password).toBe(false);
+    }
   });
 });
 

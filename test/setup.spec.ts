@@ -4,7 +4,7 @@
 // anything is written, and the admin and shelves are one batch that only the first setup wins.
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
-import { createFirstAdmin, createUser } from '../src/db/queries';
+import { countUsers, createFirstAdmin, createUser, deleteUser } from '../src/db/queries';
 import type { Bindings } from '../src/env';
 import {
   b64url,
@@ -16,6 +16,7 @@ import {
   type AccountRef,
 } from '../src/lib/auth';
 import app from '../src/index';
+import { as, book, member } from './member-helpers';
 
 const ORIGIN = 'http://nalanda.test';
 const SHELVES = ['Books', 'Board games', 'Vinyl'];
@@ -297,5 +298,38 @@ describe('createFirstAdmin', () => {
     expect(await createFirstAdmin(env.DB, { username: 'ben', passwordHash: 'pbkdf2$1$b$b' }, SHELVES)).toBeNull();
 
     expect(await snapshot()).toEqual(before);
+  });
+});
+
+describe('removing members keeps an admin', () => {
+  it('two admins removing each other at once leave one — the second is refused whole — and setup stays closed', async () => {
+    const asha = await member('asha', 'admin');
+    const ravi = await member('ravi', 'admin');
+    const [x, y] = await Promise.all([
+      as(asha, `/settings/users/${ravi.id}/delete`, { body: {} }),
+      as(ravi, `/settings/users/${asha.id}/delete`, { body: {} }),
+    ]);
+    expect([x.status, y.status].sort()).toEqual([302, 409]);
+    expect(await countUsers(env.DB)).toBe(1);
+    expect((await send('/setup', env, { form: setupForm('stranger') })).status).toBe(404);
+    // the last admin can't be removed by anyone, through the function either; a member can, by an admin still here
+    const [left] = await users();
+    const lastId = (await env.DB.prepare('SELECT id FROM users').first<{ id: number }>())!.id;
+    expect(await deleteUser(env.DB, lastId)).toBe(false);
+    expect(await users()).toEqual([left]);
+    const mira = await member('mira');
+    const gone = asha.id === lastId ? ravi : asha;
+    expect(await deleteUser(env.DB, mira.id, gone.id)).toBe(false); // the remover is no longer here
+    expect(await countUsers(env.DB)).toBe(2);
+    expect(await deleteUser(env.DB, mira.id, lastId)).toBe(true);
+    expect(await countUsers(env.DB)).toBe(1);
+  });
+
+  it('clears nothing of a member whose removal is refused', async () => {
+    const asha = await member('asha', 'admin');
+    const b = await book(asha, { title: 'Hers', status: 'completed', completedOn: '2026-01-01' });
+    expect(await deleteUser(env.DB, asha.id)).toBe(false); // the only admin
+    expect((await env.DB.prepare('SELECT added_by AS by FROM items WHERE id = ?1').bind(b.id).first<{ by: number }>())!.by).toBe(asha.id);
+    expect((await env.DB.prepare('SELECT reader_id AS by FROM reads WHERE item_id = ?1').bind(b.id).first<{ by: number }>())!.by).toBe(asha.id);
   });
 });

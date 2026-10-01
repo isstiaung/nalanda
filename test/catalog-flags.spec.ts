@@ -117,7 +117,7 @@ describe('Delete shelf', () => {
     const asha = await member('asha', 'admin');
     const shelf = await createLibrary(env.DB, 'Single');
     await book(asha, { libraryId: shelf.id });
-    expect(confirmOf(await html(asha, `/libraries/${shelf.id}`))).toBe('Delete “Single” and the 1 item in it? This cannot be undone.');
+    expect(confirmOf(await html(asha, `/libraries/${shelf.id}`))).toBe('Delete “Single” and the 1 item in it? An admin can restore the item from the trash for 30 days, onto a shelf of this name.');
   });
 
   it('says the shelf is empty when it is', async () => {
@@ -135,7 +135,7 @@ describe('Delete shelf', () => {
     // filtered to the one not owned: the view shows 1, the shelf holds 3
     const filtered = await html(asha, `/libraries/${shelf.id}?owned=0`);
     expect(filtered).toContain('1 ITEM');
-    expect(confirmOf(filtered)).toBe('Delete “Mixed” and all 3 items in it? This cannot be undone.');
+    expect(confirmOf(filtered)).toBe('Delete “Mixed” and all 3 items in it? An admin can restore the items from the trash for 30 days, onto a shelf of this name.');
   });
 });
 

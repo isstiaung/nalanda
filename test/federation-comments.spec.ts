@@ -135,6 +135,20 @@ describe('comments on this household’s reviews', () => {
     expect(html).not.toContain('<b>Loved');
   });
 
+  it('keep their author’s name cleaned of direction overrides, on the page and in the table', async () => {
+    const RLO = '\u202E';
+    const spoof = commentCreate(peer.url, { owner: A.url, item: itemId, stamp }, `nar${RLO}ain`, 'Agreed.');
+    expect((await inbox(peer, spoof)).status).toBe(200);
+    expect(await rows('SELECT author_name FROM comments')).toEqual([{ author_name: 'nar ain' }]);
+    const html = await (await a.get(`/items/${itemId}`, await sessionCookie('member'))).text();
+    expect(html).toContain('<strong>nar ain</strong>');
+    expect(html).not.toContain(RLO);
+    // a name that is nothing but overrides is no name: the comment is malformed
+    const blank = commentCreate(peer.url, { owner: A.url, item: itemId, stamp }, `${RLO}\u200B`, 'Unsigned.');
+    expect((await inbox(peer, blank)).status).toBe(400);
+    expect(await rows('SELECT * FROM comments')).toHaveLength(1);
+  });
+
   it('are refused on reviews it doesn’t share, on no review, on a third household’s, and from a pending connection', async () => {
     const hidden = (await createLibrary(env.DB, 'Private')).id;
     const unshared = await createItem(env.DB, { libraryId: hidden, title: 'Private', review: 'Mine' });

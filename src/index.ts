@@ -61,7 +61,8 @@ app.use(secureHeaders({ referrerPolicy: 'strict-origin-when-cross-origin' }));
 // referrer-policy quirks); the Origin comparison is the legacy fallback.
 app.use(async (c, next) => {
   const method = c.req.method;
-  if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
+  const mutation = method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+  if (mutation) {
     const site = c.req.header('sec-fetch-site');
     const origin = c.req.header('origin');
     const allowed = site
@@ -76,8 +77,10 @@ app.use(async (c, next) => {
   await next();
   // Writes invalidate, coarsely: any successful mutation clears this isolate's
   // share-page cache so edits/rotations go public here immediately. Other
-  // isolates converge within the cache TTL (ARCH.md §16 #19).
-  if (method !== 'GET' && c.res.status < 400) clearSharePageCache();
+  // isolates converge within the cache TTL (ARCH.md §16 #19). Only the methods
+  // that can write: an anonymous HEAD or OPTIONS changes nothing, and used to
+  // empty the cache all the same.
+  if (mutation && c.res.status < 400) clearSharePageCache();
 });
 
 // ---- public: setup/login/logout, share links, cover images ----
@@ -142,11 +145,24 @@ app.use(async (c, next) => {
     sessionKey: user.sessionKey,
     sessionGeneration: user.sessionGeneration,
   });
-  if (user.mustChangePassword && !c.req.path.startsWith('/account')) {
+  // A temporary password reaches the Account page and the password change, and nothing else — not the display name,
+  // not "Sign out other devices", not a token: own-account actions all, but whoever holds the temp password isn't
+  // yet shown to be the member, and a display name set here would go out on share pages with names on.
+  if (user.mustChangePassword && !mustChangeMayReach(c.req.method, c.req.path)) {
     return sendTo(c, '/account', 403, 'Choose a new password first — reload the page.');
   }
   await next();
+  // Nothing served to a signed-in person stays in the browser either (§16 #48 keeps the service worker out of it;
+  // this keeps the browser's own cache out): a page with notes, locations, borrowers or a minted password is not
+  // kept, so Back or a restored tab on a shared device after a logout shows none of it. Share pages, covers, static
+  // files and the login page are served before this middleware and cache as they did.
+  c.res.headers.set('cache-control', 'no-store');
 });
+
+/** What a session that must still change its temporary password may reach (logout is public, before this middleware). */
+function mustChangeMayReach(method: string, path: string): boolean {
+  return method === 'POST' ? path === '/account/password' : path === '/account';
+}
 
 app.route('/', dashboardRoutes);
 app.route('/', goalRoutes);

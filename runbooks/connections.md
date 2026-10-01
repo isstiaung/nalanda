@@ -241,6 +241,14 @@ your connections. Either way:
    the notice — ask each household to disconnect on their side too.
 3. Reconnect with new invitations.
 
+## A copy of the database somewhere else
+
+A backup restored locally, a rehearsal, a second environment: its `connections` table names your
+real peers, and its first page load would contact them. Set `FEDERATION_OFFLINE=1` — a plain
+variable in `.dev.vars` or `wrangler.jsonc`'s `vars`, never a secret, never in production — before
+that first load; [runbooks/backup-and-restore.md](backup-and-restore.md#a-production-backup-restored-locally--keep-it-away-from-the-real-households)
+has the steps (ARCH.md §16 #92).
+
 ## Turn connections off
 
 Disconnect everyone first, so their libraries hear about it. Then:

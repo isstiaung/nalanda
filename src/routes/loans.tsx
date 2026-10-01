@@ -1,14 +1,18 @@
 import { Hono } from 'hono';
 import {
+  ACTIVE_LOANS_SHOWN,
   activeLoans,
+  activeLoansForItem,
   borrowIfNotOwned,
   getItem,
   lendIfFree,
+  loanCounts,
   loanHistory,
   returnBorrow,
   returnLoan,
 } from '../db/queries';
 import type { AppEnv } from '../env';
+import { formatCount } from '../lib/money';
 import { isIsoDate } from '../lib/reads';
 import { page, todayOf } from '../views/layout';
 import { formatLabel, formatsOf } from '../lib/formats';
@@ -20,11 +24,12 @@ const loans = new Hono<AppEnv>();
 const HISTORY_SHOWN = 100;
 
 loans.get('/loans', async (c) => {
-  // one past the page, so the count can say when there are more returns than the table lists
-  const [active, past] = await Promise.all([activeLoans(c.env.DB), loanHistory(c.env.DB, HISTORY_SHOWN + 1)]);
+  const today = todayOf(c);
+  // the open loans counted in SQL — the table lists the newest ACTIVE_LOANS_SHOWN, which past that is not the count —
+  // and one past the history page, so its count can say when there are more returns than the table lists
+  const [active, past, counts] = await Promise.all([activeLoans(c.env.DB), loanHistory(c.env.DB, HISTORY_SHOWN + 1), loanCounts(c.env.DB, today)]);
   const history = past.slice(0, HISTORY_SHOWN);
   const returned = past.length > HISTORY_SHOWN ? `${HISTORY_SHOWN}+` : String(history.length);
-  const today = todayOf(c);
   const requests = await loanRequestsSection(c); // null unless connections are enabled and someone asked
 
   return page(
@@ -35,7 +40,7 @@ loans.get('/loans', async (c) => {
         <div>
           <h1>Loans</h1>
           <span class="sub">
-            {active.length} OUT · {returned} RETURNED
+            {formatCount(counts.open)} OUT · {returned} RETURNED
           </span>
         </div>
       </div>
@@ -43,7 +48,7 @@ loans.get('/loans', async (c) => {
       {requests}
 
       <section>
-        <p class="eyebrow">Out now</p>
+        <p class="eyebrow">Out now{counts.open > active.length ? ` · newest ${ACTIVE_LOANS_SHOWN}` : ''}</p>
         {active.length ? (
           <div class="data-table cards">
             <table>
@@ -178,7 +183,11 @@ loans.post('/items/:id/borrow', async (c) => {
       dueOn: isIsoDate(String(body['dueOn'] ?? '').trim()) ? String(body['dueOn']).trim() : null,
       note: String(body['note'] ?? '').trim().slice(0, 500) || null,
     });
-    if (!recorded) return c.text('Already recorded as borrowed — mark it returned first.', 409);
+    if (!recorded) {
+      // never lent and borrowed at once: a copy out on loan is ours, whatever the count says meanwhile
+      const lent = (await activeLoansForItem(c.env.DB, itemId)).length > 0;
+      return c.text(lent ? 'A copy of this is out on loan — mark it returned first.' : 'Already recorded as borrowed — mark it returned first.', 409);
+    }
   }
   return c.redirect(`/items/${itemId}`);
 });

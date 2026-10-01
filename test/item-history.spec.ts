@@ -14,6 +14,7 @@ import {
   setCover,
   updateItem,
   updateItemWithTags,
+  updateSeries,
 } from '../src/db/queries';
 import type { NewItem } from '../src/db/schema';
 import type { Bindings } from '../src/env';
@@ -102,6 +103,31 @@ describe('what the triggers record', () => {
       ['library_id', 'Books', 'Elsewhere', asha.id],
       ['copies', '1', '0', asha.id],
     ]);
+  });
+});
+
+describe('a series merged by rename', () => {
+  it('names who renamed it on every volume moved, as any other item write does', async () => {
+    const { item } = await shelf();
+    const asha = await member('asha', 'admin');
+    const a = await item({ title: 'A' });
+    const b = await item({ title: 'B' });
+    const w = { id: asha.id, sessionKey: asha.sessionKey };
+    await updateItemWithTags(env.DB, a.id, {}, [], undefined, asha.id, undefined, { name: 'Expanse', number: 1, total: null }, undefined, w);
+    await updateItemWithTags(env.DB, b.id, {}, [], undefined, asha.id, undefined, { name: 'The Expanse', number: 2, total: null }, undefined, w);
+    const sid = (await rows<{ id: number }>("SELECT id FROM series WHERE name = 'Expanse'"))[0]!.id;
+    expect((await as(asha, `/series/${sid}`, { body: { name: 'The Expanse', total: '' } })).status).toBe(302);
+    const moved = (await history(a.id)).filter((r) => r.field === 'series_id');
+    expect(moved.map((r) => [r.before, r.after, r.changed_by])).toEqual([
+      [null, 'Expanse', asha.id],
+      ['Expanse', 'The Expanse', asha.id],
+    ]);
+    // and through the function with a writer; nobody named only when nobody is given
+    const c = await item({ title: 'C' });
+    await updateItemWithTags(env.DB, c.id, {}, [], undefined, asha.id, undefined, { name: 'Dune', number: 1, total: null }, undefined, w);
+    const dune = (await rows<{ id: number }>("SELECT id FROM series WHERE name = 'Dune'"))[0]!.id;
+    expect(await updateSeries(env.DB, dune, 'the expanse', null, w)).toBe((await rows<{ id: number }>("SELECT id FROM series WHERE name = 'The Expanse'"))[0]!.id);
+    expect((await history(c.id)).filter((r) => r.field === 'series_id').at(-1)).toMatchObject({ before: 'Dune', after: 'The Expanse', changed_by: asha.id });
   });
 });
 

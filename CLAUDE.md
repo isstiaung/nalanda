@@ -136,7 +136,9 @@ the code that enforces it and why — read its section before changing anything 
   and leaves `/share/*` alone. Offline scans hold a barcode and a time only and belong to the
   signed-in account (another account's pages or logout empty the queue; POST /items refuses
   anyone else's held scan via `scanOwner`). Bump `VERSION` in sw.js when `STATIC` or its behaviour
-  changes.
+  changes. The browser keeps no signed-in answer either: every response behind the session
+  middleware is `Cache-Control: no-store` (set in `src/index.ts`) and logout sends
+  `Clear-Site-Data: "cache"`; `/share/*`, covers, static files and the login page cache as before.
 
 ## Commands
 ```
@@ -210,11 +212,17 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   `users.session_key` (set in every user insert, never changed); anything that remembers a person
   across time binds `accountIdentity()`, never the bare id. Beside it, `users.session_generation`
   (ARCH.md §16 #70) is which sessions still count: the cookie names it, and "Sign out other
-  devices", a password change and a reset each add one — never rotate the key for that.
+  devices", a password change and a reset each add one — never rotate the key for that. Login and
+  the current-password check are throttled by `recordLoginAttempt()`: ten failures in ten minutes
+  per IP and per account, counted in the statement that checks, *before* the password is verified,
+  answered 429; an unknown username is checked against `DUMMY_HASH`. A temporary-password session
+  reaches only `GET /account` and `POST /account/password` (`mustChangeMayReach()`).
 - Never hand-edit drizzle-generated migrations (hand-written SQL goes in `--custom` ones); never
   edit a migration that has been applied anywhere.
-- Barcode routing (`src/metadata/index.ts`): EAN-13 `978`/`979` → book providers (merged); any
-  other EAN/UPC → Discogs. Tags are normalized lowercase at write time; uniqueness by exact string.
+- Barcode routing (`src/metadata/index.ts`): EAN-13 `978`/`979` → book providers (merged); an
+  ISBN-10 (nine digits and a check digit, `X` allowed) likewise, kept as `isbn10Upc` with its ISBN-13
+  derived (`isbn13Of()`) unless Google Books names one; any other EAN/UPC → Discogs. Tags are
+  normalized lowercase at write time; uniqueness by exact string.
 - Reads (`reads`, one row per read, each with its reader) and reviews (`reviews`, one per member
   per item) are per member. The `items` summary columns (`status`, `began_on`, `completed_on`,
   `read_count`, `rereading`, `progress_page`, `rating`, `review`) are written only by
@@ -239,7 +247,10 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   never in code, `wrangler.jsonc`, or git. Local values go in `.dev.vars` (gitignored).
 - **`FEDERATION_PRIVATE_KEY`** is this instance's identity to its connections: a runtime secret,
   never in git or D1, so not in backups — losing it means reconnecting with every household.
-  Unset, connections are disabled and every connections route 404s.
+  Unset, connections are disabled and every connections route 404s. A **restored copy** of a
+  production database sets `FEDERATION_OFFLINE=1` (a plain variable, never a secret, never in
+  production) before its first page load, or it contacts the real households (§16 #92;
+  runbooks/backup-and-restore.md).
 - **No Cloudflare resource ids in the repo** (ARCH.md §16 #24): `database_id` stays the all-zero
   placeholder, deploys supply `D1_DATABASE_ID`. Don't "helpfully" fill it in — miniflare keys
   local D1 state by it, so editing it orphans the local database (§16 #20).

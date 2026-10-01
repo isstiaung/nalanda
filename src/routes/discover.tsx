@@ -3,7 +3,7 @@
 // background, cached in this isolate for a day — with what the catalog already has marked, and Add and Want for the
 // rest. In the app only.
 import { Hono, type Context } from 'hono';
-import { booksNamed, catalogMatches, finishedAuthors, listLibraries, shelfForType, titleKey } from '../db/queries';
+import { booksNamed, catalogMatches, finishedAuthors, listLibraries, shelfForType, TitleIndex } from '../db/queries';
 import type { AppEnv } from '../env';
 import { nameKey } from '../lib/creators';
 import { olRecentByAuthor } from '../metadata/openlibrary';
@@ -47,8 +47,10 @@ const cleanAuthor = (raw: unknown): string | null => {
 type Looked = { author: string; works: Candidate[] | null; held: Array<number | null> };
 
 async function discoverPage(c: Context<AppEnv>, authors: Array<{ name: string; books: number }>, looked?: Looked) {
-  const [libs, shelfFor] = await Promise.all([listLibraries(c.env.DB), shelfForType(c.env.DB)]);
   const works = looked?.works ?? [];
+  // the cards' shelves and the shelf each type starts on: read only when there are cards, and the list handed to page()
+  // for the sidebar rather than read a second time (§16 #68) — a bare page reads neither
+  const [libs, shelfFor] = works.length ? await Promise.all([listLibraries(c.env.DB), shelfForType(c.env.DB)]) : [undefined, {}];
   const fresh = looked ? works.filter((_, i) => looked.held[i] === null) : [];
   const here = looked ? works.length - fresh.length : 0;
   return page(
@@ -102,13 +104,14 @@ async function discoverPage(c: Context<AppEnv>, authors: Array<{ name: string; b
               Open Library didn’t answer — try again in a moment.
             </p>
           ) : looked.works.length ? (
-            looked.works.map((candidate, i) => <CandidateCard candidate={candidate} libraries={libs} inCatalog={looked.held[i]} shelfFor={shelfFor} />)
+            looked.works.map((candidate, i) => <CandidateCard candidate={candidate} libraries={libs ?? []} inCatalog={looked.held[i]} shelfFor={shelfFor} />)
           ) : (
             <p class="muted">Open Library lists nothing for that name right now.</p>
           )}
         </section>
       ) : null}
     </>,
+    libs,
   );
 }
 
@@ -127,8 +130,9 @@ discover.get('/discover', async (c) => {
   if (works === null) return discoverPage(c, authors, { author, works: null, held: [] });
   // what is here already: by ISBN as the Add page tells, and by title and author for a work without one
   const [byIsbn, named] = await Promise.all([catalogMatches(c.env.DB, works), booksNamed(c.env.DB, author)]);
-  const byTitle = new Map(named.map((b) => [titleKey(b.title, b.creators), b.id]));
-  const held = works.map((w, i) => byIsbn[i] ?? byTitle.get(titleKey(w.title, w.creators ?? author)) ?? null);
+  const byTitle = new TitleIndex();
+  for (const b of named) byTitle.add(b.title, b.creators, b.id);
+  const held = works.map((w, i) => byIsbn[i] ?? byTitle.find(w.title, w.creators ?? author) ?? null);
   return discoverPage(c, authors, { author, works, held });
 });
 

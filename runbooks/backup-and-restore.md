@@ -135,6 +135,25 @@ npm run db:migrate
 …or restore a `backups/local-<date>/` backup into it with the same per-table procedure,
 using `--local` instead of `--remote`.
 
+### A production backup restored locally — keep it away from the real households
+
+A production backup's `connections` table names the real peers, with their addresses and keys.
+Run with a `FEDERATION_PRIVATE_KEY` in `.dev.vars`, the copy's **first page load** would pull every
+peer's outbox and retry every undelivered push against those households — it happened on
+2026-09-30, and with the production key in `.dev.vars` the pushes would land. So, **before the first
+page load** of a restored copy, one of:
+
+1. Put `FEDERATION_OFFLINE=1` in `.dev.vars` (ARCH.md §16 #92). It is a plain variable, not a secret,
+   and never set in production. The copy then contacts no household at all — no pull, no push, no live
+   read of a shelf; its Connections page says so — while everything in the backup stays as it is
+   for inspection. Set it even without a key in `.dev.vars`: a key added later would otherwise wake
+   the connections up.
+2. Or, for a copy that will run without the variable, point the peers at nobody first:
+   ```sh
+   npx wrangler d1 execute nalanda --local --command "UPDATE connections SET base_url = 'https://nobody.invalid'"
+   ```
+   This changes the data under inspection; prefer the variable.
+
 ## What NOT to do
 
 - Never run `wrangler d1 execute nalanda --remote` with hand-written SQL without a fresh

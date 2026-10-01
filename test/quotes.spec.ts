@@ -2,9 +2,9 @@
 // the browser's module and matched by title and author; the CSV cell; the trash; and what a share page may show.
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
-import { createLibrary, createShare, deleteItem, deleteUser, getItem, listMembersWithKeys, listTrash, memberKeys, quotesOf, restoreFromTrash, updateSiteSettings } from '../src/db/queries';
+import { addQuote, createLibrary, createShare, deleteItem, deleteUser, getItem, listMembersWithKeys, listTrash, memberKeys, quotesOf, restoreFromTrash, updateSiteSettings } from '../src/db/queries';
 import { mapNalandaRow } from '../src/lib/csv';
-import { cleanKindleBook, cleanQuote, formatQuotesCell, parseQuotesCell } from '../src/lib/quotes';
+import { cleanKindleBook, cleanQuote, formatQuotesCell, MAX_QUOTES_PER_ITEM, parseQuotesCell } from '../src/lib/quotes';
 import { newShareToken, toPublicItem } from '../src/lib/share';
 import { clearSharePageCache } from '../src/routes/share';
 import app from '../src/index';
@@ -141,6 +141,23 @@ describe('on a book’s page', () => {
     expect(await quotesIn(b.id)).toEqual([]);
   });
 
+  it('holds at most 500 quotes, checked where it writes, and takes none on a record or a game', async () => {
+    const { asha, ravi, shelf } = await household();
+    const b = await book(asha, { libraryId: shelf.id, title: 'Piranesi' });
+    await env.DB.prepare("INSERT INTO quotes (item_id, user_id, text, shared, at) SELECT ?1, ?2, 'line ' || value, 0, datetime('now') FROM json_each(?3)")
+      .bind(b.id, ravi.id, JSON.stringify(Array.from({ length: MAX_QUOTES_PER_ITEM }, (_, i) => i)))
+      .run();
+    expect(await addQuote(env.DB, b.id, ravi.id, { text: 'One more', page: null, note: null, shared: false })).toBe(false);
+    const res = await as(ravi, `/items/${b.id}/quotes`, { body: { text: 'One more' } });
+    expect(res.headers.get('location')).toBe(`/items/${b.id}?quote=full#quotes`);
+    expect(await html(ravi, `/items/${b.id}?quote=full`)).toContain('as many quotes as it can hold (500)');
+    expect(await quotesIn(b.id)).toHaveLength(MAX_QUOTES_PER_ITEM);
+    // a record: its page has no quotes section, and the route takes none either
+    const record = await book(asha, { libraryId: shelf.id, title: 'Kind of Blue', mediaType: 'vinyl' });
+    expect((await as(ravi, `/items/${record.id}/quotes`, { body: { text: 'So what' } })).status).toBe(400);
+    expect(await quotesIn(record.id)).toEqual([]);
+  });
+
   it('lists a member’s quotes, newest first, on their page — and the household picks whose', async () => {
     const { asha, ravi, shelf } = await household();
     const b = await book(asha, { libraryId: shelf.id, title: 'Piranesi' });
@@ -249,5 +266,33 @@ describe('the CSV, the trash and a removed member', () => {
     await deleteUser(env.DB, ravi.id);
     expect(await quotesIn(newId)).toEqual([{ userId: null, text: 'Kept line', page: 'p. 3', note: null, shared: 1, source: null }]);
     expect(await html(asha, `/items/${newId}`)).toContain('Former member');
+  });
+
+  it('an admin’s import of a household export keeps each quote with its writer, and a former member’s with nobody', async () => {
+    const { asha, ravi, shelf } = await household();
+    const mira = await member('mira');
+    const row = {
+      library: 'x', media_type: 'book', isbn10_upc: '', added_at: '', details: '', progress_history: '', began_on: '', completed_on: '',
+      title: 'Piranesi',
+      reads: 'completed:..2024-01-01@ravi',
+      quotes: JSON.stringify([
+        { by: 'ravi', text: 'Ravi’s line', page: 'p. 3', shared: true },
+        { by: null, text: 'A former member’s line', page: null, shared: false },
+        { by: 'nobody-here', text: 'A stranger’s line', page: null, shared: false },
+      ]),
+    };
+    expect((await as(asha, '/api/import', { json: { libraryId: shelf.id, rows: [row] } })).status).toBe(200);
+    const id = (await rows<{ id: number }>("SELECT id FROM items WHERE title = 'Piranesi' ORDER BY id DESC"))[0]!.id;
+    // the quotes follow the same rule as the read: a member of that name keeps theirs, a former member's stays nobody's,
+    // and an unknown name is the importer's — never every one the importer's
+    expect((await quotesIn(id)).map((q) => [q.userId, q.text])).toEqual([
+      [ravi.id, 'Ravi’s line'],
+      [null, 'A former member’s line'],
+      [asha.id, 'A stranger’s line'],
+    ]);
+    // a member's import is all theirs, as their reads and reviews are — only an admin's keeps names
+    expect((await as(mira, '/api/import', { json: { libraryId: shelf.id, rows: [{ ...row, title: 'Piranesi again' }] } })).status).toBe(200);
+    const again = (await rows<{ id: number }>("SELECT id FROM items WHERE title = 'Piranesi again'"))[0]!.id;
+    expect((await quotesIn(again)).map((q) => q.userId)).toEqual([mira.id, mira.id, mira.id]);
   });
 });

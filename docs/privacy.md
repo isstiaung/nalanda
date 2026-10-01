@@ -16,7 +16,9 @@ for a surface before changing anything it shows to someone outside the household
   app — and nothing per member unless names are switched on (next bullet). (The derived boolean
   `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge. So is
   `readCount`, the household's finishes, only from two on — "Read N times", ARCH.md §16 #41 —
-  and, on a shared game's or record's page, `playCount`, the household's plays, never a play's
+  and only of an item the household owns: **a Not owned item never claims a read** (§16 #13),
+  so `toPublicItem()` adds neither `readCount` nor `progress` while `copies` is 0, whatever the
+  household read of it — and, on a shared game's or record's page, `playCount`, the household's plays, never a play's
   date or who logged it, §16 #54. And a shared item's page shows its series name and number —
   public catalogue data, like the publisher — only through `toPublicItem(item, { series })`,
   ARCH.md §16 #52: never the numbers missing from a series or anyone's "next up", and not on
@@ -27,6 +29,21 @@ for a surface before changing anything it shows to someone outside the household
   being read now — in progress, or finished and being read again (`rereading`) — as the
   latest page anyone reading it recorded; `toPublicItem(item, { progress })` omits the key
   otherwise. Share pages get `noindex`.
+- **An import never lets a private value into `details`** (`PRIVATE_COLUMNS` in `src/lib/csv.ts`, applied
+  by every mapper — libib, Goodreads, StoryGraph, LibraryThing — before the leftover columns are kept there):
+  a column by any name the private things travel under — `location`, `notes`, `private_notes`, `comment`,
+  the reading dates and `reads`, `reviews`, `loans`, `borrowed`, `plays`, `wanted_by`, `purchase_links`,
+  `editions`, `quotes`, the grades, money, `copies`, `added_by` — is mapped onto its own column where the
+  mapper can (`location` and `notes` everywhere) and dropped otherwise, never kept. So a Nalanda export that
+  lost a column in a spreadsheet and is read as a libib file, or a Goodreads export someone added a Location
+  column to, publishes nothing it shouldn't; the preview names the format it read, so a mis-read file is
+  noticed. A Nalanda export's own `details` cell is the only way into `details` for that format.
+- **The export never hands a spreadsheet a formula** (ARCH.md §16 #91): `csvEscape()` puts `'` before a
+  text cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return (and before one starting with
+  `'`), and `mapNalandaRow()` strips exactly one on the way back, so the round trip is exact. The one
+  text that reaches the export without passing a form is a recommendation's title and creators, copied
+  from what a connection sent when a member wants it — a connection can't plant a formula that opens
+  with the file.
 - **Formats are public, editions' identifiers are not** (ARCH.md §16 #75): `formats` (the forms an
   item is held in) is in `toPublicItem()` like the publisher, on shelves' and gift lists' pages and to
   connections; the `editions` table (another edition's ISBN or barcode, publisher, year) is as private as
@@ -103,7 +120,7 @@ for a surface before changing anything it shows to someone outside the household
   (shelf cards, item pages, feed entries) the same way — absent otherwise, so every other item's
   bytes are unchanged, and older peers drop the unknown key. Never whose want, never a count. It
   shows wherever "Not owned" does; a peer's `wanted` renders as our own fixed text. A Not owned
-  item's share page never claims it was read (share pages have no status to say so).
+  item never claims a read: no status, no read count and no progress reach its share page (above).
 - **Purchase links** are pasted, never generated, the item's (any member adds or removes one),
   and **public only on gift lists** — never on a shelf's share page or to connections
   (`toConnectionItem()` has no field for them). `checkPurchaseLink()` (`src/lib/links.ts`) takes
@@ -129,11 +146,20 @@ for a surface before changing anything it shows to someone outside the household
   names. Named feed entries go out with ids past `MEMBER_ACTIVITY_BASE`; one stream is valid at a
   time, so named ids fail the removal check once names are off and household ids while they're on.
   A per-person start or finish is recorded only as it happens, dated then — never by a read's dates,
-  never backfilled. A rename or removal re-keys that member's entries in its batch
+  never backfilled. A per-person entry also carries no `completedOn`: on an entry about one member that
+  column is their read's end date, so `toFeedItem()` blanks it whenever the entry is a member's (named or
+  not) and `keepForKind()` again on a named one; the household's own `finished` entry still carries the
+  item's `completed_on`, as docs/proposals/connections.md §7 describes, so a connection learns when the
+  household last finished a book and never when a person did. A rename or removal re-keys that member's entries in its batch
   (`rekeyMemberActivity()`), and a move of a read or review re-keys that one's (`rekeyMoved()`),
   so peers' held copies are withdrawn. Comments, borrow requests and recommendations are
   signed with `outwardName()` — the display name while names go to connections, else "A member",
   never the username. Names other instances send are strings from another instance (below).
+  A session signed in with a temporary password (`must_change_password`) can set no display name
+  — nor sign out other devices, nor make or revoke a token: `mustChangeMayReach()` in
+  `src/index.ts` lets it reach only `GET /account` and `POST /account/password`, since whoever
+  holds the temporary password isn't yet shown to be the member, and a name set there would go
+  out on share pages with names on.
 
 ## Reading goals
 
@@ -168,7 +194,11 @@ for a surface before changing anything it shows to someone outside the household
   (migration 0021, ARCH.md §16 #40).
 - Strings from another instance — household names, view names, feed entries, members' names (`by`, `reviews`), comments,
   recommendations (title, creators, the name it's signed with, the note) —
-  render only as escaped text. A comment thread is only ever shown to the two households in it. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:
+  render only as escaped text. Every *name* among them — a feed entry's `by`, a review's, a recommender's, a
+  comment's author, a borrow requester's, a household's from its descriptor or connect request — is also cleaned
+  on the way in as a display name typed here is (`parsePeerName()`, `cleanHouseholdName()`): control and format
+  characters out, so a bidi override can't reorder the text around it on the Loans page, in a notification or in a
+  loan's borrower, and a name that is nothing but them rejects what carried it. A comment thread is only ever shown to the two households in it. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:
   the browser decodes HTML escapes back into quotes before it runs the script.
 
 ## Recommendations
@@ -214,3 +244,10 @@ for a surface before changing anything it shows to someone outside the household
   a different account's pages empty the queue, logout empties it, and POST /items refuses a
   held scan's add (`scanOwner`) for anyone else. Bump `VERSION` in sw.js when `STATIC` or its
   behaviour changes.
+- **The browser keeps no signed-in answer either** (ARCH.md §16 #48, amended 2026-10-01): every
+  response served behind the session middleware carries `Cache-Control: no-store` (set in
+  `src/index.ts` after the handler), so Back or a restored tab on a shared device after a logout
+  shows no notes, locations, borrowers or minted password; `POST /auth/logout` sends
+  `Clear-Site-Data: "cache"`. Share pages, covers, static files and the login page are served
+  before that middleware and cache as they did — never add `no-store` to `/share/*`, whose
+  per-isolate cache (§16 #19) is a different thing and stays.

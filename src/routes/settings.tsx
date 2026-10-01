@@ -151,11 +151,18 @@ const UsersPage = ({
                 {ledgerDate(u.createdAt)}
               </td>
               <td class="actions-cell">
-                <form method="post" action={`/settings/users/${u.id}/reset`} class="inline">
-                  <button class="btn" type="submit">
-                    Reset password
-                  </button>
-                </form>{' '}
+                {/* a reset signs its account out everywhere, this device included: an admin's own password changes under Account */}
+                {u.id === self ? (
+                  <a class="btn" href="/account">
+                    Change your password
+                  </a>
+                ) : (
+                  <form method="post" action={`/settings/users/${u.id}/reset`} class="inline">
+                    <button class="btn" type="submit">
+                      Reset password
+                    </button>
+                  </form>
+                )}{' '}
                 {u.id !== self ? (
                   <form
                     method="post"
@@ -287,6 +294,9 @@ settings.post('/settings/users', async (c) => {
 
 settings.post('/settings/users/:id/reset', async (c) => {
   const id = Number(c.req.param('id'));
+  // a reset moves the account's sessions on without re-issuing this device's cookie: on the admin's own account it
+  // would sign out the device that asked, with the temporary password shown once to a page about to be lost
+  if (id === c.get('user').id) return c.text('Change your own password under Account — a reset would sign this device out.', 400);
   const user = await getUserById(c.env.DB, id);
   if (!user) return c.notFound();
   const temp = tempPassword();
@@ -307,8 +317,11 @@ settings.post('/settings/users/:id/display-name', async (c) => {
 
 settings.post('/settings/users/:id/delete', async (c) => {
   const id = Number(c.req.param('id'));
-  if (id === c.get('user').id) return c.text('You cannot remove yourself.', 400);
-  await deleteUser(c.env.DB, id);
+  const me = c.get('user');
+  if (id === me.id) return c.text('You cannot remove yourself.', 400);
+  // refused in the batch itself when no admin would remain, or the remover is no longer one: two admins removing each
+  // other at once would otherwise leave nobody, and /setup open to the next visitor
+  if (!(await deleteUser(c.env.DB, id, me.id))) return c.text('Not removed: a household keeps at least one admin, and only an admin still here can remove a member.', 409);
   return c.redirect('/settings/users');
 });
 

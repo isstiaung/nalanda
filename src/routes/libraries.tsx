@@ -16,6 +16,7 @@ import {
   saveView,
   shelvesWithTotals,
   tagsForItems,
+  TRASH_DAYS,
   type ReaderFilter,
   type SavedView,
   type StaleFilter,
@@ -68,7 +69,7 @@ const FilterMenu: FC<{
  * filter. Never publishable: it isn't in ItemFilters, and a share or connection view has nowhere to hold it.
  */
 export function parseReadBy(raw: string | undefined, me: number, people: Array<{ id: number }>): ReaderFilter | undefined {
-  const m = /^(now-)?(me|not-me|anyone|\d{1,15})$/.exec(raw ?? '');
+  const m = READ_BY.exec(raw ?? '');
   if (!m) return undefined;
   const mode = m[1] ? 'reading' : m[2] === 'not-me' ? 'unfinished' : 'finished';
   if (m[1] && m[2] === 'not-me') return undefined;
@@ -76,6 +77,23 @@ export function parseReadBy(raw: string | undefined, me: number, people: Array<{
   if (m[2] === 'me' || m[2] === 'not-me') return { readerId: me, mode };
   const id = Number(m[2]);
   return people.some((p) => p.id === id) ? { readerId: id, mode } : undefined;
+}
+
+/** A "Read by" value's shape: `now-` or not, then who — `me`, `not-me`, `anyone`, or a member's id. */
+const READ_BY = /^(now-)?(me|not-me|anyone|\d{1,15})$/;
+
+/**
+ * A "Read by" value as the menu writes it — a member's id without leading zeros, `02` as `2` — for the bar's links and a
+ * saved view; '' for one parseReadBy() would refuse. Never the value as typed: a view saved from `readBy=02` named
+ * member 2 and yet escaped deleteUser()'s rewrite, which looked for `2`, so once they left it listed whoever was
+ * given the id next under the old name (§16 #81, #56). Written from the value's shape, not the filter it parsed to:
+ * `me` and one's own id parse alike, but a view saved as `me` is each member's own and one saved by id is one person's.
+ */
+export function readByValue(raw: string | undefined): string {
+  const m = READ_BY.exec(raw ?? '');
+  if (!m || (m[1] && m[2] === 'not-me')) return '';
+  const who = /^\d/.test(m[2]!) ? String(Number(m[2])) : m[2];
+  return `${m[1] ?? ''}${who}`;
 }
 
 /** The Read by select — shown once the household has more than one member; one person's shelf is already theirs. */
@@ -114,7 +132,7 @@ export type ShelfQuery = {
   formatsSel: string[];
   name: string | undefined; // the search box
   reader: ReaderFilter | undefined;
-  readBy: string; // the Read by value as written, for the links and the saved view
+  readBy: string; // the Read by value as the menu writes it (readByValue), for the links and the saved view
   sort: 'added' | 'title' | 'author' | 'rating' | 'completed';
   addedYears: number | undefined; // the decluttering filters: added this many years ago or more…
   unplayedMonths: number | undefined; // …and not played in this many months
@@ -146,7 +164,7 @@ export function parseShelfQuery(sp: URLSearchParams, me: number, people: Array<{
   const formatsSel = [...new Set(sp.getAll('format'))].filter((f) => ALL_FORMATS.some((k) => k.code === f));
   const name = (sp.get('q') ?? '').trim().slice(0, 200) || undefined;
   const reader = parseReadBy(sp.get('readBy') ?? undefined, me, people);
-  const readBy = reader ? (sp.get('readBy') ?? '') : '';
+  const readBy = reader ? readByValue(sp.get('readBy') ?? undefined) : '';
   const sortQ = sp.get('sort');
   const sort = sortQ === 'title' || sortQ === 'author' || sortQ === 'rating' || sortQ === 'completed' ? sortQ : 'added';
   const addedYears = smallCount(sp.get('addedYears'));
@@ -486,28 +504,47 @@ libraries.get('/libraries/:id', async (c) => {
               {mediaTypes.length > 1 || statuses.length > 1
                 ? ' Share links hold one value per filter, so a multi-selection publishes as "all".'
                 : ''}
-              {/* who read what is never published (§16 #43): the form above has no field for it */}
-              {reader ? ' "Read by" is never published: the link shows this view without it.' : ''}
-              {/* the Format filter is the shelf's own (§16 #75): a share link has no field for it */}
-              {formatsSel.length ? ' Format isn’t part of a share link: the link shows this view without it.' : ''}{' '}
+              {/* every filter the form above has no field for, named, so the link never silently shows more than the screen:
+                  who read what (§16 #43), the Format filter (§16 #75), the Holding filter's Borrowed choice (§16 #82), the
+                  decluttering filters (§16 #81) and the search box, which matches where things are kept (§16 #51) */}
+              {(() => {
+                const dropped = [
+                  reader ? '"Read by"' : null,
+                  formatsSel.length ? 'Format' : null,
+                  q.holding !== undefined ? 'Borrowed from someone' : null,
+                  q.addedYears !== undefined ? 'Unread for years' : null,
+                  q.unplayedMonths !== undefined ? 'Not played lately' : null,
+                  name ? 'the search box' : null,
+                ].filter((f): f is string => f !== null);
+                if (!dropped.length) return '';
+                const list = dropped.length === 1 ? dropped[0] : `${dropped.slice(0, -1).join(', ')} and ${dropped[dropped.length - 1]}`;
+                return dropped.length === 1
+                  ? ` ${list} is never published: the link shows this view without it.`
+                  : ` ${list} are never published: the link shows this view without them.`;
+              })()}{' '}
               Public pages show only whitelisted fields — never notes, loans, or copy counts.
             </small>
           </div>
         ) : null}
-        <hr />
-        <form
-          method="post"
-          action={`/libraries/${id}/delete`}
-          data-confirm={
-            shelfCount
-              ? `Delete “${lib.name}” and ${shelfCount === 1 ? 'the 1 item' : `all ${shelfCount} items`} in it? This cannot be undone.`
-              : `Delete the empty shelf “${lib.name}”?`
-          }
-        >
-          <button type="submit" class="btn-danger">
-            Delete shelf
-          </button>
-        </form>
+        {/* deleting a shelf is an admin's (§16 #74): its items go to the trash, which only an admin can restore from */}
+        {user.role === 'admin' ? (
+          <>
+            <hr />
+            <form
+              method="post"
+              action={`/libraries/${id}/delete`}
+              data-confirm={
+                shelfCount
+                  ? `Delete “${lib.name}” and ${shelfCount === 1 ? 'the 1 item' : `all ${shelfCount} items`} in it? An admin can restore the ${shelfCount === 1 ? 'item' : 'items'} from the trash for ${TRASH_DAYS} days, onto a shelf of this name.`
+                  : `Delete the empty shelf “${lib.name}”?`
+              }
+            >
+              <button type="submit" class="btn-danger">
+                Delete shelf
+              </button>
+            </form>
+          </>
+        ) : null}
       </details>
     </>,
     shelves,
@@ -543,10 +580,13 @@ libraries.post('/libraries/:id', async (c) => {
   return c.redirect(`/libraries/${id}`);
 });
 
+/** Deletes a shelf, its items into the trash (§16 #74): an admin's, as deleting in bulk is (§16 #47) — the one path that took a whole shelf for good was open to every member. */
 libraries.post('/libraries/:id/delete', async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'admin') return c.text('Only an admin can delete a shelf. A member can delete an item from its own page.', 403);
   const id = Number(c.req.param('id'));
-  const coverKeys = await deleteLibrary(c.env.DB, id);
-  c.executionCtx.waitUntil(Promise.all(coverKeys.map((k) => deleteCover(c.env.COVERS, k))));
+  const { expired } = await deleteLibrary(c.env.DB, id, { id: user.id, sessionKey: user.sessionKey });
+  c.executionCtx.waitUntil(Promise.all(expired.map((k) => deleteCover(c.env.COVERS, k)))); // purged rows' covers — the shelf's items keep theirs in the trash
   return c.redirect('/');
 });
 

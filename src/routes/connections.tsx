@@ -65,6 +65,7 @@ import {
 } from '../federation/config';
 import { estimateBytes, fetchSharedViews, formatBytes, perMonth, type SharedView } from '../federation/feed';
 import {
+  cleanHouseholdName,
   fetchDescriptor,
   inviteLink,
   isHouseholdName,
@@ -75,6 +76,7 @@ import {
 import { isId } from '../federation/items';
 import { loadIdentity, type Identity } from '../federation/keys';
 import { connectRequest, inboxMessage, type InboxType } from '../federation/messages';
+import { federationOffline, OFFLINE_NOTICE } from '../federation/offline';
 import { forgetPeer } from '../federation/peers';
 import { clearSharedViewsCache } from '../federation/routes';
 import { hashToken, newInviteToken } from '../federation/tokens';
@@ -105,6 +107,7 @@ type Flash = { minted?: string; error?: string; notice?: string };
 type PageProps = Flash & {
   settings: FederationSettings | null;
   identity: Identity;
+  offline: boolean; // FEDERATION_OFFLINE is set (§16 #92): the page says so, since nothing here will reach anyone
   origin: string;
   invites: ConnectionInvite[];
   connections: Connection[];
@@ -345,6 +348,7 @@ const ConnectionsPage: FC<PageProps> = (p) => {
       </div>
       {p.error ? <p class="error" role="alert">{p.error}</p> : null}
       {p.notice ? <article class="notice">{p.notice}</article> : null}
+      {p.offline ? <article class="notice">{OFFLINE_NOTICE}</article> : null}
 
       <section class="fed-section">
         <p class="eyebrow">This library</p>
@@ -540,6 +544,7 @@ async function render(c: Context<AppEnv>, flash: Flash = {}) {
     <ConnectionsPage
       settings={settings}
       identity={identity}
+      offline={federationOffline(c.env)}
       origin={new URL(c.req.url).origin}
       invites={invites.slice(0, 20)}
       connections={rows}
@@ -557,6 +562,7 @@ async function render(c: Context<AppEnv>, flash: Flash = {}) {
 
 /** Best-effort notice to a peer after we've already acted locally — sent after the response. */
 function notifyPeer(c: Context<AppEnv>, identity: Identity, settings: FederationSettings, peer: Connection, type: InboxType) {
+  if (federationOffline(c.env)) return; // a restored copy contacts nobody (§16 #92)
   c.executionCtx.waitUntil(
     postSigned(identity, settings.baseUrl, peer.baseUrl, '/federation/inbox', inboxMessage(type, settings.baseUrl)).then(
       () => undefined,
@@ -590,10 +596,12 @@ connections.post('/connections/progress-sharing', async (c) => {
 
 connections.post('/connections/settings', async (c) => {
   const body = await c.req.parseBody();
-  const householdName = String(body['householdName'] ?? '').trim();
-  if (!isHouseholdName(householdName)) {
+  const typed = String(body['householdName'] ?? '').trim();
+  if (!isHouseholdName(typed)) {
     return render(c, { error: `Give your library a name of up to ${MAX_HOUSEHOLD_NAME} characters.` });
   }
+  // kept as a peer will keep it: the same cleaning every name from another instance gets
+  const householdName = cleanHouseholdName(typed)!;
   const existing = await getFederationSettings(c.env.DB);
   // The address is part of this library's identity: it stays fixed once anyone is connected or waiting, and
   // while an unused invitation names it — changing it then would break every link already sent.
@@ -654,6 +662,7 @@ connections.post('/connections/redeem', async (c) => {
   if ((await countConnections(c.env.DB)) >= MAX_ACTIVE_CONNECTIONS) {
     return render(c, { error: `This library has reached its limit of ${MAX_ACTIVE_CONNECTIONS} connections.` });
   }
+  if (federationOffline(c.env)) return render(c, { error: OFFLINE_NOTICE }); // §16 #92
 
   const descriptor = await fetchDescriptor(invite.baseUrl);
   if (!descriptor) {
@@ -692,6 +701,7 @@ connections.post('/connections/:id/confirm', async (c) => {
   const settings = await getFederationSettings(c.env.DB);
   const row = await getConnection(c.env.DB, Number(c.req.param('id')));
   if (!identity || !settings || !row || row.status !== 'awaiting_us') return c.redirect('/connections');
+  if (federationOffline(c.env)) return render(c, { error: OFFLINE_NOTICE }); // §16 #92
   const res = await postSigned(
     identity,
     settings.baseUrl,
@@ -985,7 +995,8 @@ async function activeConnection(c: Context<AppEnv>): Promise<ActiveContext | nul
 async function renderFeedSettings(c: Context<AppEnv>, ctx: ActiveContext, flash: FeedFlash = {}, fetched?: SharedView[] | null) {
   const [subscriptions, theirViews] = await Promise.all([
     listSubscriptions(c.env.DB, ctx.row.id),
-    fetched !== undefined ? fetched : fetchSharedViews(ctx.identity, ctx.settings, ctx.row),
+    // their list is read live; a restored copy asks nobody (§16 #92) and the page shows them as out of reach
+    fetched !== undefined ? fetched : federationOffline(c.env) ? null : fetchSharedViews(ctx.identity, ctx.settings, ctx.row),
   ]);
   return page(
     c,
@@ -1020,7 +1031,7 @@ connections.post('/connections/:id/subscriptions', async (c) => {
   const viewId = typeof body['viewId'] === 'string' && /^\d{1,15}$/.test(body['viewId']) ? Number(body['viewId']) : 0;
   if (!settings || !isId(viewId)) return renderFeedSettings(c, ctx, { error: SETTINGS_ERROR });
   // Their current list, not the form's word for it: the view must still exist, and its name comes from them.
-  const theirViews = await fetchSharedViews(ctx.identity, ctx.settings, ctx.row);
+  const theirViews = federationOffline(c.env) ? null : await fetchSharedViews(ctx.identity, ctx.settings, ctx.row);
   if (!theirViews) {
     return renderFeedSettings(c, ctx, { error: `Couldn’t reach ${ctx.row.householdName} to follow that view. Nothing changed.` }, null);
   }

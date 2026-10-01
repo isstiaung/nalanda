@@ -246,13 +246,15 @@ CREATE INDEX idx_loans_item ON loans(item_id);
 
 CREATE TABLE login_attempts (   -- login throttling (§8); old rows pruned opportunistically
   ip           TEXT NOT NULL,
+  username     TEXT NOT NULL DEFAULT '',   -- the account guessed at, as typed (0053)
   attempted_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Full-text search (D1 supports FTS5); kept in sync with items via triggers.
+-- Full-text search (D1 supports FTS5); kept in sync with items via triggers — the update trigger
+-- fires only for these columns (0054), so an update of anything else writes no index rows.
 -- Lives in a hand-written custom migration alongside the drizzle-generated ones.
 CREATE VIRTUAL TABLE items_fts USING fts5(
-  title, creators, description, notes, location,   -- location since 0029 (§16 #51)
+  title, creators, description, notes, location, original_title,   -- location since 0029 (§16 #51), original_title 0045 (§16 #76)
   content='items', content_rowid='id'
 );
 ```
@@ -358,7 +360,7 @@ the browser** and posts JSON batches of ~200 rows (this sidesteps the Worker CPU
 `Exclusive Shelf` column). Known columns map to real columns; anything unrecognized lands
 in `details` JSON so the import is lossless. libib rows always insert (`group` becomes a
 tag, and the series, §16 #52). Goodreads rows **match-and-merge** (§16 #14): a row matching an existing item — by
-ISBN-13, then ISBN-10, then normalized title + first-author surname — merges rating,
+ISBN-13, then ISBN-10, then normalized title (any script) + first author, the surname and the whole name — merges rating,
 review, notes and shelves-as-tags onto it (Goodreads wins, but never blanks a field it has
 no value for, and never touches copies or bibliographic metadata), and its shelf, Date
 Read, Date Started and Read Count become reads, added and never removed (§16 #41);
@@ -448,8 +450,11 @@ Multi-user, built into the app (no email infrastructure, no paid services):
 - An htmx request the session middleware turns away (signed out, `/setup`, `must_change_password`)
   gets `HX-Redirect` instead of a 302, so the whole page goes to log in rather than htmx swapping
   the login page into a section (§16 #65).
-- Login throttling: a per-IP counter of failed attempts in D1; ten in 10 minutes and login
-  refuses that IP until they age out.
+- Login throttling: failed password checks counted in D1 per IP and per account (the username as
+  typed); ten in 10 minutes from an address, or at an account from anywhere, and login answers 429
+  until they age out — the right password included. The attempt is inserted by the statement that
+  checks both counts (`recordLoginAttempt()`), before the password is verified, so parallel guesses
+  stop at ten as sequential ones do; a password that was right takes its row back.
 
 *Why not Cloudflare Access?* It was considered (free ≤ 50 users, zero auth code) but it
 gates the whole hostname — which fights the public `/share/*` requirement — and it moves
@@ -472,6 +477,8 @@ portable, and makes share routes trivially public. CF Access remains available l
   a derived boolean `inCollection` (`copies > 0`) so reading-log entries (`copies = 0`)
   carry a "Not owned" badge (§16 #13), and `readCount` — how many times the household
   finished it, only from twice on ("Read N times"), never the reads or their dates (§16 #41),
+  and only of an item it owns: a Not owned item never claims a read, so neither `readCount` nor
+  reading progress is added while `copies` is 0 (§16 #13) —
   and, on a shared board game's or record's own page, `playCount` — how many times the
   household played it, from the first play on ("Played N times"), never a play's date or who
   logged it (§16 #54). Listing cards don't carry it. And, on a shared item's page, its series name and number,
@@ -866,6 +873,8 @@ is a section of this document and "#N" another decision.
 | 88 | 2026-10-01 | [A read-only API behind per-member tokens: made on the Account page, shown once, bound to the account as a session is; a token sees what its member sees and changes nothing](docs/decisions/088-token-api.md) |
 | 89 | 2026-10-01 | [A static demo: a seeded instance crawled into HTML behind a skeletal sign-in, every form intercepted, published to GitHub Pages on release](docs/decisions/089-static-demo.md) |
 | 90 | 2026-10-01 | [An import dates a book by the file's "date added"; a re-import re-dates the books already here only when asked, the row's own time kept for the stamp connections hold](docs/decisions/090-import-date-added.md) |
+| 91 | 2026-10-01 | [The export guards formula-leading cells with `'`, and a Nalanda import strips exactly one — a title a connection sent never reaches a spreadsheet as a formula](docs/decisions/091-csv-formula-guard.md) |
+| 92 | 2026-10-01 | [`FEDERATION_OFFLINE`: a plain runtime variable under which an instance contacts no connected household, for a copy of the database restored anywhere but production](docs/decisions/092-federation-offline.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

@@ -59,7 +59,8 @@ src/federation/    connections between instances (docs/proposals/connections.md)
                    RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
                    feed pulls (feed.ts), receiving comments, borrowing and recommendations
                    (comments.ts, borrowing.ts, recommendations.ts, dispatched by directed.ts),
-                   the outbox (outbox.ts), public routes. Its D1 queries live in
+                   the outbox (outbox.ts), public routes, and the FEDERATION_OFFLINE switch
+                   (offline.ts, ARCH.md §16 #92: a restored copy contacts no peer). Its D1 queries live in
                    src/db/federation.ts; admin pages in routes/connections, Feed in routes/feed,
                    comments in routes/comments, recommendations in routes/recommendations,
                    shelves/requests/Borrowed and the Loans-page section in routes/borrowing — Borrowed
@@ -76,6 +77,10 @@ public/            app.css, scanner.js, import.js, qr.js (each share link's QR c
                    + bgg/ (BGG's "Powered by BGG" logos, committed unmodified — its API terms
                    require them beside its data; src/views/attribution.tsx, ARCH.md §16 #44 —
                    Discogs' credit, text only, lives there too, §16 #63)
+                   + _headers (Cloudflare serves these files before the Worker runs, so
+                   secureHeaders() never sees them: X-Frame-Options and nosniff for every one,
+                   Cache-Control left at the asset server's revalidate-always default; never served
+                   itself; honoured by wrangler dev and the tests' ASSETS binding alike)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;
                    apply-migrations.ts resets + re-migrates D1 before EVERY test and fails
