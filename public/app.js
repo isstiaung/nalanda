@@ -448,3 +448,15 @@ document.addEventListener('htmx:afterSettle', (e) => {
     }
   });
 })();
+
+// ── "Held as" follows the Type select (ARCH.md §16 #75) ──
+// The item form renders one formats group per kind; only the chosen kind's shows. Without script every group shows,
+// each labelled with its kind, and the server keeps only the chosen kind's codes anyway.
+(() => {
+  const select = document.querySelector('form.form-card select[name="mediaType"]');
+  const groups = document.querySelectorAll('.formats-fields fieldset[data-formats-kind]');
+  if (!select || !groups.length) return;
+  const show = () => groups.forEach((g) => (g.hidden = g.dataset.formatsKind !== select.value));
+  select.addEventListener('change', show);
+  show();
+})();

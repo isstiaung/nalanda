@@ -388,6 +388,7 @@ async function exportRows(
       item.seriesId !== null ? (cells.series.get(item.seriesId) ?? null) : null,
       cells.wants.get(item.id) ?? [],
       cells.links.get(item.id) ?? [],
+      cells.editions.get(item.id) ?? [],
     );
   }
   return { csv, count: items.length, lastId: items.at(-1)!.id, more };
