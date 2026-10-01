@@ -30,7 +30,7 @@ describe('the Add page', () => {
     await createLibrary(env.DB, 'Records');
     const html = await (await as(ravi, '/add')).text();
     expect(html).toContain('<section id="scan-review" class="scan-review" hidden="">');
-    expect(html).toContain('scanned while offline');
+    expect(html).toContain('held on this device'); // one list, held offline or with "Keep scanning" on (§16 #94)
     expect(html).toMatch(/<form id="scan-review-all" class="inline-form"><select name="libraryId"[^>]*><option value="\d+">Fiction<\/option><option value="\d+">Records<\/option>/);
     expect(html).toContain('Add all to <span data-shelf-name="true">Fiction</span>');
     const order = ['/scan-queue.js', '/scanner.js', '/scan-review.js'].map((src) => html.indexOf(`<script src="${src}" defer="">`));
