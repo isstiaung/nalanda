@@ -1,7 +1,8 @@
 import { Hono } from 'hono';
-import { getUserById, setDisplayName, setPassword, signOutOtherDevices } from '../db/queries';
+import { createApiToken, getUserById, MAX_API_TOKENS, MAX_TOKEN_NAME, revokeApiToken, setDisplayName, setPassword, signOutOtherDevices, userWithTokens } from '../db/queries';
 import type { AppEnv } from '../env';
-import { hasSessionSecret, hashPassword, verifyPassword } from '../lib/auth';
+import { hasSessionSecret, hashApiToken, hashPassword, newApiToken, verifyPassword } from '../lib/auth';
+import { ledgerDate } from '../lib/dates';
 import { signIn } from './auth';
 import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
 import { VERSION } from '../version';
@@ -53,6 +54,62 @@ const DevicesForm = ({ done }: { done?: boolean }) => (
   </article>
 );
 
+/**
+ * A member's read-only API tokens (§16 #88): made here, shown once — on this page, never in a URL — and revoked here.
+ * One that no longer signs in (made before "Sign out other devices" or a password change) says so.
+ */
+const TokensForm = ({ tokens, fresh, error }: { tokens: Array<{ id: number; name: string; createdAt: string; valid: boolean }>; fresh?: { name: string; token: string } | null; error?: string }) => (
+  <article class="panel form-card account-card" id="tokens">
+    <p class="eyebrow">API tokens</p>
+    {fresh ? (
+      <div class="notice token-fresh">
+        <p>
+          Your token <strong>{fresh.name}</strong>. Copy it now — it is shown this once and kept only as a hash:
+        </p>
+        <p>
+          <code class="mono break-anywhere token-secret">{fresh.token}</code>
+        </p>
+        <p class="muted">
+          Send it as <code>Authorization: Bearer {'<token>'}</code> to <code>/api/v1/…</code> — what it reads is what you see here, and it can change nothing.
+        </p>
+      </div>
+    ) : null}
+    {error ? (
+      <p class="error" role="alert">
+        {error}
+      </p>
+    ) : null}
+    {tokens.length ? (
+      <ul class="token-list">
+        {tokens.map((t) => (
+          <li>
+            <span>
+              <strong>{t.name}</strong> <small class="muted">· made {ledgerDate(t.createdAt)}</small>
+              {t.valid ? null : <small class="muted"> · no longer signs in — made before other devices were signed out</small>}
+            </span>
+            <form method="post" action={`/account/tokens/${t.id}/revoke`} class="inline-form">
+              <button type="submit" class="btn-danger">
+                Revoke
+              </button>
+            </form>
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <p class="muted">No tokens. One lets a script or another app read your library — the shelves with their filters, an item with its reads and reviews, search, loans, your want list and goals — as JSON, and change nothing. See <a href="https://github.com/isstiaung/nalanda/blob/main/runbooks/api.md">runbooks/api.md</a>.</p>
+    )}
+    {tokens.length < MAX_API_TOKENS ? (
+      <form method="post" action="/account/tokens" class="inline-form">
+        <input name="name" placeholder="What it's for — e.g. the blog" aria-label="Token name" required maxlength={MAX_TOKEN_NAME} />
+        <button type="submit">Make a token</button>
+      </form>
+    ) : (
+      <p class="muted">You have {MAX_API_TOKENS} tokens — revoke one to make another.</p>
+    )}
+    <p class="muted form-note">Signing out other devices, or changing your password, takes every token with it.</p>
+  </article>
+);
+
 /** Which field a refused password change is about, so its message is tied to that field. */
 type PasswordField = 'current' | 'next' | 'confirm';
 
@@ -64,6 +121,9 @@ const Form = ({
   displayName,
   nameSaved,
   devicesDone,
+  tokens,
+  freshToken,
+  tokenError,
 }: {
   mustChange: boolean;
   error?: string;
@@ -72,6 +132,9 @@ const Form = ({
   displayName?: string | null;
   nameSaved?: boolean;
   devicesDone?: boolean;
+  tokens?: Array<{ id: number; name: string; createdAt: string; valid: boolean }>; // none on a refused password change: the section is below it
+  freshToken?: { name: string; token: string } | null;
+  tokenError?: string;
 }) => (
   <>
     <div class="page-head">
@@ -106,6 +169,7 @@ const Form = ({
     </article>
     {mustChange ? null : <DisplayNameForm displayName={displayName ?? null} saved={nameSaved} />}
     {mustChange ? null : <DevicesForm done={devicesDone} />}
+    {mustChange ? null : <TokensForm tokens={tokens ?? []} fresh={freshToken} error={tokenError} />}
     <p class="muted version-line">
       Nalanda <span class="mono">v{VERSION}</span> ·{' '}
       <a href={`https://github.com/isstiaung/nalanda/releases/tag/v${VERSION}`}>release notes</a>
@@ -113,9 +177,10 @@ const Form = ({
   </>
 );
 
-account.get('/account', async (c) => {
+/** The Account page, with the member's tokens — and, right after one is made, the token itself, this once (§16 #88). */
+async function accountPage(c: Parameters<typeof page>[0], extras: { freshToken?: { name: string; token: string } | null; tokenError?: string } = {}) {
   const user = c.get('user');
-  const row = await getUserById(c.env.DB, user.id);
+  const { row, tokens } = await userWithTokens(c.env.DB, user); // one call, as getUserById was
   return page(
     c,
     'Account',
@@ -125,8 +190,31 @@ account.get('/account', async (c) => {
       displayName={row?.displayName ?? null}
       nameSaved={c.req.query('name') === 'saved'}
       devicesDone={c.req.query('devices') === 'out'}
+      tokens={tokens}
+      freshToken={extras.freshToken ?? null}
+      tokenError={extras.tokenError}
     />,
   );
+}
+
+account.get('/account', (c) => accountPage(c));
+
+/** Makes a token (§16 #88): the secret is shown on the page this once, and only its hash is kept. */
+account.post('/account/tokens', async (c) => {
+  const user = c.get('user');
+  if (user.mustChangePassword) return c.redirect('/account');
+  const body = await c.req.parseBody();
+  const name = String(body['name'] ?? '').trim().slice(0, MAX_TOKEN_NAME);
+  if (!name) return accountPage(c, { tokenError: 'Give the token a name — what it is for.' });
+  const token = newApiToken();
+  const id = await createApiToken(c.env.DB, user, name, await hashApiToken(token));
+  if (id === null) return accountPage(c, { tokenError: `You have ${MAX_API_TOKENS} tokens — revoke one to make another.` });
+  return accountPage(c, { freshToken: { name, token } });
+});
+
+account.post('/account/tokens/:id/revoke', async (c) => {
+  await revokeApiToken(c.env.DB, c.get('user').id, Number(c.req.param('id')));
+  return c.redirect('/account#tokens');
 });
 
 account.post('/account/display-name', async (c) => {

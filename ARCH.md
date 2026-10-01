@@ -859,6 +859,7 @@ is a section of this document and "#N" another decision.
 | 81 | 2026-10-01 | [Saved views are the household's: a shelf's filter bar under a name, two decluttering presets, in the app only](docs/decisions/081-saved-views.md) |
 | 82 | 2026-10-01 | [Borrowed from someone not on Nalanda: an item not owned, with a borrow record — the mirror of a loan, private like one](docs/decisions/082-borrowed-from-someone.md) |
 | 84 | 2026-10-01 | [Item history: triggers record each change to an item's own fields with who made it; admins read it on the item page; 90 days](docs/decisions/084-item-history.md) |
+| 88 | 2026-10-01 | [A read-only API behind per-member tokens: made on the Account page, shown once, bound to the account as a session is; a token sees what its member sees and changes nothing](docs/decisions/088-token-api.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

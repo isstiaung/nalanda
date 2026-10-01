@@ -72,6 +72,12 @@ for a surface before changing anything it shows to someone outside the household
 - **Item history** (ARCH.md §16 #84) is admin-only and inside the app: `item_history` holds before and
   after values of an item's own fields — notes and location among them — and who changed them; no
   whitelist has a key for it, and a share page's bytes are unchanged by it.
+- **The read-only API** (ARCH.md §16 #88, `/api/v1/…`) is a member's own view, behind their token:
+  it returns what that member's pages show — private notes, locations, prices included — to the
+  holder of the token and nobody else. It is not a share: no route is public, a cookie never signs
+  in there, and a token never signs into the pages. Tokens are kept as hashes, bound to the
+  account's key and generation (#56, #70), and die with "Sign out other devices", a password
+  change or the member's removal.
 
 ## Gift lists, want lists and purchase links
 

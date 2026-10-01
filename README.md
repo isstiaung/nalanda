@@ -104,6 +104,9 @@ manuscripts.
   household; private like loans.
 - **Item history**: for admins, each change to an item's own fields with who and when, kept 90
   days — not reads or reviews, which say who already.
+- **A read-only API**: a token made on your Account page lets a script or a blog read your library
+  as JSON — shelves with their filters, an item with its reads, search, loans, your want list and
+  goal — as you see it, changing nothing.
 - **A trash**: a deleted item waits 30 days with everything it had — reads, reviews, pages,
   plays, loans, tags, cover — and an admin can restore it or let it go. The delete itself is
   still a delete: nothing trashed stays on a share link or in a connection's view.
@@ -244,6 +247,7 @@ lists them for you to add to a shelf or drop. Logging out clears anything still 
 | [accounts-and-access.md](runbooks/accounts-and-access.md) | Family accounts, lost passwords, admin lockout, share links |
 | [connections.md](runbooks/connections.md) | Connecting with another household's Nalanda: keys, feed, comments, borrowing, disconnecting |
 | [import-from-goodreads.md](runbooks/import-from-goodreads.md) | Bringing your Goodreads history over (and leaving) |
+| [api.md](runbooks/api.md) | Reading your library as JSON with a token of your own |
 | [import-from-libib.md](runbooks/import-from-libib.md) | Migrating your libib collection |
 | [metadata-backfill.md](runbooks/metadata-backfill.md) | Filling in covers and descriptions for a large catalog, from your machine |
 | [record-covers.md](runbooks/record-covers.md) | Replacing record covers stored from Discogs with the Cover Art Archive's (a one-off) |
