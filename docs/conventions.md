@@ -68,6 +68,15 @@ constraints bullets.
 
 - Never hand-edit drizzle-generated migrations; hand-written SQL goes in `--custom`
   migrations. Migrations are append-only — never edit one that has been applied anywhere.
+- The FTS5 index and its three sync triggers (`items_fts_ai`/`_ad`/`_au`) are custom migrations —
+  0001, 0032, 0045, 0053 — since Drizzle's DSL can't express them. The update trigger lists the
+  six indexed columns (`AFTER UPDATE OF …`): an update that touches none of them writes no index
+  rows (test/fts-sync.spec.ts). A column added to the index means a new custom migration that
+  recreates the table, all three triggers with the new column, and a `'rebuild'`.
+- The snapshot chain in `migrations/meta/` has a known gap at 0028: `0028_snapshot.json` was never
+  committed, and `0029_snapshot.json`'s `prevId` names it. It is harmless — `drizzle-kit generate`
+  diffs the schema against the newest snapshot only, which is current — and it stays as it is:
+  don't "repair" it by renumbering or regenerating, which would touch applied migrations.
 
 ## Catalogue data
 
