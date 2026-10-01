@@ -129,7 +129,7 @@ add.get('/add', async (c) => {
           {/* a shelf in one go (§16 #94): each barcode is held for the list above, the camera stays on; remembered per device */}
           <label class="scanner-keep">
             <input type="checkbox" id="scanner-keep" /> Keep scanning
-            <small class="muted">(hold each barcode for the list, add them all at once)</small>
+            <small class="muted">(hold each code for the list, add them all at once)</small>
           </label>
         </div>
         <p id="scanner-status" class="muted" aria-live="polite"></p>
