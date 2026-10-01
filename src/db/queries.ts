@@ -251,7 +251,11 @@ export async function deleteUser(d1: D1Database, id: number): Promise<void> {
   // table would set null on its own. Their items, reads, pages and reviews stay, unattributed (§16 #43): the
   // household's summary on each item — status, read count, average rating — is everyone's, theirs included, so it
   // doesn't change.
+  // the saved views naming them in "Read by" (§16 #81) lose that filter: ids are reused (#56), so a view saved as
+  // "Read by ravi" must not list a newcomer's reads under the old name once ravi is gone
+  const views = await viewsWithoutReader(d1, id);
   await d1.batch([
+    ...views,
     // first, while their reads still say whose: their named entries get new ids, so connections drop the named copies
     ...rekeyMemberActivity(d1, id),
     d1.prepare('UPDATE items SET added_by = NULL WHERE added_by = ?1').bind(id),
@@ -409,14 +413,16 @@ export async function shelfTotals(d1: D1Database, libraryId?: number): Promise<T
  */
 export async function shelvesWithTotals(
   d1: D1Database,
-): Promise<{ shelves: Array<Library & { itemCount: number }>; totals: Totals; holdings: Holding[] }> {
+): Promise<{ shelves: Array<Library & { itemCount: number }>; totals: Totals; holdings: Holding[]; views: SavedView[] }> {
   const [libraries, ...rest] = await d1.batch([
     d1.prepare('SELECT id, name, position, share_token AS shareToken, created_at AS createdAt FROM libraries ORDER BY position, id'),
     ...shelfTotalsStatements(d1),
+    // every shelf's saved views (§16 #81), in the same batch: the shelf page and the Overview both list them
+    d1.prepare(SAVED_VIEWS_SQL),
   ]);
   const totals = readShelfTotals(rest);
   const shelves = ((libraries?.results ?? []) as Library[]).map((l) => ({ ...l, itemCount: totals.shelves.get(l.id)?.items ?? 0 }));
-  return { shelves, totals, holdings: holdingsOf((rest[0]?.results ?? []) as ShelfTypeRow[]) };
+  return { shelves, totals, holdings: holdingsOf((rest[0]?.results ?? []) as ShelfTypeRow[]), views: (rest[3]?.results ?? []) as SavedView[] };
 }
 
 /**
@@ -587,6 +593,14 @@ export type ItemFilters = {
  */
 export type ReaderFilter = { readerId: number | null; mode: 'finished' | 'unfinished' | 'reading' };
 
+/**
+ * The decluttering filters (ARCH.md §16 #81): items added `addedYearsAgo` years ago or more, and games and records
+ * with no play in the last `unplayedMonths` months (never played counts). In the app only, like ReaderFilter — a
+ * share or connection view has no room for them, so "not played in a year" is never published. `today` is the
+ * device's day (#69), handed in by the route.
+ */
+export type StaleFilter = { today: string; addedYearsAgo?: number; unplayedMonths?: number };
+
 function readerFilterWhere(r: ReaderFilter): SQL {
   const status = r.mode === 'reading' ? 'in_progress' : 'completed';
   const reader = r.readerId === null ? sql`` : sql` AND ${s.reads.readerId} = ${r.readerId}`;
@@ -635,7 +649,7 @@ const AUTHOR_SORT_SQL = (() => {
 
 /** The WHERE behind both listItems and countMatchingItems — one definition, so a
  *  count can never disagree with the list it is counting. */
-function itemFilterWhere(libraryId: number | null, f: ItemFilters, reader?: ReaderFilter): SQL | undefined {
+function itemFilterWhere(libraryId: number | null, f: ItemFilters, reader?: ReaderFilter, stale?: StaleFilter): SQL | undefined {
   const conds: SQL[] = [];
   if (libraryId !== null) conds.push(eq(s.items.libraryId, libraryId));
   if (f.mediaTypes?.length) conds.push(inArray(s.items.mediaType, f.mediaTypes));
@@ -665,6 +679,15 @@ function itemFilterWhere(libraryId: number | null, f: ItemFilters, reader?: Read
     );
   }
   if (reader) conds.push(readerFilterWhere(reader));
+  if (stale?.addedYearsAgo !== undefined) {
+    conds.push(sql`substr(${s.items.addedAt}, 1, 10) <= date(${stale.today}, ${`-${stale.addedYearsAgo} years`})`);
+  }
+  if (stale?.unplayedMonths !== undefined) {
+    conds.push(inArray(s.items.mediaType, [...PLAYABLE_TYPES]));
+    conds.push(
+      sql`NOT EXISTS (SELECT 1 FROM ${s.plays} WHERE ${s.plays.itemId} = ${s.items.id} AND ${s.plays.playedOn} >= date(${stale.today}, ${`-${stale.unplayedMonths} months`}))`,
+    );
+  }
   return and(...conds);
 }
 
@@ -702,9 +725,10 @@ export async function listItems(
   // How many items `f` and `reader` select, when the caller already counted them: an unfiltered shelf's count is
   // listLibraries()'s, which the shelf page has read anyway. Saves counting every item on the shelf again (§16 #68).
   knownTotal?: number,
+  stale?: StaleFilter, // the signed-in shelf's decluttering filters (§16 #81) — never a share's, like `reader`
 ): Promise<{ items: Item[]; total: number; page: number; pages: number }> {
   const dbi = db(d1);
-  const where = itemFilterWhere(libraryId, f, reader);
+  const where = itemFilterWhere(libraryId, f, reader, stale);
 
   const order =
     f.sort === 'wanted' && f.wantedBy !== undefined
@@ -1733,6 +1757,71 @@ export async function activeLoanItemIds(d1: D1Database, itemIds: number[]): Prom
     )
   ).flat();
   return new Set(rows.map((r) => r.itemId));
+}
+
+// ---------- saved views (ARCH.md §16 #81) ----------
+
+export type SavedView = typeof s.savedViews.$inferSelect;
+/** The most views one shelf keeps: a row of pills, not a second catalogue. */
+export const MAX_SAVED_VIEWS_PER_SHELF = 20;
+export const MAX_VIEW_NAME = 60;
+
+const SAVED_VIEWS_SQL =
+  'SELECT id, library_id AS libraryId, name, params, created_by AS createdBy, created_at AS createdAt FROM saved_views ORDER BY library_id, name COLLATE NOCASE';
+
+/** The household's saved views — one shelf's, or every shelf's — by shelf, then name. The pages read them inside shelvesWithTotals()'s batch. */
+export async function listSavedViews(d1: D1Database, libraryId?: number): Promise<SavedView[]> {
+  const all = (await d1.prepare(SAVED_VIEWS_SQL).all<SavedView>()).results;
+  return libraryId === undefined ? all : all.filter((v) => v.libraryId === libraryId);
+}
+
+/**
+ * Saves a view, or replaces the one of that name on the shelf — any member's to save or replace. A shelf holds at
+ * most MAX_SAVED_VIEWS_PER_SHELF, checked in the statement. The id of the view saved, or null when the shelf is
+ * full or gone.
+ */
+export async function saveView(
+  d1: D1Database,
+  v: { libraryId: number; name: string; params: string; createdBy: number },
+): Promise<number | null> {
+  const row = await d1
+    .prepare(
+      `INSERT INTO saved_views (library_id, name, params, created_by)
+       SELECT ?1, ?2, ?3, ?4
+       WHERE EXISTS (SELECT 1 FROM libraries WHERE id = ?1)
+         AND ((SELECT count(*) FROM saved_views WHERE library_id = ?1) < ?5
+              OR EXISTS (SELECT 1 FROM saved_views WHERE library_id = ?1 AND name = ?2))
+       ON CONFLICT(library_id, name) DO UPDATE SET params = excluded.params, created_by = excluded.created_by
+       RETURNING id`,
+    )
+    .bind(v.libraryId, v.name, v.params, v.createdBy, MAX_SAVED_VIEWS_PER_SHELF)
+    .first<{ id: number }>();
+  return row?.id ?? null;
+}
+
+/**
+ * The views that name a member in "Read by" — `readBy=<id>` or `now-<id>` — each rewritten without it, for
+ * deleteUser()'s batch. The id would otherwise name whoever is given it next (#56); `me`, `not-me` and `anyone`
+ * name nobody in particular and stay.
+ */
+async function viewsWithoutReader(d1: D1Database, id: number): Promise<D1PreparedStatement[]> {
+  const views = (await d1.prepare(SAVED_VIEWS_SQL).all<SavedView>()).results;
+  const out: D1PreparedStatement[] = [];
+  for (const v of views) {
+    const sp = new URLSearchParams(v.params);
+    const r = sp.get('readBy');
+    if (r !== String(id) && r !== `now-${id}`) continue;
+    sp.delete('readBy');
+    // only the version read: a view re-saved between the read and the batch keeps its newer filters
+    out.push(d1.prepare('UPDATE saved_views SET params = ?2 WHERE id = ?1 AND params = ?3').bind(v.id, sp.toString(), v.params));
+  }
+  return out;
+}
+
+/** Removes a view — any member's to remove. */
+export async function deleteSavedView(d1: D1Database, libraryId: number, id: number): Promise<boolean> {
+  const res = await d1.prepare('DELETE FROM saved_views WHERE id = ?1 AND library_id = ?2').bind(id, libraryId).run();
+  return res.meta.changes > 0;
 }
 
 // ---------- full-text search ----------

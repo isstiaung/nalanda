@@ -515,7 +515,10 @@ async function furnish(admin, member) {
   if (!giftToken) throw new Error('furnishing: the gift list was not published');
   await expect(`/libraries/${shelves.books}`, 'the Wanted badge', /pill wanted/);
   await expect('/wants', 'the want list and its purchase link', /want-card[\s\S]*Bookshop/);
-  return { shelves, wishlist, seriesId, creator, publisher, book, game, record, reading, reread, overdue, temp, shares, giftToken, wanted, raviId, member };
+  // a saved view (ARCH.md §16 #81) on the books shelf — the admin's context is the one signed in at this point
+  const viewId = Number((await post(admin, `/libraries/${shelves.books}/views`, { name: 'Unread audit', params: 'status=not_started&sort=title' })).headers().location?.match(/saved=(\d+)/)?.[1]);
+  if (!viewId) throw new Error('Could not save a view on the books shelf');
+  return { shelves, wishlist, seriesId, creator, publisher, book, game, record, reading, reread, overdue, temp, shares, giftToken, wanted, raviId, member, viewId };
 }
 
 // ── pages ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -529,6 +532,9 @@ function pageList(ids) {
     ['Shelf: games, table', `/libraries/${s.games}`],
     ['Shelf: vinyl, covers', `/libraries/${s.vinyl}?view=grid`],
     ['Shelf: filtered, nothing matches', `/libraries/${s.vinyl}?type=book`],
+    ['Shelf: a saved view', `/libraries/${s.books}?saved=${ids.viewId}`],
+    ['Shelf: unread for years', `/libraries/${s.books}?owned=1&status=not_started&addedYears=3`],
+    ['Shelf: not played lately', `/libraries/${s.games}?owned=1&unplayedMonths=12`],
     ['Shelf: by author', `/libraries/${s.books}?sort=author`],
     ['Shelf: empty', `/libraries/${ids.wishlist}`],
     ['Shelf: books, second page', `/libraries/${s.books}?page=2`],

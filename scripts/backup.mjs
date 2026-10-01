@@ -24,6 +24,7 @@ export const TABLES = [
   'users',
   'libraries',
   'shares',
+  'saved_views', // a shelf's named filter sets (ARCH.md §16 #81): after libraries and users, which it references
   'site_settings',
   'series', // before items, which reference it (§16 #52)
   'items',
