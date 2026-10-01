@@ -93,3 +93,11 @@ whatever a browser kept anyway. Share pages, covers, static files and the login 
 before that middleware and cache as before — the share-page cache (§16 #19) is untouched. The
 service worker's rule stands: it still never stores a page or an API answer, and `no-store` on a
 page is the same rule stated to the browser. Tests: `test/browser-cache.spec.ts`.
+
+**Amended 2026-10-01 — one mode, looked up on demand (#94).** The review list no longer looks every
+held barcode up on page load (two at a time through `/add/review`): with "Keep scanning" holding
+barcodes online as well, a list of two hundred would have cost two hundred lookups on every visit.
+An entry now shows the barcode and its time, and is looked up only on **Look up** (the same
+`/add/review` entry, with Add, Want and Drop as before) or by **Add all**, which posts the list to
+`POST /api/scans/add` twenty a request. The queue, its shape, its owner stamp and `POST /items`'s
+refusal are unchanged; "nothing is added unseen" is kept as a report that names every item added.

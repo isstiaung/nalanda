@@ -9,7 +9,10 @@ manuscripts.
 
 - **Scan to shelf**: point your phone camera at a book or record barcode; ISBNs look up
   books (Open Library + Google Books), other barcodes look up vinyl (Discogs). Board games
-  add by name search (BoardGameGeek).
+  add by name search (BoardGameGeek). To do a whole shelf, tick **Keep scanning**: each
+  barcode is held with a beep and a count, and **Add all** looks them up twenty at a time,
+  skips what you already have, and says what it added, what was here and what it couldn't
+  find (those stay, to add by hand). Covers follow from the cover backfill.
 - **Reading log, not just a catalog**: books you've read but don't own are first-class
   (`copies = 0`, badged "Not owned") — log a finished book by scanning it and writing the
   review, no shelf space required. A Holding column flips a logged book to owned in one
@@ -242,7 +245,8 @@ phone first, in the browser, over HTTPS (your `workers.dev` address or custom do
 
 The camera needs HTTPS, which Cloudflare gives you. With no signal, opening the app shows a
 scan-only page; each barcode is held on the phone until you're back online, when **Add items**
-lists them for you to add to a shelf or drop. Logging out clears anything still held.
+lists them — the same list **Keep scanning** fills when you have signal — for **Add all**, or to
+look up one at a time, add to a shelf or drop. Logging out clears anything still held.
 
 ## Operations
 

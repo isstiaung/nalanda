@@ -22,6 +22,23 @@ Local dev prints to the `npm run dev` terminal.
 | Held scans vanished | Someone else signed in on the phone (the queue belongs to one account at a time), or that account logged out. Scans aren't sent anywhere until reviewed, so there's nothing to recover. |
 | Phone still shows an old icon or files | The browser checks `/sw.js` on each visit and swaps in a new version at once; a home-screen icon updates when the browser next reads the manifest. Removing and re-adding the app is the quick way. |
 
+### Scanning a shelf in one go
+
+On **Add items**, tick **Keep scanning** beside *Start camera* (remembered on that device). Each
+barcode is then held on the phone — a beep, a buzz, and "N on the list" in the status line — and
+the camera stays on for the next. The list at the top of the page shows what is held; when the
+shelf is done, pick a shelf and press **Add all to <shelf>**. It looks the barcodes up twenty at a
+time and reports "N added, M already here, K not found" ([ARCH.md §16 #94](../docs/decisions/094-rapid-batch-scanning.md)).
+
+| Symptom | Cause / fix |
+|---|---|
+| "is already held — it's on the list once" | The same barcode again. A second copy of a book is added on the item's page afterwards (Copies), not by scanning twice. |
+| "The device already holds 200 scans" | The queue's cap. Press **Add all**, then carry on. |
+| Added, but no covers | By design: a run adds bare records so it never makes two hundred cover requests at once. Open **Import / export** and run the cover backfill; it paces itself. |
+| "K not found" | Those barcodes stay on the list. **Look up** tries again (Open Library gaps happen); **Add by hand** opens the manual form with the barcode filled in. A record's barcode needs `DISCOGS_TOKEN`. |
+| "M already here" | Found by ISBN-13, by the ISBN-10 that stands for it, or by a record's barcode — the list links to the copy you have. Nothing was added for them. |
+| "Stopped after N of M" | A batch failed (signal, a lapsed session). What landed stands and is out of the list; press **Add all** again for the rest. |
+
 ## Lookups
 
 - **Board game search asks for `BGG_TOKEN`, or says BoardGameGeek rejected it**: BGG needs a
