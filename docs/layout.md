@@ -7,13 +7,12 @@ architectural view.
 ```
 src/index.ts       Hono app entry; route order matters: public (share, covers, auth) first,
                    then requireAuth, then protected routes. Origin-check CSRF on mutations.
-src/routes/        pages + htmx partials + /api/lookup, /api/import + discover.tsx (new from your
-                   api.tsx is the read-only token API (/api/v1/…, ARCH.md §16 #88), mounted before the session
-                   middleware — a token, never a cookie;
-                   authors, ARCH.md §16 #78) + share.tsx (public
-                   share pages) and shares.tsx (admin share management — don't confuse)
-                   + trash.tsx (what was deleted in the last 30 days, admin-only; the snapshot
-                   and restore are trashItems()/restoreFromTrash() in db/queries.ts, ARCH.md §16 #74)
+src/routes/        pages + htmx partials + /api/lookup, /api/import; share.tsx (public share pages)
+                   and shares.tsx (admin share management — don't confuse); api.tsx (the read-only
+                   token API, /api/v1/…, ARCH.md §16 #88, mounted before the session middleware — a
+                   token, never a cookie); discover.tsx (new from your authors, ARCH.md §16 #78);
+                   trash.tsx (what was deleted in the last 30 days, admin-only; the snapshot and
+                   restore are trashItems()/restoreFromTrash() in db/queries.ts, ARCH.md §16 #74)
 src/views/         hono/jsx layout + components (page() helper wraps Layout + doctype)
 src/db/            schema.ts (Drizzle) + queries.ts — the ONLY code touching D1
 src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googlebooks, bgg,

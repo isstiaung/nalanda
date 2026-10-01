@@ -6,8 +6,9 @@ the project, not a feature of a release ([CLAUDE.md](../../CLAUDE.md)). Four oth
 ## The Import / export page
 
 Drop a CSV and the format is auto-detected: libib, Goodreads, StoryGraph, LibraryThing, or a Nalanda
-export. The file is parsed in your browser and posted in batches of 200 rows — the Worker's 10 ms
-of CPU can't parse a file ([#38](../decisions/038-csv-export-fetched-page-time.md)) — and **Preview
+export. The file is parsed in your browser and posted 200 rows a batch (the server takes up to 250
+a request) — the Worker's 10 ms of CPU can't parse a file
+([#38](../decisions/038-csv-export-fetched-page-time.md)) — and **Preview
 (dry run)** says how the rows map before anything is written: how many match, how many are new,
 whose the reads become. The options are the shelf new items go on, a default type for a file
 without one, whether libib's "music" means vinyl, and **Also set the date added of books already

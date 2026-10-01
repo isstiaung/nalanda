@@ -23,7 +23,8 @@ covers every collection.
 3. **Preview (dry run, optional)** — the first 200 rows: how many map, how many **match books
    already in Nalanda**, how many are **new**, how many **reads** it would add or date. Nothing
    is written yet.
-4. **Import** — uploads in batches of 200 with live progress.
+4. **Import** — uploads 200 rows a batch with live progress (the server takes up to 250 a
+   request).
 
 **Re-running is safe**: rows imported last time match by ISBN (or title + author) on the next
 run and merge instead of duplicating.
