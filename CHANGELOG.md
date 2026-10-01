@@ -12,6 +12,7 @@ Each release's notes are a file of their own in [changelog/](changelog/), linked
 
 ## Releases
 
+- [**1.9.0**](changelog/v1.9.0.md) — 2026-10-02 — Custom fields, the interface in Hindi and Tamil or your own translation, a display font per language, scanning a whole shelf in one go, a read-only demo on GitHub Pages, and the features documented page by page.
 - [**1.8.0**](changelog/v1.8.0.md) — 2026-10-02 — Borrowing from friends, item history for admins, a read-only API with tokens of your own, imports from StoryGraph and LibraryThing that date each book by when it joined your collection, author A–Z, QR codes and feeds for share links — and every fix from a two-pass bug hunt across the app.
 - [**1.7.0**](changelog/v1.7.0.md) — 2026-10-01 — Formats and editions, each item's language and original title, quotes and Kindle highlights, a 30-day trash, covers from your camera, creator and publisher pages, search operators, saved shelf views, new books from your authors and a series' missing volumes, link previews for share links, signing out other devices, today in your own time zone — and pages that read about a quarter of what they did.
 - [**1.6.2**](changelog/v1.6.2.md) — 2026-09-30 — The Add page's search: it finds the game you typed, shows more results on request, and starts each result on the right shelf.
