@@ -463,7 +463,7 @@ describe('a Goodreads row meeting the reads already here', () => {
     const second = await mergeImportItems(env.DB, withReads);
 
     expect(first).toMatchObject({ merged: 1, inserted: 1 });
-    expect(second).toEqual({ merged: 2, inserted: 0, reads: 0 });
+    expect(second).toEqual({ merged: 2, inserted: 0, reads: 0, dated: 0 });
     expect(await rows('SELECT item_id, status, began_on, ended_on FROM reads ORDER BY id')).toEqual(snapshot);
     expect(snapshot).toHaveLength(4);
   });

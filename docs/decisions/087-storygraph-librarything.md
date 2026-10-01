@@ -43,8 +43,8 @@ member's own reads and reviews, a runbook and a fixture each.
   Condition, Acquired, From Where, Source and a Purchase Price are dropped** — money, the copy's
   state and provenance never reach `details` (#55, #61), and `MONEY_DETAIL_KEYS` strips
   `list_price` and `value` at publish time besides (review on #127).
-- **The day a book was added** on either site (`storygraph_date_added`, `librarything_entry_date`)
-  is kept in details: a day, never a time, as a feed dates an addition (#86).
+- **The day a book was added** on either site was kept in details (`storygraph_date_added`,
+  `librarything_entry_date`) until #90, which makes it the item's own date added, as Goodreads'.
 - **A runbook each** (`runbooks/import-from-storygraph.md`, `…-librarything.md`): how to export,
   what maps where, and the merge rules by reference to Goodreads'.
 

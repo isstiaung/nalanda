@@ -67,6 +67,14 @@ describe('libib row mapping', () => {
   it('keeps an explicit copies of 0 (cataloged, not owned)', () => {
     expect(mapLibibRow({ title: 'X', copies: '0' }, opts)!.item.copies).toBe(0);
   });
+  it("dates an item from libib's `added` (§16 #90), a known column that never lands in details", () => {
+    const dated = mapLibibRow({ title: 'X', added: '2021-05-03', esrb: 'E' }, opts)!;
+    expect(dated.item.addedAt).toBe('2021-05-03 00:00:00');
+    expect(JSON.parse(dated.item.details as string)).toEqual({ esrb: 'E' });
+    const odd = mapLibibRow({ title: 'X', added: 'May 2021' }, opts)!;
+    expect(odd.item).not.toHaveProperty('addedAt'); // not a date: the row is dated by its import, as before
+    expect(JSON.parse(odd.item.details as string)).toEqual({});
+  });
 });
 
 describe('goodreads row mapping', () => {
@@ -116,11 +124,20 @@ describe('goodreads row mapping', () => {
     expect(m.item.copies).toBe(0); // reading-log entry by default
     expect(m.item.length).toBe(512);
     expect(m.tags).toEqual(['sci-fi', 'favorites']); // exclusive shelf is not a tag
+    expect(m.item.addedAt).toBe('2024-01-02 00:00:00'); // Date Added: when it joined the collection there (§16 #90)
     const details = JSON.parse(m.item.details as string);
     expect(details.goodreads_book_id).toBe('18541');
+    expect(details).not.toHaveProperty('date_added'); // a real field now
     expect(details.average_rating).toBe('4.32');
     expect(details.binding).toBe('Paperback');
     expect(details).not.toHaveProperty('bookshelves_with_positions'); // duplicate, dropped
+  });
+
+  it('dates a book from Date Added only when it is a date', () => {
+    expect(mapGoodreadsRow({ 'Title': 'X', 'Exclusive Shelf': 'to-read' })!.item).not.toHaveProperty('addedAt');
+    const odd = mapGoodreadsRow({ 'Title': 'X', 'Exclusive Shelf': 'to-read', 'Date Added': 'last spring' })!;
+    expect(odd.item).not.toHaveProperty('addedAt');
+    expect(JSON.parse(odd.item.details as string)).not.toHaveProperty('date_added'); // not a date: dropped, as nothing can read it
   });
 
   it('maps shelf states: to-read, currently-reading, dnf; unrated stays null', () => {

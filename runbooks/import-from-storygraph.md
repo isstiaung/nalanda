@@ -44,7 +44,8 @@ run and merge instead of duplicating.
 | Tags | Tags |
 | Owned? | Yes: one copy; No: a reading-log entry, not owned |
 | Moods, Pace, Character- or Plot-Driven?, the character questions, Content Warnings | Your private notes — opinions, never on a share page |
-| Date Added, Contributors | Details (kept) |
+| Date Added | The book's date added — always for a new entry, for a matched one only with the Import page's box ticked (ARCH.md §16 #90) |
+| Contributors | Details (kept) |
 
 StoryGraph has no publisher, page count or notes; those stay empty for a new entry and are
 never blanked on a matched one.
