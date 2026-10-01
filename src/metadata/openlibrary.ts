@@ -1,6 +1,7 @@
 import { fetchWithTimeout, USER_AGENT } from '../env';
 import { formatFromPhysical } from '../lib/formats';
 import { languageFromProvider } from '../lib/language';
+import { seriesKey } from '../lib/series';
 import { cleanSeriesName, parseSeriesNumber, type SeriesDraft } from '../lib/series';
 import { cleanDescription, PAGE_SIZE, type Candidate, type MetadataProvider, type SearchPage } from './provider';
 
@@ -44,7 +45,9 @@ async function searchOl(q: string, limit: number, fields: string = FIELDS, page 
 export function seriesOf(doc: Pick<OlDoc, 'series_name' | 'series_position'>): { series?: SeriesDraft } {
   const name = cleanSeriesName(doc.series_name?.[0]);
   if (!name) return {};
-  return { series: { name, number: parseSeriesNumber(doc.series_position?.[0]) ?? null } };
+  // the two lists are parallel only when they are the same length; otherwise the first position may be another series'
+  const aligned = (doc.series_position?.length ?? 0) === (doc.series_name?.length ?? 0);
+  return { series: { name, number: aligned ? (parseSeriesNumber(doc.series_position?.[0]) ?? null) : null } };
 }
 
 function toCandidate(doc: OlDoc, isbn13?: string): Candidate | null {
@@ -144,6 +147,39 @@ export async function olRecentByAuthor(author: string, limit = 12): Promise<Cand
       .map((d) => toCandidate(d, d.isbn?.find((i) => /^\d{13}$/.test(i))))
       .filter((c): c is Candidate => !!c)
       .sort((a, b) => Number(b.published ?? 0) - Number(a.published ?? 0));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The works Open Library's index places in a series of this name (ARCH.md §16 #79): one keyless search for the
+ * name, kept to the docs whose series matches it (seriesKey: case and spacing aside), each as a candidate with its
+ * position and its first ISBN-13. Only some works carry series records (checked 2026-09-30: The Expanse and Discworld
+ * do, Earthsea doesn't), so an empty answer says nothing about the series.
+ */
+export async function olSeriesWorks(name: string, limit = 40): Promise<Array<{ candidate: Candidate; position: number | null }> | null> {
+  const key = seriesKey(name);
+  try {
+    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(name)}&fields=${FIELDS}&limit=${limit}`;
+    const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } });
+    if (!res.ok) return null; // no answer is not an empty answer, and is never cached
+    const docs = ((await res.json()) as { docs?: OlDoc[] }).docs ?? [];
+    return docs
+      .filter((d) => (d.series_name ?? []).some((n) => seriesKey(n) === key))
+      .map((d) => {
+        const c = toCandidate(d, d.isbn?.find((i) => /^\d{13}$/.test(i)));
+        if (!c) return null;
+        // series_name and series_position are parallel lists; when their lengths differ a position may belong to
+        // another of the work's series, so the work is listed without one rather than offered under a wrong number
+        const names = d.series_name ?? [];
+        const at = names.findIndex((n) => seriesKey(n) === key);
+        const aligned = (d.series_position?.length ?? 0) === names.length;
+        const position = aligned ? (parseSeriesNumber(d.series_position?.[at]) ?? null) : null;
+        return { candidate: c, position };
+      })
+      .filter((x): x is { candidate: Candidate; position: number | null } => x !== null)
+      .sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity));
   } catch {
     return null;
   }

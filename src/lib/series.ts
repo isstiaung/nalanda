@@ -163,3 +163,6 @@ export function nextUp(volumes: SeriesVolume[], total: number | null = null): Ne
   const after = missing.find(([, b]) => b > highest);
   return after ? { kind: 'missing', number: Math.max(after[0], Math.floor(highest) + 1) } : { kind: 'done' };
 }
+
+/** Whether a number falls in one of the missing ranges (§16 #79): what "fills a gap" means. */
+export const inRanges = (n: number, ranges: NumberRange[]): boolean => ranges.some(([a, b]) => n >= a && n <= b);

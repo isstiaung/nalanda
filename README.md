@@ -104,6 +104,8 @@ manuscripts.
   which they mostly are, and every publisher and label — each with a page of their items and how
   many you've finished, linked from each item's page. Read from the items as they are: "Le Guin,
   Ursula K." and "Ursula K. Le Guin" are one author.
+- **Find a series' gaps**: on a series' page, one click asks Open Library for its volumes and offers
+  the numbers you're missing, with your own numbering left exactly as it is.
 - **Series**: give a book its series and number ("The Expanse", #3 — or #2.5 for the novella
   between), filled in from Open Library when it knows. Each series shows its volumes in order,
   the numbers you're missing ("#4, #6–9" once you set how many there are), and your own

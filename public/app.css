@@ -1528,6 +1528,8 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 /* new from your authors (ARCH.md §16 #78) */
 .authors-finished li form { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; width: 100%; }
 .authors-finished li form .btn { margin-left: auto; }
+/* a series' gaps from Open Library (ARCH.md §16 #79) */
+.series-find { margin-top: 0.5rem; }
 /* quotes and highlights (ARCH.md §16 #77) */
 .quotes { list-style: none; padding: 0; margin: 0; }
 .quotes .quote { padding: 0.65rem 0; border-top: 1px solid var(--line); }
