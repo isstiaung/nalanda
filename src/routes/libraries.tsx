@@ -137,7 +137,7 @@ libraries.get('/libraries/:id', async (c) => {
   const reader = parseReadBy(c.req.query('readBy'), user.id, people);
   const readBy = reader ? (c.req.query('readBy') ?? '') : '';
   const sortQ = c.req.query('sort');
-  const sort = sortQ === 'title' || sortQ === 'rating' || sortQ === 'completed' ? sortQ : 'added';
+  const sort = sortQ === 'title' || sortQ === 'author' || sortQ === 'rating' || sortQ === 'completed' ? sortQ : 'added';
   const view = c.req.query('view') === 'grid' ? 'grid' : 'table';
   const pageNum = Number.parseInt(c.req.query('page') ?? '1', 10) || 1;
 
@@ -255,6 +255,9 @@ libraries.get('/libraries/:id', async (c) => {
             </option>
             <option value="title" selected={sort === 'title'}>
               Title A–Z
+            </option>
+            <option value="author" selected={sort === 'author'}>
+              Author A–Z
             </option>
             <option value="rating" selected={sort === 'rating'}>
               Highest rated

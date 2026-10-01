@@ -856,6 +856,7 @@ is a section of this document and "#N" another decision.
 | 78 | 2026-10-01 | [Discovery is one page: the works of authors you have finished, from Open Library, on a click — and nothing more](docs/decisions/078-new-from-your-authors.md) |
 | 79 | 2026-10-01 | [A series' missing volumes can be found on Open Library, on a click; the household's series data always wins](docs/decisions/079-series-gaps-from-open-library.md) |
 | 80 | 2026-10-01 | [Search operators: seven prefixes on the search box, applied inside the one id query; anything else is text](docs/decisions/080-search-operators.md) |
+| 83 | 2026-10-01 | [Author A–Z sorts a shelf by the first creator's surname, in SQL, by the same rule as the creators pages](docs/decisions/083-author-sort.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

@@ -237,7 +237,7 @@ export const shares = sqliteTable('shares', {
   status: text('status', { enum: ITEM_STATUSES }),
   owned: integer('owned', { mode: 'boolean' }),
   tag: text('tag'), // everything carrying this tag (stored lowercase), on any shelf the other filters allow
-  sort: text('sort', { enum: ['added', 'title', 'rating', 'completed'] }).notNull().default('title'),
+  sort: text('sort', { enum: ['added', 'title', 'author', 'rating', 'completed'] }).notNull().default('title'),
   createdAt: text('created_at').notNull().default(now),
   // A gift list (§16 #53): this member's want list as it stands — every item they want, on any shelf — and nothing
   // else. Set only on a want-list share, whose other filters are all unset. No ON DELETE action: drizzle-kit drops it
@@ -367,7 +367,7 @@ export const connectionViews = sqliteTable('connection_views', {
   mediaType: text('media_type', { enum: MEDIA_TYPES }),
   status: text('status', { enum: ITEM_STATUSES }),
   owned: integer('owned', { mode: 'boolean' }),
-  sort: text('sort', { enum: ['added', 'title', 'rating', 'completed'] }).notNull().default('title'),
+  sort: text('sort', { enum: ['added', 'title', 'author', 'rating', 'completed'] }).notNull().default('title'),
   createdAt: text('created_at').notNull().default(now),
 });
 

@@ -529,6 +529,7 @@ function pageList(ids) {
     ['Shelf: games, table', `/libraries/${s.games}`],
     ['Shelf: vinyl, covers', `/libraries/${s.vinyl}?view=grid`],
     ['Shelf: filtered, nothing matches', `/libraries/${s.vinyl}?type=book`],
+    ['Shelf: by author', `/libraries/${s.books}?sort=author`],
     ['Shelf: empty', `/libraries/${ids.wishlist}`],
     ['Shelf: books, second page', `/libraries/${s.books}?page=2`],
     ['Item: book, being read', `/items/${ids.reading}`],

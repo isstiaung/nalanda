@@ -518,7 +518,7 @@ export type NewShare = {
   status?: ItemStatus | null;
   owned?: boolean | null;
   tag?: string | null;
-  sort?: 'added' | 'title' | 'rating' | 'completed';
+  sort?: 'added' | 'title' | 'author' | 'rating' | 'completed';
   wantUserId?: number | null; // a gift list: this member's want list (§16 #53)
 };
 
@@ -575,7 +575,7 @@ export type ItemFilters = {
   // only items on this member's want list (§16 #53) — what a gift list captures, and the want-list page shows
   wantedBy?: number;
   // 'wanted': newest on the want list first — only with wantedBy
-  sort?: 'added' | 'title' | 'rating' | 'completed' | 'wanted';
+  sort?: 'added' | 'title' | 'author' | 'rating' | 'completed' | 'wanted'; // author: the first creator's surname (§16 #83)
   page?: number; // 1-based
 };
 
@@ -607,6 +607,26 @@ export function statusWhere(statuses: readonly ItemStatus[]): SQL | undefined {
   const any = inArray(s.items.status, [...statuses]);
   return statuses.includes('in_progress') ? or(any, eq(s.items.rereading, true)) : any;
 }
+
+const CREATORS_SQL = "trim(coalesce(creators, ''))";
+
+/**
+ * The first creator's surname, lower-cased, for the shelf's "Author A–Z" (ARCH.md §16 #83) — the SQL twin of
+ * splitCreators()'s "Last, First" rule (YEAR_CREATORS carries it too): one person written "Le Guin, Ursula K." sorts
+ * under "le guin"; otherwise the first person — before a ',', ';' or ' & ' — sorts under their last word ("Ursula K.
+ * Le Guin" under "guin", "N. K. Jemisin" under "jemisin"), as surname() takes it. SQLite has no "last word", so the
+ * trailing word is what remains when rtrim() strips every non-space character from the right. Nobody named sorts last.
+ */
+const AUTHOR_SORT_SQL = (() => {
+  const cr = CREATORS_SQL;
+  const a = `trim(substr(${cr}, 1, instr(${cr}, ',') - 1))`;
+  const b = `trim(substr(${cr}, instr(${cr}, ',') + 1))`;
+  const onePerson = `(instr(${cr}, ',') > 0 AND instr(${b}, ',') = 0 AND instr(${cr}, ';') = 0 AND instr(${cr}, '&') = 0 AND ${a} <> '' AND ${b} <> '' AND instr(${a}, '.') = 0 AND lower(${b}) NOT IN ('jr', 'jr.', 'sr', 'sr.', 'ii', 'iii', 'iv') AND (instr(${b}, ' ') = 0 OR ${b} GLOB '*[A-Z].'))`;
+  const names = `replace(replace(${cr}, ';', ','), ' & ', ',')`;
+  const first = `trim(substr(${names}, 1, instr(${names} || ',', ',') - 1))`;
+  const lastWord = `substr(${first}, length(rtrim(${first}, replace(${first}, ' ', ''))) + 1)`;
+  return `lower(CASE WHEN ${onePerson} THEN ${a} ELSE ${lastWord} END)`;
+})();
 
 /** The WHERE behind both listItems and countMatchingItems — one definition, so a
  *  count can never disagree with the list it is counting. */
@@ -689,6 +709,8 @@ export async function listItems(
         ]
       : f.sort === 'title'
       ? [asc(s.items.title)]
+      : f.sort === 'author'
+        ? [sql.raw(`${CREATORS_SQL} = ''`), sql.raw(AUTHOR_SORT_SQL), sql`lower(${s.items.creators})`, asc(s.items.title)]
       : f.sort === 'rating'
         ? [sql`${s.items.rating} IS NULL, ${s.items.rating} DESC`, asc(s.items.title)]
         : f.sort === 'completed'
