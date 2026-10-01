@@ -1,7 +1,7 @@
 // CSV export formatting + libib import mapping.
 // Parsing of uploaded CSV happens in the BROWSER (public/import.js) — the Worker only
 // ever sees pre-parsed JSON rows (10 ms CPU budget, ARCH.md §12).
-import type { Item, ItemStatus, MediaType, NewItem } from '../db/schema';
+import type { CustomField, Item, ItemStatus, MediaType, NewItem } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_TYPES } from '../db/schema';
 import { isRecord, parseGrade } from './condition';
 import { cellPrice, isStoredPrice, minorToDecimal } from './money';
@@ -24,6 +24,7 @@ import { formatLinksCell, formatWantsCell, parseLinksCell, parseWantsCell, type 
 import { formatEditionsCell, formatFormatsCell, parseEditionsCell, parseFormatsCell, type EditionDraft, normalizeFormats } from './formats';
 import { DEFAULT_LANGUAGE, languageFromProvider } from './language';
 import { formatQuotesCell, parseQuotesCell, type CellQuote, type PersonQuote } from './quotes';
+import { formatCustomCell, parseCustomCell } from './custom';
 import { formatLoansCell, parseLoansCell, type LoanDraft } from './loans';
 import { formatPlaysCell, parsePlaysCell, type CellPlay, type PersonPlay } from './plays';
 import { formatReviewsCell, parseReviewsCell, summarizeReviews, type CellReview, type PersonReview } from './reviews';
@@ -74,6 +75,7 @@ export const EXPORT_COLUMNS = [
   'quotes', // quotes and highlights (§16 #77): JSON, each with its writer's username
   'borrowed', // borrowed from someone not on Nalanda (§16 #82): as the loans cell, the lender in the borrower's place
   'added_by', // who added it, by username as the reads cell names people; empty for a member removed since
+  'custom', // the household's custom fields' values (§16 #95): JSON by field name, so a file moves between households
   'details',
 ] as const;
 
@@ -137,6 +139,7 @@ export function itemToCsvLine(
   quotes: CellQuote[] = [],
   borrows: LoanDraft[] = [],
   addedBy: string | null = null,
+  customFields: CustomField[] = [], // the household's fields (§16 #95), whose names key the `custom` cell
 ): string {
   const ordered = inDisplayOrder(reads);
   const position = new Map(ordered.map((r, i) => [r.id, i + 1]));
@@ -183,6 +186,7 @@ export function itemToCsvLine(
     formatQuotesCell(quotes),
     formatLoansCell(borrows),
     addedBy,
+    formatCustomCell(item.custom, customFields),
     item.details === '{}' ? '' : item.details,
   ]);
 }
@@ -243,6 +247,10 @@ export type MappedRow = {
   // who added it, by username, as a Nalanda export names them; absent when the file names nobody (a former member,
   // an older export, any other format) — then the importer's, as every row's added_by was before
   addedBy?: string;
+  // what a Nalanda export's `custom` cell left behind (§16 #95): values whose field isn't here, and values that
+  // didn't fit their field's kind — for the preview to say; any other format brings none
+  customDropped?: number;
+  customUnfit?: number;
 };
 
 /**
@@ -308,6 +316,8 @@ export const PRIVATE_COLUMNS: ReadonlySet<string> = new Set([
   'recommended_by',
   'barcode',
   'bcid',
+  // the household's custom fields' values (§16 #95): private unless a field's own switch says, so never into details
+  'custom',
 ]);
 
 /**
@@ -532,7 +542,12 @@ function isSqlDatetime(v: string | undefined): v is string {
  * columns. The shelf is the one chosen on the import form — `library` only names where a row came from — and
  * columns this format doesn't define are dropped, not kept in details (reading progress among them).
  */
-export function mapNalandaRow(row: Record<string, string>, household: string | null = null, language: string = DEFAULT_LANGUAGE): MappedRow | null {
+export function mapNalandaRow(
+  row: Record<string, string>,
+  household: string | null = null,
+  language: string = DEFAULT_LANGUAGE,
+  customFields: CustomField[] = [], // this household's fields (§16 #95), which the `custom` cell's names are matched to
+): MappedRow | null {
   const r: Record<string, string> = {};
   // the export's formula guard off (§16 #91): one leading `'` only where it stands before a character the guard covers,
   // so an export from before the guard — which never wrote one — keeps a title that begins with an apostrophe
@@ -590,6 +605,8 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
     ? { name: seriesName, number: parseSeriesNumber(r['series_number']) ?? null, total: parseSeriesTotal(r['series_total']) ?? null }
     : null;
   const mediaType = (MEDIA_TYPES as readonly string[]).includes(r['media_type'] ?? '') ? (r['media_type'] as MediaType) : 'book';
+  // the custom fields' values by name (§16 #95): onto this household's fields, the rest dropped and counted
+  const custom = parseCustomCell(r['custom'], customFields);
   return {
     series,
     item: {
@@ -619,7 +636,10 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
       ...rowGrades(mediaType, r['media_condition'], r['sleeve_condition']),
       // what was paid, in the currency the file says (§16 #61); one it doesn't say is the household's
       ...rowPrice(r['purchase_price'], r['purchase_currency'], household),
+      custom: custom.custom,
     },
+    ...(custom.dropped ? { customDropped: custom.dropped } : {}),
+    ...(custom.unfit ? { customUnfit: custom.unfit } : {}),
     reads,
     ...(reviews ? { reviews } : {}),
     // every loan, open and returned, as the file has it (§16 #57); an export from before loans has none

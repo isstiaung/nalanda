@@ -167,6 +167,13 @@
       append(`Nalanda export detected: every column maps back as it was exported, into the shelf chosen above. Types: ${Object.entries(data.byType).map(([k, v]) => `${k}: ${v}`).join(', ') || '—'}`);
       append('Rows are added, never merged — importing the same export into this shelf twice adds everything twice.');
       if (data.loans) append(`Loans ${inSample}: ${data.loans} (${data.loansOut} still out), restored onto the items they belong to. A loan to a connected household comes back as an ordinary loan under the name it was lent to.`);
+      // the custom fields' values (ARCH.md §16 #95), matched to this household's fields by name: what found no field here
+      // is left behind, as is a value that doesn't fit its field's kind
+      if (data.customValues || data.customDropped || data.customUnfit) {
+        append(`Custom fields ${inSample}: ${plural(data.customValues ?? 0, 'value')} onto fields of the same name here` +
+          `${data.customDropped ? `; ${plural(data.customDropped, 'custom value')} had no field here and ${data.customDropped === 1 ? 'is' : 'are'} dropped — add the field under Members first to keep ${data.customDropped === 1 ? 'it' : 'them'}` : ''}` +
+          `${data.customUnfit ? `; ${data.customUnfit} ${data.customUnfit === 1 ? 'doesn’t' : 'don’t'} fit the field's kind and ${data.customUnfit === 1 ? 'is' : 'are'} dropped` : ''}.`);
+      }
       // whose each read and review becomes: a member of the same name here, or you
       const people = data.importer ? (data.people ?? []) : [];
       if (people.length) {

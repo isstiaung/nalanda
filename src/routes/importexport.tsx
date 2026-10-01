@@ -1,13 +1,14 @@
 import { Hono } from 'hono';
 import { writerOf } from './items';
 import { cleanKindleBook, MAX_KINDLE_BOOKS_PER_REQUEST, MAX_KINDLE_HIGHLIGHTS_PER_REQUEST, type KindleBook } from '../lib/quotes';
-import type { MediaType, NewItem } from '../db/schema';
+import type { CustomField, MediaType, NewItem } from '../db/schema';
 import { MEDIA_TYPES } from '../db/schema';
 import {
   countBackfillable,
   getLibrary,
   getSiteSettings,
   importItems,
+  listCustomFields,
   listLibraries,
   listPeople,
   loansForIdRange,
@@ -39,6 +40,7 @@ import {
 } from '../lib/csv';
 import { findCover, findDescription } from '../metadata';
 import { parseDetails } from '../lib/share';
+import { parseCustom } from '../lib/custom';
 import { MEDIA_LABEL } from '../views/components';
 import { page, todayOf } from '../views/layout';
 
@@ -237,12 +239,14 @@ importexport.post('/api/import', async (c) => {
   const isGoodreads = format === 'goodreads' || format === 'storygraph' || format === 'librarything';
   const dates = body.dates === true;
 
+  // the household's custom fields (§16 #95), which a Nalanda export's `custom` cell is matched to by name — read only for one
+  const customFields = format === 'nalanda' ? await listCustomFields(c.env.DB) : [];
   const mapped = [];
   let skipped = sent.length - rows.length;
   for (const row of rows) {
     const m =
       format === 'nalanda'
-        ? mapNalandaRow(row, settings.currency, settings.language)
+        ? mapNalandaRow(row, settings.currency, settings.language, customFields)
         : format === 'goodreads'
           ? mapGoodreadsRow(row)
           : format === 'storygraph'
@@ -293,6 +297,11 @@ importexport.post('/api/import', async (c) => {
       currency: settings.currency,
       // libib prices that couldn't be read as one in the household's currency (or there is none): they stay in details
       pricesLeft: mapped.filter((m) => m.item.purchasePrice == null && 'price' in parseDetails(m.item.details)).length,
+      // a Nalanda export's custom fields' values (§16 #95): how many land on a field of the same name here, how many
+      // had no field here, and how many didn't fit their field's kind — the last two are dropped, never kept in details
+      customValues: mapped.reduce((n, m) => n + Object.keys(parseCustom(m.item.custom)).length, 0),
+      customDropped: mapped.reduce((n, m) => n + (m.customDropped ?? 0), 0),
+      customUnfit: mapped.reduce((n, m) => n + (m.customUnfit ?? 0), 0),
       // A household of one importing its own file has nobody to tell apart: the preview says nothing new then.
       ...(people.length > 1 || [...tally.keys()].some((name) => name !== undefined && name !== user.username)
         ? { importer: user.username, keepsNames: keepNames }
@@ -450,6 +459,7 @@ async function exportRows(
   limit: number,
   libNames: Map<number, string>,
   people: Map<number, string>,
+  customFields: CustomField[], // the household's fields (§16 #95), whose names key each line's `custom` cell
   loanLimit?: number,
 ): Promise<{ csv: string; count: number; lastId: number; more: boolean }> {
   let items = await pageItems(d1, { libraryId: scope, afterId, limit });
@@ -489,6 +499,7 @@ async function exportRows(
       cells.quotes.get(item.id) ?? [],
       cells.borrows.get(item.id) ?? [],
       item.addedBy === null ? null : (people.get(item.addedBy) ?? null),
+      customFields,
     );
   }
   return { csv, count: items.length, lastId: items.at(-1)!.id, more };
@@ -499,8 +510,8 @@ importexport.get('/export.csv', async (c) => {
   const scope = Number.isInteger(libraryId) ? libraryId : undefined;
   const after = c.req.query('after');
   if (after !== undefined && !/^\d{1,15}$/.test(after)) return c.text('after must be an item id', 400);
-  // the shelves' names and the members' (for added_by), once for every page of the export
-  const [libs, members] = await Promise.all([listLibraries(c.env.DB), listPeople(c.env.DB)]);
+  // the shelves' names, the members' (for added_by) and the custom fields' (for `custom`, §16 #95), once for every page of the export
+  const [libs, members, customFields] = await Promise.all([listLibraries(c.env.DB), listPeople(c.env.DB), listCustomFields(c.env.DB)]);
   const libNames = new Map(libs.map((l) => [l.id, l.name]));
   const people = new Map(members.map((m) => [m.id, m.username]));
   const today = todayOf(c);
@@ -515,7 +526,7 @@ importexport.get('/export.csv', async (c) => {
     // one file. The header row leads the first page only; `x-export-next` names where the next page starts,
     // and is missing once a page comes back short — short of items, not ended early for its loans.
     const afterId = Number(after);
-    const page = await exportRows(c.env.DB, scope, afterId, EXPORT_PAGE, libNames, people, EXPORT_LOANS);
+    const page = await exportRows(c.env.DB, scope, afterId, EXPORT_PAGE, libNames, people, customFields, EXPORT_LOANS);
     return new Response((afterId === 0 ? csvLine([...EXPORT_COLUMNS]) : '') + page.csv, {
       headers: {
         ...headers,
@@ -547,7 +558,7 @@ importexport.get('/export.csv', async (c) => {
           return;
         }
         // no loan limit: the whole stream is one invocation, so smaller pages would spend queries and save no CPU
-        const page = await exportRows(d1, scope, afterId, PAGE, libNames, people);
+        const page = await exportRows(d1, scope, afterId, PAGE, libNames, people, customFields);
         if (!page.count) return controller.close();
         controller.enqueue(encoder.encode(page.csv));
         afterId = page.lastId;
