@@ -17,7 +17,7 @@ src/db/            schema.ts (Drizzle) + queries.ts — the ONLY code touching D
 src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googlebooks, bgg,
                    discogs, itunes, musicbrainz — nothing else calls external APIs
 src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist), csv.ts
-                   (export + libib mapping, whose reads an import brings), covers.ts (only R2
+                   (export + libib, Goodreads, StoryGraph and LibraryThing mappings, whose reads an import brings), covers.ts (only R2
                    code), reads.ts (each read: how reads decide status, the legacy mapping, the
                    export cell, Goodreads), reviews.ts (each member's review: the household
                    summary, the export's reviews cell), loans.ts (the export's loans cell),

@@ -8,7 +8,8 @@
 export const MAX_MAJOR_UNITS = 999_999_999;
 
 /** Details keys that hold money, kept in the app and dropped from anything published (§16 #61). */
-export const MONEY_DETAIL_KEYS: ReadonlySet<string> = new Set(['price', 'purchase_price', 'purchase_currency']);
+export const MONEY_DETAIL_KEYS: ReadonlySet<string> = new Set(['price', 'purchase_price', 'purchase_currency', 'list_price', 'value']);
+// list_price and value: LibraryThing's columns (§16 #87), stripped here too should a file ever put them in details
 
 const CODE = /^[A-Z]{3}$/;
 
