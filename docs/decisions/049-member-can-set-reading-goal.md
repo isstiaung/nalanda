@@ -1,6 +1,6 @@
 # §16 #49 — Each member can set a reading goal; connected households hear when it's set, passes halfway and is reached — signed, as it happens, never backfilled; and a new instance starts with names and goals on
 
-**Decided:** 2026-09-30 (reading goals, shared, and new defaults). Cited as `ARCH.md §16 #49`; "§N" is a section of [ARCH.md](../../ARCH.md), "#N" another decision here.
+**Decided:** 2026-09-30 (reading goals, shared, and new defaults). **Amended 2026-10-02:** the Overview's pace is measured against the device's day, not the server's UTC day, since #69 (`todayOf(c)` is passed to the meter) — the "chosen without asking" line below predates it; the milestone triggers' "today or yesterday" is still UTC, as #45's rule is. Cited as `ARCH.md §16 #49`; "§N" is a section of [ARCH.md](../../ARCH.md), "#N" another decision here.
 
 The owner decided each point:
 - **A goal is N books in a year, per member** (`reading_goals`, one per member per year). What counts

@@ -80,7 +80,8 @@ alone, with all of them, for a seventh query. The Export button needed no change
 without a cursor streams with no loan limit: the whole stream is one invocation, so smaller
 pages would spend D1 calls and save no CPU, and it keeps its six a page of 2,000. On the way
 in, `public/import.js` closes a batch at 1,000 loans as well as at 200 rows (a row with more
-goes alone), and a cell keeps at most `MAX_LOANS_PER_CELL` (1,000), the latest — where the
+goes alone; the route itself takes up to `MAX_ROWS_PER_REQUEST`, 250, a request — the browser
+stays under it), and a cell keeps at most `MAX_LOANS_PER_CELL` (1,000), the latest — where the
 loans still out are — so an item lent more than a thousand times comes back with its latest
 thousand. `isIsoDate()` now checks a date by arithmetic instead of a `Date` round trip, which
 cost about a microsecond a date; a test holds the two to the same answers. Tests count each
