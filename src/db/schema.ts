@@ -51,6 +51,10 @@ export const users = sqliteTable('users', {
   // each add one. Beside the key, never instead of it: the key is who the account is and hangs the identity stamps
   // (the scan queue's) — rotating it would drop a device's held scans; this rotates freely.
   sessionGeneration: integer('session_generation').notNull().default(0),
+  // The interface language this member chose on Account (§16 #93), one of the shipped locales (src/i18n), or NULL to
+  // follow the household's default (site_settings.language). A member's setting, not item data: not in the CSV
+  // export; backups carry it with the row.
+  locale: text('locale'),
 });
 
 export const libraries = sqliteTable('libraries', {
@@ -400,8 +404,20 @@ export const siteSettings = sqliteTable('site_settings', {
   // until one is set — the item form then asks for it rather than guessing. Never leaves the app.
   currency: text('currency'),
   // The household's default language (§16 #76), ISO 639-1: what an added item takes unless told otherwise; English
-  // until an admin picks another. Also what the interface will follow (queue 15).
+  // until an admin picks another. The interface follows it too, where a translation exists (§16 #93).
   language: text('language').notNull().default('en'),
+  updatedAt: text('updated_at').notNull().default(now),
+});
+
+/**
+ * The household's own interface translation (§16 #93), one row per shipped locale: a JSON object of string key →
+ * text, imported by an admin from a file edited by hand, overriding the shipped strings key by key — for this
+ * household alone, share pages included. Validated on the way in (parseTranslation in src/i18n), escaped on the way
+ * out like any string. Removed by an admin's "Remove"; never anything a member typed elsewhere.
+ */
+export const translations = sqliteTable('translations', {
+  locale: text('locale').primaryKey(),
+  strings: text('strings').notNull(),
   updatedAt: text('updated_at').notNull().default(now),
 });
 
