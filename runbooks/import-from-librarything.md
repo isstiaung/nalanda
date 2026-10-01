@@ -47,7 +47,9 @@ run and merge instead of duplicating.
 | Tags | Tags |
 | Languages (the first) | Language |
 | Series, Volume | Series and number |
-| Book ID, Entry Date, Subjects, LCCN, Dewey, OCLC, Work id, From Where, Source… | Details (kept, lossless) |
+| Other Call Number | Location (where it is kept — never on a share page) |
+| Book ID, Entry Date, Subjects, LCCN, Dewey, OCLC, Work id… | Details (kept) |
+| List Price, Value, Condition, Acquired, From Where, Source, Lending columns | Dropped — money, the copy's state and provenance are never published, and a loan here is the household's |
 
 ## Matching and merge rules
 

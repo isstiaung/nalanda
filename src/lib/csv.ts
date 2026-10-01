@@ -719,6 +719,20 @@ const KNOWN_STORYGRAPH = new Set([
   'purchase_currency',
 ]);
 
+/** The reader's impressions StoryGraph exports, as the private notes word them. */
+const STORYGRAPH_IMPRESSIONS: ReadonlyArray<readonly [string, string]> = [
+  ['moods', 'moods'],
+  ['pace', 'pace'],
+  ['character_or_plot_driven', 'driven by'],
+  ['strong_character_development', 'strong character development'],
+  ['loveable_characters', 'loveable characters'],
+  ['diverse_characters', 'diverse characters'],
+  ['flawed_characters', 'flawed characters'],
+  ['content_warnings', 'content warnings'],
+  ['content_warning_description', 'content warning description'],
+];
+const STORYGRAPH_PRIVATE = new Set(STORYGRAPH_IMPRESSIONS.map(([k]) => k));
+
 function storyGraphStatus(raw: string | undefined): ItemStatus {
   const v = (raw ?? '').trim().toLowerCase();
   if (v === 'read') return 'completed';
@@ -782,9 +796,13 @@ export function mapStoryGraphRow(row: Record<string, string>): MappedRow | null 
     : reconcileGoodreads([], goodreads).map((op) => op.read);
   if (dated.length && status === 'in_progress' && !reads.some((x) => x.status === 'in_progress')) reads.push({ status: 'in_progress', beganOn: null, endedOn: null });
   const state = summarizeReads(reads);
+  // the reader's own impressions — moods, pace, what drove the story, the content warnings — are opinions, closer to a
+  // review than to catalogue data, so they go to the private notes and never to details, which share pages publish;
+  // what is left over (contributors, say) is catalogue data and stays in details
+  const impressions = STORYGRAPH_IMPRESSIONS.map(([key, label]) => (r[key] ? `${label}: ${r[key]}` : null)).filter((x): x is string => x !== null);
   const details: Record<string, string> = {};
-  for (const [k, v] of Object.entries(r)) if (!KNOWN_STORYGRAPH.has(k) && v) details[k] = v;
-  if (r['date_added']) details['storygraph_date_added'] = r['date_added'];
+  for (const [k, v] of Object.entries(r)) if (!KNOWN_STORYGRAPH.has(k) && !STORYGRAPH_PRIVATE.has(k) && v) details[k] = v;
+  if (r['date_added']) details['storygraph_date_added'] = r['date_added']; // the day only, as a feed dates an addition (§16 #86)
   if (rawUid && !isbn13 && !isbn10) details['storygraph_uid'] = rawUid; // StoryGraph's own id, kept as it is
   const split = parseTitleSeries(title);
   const format = bookFormat(r['format']);
@@ -803,7 +821,7 @@ export function mapStoryGraphRow(row: Record<string, string>): MappedRow | null 
       status: state.status,
       rating: starsToRating(r['star_rating']),
       review: r['review'] || null,
-      notes: null,
+      notes: impressions.length ? `StoryGraph — ${impressions.join('; ')}` : null,
       copies: /^(yes|true|y)$/i.test(r['owned'] ?? '') ? 1 : 0,
       beganOn: state.beganOn,
       completedOn: state.completedOn,
@@ -853,10 +871,20 @@ const KNOWN_LIBRARYTHING = new Set([
   'lending_start',
   'lending_end',
   'reading_dates',
+  // the household's copy and what it cost (§16 #55, #61), and where it is kept (§16 #51): never into details, which
+  // share pages publish — Other Call Number maps to location; the rest are dropped
+  'list_price',
+  'value',
+  'condition',
+  'acquired',
+  'date_acquired',
+  'from_where',
+  'source',
+  'other_call_number',
+  'purchase_price',
   // not LibraryThing columns, but private if a file carried them (§16 #55, #61)
   'media_condition',
   'sleeve_condition',
-  'purchase_price',
   'purchase_currency',
 ]);
 
@@ -909,7 +937,7 @@ export function mapLibraryThingRow(row: Record<string, string>): MappedRow | nul
   const details: Record<string, string> = {};
   for (const [k, v] of Object.entries(r)) if (!KNOWN_LIBRARYTHING.has(k) && v) details[k] = v;
   if (r['book_id']) details['librarything_book_id'] = r['book_id'];
-  if (r['entry_date']) details['librarything_entry_date'] = r['entry_date'];
+  if (r['entry_date']) details['librarything_entry_date'] = r['entry_date']; // the day only, as a feed dates an addition (§16 #86)
   const split = parseTitleSeries(title);
   const volume = Number.parseFloat(r['volume'] ?? '');
   const series = r['series'] ? { name: r['series'], number: Number.isFinite(volume) ? volume : null, total: null } : (split?.series ?? null);
@@ -930,6 +958,8 @@ export function mapLibraryThingRow(row: Record<string, string>): MappedRow | nul
       rating: starsToRating(r['rating']),
       review: r['review'] || null,
       notes: [r['comment'], r['private_comment']].filter(Boolean).join('\n\n') || null,
+      // the household's own shelf mark, which is what the column is used for: where it is kept, never published (§16 #51)
+      location: r['other_call_number'] || null,
       copies: owned ? (Number.isFinite(copiesNum) && copiesNum > 0 ? copiesNum : 1) : 0,
       beganOn: state.beganOn,
       completedOn: state.completedOn,

@@ -22,16 +22,25 @@ member's own reads and reviews, a runbook and a fixture each.
   — the file's one gift over Goodreads', which has only the last — with an open range while
   currently reading as the open read; Read Status to the four statuses; Star Rating in halves
   and quarters to 1–10 (4.25 → 9); Format to the copy's form (#75); **Owned? decides copies**
-  (Yes: one; No: a reading-log entry); Tags to tags; moods, pace, warnings and the rest stay in
-  details, lossless, as Goodreads' extra columns do. A "(Series, #1)" title suffix becomes the
-  series (#52). StoryGraph has no publisher, pages or notes.
+  (Yes: one; No: a reading-log entry); Tags to tags. **The reader's impressions — moods, pace,
+  what drove the story, the character questions, the content warnings — become the private
+  notes, never details**: they are opinions, closer to a review than to catalogue data, and
+  `details` is public on share pages and to connections (review on #127). What is left over
+  (contributors) stays in details. A "(Series, #1)" title suffix becomes the series (#52).
+  StoryGraph has no publisher or pages.
 - **LibraryThing** (`mapLibraryThingRow()`): the "Last, First" author turned round (several
   apart by `|`); ISBNs out of their brackets; publisher and year out of "Publication"; Page Count,
   Media, Rating in halves, Review; Comment and Private Comment both as private notes; Date Started
   and Date Read as a read's two ends; **the collections say the status and the holding** —
   Currently reading, To read, Wishlist, Read but unowned, Read — with a bare catalogue entry an
   owned copy (LibraryThing is a catalog) and Wishlist or Read but unowned not; Copies; Tags;
-  Languages to the item's language (#76, by name); Series and Volume to the series.
+  Languages to the item's language (#76, by name); Series and Volume to the series. **Other Call
+  Number is the household's own shelf mark, so it maps to `location`** (#51); **List Price, Value,
+  Condition, Acquired, From Where, Source and a Purchase Price are dropped** — money, the copy's
+  state and provenance never reach `details` (#55, #61), and `MONEY_DETAIL_KEYS` strips
+  `list_price` and `value` at publish time besides (review on #127).
+- **The day a book was added** on either site (`storygraph_date_added`, `librarything_entry_date`)
+  is kept in details: a day, never a time, as a feed dates an addition (#86).
 - **A runbook each** (`runbooks/import-from-storygraph.md`, `…-librarything.md`): how to export,
   what maps where, and the merge rules by reference to Goodreads'.
 

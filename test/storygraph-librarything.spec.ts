@@ -5,6 +5,9 @@ import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:
 import { describe, expect, it } from 'vitest';
 import { createItem, createLibrary } from '../src/db/queries';
 import { looksLikeGoodreads, looksLikeLibraryThing, looksLikeNalandaExport, looksLikeStoryGraph, mapLibraryThingRow, mapStoryGraphRow } from '../src/lib/csv';
+import { toPublicItem } from '../src/lib/share';
+import { toConnectionItem } from '../src/federation/items';
+import type { Item } from '../src/db/schema';
 import app from '../src/index';
 import { member, readsOf, rows } from './member-helpers';
 
@@ -83,13 +86,11 @@ describe('a StoryGraph row', () => {
     ]);
     expect(m.goodreads).toEqual({ shelf: 'completed', dateRead: '2024-03-22', dateStarted: '2024-03-01', readCount: 2 });
     expect(m.tags).toEqual(['hugo-winners', 'sf']);
+    // the reader's impressions are private notes, never details (which share pages publish); the day added stays
+    expect(m.item.notes).toBe('StoryGraph — moods: dark, mysterious, tense; pace: medium; driven by: Plot; content warnings: moderate: violence');
     const details = JSON.parse(m.item.details as string);
-    expect(details.moods).toBe('dark, mysterious, tense');
-    expect(details.pace).toBe('medium');
-    expect(details.character_or_plot_driven).toBe('Plot');
-    expect(details.content_warnings).toBe('moderate: violence');
     expect(details.storygraph_date_added).toBe('2022-03-01');
-    for (const gone of ['title', 'authors', 'read_status', 'star_rating', 'review', 'tags', 'owned', 'dates_read']) expect(details).not.toHaveProperty(gone);
+    for (const gone of ['moods', 'pace', 'character_or_plot_driven', 'content_warnings', 'title', 'authors', 'read_status', 'star_rating', 'review', 'tags', 'owned', 'dates_read']) expect(details).not.toHaveProperty(gone);
   });
 
   it('reads the other statuses: currently reading with an open read, did not finish, to-read; an unowned ebook; a UID that isn’t an ISBN', () => {
@@ -192,6 +193,22 @@ describe('a LibraryThing row', () => {
     expect(inSeries.series).toEqual({ name: 'Discworld', number: 1, total: null });
     expect(inSeries.item.title).toBe('The Colour of Magic');
     expect(mapLibraryThingRow(librarything({ 'Title': '' }))).toBeNull();
+  });
+});
+
+describe('what never reaches details', () => {
+  it('drops a LibraryThing row’s money, condition, provenance and call number from details — the call number is the location — and nothing of them is published', () => {
+    const full: Record<string, string> = {};
+    for (const h of [...LIBRARYTHING_HEADER.split(','), 'List Price', 'Value', 'Condition', 'Purchase Price', 'Date Acquired', 'Reading Dates', 'Series', 'Volume', 'ASIN']) full[h] = `v-${h}`;
+    Object.assign(full, { Title: 'Everything filled', 'Primary Author': 'X', ISBNs: '[9780441478125]', Rating: '4', Copies: '1', 'Page Count': '10', Date: '2001', 'Other Call Number': 'Study, 2nd shelf', 'List Price': '$30', Value: '$12', Condition: 'Fair', Acquired: '2020-01-01', 'From Where': 'A bookshop', Source: 'amazon.com' });
+    const m = mapLibraryThingRow(full)!;
+    expect(m.item.location).toBe('Study, 2nd shelf');
+    const details = JSON.parse(m.item.details as string) as Record<string, string>;
+    for (const key of ['list_price', 'value', 'condition', 'purchase_price', 'acquired', 'date_acquired', 'from_where', 'source', 'other_call_number', 'lending_patron', 'lending_status', 'barcode', 'comment', 'private_comment', 'review', 'rating', 'copies']) expect(details, key).not.toHaveProperty(key);
+    // and through both whitelists, with the item as it would be stored
+    const item = { id: 1, libraryId: 1, mediaType: 'book', title: m.item.title, creators: 'X', coverKey: null, copies: 1, status: 'not_started', rating: null, review: null, details: m.item.details, formats: '', language: null, originalTitle: null, publisher: null, published: null, description: null, length: null, isbn13: null, isbn10Upc: null, notes: m.item.notes, location: m.item.location, rereading: false, progressPage: null, readCount: 0, beganOn: null, completedOn: null, addedAt: '2026-10-01 00:00:00', updatedAt: '2026-10-01 00:00:00', addedBy: null, seriesId: null, seriesNumber: null, purchasePrice: null, purchaseCurrency: null, mediaCondition: null, sleeveCondition: null } as unknown as Item;
+    const published = JSON.stringify(toPublicItem(item)) + JSON.stringify(toConnectionItem(item));
+    for (const secret of ['Study, 2nd shelf', '$30', '$12', 'Fair', 'A bookshop', 'amazon.com', 'v-Lending Patron', 'v-Barcode', 'list_price', 'condition']) expect(published, secret).not.toContain(secret);
   });
 });
 
