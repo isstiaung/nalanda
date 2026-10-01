@@ -24,6 +24,7 @@ import {
   setItemTags,
   shelvesWithTotals,
   tagsForItem,
+  titleKey,
   updateItem,
   deleteItem,
 } from '../src/db/queries';
@@ -332,6 +333,33 @@ describe('goodreads match-and-merge import', () => {
     const after = await getItem(env.DB, owned.id);
     expect(after!.rating).toBe(8);
     expect(after!.review).toBe('My old review.'); // goodreads had none — not blanked
+  });
+
+  it('never merges a non-Latin title onto another by the same author, nor a subtitle onto another author’s book of that name', async () => {
+    const lib = await seedLibrary();
+    // the ASCII-only stem reduced every Cyrillic or Devanagari title to "", so two books by one author met on the surname alone
+    expect(titleKey('Война и мир', 'Лев Толстой')).not.toBe(titleKey('Анна Каренина', 'Лев Толстой'));
+    expect(titleKey('गोदान', 'Premchand')).not.toBe(titleKey('निर्मला', 'Premchand'));
+    const anna = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'Анна Каренина', creators: 'Лев Толстой', copies: 1, details: '{}' });
+    const dune = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'Dune', creators: 'Frank Herbert', copies: 1, details: '{}' });
+    const dots = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: '...', creators: 'Someone', copies: 1, details: '{}' });
+    const row = (title: string, creators: string) => ({
+      item: { libraryId: lib.id, mediaType: 'book' as const, title, creators, status: 'completed' as const, rating: 4, review: 'Not for me', copies: 0, details: '{}' },
+      tags: [],
+    });
+    const result = await mergeImportItems(env.DB, [
+      row('Война и мир', 'Лев Толстой'), // another book by the same author: new
+      row('Dune: House Atreides', 'Brian Herbert'), // the stem and surname agree, the author doesn't: new
+      row('???', 'Someone'), // nothing left of either title: new, never a match on the surname alone
+      row('Dune', 'Herbert, Frank'), // the same author written round the other way: a match
+      row('Анна Каренина (Russian edition)', 'Толстой, Лев'), // and so with a suffix: a match
+    ]);
+    expect(result).toMatchObject({ inserted: 3, merged: 2 });
+    expect((await getItem(env.DB, anna.id))!.rating).toBe(4);
+    expect((await getItem(env.DB, dune.id))!.rating).toBe(4);
+    expect((await getItem(env.DB, dots.id))!.rating).toBeNull();
+    const { items } = await listItems(env.DB, lib.id, { owned: false });
+    expect(items.map((i) => i.title).sort()).toEqual(['???', 'Dune: House Atreides', 'Война и мир']);
   });
 
   it('is idempotent across re-runs: first run inserts, second merges', async () => {

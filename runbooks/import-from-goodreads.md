@@ -35,8 +35,10 @@ is a row with no ISBN *and* a title/author spelled differently between runs.
 ## Matching and merge rules
 
 A row is matched to an existing item by, in order: **ISBN-13 → ISBN-10 → normalized
-title + first-author surname** (series suffixes like "(The Broken Earth, #1)",
-subtitles after ":", and initials spacing are ignored). On a match:
+title + first author** (series suffixes like "(The Broken Earth, #1)", subtitles after ":",
+and initials spacing are ignored; titles in any script count; the surname and then the whole
+name must agree, written either way round — "Le Guin, Ursula K." is "Ursula K. Le Guin", but
+Brian Herbert's *Dune: House Atreides* never merges onto Frank Herbert's *Dune*). On a match:
 
 - **Goodreads wins** for *your* rating and review, and for the book's private notes — but a
   field Goodreads has no value for never blanks what's already in Nalanda. Another member's

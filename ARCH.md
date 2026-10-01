@@ -358,7 +358,7 @@ the browser** and posts JSON batches of ~200 rows (this sidesteps the Worker CPU
 `Exclusive Shelf` column). Known columns map to real columns; anything unrecognized lands
 in `details` JSON so the import is lossless. libib rows always insert (`group` becomes a
 tag, and the series, §16 #52). Goodreads rows **match-and-merge** (§16 #14): a row matching an existing item — by
-ISBN-13, then ISBN-10, then normalized title + first-author surname — merges rating,
+ISBN-13, then ISBN-10, then normalized title (any script) + first author, the surname and the whole name — merges rating,
 review, notes and shelves-as-tags onto it (Goodreads wins, but never blanks a field it has
 no value for, and never touches copies or bibliographic metadata), and its shelf, Date
 Read, Date Started and Read Count become reads, added and never removed (§16 #41);

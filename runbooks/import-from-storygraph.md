@@ -53,7 +53,7 @@ never blanked on a matched one.
 ## Matching and merge rules
 
 The same as Goodreads': a row is matched by **ISBN-13 → ISBN-10 → normalized title +
-first-author surname**; on a match StoryGraph wins for *your* rating and review, the book's
+first author** (the surname and then the whole name, in any script); on a match StoryGraph wins for *your* rating and review, the book's
 notes keep what they had with the impressions added after, and your reads
 are **added and never removed** — importing the same file again adds nothing. See the
 [Goodreads runbook](import-from-goodreads.md#matching-and-merge-rules) for the rules read by
