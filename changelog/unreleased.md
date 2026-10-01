@@ -25,6 +25,8 @@ for what a host must do; link runbooks as ../runbooks/…); a release commit ren
 
 - **A message isn't dropped on a 404 or 401 that isn't the household's own.** Any 4xx but 429 was taken as a final refusal, so a household whose key was unset for a while — every connections route answers a plain not-found page then — or one behind a proxy answering 401 lost a queued acceptance, return notice or comment for good, and a request of ours was declined with "isn't available any more". Only an answer in the inbox's own words is final now; anything else leaves the message in the outbox, retried on page loads and delivered by their pull, for two days.
 
+- **A member's feed entry carries no finish date.** With names on for connections, a per-person "finished" entry carried the book's `completedOn` — that member's own end date, beside their name — against the rule that the dates of anyone's reads never leave the instance. A member's entry now carries none; the household's own "finished" entry still says when the book was last finished, as before. Connected households never showed the field.
+
 ### Upgrading
 - **One migration, 0051: a new `api_tokens` table, no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. The backup's table order gains `api_tokens`.
 - **One migration, 0052: a new column on `items` (`created_at`, empty until an import re-dates a book), no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. Then, to date a catalogue imported from Goodreads before this version, re-import the same export with the box ticked ([runbook](../runbooks/import-from-goodreads.md#dates-added)).

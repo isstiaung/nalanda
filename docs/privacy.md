@@ -131,7 +131,11 @@ for a surface before changing anything it shows to someone outside the household
   names. Named feed entries go out with ids past `MEMBER_ACTIVITY_BASE`; one stream is valid at a
   time, so named ids fail the removal check once names are off and household ids while they're on.
   A per-person start or finish is recorded only as it happens, dated then — never by a read's dates,
-  never backfilled. A rename or removal re-keys that member's entries in its batch
+  never backfilled. A per-person entry also carries no `completedOn`: on an entry about one member that
+  column is their read's end date, so `toFeedItem()` blanks it whenever the entry is a member's (named or
+  not) and `keepForKind()` again on a named one; the household's own `finished` entry still carries the
+  item's `completed_on`, as docs/proposals/connections.md §7 describes, so a connection learns when the
+  household last finished a book and never when a person did. A rename or removal re-keys that member's entries in its batch
   (`rekeyMemberActivity()`), and a move of a read or review re-keys that one's (`rekeyMoved()`),
   so peers' held copies are withdrawn. Comments, borrow requests and recommendations are
   signed with `outwardName()` — the display name while names go to connections, else "A member",
