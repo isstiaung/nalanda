@@ -1354,13 +1354,14 @@ export async function seriesForIds(d1: D1Database, ids: Array<number | null>): P
 
 /**
  * Renames a series and sets its total, in one batch. A name another series already has (by key) merges this one
- * into it: its volumes move there, and the total given — else the one there, else this one's — is kept. Returns
- * the id the series has afterwards. The route checks the series exists first.
+ * into it: its volumes move there — an item write, so `who` is named in each volume's history (§16 #84) — and the
+ * total given — else the one there, else this one's — is kept. Returns the id the series has afterwards. The
+ * route checks the series exists first.
  */
-export async function updateSeries(d1: D1Database, id: number, name: string, total: number | null): Promise<number | null> {
+export async function updateSeries(d1: D1Database, id: number, name: string, total: number | null, who?: Writer): Promise<number | null> {
   const key = seriesKey(name);
   const other = 'EXISTS (SELECT 1 FROM series WHERE key = ?2 AND id <> ?1)';
-  const results = await d1.batch([
+  const results = await d1.batch(asWriter(d1, who, [
     d1
       .prepare('UPDATE series SET total = coalesce(?3, total, (SELECT total FROM series WHERE id = ?1)) WHERE key = ?2 AND id <> ?1')
       .bind(id, key, total),
@@ -1368,8 +1369,8 @@ export async function updateSeries(d1: D1Database, id: number, name: string, tot
     d1.prepare(`DELETE FROM series WHERE id = ?1 AND ${other}`).bind(id, key),
     d1.prepare('UPDATE series SET name = ?3, key = ?2, total = ?4 WHERE id = ?1').bind(id, key, name, total),
     d1.prepare('SELECT id FROM series WHERE key = ?1').bind(key),
-  ]);
-  const row = results[4]?.results[0] as { id: number } | undefined;
+  ]));
+  const row = results[(who ? 1 : 0) + 4]?.results[0] as { id: number } | undefined;
   return row?.id ?? null;
 }
 
