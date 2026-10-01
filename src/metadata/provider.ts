@@ -62,6 +62,22 @@ export function titlesMatch(a: string, b: string): boolean {
 }
 
 /**
+ * What to ask a provider for. Search indexes are literal: a series suffix ("(Sprawl, #1)"), an
+ * issue number, a bracketed note or an ampersand finds nothing, even when the book is right there.
+ * Matching still compares the item's real title — this only shapes the query.
+ */
+export function searchableTitle(title: string): string {
+  const cleaned = title
+    .replace(/\s*[([{][^)\]}]*[)\]}]\s*/g, ' ')
+    .split(':')[0]!
+    .replace(/&/g, ' and ')
+    .replace(/#\d+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return cleaned.length >= 3 ? cleaned : title;
+}
+
+/**
  * Same-creator check for title matching: the subject's first creator's surname must
  * appear in the candidate's creators. Different books share titles constantly —
  * a title match with the wrong author is a wrong cover.

@@ -46,7 +46,9 @@ import { coverUrl, itemStamp, toRecommendedItem } from '../federation/items';
 import { loadIdentity, type Identity } from '../federation/keys';
 import { recommend, RECOMMEND_ID_KEYS, recommendId, type RecommendIds } from '../federation/messages';
 import { pushNow } from '../federation/outbox';
+import { isRecord } from '../lib/condition';
 import { deleteCover, storeCover } from '../lib/covers';
+import { recordCover } from '../metadata';
 import { MEDIA_LABEL } from '../views/components';
 import { page } from '../views/layout';
 import { TheirCover } from './borrowing';
@@ -477,8 +479,12 @@ recommendations.post('/recommendations/:id/want', async (c) => {
 
   const connection = await getConnection(c.env.DB, rec.connectionId);
   if (!connection) return c.redirect('/recommendations?done=gone');
-  // only ever <their origin>/covers/<uuid> (coverUrl), fetched and kept here as any added item's cover is
-  const coverKey = await storeCover(c.env.COVERS, coverUrl(connection.baseUrl, rec.coverKey), { followRedirects: false });
+  // Only ever <their origin>/covers/<uuid> (coverUrl), fetched and kept here as any added item's cover is. Not for a
+  // record: theirs may be the Discogs image an older Nalanda stored, so a record's cover is the Cover Art Archive's,
+  // found by its artist and title, or none (§16 #67).
+  const coverKey = isRecord(rec.mediaType)
+    ? (await recordCover({ title: rec.title, creators: rec.creators }, (url) => storeCover(c.env.COVERS, url))).key
+    : await storeCover(c.env.COVERS, coverUrl(connection.baseUrl, rec.coverKey), { followRedirects: false });
   try {
     const itemId = await createItemWithTags(
       c.env.DB,

@@ -187,7 +187,8 @@ async function counts(target) {
 
 // Same selection as the in-app backfill (backfillable() in src/db/queries.ts).
 const QUEUE_SQL = `SELECT id, added_at, media_type, title, creators, isbn13, isbn10_upc, publisher, published, length, cover_key,
-  CASE WHEN description IS NULL OR trim(description) = '' THEN 0 ELSE 1 END AS has_description
+  CASE WHEN description IS NULL OR trim(description) = '' THEN 0 ELSE 1 END AS has_description,
+  CASE WHEN json_valid(details) THEN json_extract(details, '$.musicbrainz_id') END AS musicbrainz_id
 FROM items WHERE cover_key IS NULL OR description IS NULL OR description = '' ORDER BY id`;
 
 function unappliedHits(target) {
@@ -237,8 +238,8 @@ async function loadMetadata() {
     fail(`This needs Node 22.18 or newer, which runs TypeScript natively (this is ${process.version}).`);
   }
   register(new URL('./ts-resolve.mjs', import.meta.url));
-  const [metadata, env] = await Promise.all([import('../src/metadata/index.ts'), import('../src/env.ts')]);
-  return { findCover: metadata.findCover, findDescription: metadata.findDescription, fetchWithTimeout: env.fetchWithTimeout, USER_AGENT: env.USER_AGENT };
+  const [metadata, covers] = await Promise.all([import('../src/metadata/index.ts'), import('../src/lib/covers.ts')]);
+  return { findCover: metadata.findCover, findDescription: metadata.findDescription, fetchCover: covers.fetchCover };
 }
 
 const GOOGLE_BOOKS = 'www.googleapis.com';
@@ -282,6 +283,7 @@ function instrumentFetch({ rps }) {
     'api.discogs.com': 1,
     'musicbrainz.org': 1,
     'coverartarchive.org': 1,
+    'archive.org': 1, // where the archive's covers redirect to
     [BOARDGAMEGEEK]: 0.2,
   };
   const waitForSlot = async (host) => {
@@ -325,7 +327,8 @@ function instrumentFetch({ rps }) {
           await sleep(2000 * (attempt + 1));
           continue;
         }
-        const answered = res.ok && !queued;
+        // a redirect is an answer too: the Cover Art Archive's are followed by hand (fetchCover), so they arrive here
+        const answered = (res.ok || (res.status >= 300 && res.status < 400)) && !queued;
         bump(host, answered ? 'ok' : res.status === 404 ? 'notFound' : 'failed');
         if (answered || res.status === 404) failures.set(host, 0);
         else noteFailure(host, `HTTP ${res.status}`);
@@ -402,22 +405,14 @@ async function enrich(target, flags) {
 
   const contentTypes = new Map();
   async function storeCoverLocally(url) {
-    // mirrors storeCover() in src/lib/covers.ts, but to disk — the upload step puts it in R2
-    if (!url || !/^https?:\/\//.test(url)) return null;
-    try {
-      const res = await M.fetchWithTimeout(url, { headers: { 'User-Agent': M.USER_AGENT } });
-      if (!res.ok) return null;
-      const contentType = res.headers.get('content-type') ?? 'image/jpeg';
-      if (!contentType.startsWith('image/')) return null;
-      const body = Buffer.from(await res.arrayBuffer());
-      if (body.byteLength < 500 || body.byteLength > 5 * 1024 * 1024) return null;
-      const key = randomUUID();
-      writeFileSync(`${p.covers}/${key}`, body);
-      contentTypes.set(key, contentType);
-      return key;
-    } catch {
-      return null;
-    }
+    // storeCover()'s own rules (fetchCover in src/lib/covers.ts: raster only, never a Discogs image, the Cover Art
+    // Archive's redirects only to archive.org), but to disk — the upload step puts it in R2
+    const got = await M.fetchCover(url);
+    if (!got) return null;
+    const key = randomUUID();
+    writeFileSync(`${p.covers}/${key}`, Buffer.from(got.body));
+    contentTypes.set(key, got.contentType);
+    return key;
   }
 
   // mirrors the patch rules in POST /api/backfill-covers (src/routes/importexport.tsx)
@@ -425,7 +420,14 @@ async function enrich(target, flags) {
     const needsCover = !item.cover_key;
     const result = await M.findCover(
       env,
-      { barcode: item.isbn13 ?? item.isbn10_upc, title: item.title, creators: item.creators, mediaType: item.media_type, wantCover: needsCover },
+      {
+        barcode: item.isbn13 ?? item.isbn10_upc,
+        title: item.title,
+        creators: item.creators,
+        mediaType: item.media_type,
+        musicbrainzId: item.musicbrainz_id,
+        wantCover: needsCover,
+      },
       needsCover ? storeCoverLocally : async () => null,
     );
     const patch = {};

@@ -115,10 +115,11 @@ importexport.get('/import', async (c) => {
               <span class="mono">{backfill.noDescription}</span> {items(backfill.noDescription)} missing a description
             </p>
             <p class="muted">
-              Backfill matches by ISBN/UPC first (Open Library, Google Books, iTunes;
-              Discogs and the Cover Art Archive for music barcodes), then by title and author — a
-              different edition's cover may be used, but never a different book's: covers are stored
-              only when the source's title or identifiers agree with the item. The matching record also
+              Backfill matches by ISBN/UPC first (Open Library, Google Books, iTunes), then by title and
+              author — a different edition's cover may be used, but never a different book's: covers are
+              stored only when the source's title or identifiers agree with the item. A record's cover
+              comes only from the Cover Art Archive, by barcode or by artist and title, and its details
+              from Discogs. The matching record also
               fills an empty description, publisher, year or page count — never what you've written
               yourself. Re-run any time.
             </p>
@@ -282,6 +283,7 @@ importexport.post('/api/backfill-covers', async (c) => {
           title: item.title,
           creators: item.creators,
           mediaType: item.mediaType,
+          musicbrainzId: parseDetails(item.details)['musicbrainz_id'],
           wantCover: !item.coverKey,
         },
         // an item that only wants a description keeps the cover it has — nothing is fetched for it
