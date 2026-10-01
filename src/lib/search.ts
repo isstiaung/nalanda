@@ -22,6 +22,13 @@ export type ParsedSearch = {
 /** The operators, as the page lists them. */
 export const OPERATORS = ['author:', 'title:', 'tag:', 'status:', 'year:', 'lang:', 'type:'] as const;
 
+/**
+ * The most values one operator keeps, after the same value twice is read once. Each tag:, status:, year:, lang: and
+ * type: value is a bound parameter (a year range two) and D1 refuses a statement with more than 100, so a pasted
+ * query of fifty `type:book` tokens must still be a search, not an error: the first ten count, the rest are ignored.
+ */
+export const MAX_PER_OPERATOR = 10;
+
 /** The words a status: value may be — the pills' names and the obvious synonyms, never the column's values alone. */
 const STATUS_WORDS: Record<string, ItemStatus> = {
   unread: 'not_started',
@@ -135,6 +142,25 @@ export function parseSearch(q: string): ParsedSearch {
         // an unknown prefix is part of the text ("re:zero" is a title)
         words(m[0]);
     }
+  }
+  out.tags = uniq(out.tags);
+  out.statuses = uniq(out.statuses);
+  out.languages = uniq(out.languages);
+  out.types = uniq(out.types);
+  out.years = uniq(out.years, (y) => `${y.from}-${y.to}`);
+  return out;
+}
+
+/** The first MAX_PER_OPERATOR distinct values. */
+function uniq<T>(values: T[], key: (v: T) => unknown = (v) => v): T[] {
+  const seen = new Set<unknown>();
+  const out: T[] = [];
+  for (const v of values) {
+    const k = key(v);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(v);
+    if (out.length === MAX_PER_OPERATOR) break;
   }
   return out;
 }

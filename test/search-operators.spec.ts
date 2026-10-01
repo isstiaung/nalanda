@@ -5,8 +5,8 @@ import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
 import { addPastRead, createItem, createLibrary, searchItems, setItemTags, updateSiteSettings, startRead } from '../src/db/queries';
 import type { NewItem } from '../src/db/schema';
-import { ftsMatch, hasFilters, languageCode, parseSearch } from '../src/lib/search';
-import { html, member } from './member-helpers';
+import { ftsMatch, hasFilters, languageCode, MAX_PER_OPERATOR, parseSearch } from '../src/lib/search';
+import { as, html, member } from './member-helpers';
 
 describe('parseSearch', () => {
   it('splits plain words, and reads each operator', () => {
@@ -28,9 +28,9 @@ describe('parseSearch', () => {
     expect(parseSearch('status:re-reading').statuses).toEqual(['in_progress']);
     expect(parseSearch('type:game type:records type:film').types).toEqual(['boardgame', 'vinyl', 'movie']);
     expect(parseSearch('lang:hi lang:Tamil language:fr').languages).toEqual(['hi', 'ta', 'fr']);
-    expect(parseSearch('year:2010-2019 year:2019-2010').years).toEqual([
+    expect(parseSearch('year:2010-2019 year:2019-2010 year:1990').years).toEqual([
       { from: 2010, to: 2019 },
-      { from: 2010, to: 2019 },
+      { from: 1990, to: 1990 },
     ]);
     expect(parseSearch('creator:tolkien by:"n. k. jemisin"').author).toEqual(['tolkien', 'n. k. jemisin']);
     expect(languageCode('Hindi')).toBe('hi');
@@ -45,6 +45,16 @@ describe('parseSearch', () => {
     expect(parseSearch('"left hand"').text).toEqual(['left', 'hand']);
     // an operator with nothing after it is nothing
     expect(parseSearch('tag: author:""')).toEqual(parseSearch(''));
+  });
+
+  it('reads the same value once, and keeps at most ten values per operator — a pasted query is a search, not an error', () => {
+    expect(parseSearch('status:read status:completed status:finished').statuses).toEqual(['completed']);
+    expect(parseSearch('year:2019 year:2019-2019').years).toEqual([{ from: 2019, to: 2019 }]);
+    const many = parseSearch(Array.from({ length: 40 }, (_, i) => `tag:t${i} year:${1900 + i} lang:${['hi', 'ta', 'fr', 'de', 'es', 'it', 'pt', 'ru', 'ja', 'ko', 'zh', 'ar'][i % 12]}`).join(' '));
+    expect(many.tags).toHaveLength(MAX_PER_OPERATOR);
+    expect(many.years).toHaveLength(MAX_PER_OPERATOR);
+    expect(many.languages).toHaveLength(MAX_PER_OPERATOR);
+    expect(many.tags[0]).toBe('t0');
   });
 
   it('builds the FTS5 expression: prefixes everywhere, column filters for title: and author:, syntax characters dropped', () => {
@@ -122,6 +132,16 @@ describe('searchItems with operators', () => {
     expect(ids(await searchItems(env.DB, 'the status:reading'))).toEqual([dispossessed.id]);
     expect(ids(await searchItems(env.DB, 'status:read', 50, { readerId: ravi.id, mode: 'finished' }))).toEqual(ids([leftHand, dispossessed]));
     expect(ids(await searchItems(env.DB, 'tag:sf', 50, { readerId: ravi.id, mode: 'reading' }))).toEqual([dispossessed.id]);
+  });
+
+  it('answers a pasted query of two hundred operators with a page, inside D1\'s hundred bound parameters', async () => {
+    const { earthsea } = await seed();
+    const admin = await member('admin', 'admin');
+    const q = Array.from({ length: 200 }, (_, i) => (i % 2 ? `year:${1900 + i}-${1901 + i}` : `type:book tag:fantasy lang:${['hi', 'ta', 'fr', 'de', 'es', 'it', 'pt', 'ru', 'ja', 'ko', 'zh'][i % 11]}`)).join(' ');
+    // the real values come first, so the cap keeps them; everything after the tenth of each operator is ignored
+    expect(ids(await searchItems(env.DB, `year:1968 lang:en status:unread status:read status:reading status:abandoned ${q}`))).toEqual([earthsea.id]);
+    const res = await as(admin, `/search?q=${encodeURIComponent(q)}`);
+    expect(res.status).toBe(200);
   });
 
   it('limits a query of operators alone as it limits a text search', async () => {
