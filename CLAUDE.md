@@ -8,8 +8,10 @@ import/export. Multi-user (admin + family members). **$0/month hosting is a hard
 requirement.**
 
 [ARCH.md](ARCH.md) is the source of truth for architecture decisions — read it before
-structural changes, update it (incl. §16 decision log) when a decision changes. This file is the
-short operating manual. The long forms: [docs/privacy.md](docs/privacy.md) (every privacy rule by
+structural changes. Its §16 indexes the decision log, one file per decision in
+[docs/decisions/](docs/decisions/), cited everywhere as "ARCH.md §16 #N": add a file and an index
+row when a decision is made, amend the file when one changes. This file is the short operating
+manual. The long forms: [docs/privacy.md](docs/privacy.md) (every privacy rule by
 surface), [docs/conventions.md](docs/conventions.md), [docs/layout.md](docs/layout.md).
 
 MIT. Contributions: [CONTRIBUTING.md](CONTRIBUTING.md); vulnerabilities: [SECURITY.md](SECURITY.md);
@@ -174,7 +176,8 @@ File by file: [docs/layout.md](docs/layout.md). The rules it carries:
 - `src/routes/share.tsx` is the public share pages, `shares.tsx` admin share management — don't
   confuse them. Whitelists: `src/lib/share.ts` (public), `src/federation/items.ts` (connections).
 - `migrations/` is append-only. `changelog/` holds `vX.Y.Z.md` per release and `unreleased.md`;
-  CHANGELOG.md is their index.
+  CHANGELOG.md is their index. `docs/decisions/` holds one file per decision; ARCH.md §16 is
+  their index, and "ARCH.md §16 #N" stays the citation.
 - `.github/`: CI has no secrets and never uses `pull_request_target`; the release workflow never
   deploys. `docs/screenshots/` come from seeded demo data — never real catalog data. Update
   `runbooks/` when ops procedures change.

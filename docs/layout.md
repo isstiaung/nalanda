@@ -74,6 +74,9 @@ runbooks/          operational guides: deploy, updating (for self-hosters), back
                    dependabot (minor/patch grouped, majors alone), CODEOWNERS
 CHANGELOG.md       the release index: one line per release, newest first (ARCH.md §16 #42)
 changelog/         vX.Y.Z.md per release, each with an Upgrading section; unreleased.md for PRs
-docs/              privacy.md, conventions.md, layout.md: the detail behind CLAUDE.md; proposals/
+docs/              privacy.md, conventions.md, layout.md: the detail behind CLAUDE.md; proposals/;
+                   perf/ (the query analysis, ARCH.md §16 #68)
+docs/decisions/    the decision log, one file per decision, indexed by ARCH.md §16 — cite a
+                   decision as "ARCH.md §16 #N", and the index resolves it
 docs/screenshots/  README imagery, captured from seeded demo data — never real catalog data
 ```
