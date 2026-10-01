@@ -450,6 +450,7 @@ async function exportRows(
       cells.links.get(item.id) ?? [],
       cells.editions.get(item.id) ?? [],
       cells.quotes.get(item.id) ?? [],
+      cells.borrows.get(item.id) ?? [],
     );
   }
   return { csv, count: items.length, lastId: items.at(-1)!.id, more };

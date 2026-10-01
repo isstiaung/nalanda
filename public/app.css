@@ -1553,6 +1553,10 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .views .inline-form input { flex: 0 1 14rem; min-width: 0; }
 .shelf-views { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
 
+/* borrowed from someone not on Nalanda (ARCH.md §16 #82): circulation, so the stamp colour, like Lent */
+.pill.borrowed { border-color: var(--stamp); color: var(--stamp); }
+.borrowed-from { display: grid; gap: 0.5rem; }
+.borrow-history { margin: 0; padding-left: 1.1rem; font-size: 13px; }
 /* QR codes on Shared links (ARCH.md §16 #85): drawn at 512px, shown small and crisp; the download keeps it whole */
 .share-qr { display: flex; align-items: flex-end; gap: 0.6rem; margin-top: 0.45rem; }
 .share-qr img { width: 104px; height: 104px; image-rendering: pixelated; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); }

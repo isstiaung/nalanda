@@ -58,7 +58,8 @@ src/federation/    connections between instances (docs/proposals/connections.md)
                    the outbox (outbox.ts), public routes. Its D1 queries live in
                    src/db/federation.ts; admin pages in routes/connections, Feed in routes/feed,
                    comments in routes/comments, recommendations in routes/recommendations,
-                   shelves/requests/Borrowed and the Loans-page section in routes/borrowing,
+                   shelves/requests/Borrowed and the Loans-page section in routes/borrowing — Borrowed
+                   is every household's page since ARCH.md §16 #82, its people section first,
                    in-app notifications in routes/notifications (recorded in src/db/federation.ts)
 public/            app.css, scanner.js, import.js, qr.js (each share link's QR code, drawn on the Shared links
                    page from the vendored qrcode.js — ARCH.md §16 #85), app.js (also shrinks a chosen cover photo before the form

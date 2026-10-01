@@ -23,7 +23,7 @@ search.get('/search', async (c) => {
   const capped = items.length >= SEARCH_LIMIT;
   // the Shelf column, and bulk edit's "Move to shelf" and its notice (§16 #47) — and then the sidebar's list too (§16 #68)
   const listed = items.length > 0 || !!c.req.query('bulk');
-  const [{ onLoan: onLoanIds, wanted: wantedIds }, libs] = await Promise.all([
+  const [{ onLoan: onLoanIds, wanted: wantedIds, borrowed: borrowedIds }, libs] = await Promise.all([
     shelfFlags(c.env.DB, items.map((i) => i.id)), // loans and the "Wanted" badge (§16 #53), one call
     listed ? listLibraries(c.env.DB) : Promise.resolve([]),
   ]);
@@ -71,7 +71,7 @@ search.get('/search', async (c) => {
       {q ? (
         items.length ? (
           <>
-            <ItemTable items={items} onLoanIds={onLoanIds} wantedIds={wantedIds} libraryNames={libraryNames} selectable />
+            <ItemTable items={items} onLoanIds={onLoanIds} wantedIds={wantedIds} borrowedIds={borrowedIds} libraryNames={libraryNames} selectable />
             {capped ? (
               <p class="muted form-note">
                 Showing the {SEARCH_LIMIT} best matches — there may be more. Add a word to narrow the search, or filter a shelf.
