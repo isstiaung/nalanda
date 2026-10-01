@@ -69,6 +69,14 @@ from your address, or ten at the account from anywhere, and login answers "Too m
 npm run wrangler:remote -- d1 execute nalanda --remote --command "DELETE FROM login_attempts"
 ```
 
+The per-account count is also what someone who knows a username can lean on to keep that
+account from signing in anew (ten wrong guesses every ten minutes, from anywhere); devices
+already signed in are unaffected. To free one account without clearing everyone's throttle:
+
+```sh
+npm run wrangler:remote -- d1 execute nalanda --remote --command "DELETE FROM login_attempts WHERE username = 'the-username'"
+```
+
 ## Sign one person out everywhere
 
 Anyone can do it for themselves: Account → *Sign out other devices*. Every other device of
