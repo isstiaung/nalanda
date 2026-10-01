@@ -80,6 +80,8 @@ function cacheKey(c: Context<AppEnv>): string {
 }
 
 share.use('*', async (c, next) => {
+  // search engines never index a share page or its feeds: the header says so where a feed has no <head> for the meta
+  c.header('X-Robots-Tag', 'noindex');
   if (c.req.method !== 'GET') return next();
   const key = cacheKey(c);
   const hit = pageCache.get(key);
