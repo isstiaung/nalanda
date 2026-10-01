@@ -365,6 +365,8 @@ items.post('/items', async (c) => {
     });
     if (existing) {
       await setWant(c.env.DB, existing, c.get('user').id, true);
+      // the review list's Want gets its entry back, as its Add does: a redirect reads there as a lapsed session
+      if (htmx) return c.html(<ReviewAdded id={existing} title={parsed.values.title} shelf={lib.name} want="existing" />);
       return c.redirect(`/items/${existing}`);
     }
     parsed.values.copies = 0;
@@ -440,7 +442,7 @@ items.post('/items', async (c) => {
     c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // nothing points at it
     throw err;
   }
-  if (htmx && !logOnly) return c.html(<ReviewAdded id={id} title={parsed.values.title} shelf={lib.name} />);
+  if (htmx && !logOnly) return c.html(<ReviewAdded id={id} title={parsed.values.title} shelf={lib.name} want={want ? 'new' : undefined} />);
   return c.redirect(logOnly ? `/items/${id}/edit` : `/items/${id}`);
 });
 

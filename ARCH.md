@@ -1682,7 +1682,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     subrequest and CPU budget — which renders the entry server-side (`ReviewEntry`), testable in
     workerd, rather than building cards from `/api/lookup`'s JSON in the browser. Adding posts
     the entry's form to `POST /items` with `HX-Request`, which answers htmx with the added entry
-    (one handler, two renders); a row leaves the queue only after that 200. Drop is the device's
+    (one handler, two renders); a row leaves the queue only after that 200. Want does the same
+    with `want=1`, as a search result's does (§16 #53): onto the adder's want list, as Not owned
+    or on the copy the catalog already has — answered with the entry too, never a redirect, and
+    refused like Add when `scanOwner` isn't the signed-in account's. Drop is the device's
     alone: it deletes the row, and no server route exists for it.
 
     *Whose queue:* the device's and the signed-in account's. Every signed-in page carries an
@@ -1732,8 +1735,8 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
       `goalCountSql()` works it out when asked, so a read added, corrected, moved or deleted counts at
       once. The Overview shows the signed-in member's goal for this year — "14 of 24", a pace pill ("on
       pace", "3 behind pace", "2 ahead of pace", reached) and a bar with a tick where a year-long pace
-      stands today, explained in words under the bar ("Pace runs from 1 January: the mark is where a
-      year-long pace is today") since the bar is hidden from assistive tech. Pace is linear from
+      stands today, explained in words under the bar ("The mark shows where you'd be reading evenly
+      since 1 January") since the bar is hidden from assistive tech. Pace is linear from
       1 January, whenever the goal was set: by the end of day d of a D-day year, d/D of the target,
       rounded down, so a goal is on pace until it is a whole book behind or past. (1.6.0 said "on track"
       and "3 behind"; a goal set on 30 September read "7 behind" with nothing saying behind what — the
@@ -3286,7 +3289,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     type, so the picker used to start on the first shelf for every result. `shelfForType()` — one query, the shelf
     holding most items of each type, ties to the shelf listed first — sets it for search results and held scans;
     a type the catalog doesn't hold yet starts on the first shelf, as before. The results page costs one more D1
-    call than before (three, whatever the results). Not in `scripts/a11y.mjs`: its searches need a provider.
+    call than before (three, whatever the results). `scripts/a11y.mjs` presses More results from the keyboard after
+    a book search for a common word — Open Library is keyless, so it needs only the internet, as the audit's other
+    Add-page lookup does, and when Open Library can't be reached the state is reported as not audited — then runs
+    axe on the next page and checks focus landed on its wrapper. (It was left out at first, as needing a provider.)
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
