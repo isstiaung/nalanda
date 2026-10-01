@@ -2013,11 +2013,21 @@ export async function itemPageLog(
   entries: ProgressEntry[];
   reviews: ReviewEntry[];
   want: { wanters: Array<{ id: number; username: string; at: string }>; links: Array<{ id: number; label: string; url: string }> };
+  editions: EditionDraft[]; // "also held as" (§16 #75), in the same call
   extra: D1Result[];
 }> {
-  const own = [...readingLogStatements(d1, itemId), ...wantsAndLinksStatements(d1, itemId)];
+  const own = [
+    ...readingLogStatements(d1, itemId),
+    ...wantsAndLinksStatements(d1, itemId),
+    d1.prepare('SELECT format, isbn, publisher, year FROM editions WHERE item_id = ?1 ORDER BY id').bind(itemId),
+  ];
   const results = await d1.batch([...own, ...extra]);
-  return { ...readingLogOf(results), want: wantsAndLinksOf(results.slice(3)), extra: results.slice(own.length) };
+  return {
+    ...readingLogOf(results),
+    want: wantsAndLinksOf(results.slice(3)),
+    editions: (results[own.length - 1]?.results ?? []) as EditionDraft[],
+    extra: results.slice(own.length),
+  };
 }
 
 function readingLogStatements(d1: D1Database, itemId: number): D1PreparedStatement[] {

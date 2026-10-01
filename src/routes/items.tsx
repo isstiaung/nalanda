@@ -746,7 +746,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const viewer = viewerOf(c);
   // "Recommend to…" (§16 #58): its queries ride in the reading log's batch — no call of their own
   const recommend = await recommendOnItemPage(c, item);
-  const [lib, tags, loans, people, log, lent, plays, inSeries, editions] = await Promise.all([
+  const [lib, tags, loans, people, log, lent, plays, inSeries] = await Promise.all([
     getLibrary(c.env.DB, item.libraryId),
     tagsForItem(c.env.DB, id),
     activeLoansForItem(c.env.DB, id),
@@ -757,8 +757,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
     playLog(c.env.DB, id),
     // its series, with the viewer's own reading of every volume (§16 #52): one call, only for an item in one
     item.seriesId !== null ? seriesWithVolumes(c.env.DB, item.seriesId, viewer.id) : null,
-    editionsOf(c.env.DB, id), // "also held as" (§16 #75)
   ]);
+  const editions = log.editions; // "also held as" (§16 #75), read in the reading log's call
   const addedBy = item.addedBy ? (people.find((p) => p.id === item.addedBy) ?? null) : null;
   const grouped = showsPeople(people, viewer, log);
   const ratings = log.reviews.filter((r) => r.rating !== null).length;

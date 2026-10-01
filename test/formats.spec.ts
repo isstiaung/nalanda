@@ -60,7 +60,7 @@ describe('the formats library', () => {
     const cell = formatLoansCell(loans);
     expect(cell).toBe('2026-03-01..@Priya|edition:hardcover');
     expect(parseLoansCell(cell)).toEqual(loans);
-    expect(parseLoansCell('2026-03-01..@Priya')[0]!.edition).toBeNull();
+    expect(parseLoansCell('2026-03-01..@Priya')[0]).not.toHaveProperty('edition'); // an older export: the key stays absent
   });
 });
 

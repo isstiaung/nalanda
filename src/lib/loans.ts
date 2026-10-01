@@ -90,7 +90,7 @@ export function parseLoansCell(cell: string | null | undefined): LoanDraft[] {
     const loanedOn = span[1]!.trim();
     const returned = span[2]!.trim();
     if (!isIsoDate(loanedOn) || (returned !== '' && !isIsoDate(returned))) continue;
-    const loan: LoanDraft = { borrower, loanedOn, dueOn: null, returnedOn: returned || null, contact: null, note: null, edition: null };
+    const loan: LoanDraft = { borrower, loanedOn, dueOn: null, returnedOn: returned || null, contact: null, note: null };
     for (const field of fields) {
       const colon = field.indexOf(':');
       if (colon < 0) continue;
@@ -99,7 +99,7 @@ export function parseLoansCell(cell: string | null | undefined): LoanDraft[] {
       if (key === 'due' && loan.dueOn === null) loan.dueOn = dec(value).slice(0, MAX_DUE_TEXT) || null;
       else if (key === 'contact' && loan.contact === null) loan.contact = dec(value) || null;
       else if (key === 'note' && loan.note === null) loan.note = dec(value) || null;
-      else if (key === 'edition' && loan.edition === null) loan.edition = dec(value).slice(0, 40) || null;
+      else if (key === 'edition' && loan.edition === undefined) loan.edition = dec(value).slice(0, 40) || null; // the key only when the cell had one
     }
     out.push(loan);
   }
