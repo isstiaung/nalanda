@@ -45,7 +45,7 @@ member's own reads and reviews, a runbook and a fixture each.
   what maps where, and the merge rules by reference to Goodreads'.
 
 **What it rules out:** a fourth mapper for every reading site (the three cover the ones people
-leave); importing StoryGraph's moods and pace as anything but details; a LibraryThing "Reading
+leave); publishing StoryGraph's moods and pace (they are the reader's, in the private notes); a LibraryThing "Reading
 Dates" history beyond Date Started and Date Read (the export's newer column, not in the sample
 the format was taken from — a later version can add it); lending records from LibraryThing's
 Lending columns (a loan here is the household's, #57).
