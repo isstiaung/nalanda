@@ -17,6 +17,8 @@ for what a host must do; link runbooks as ../runbooks/…); a release commit ren
 ### Fixed
 - **A Not owned item never claims a read on a share page.** A reading-log entry — a Goodreads import, a library book — showed "Read N times" and, with progress on for shares, a current page, as any owned book does. The rule is now as CLAUDE.md states it: while an item isn't owned, its share page and feed say "Not owned" and nothing about its reads. Owned, the same reading shows as before; connections are unchanged.
 
+- **"Publish current view" names every filter a link leaves out.** The note under the button said so for Read by and Format only; with Borrowed from someone, Unread for years, Not played lately or the search box in the bar it read "(none — the whole shelf)" and the link showed more than the screen. It now lists each of them. None of these becomes publishable: a share link still carries only type, status, holding and sort.
+
 ### Upgrading
 - **One migration, 0051: a new `api_tokens` table, no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. The backup's table order gains `api_tokens`.
 - **One migration, 0052: a new column on `items` (`created_at`, empty until an import re-dates a book), no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. Then, to date a catalogue imported from Goodreads before this version, re-import the same export with the box ticked ([runbook](../runbooks/import-from-goodreads.md#dates-added)).

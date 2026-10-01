@@ -204,3 +204,28 @@ describe('saved views', () => {
     expect((await rows<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'saved_views'")).length).toBe(1);
   });
 });
+
+describe('publishing "the current view" from a decluttered shelf', () => {
+  it('names every filter a share link can’t carry, and captures none of them', async () => {
+    const admin = await member('root', 'admin');
+    const { lib, item } = await shelf();
+    await item({ title: 'Some book' });
+    const formOf = (page: string) => page.slice(page.indexOf('<form method="post" action="/shares"'), page.indexOf('</small>', page.indexOf('<form method="post" action="/shares"')));
+    // Borrowed among the Holding choices, the decluttering filters, the search box, Format and Read by: all dropped, all named
+    const page = await html(admin, `/libraries/${lib.id}?owned=1&owned=b&addedYears=3&unplayedMonths=12&q=loft&format=hardcover&readBy=me`);
+    const form = formOf(page);
+    for (const field of ['name="owned"', 'addedYears', 'unplayedMonths', 'name="q"', 'format', 'readBy']) expect(form, field).not.toContain(field);
+    expect(form).toContain('(none — the whole shelf)');
+    expect(form).toContain(
+      '&quot;Read by&quot;, Format, Borrowed from someone, Unread for years, Not played lately and the search box are never published: the link shows this view without them.',
+    );
+    // one alone keeps the singular, and the bar's own captured filter is still listed
+    const one = formOf(await html(admin, `/libraries/${lib.id}?status=not_started&addedYears=3`));
+    expect(one).toContain('name="status" value="not_started"');
+    expect(one).toContain('(Not started)');
+    expect(one).toContain('Unread for years is never published: the link shows this view without it.');
+    // nothing dropped, nothing said
+    const plain = formOf(await html(admin, `/libraries/${lib.id}?status=not_started`));
+    expect(plain).not.toContain('never published');
+  });
+});
