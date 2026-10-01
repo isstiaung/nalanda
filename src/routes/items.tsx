@@ -58,7 +58,7 @@ import { fillPressing, recordBarcode, releaseIdOf, type Filled } from '../lib/pr
 import { checkPurchaseLink, MAX_LINKS_PER_ITEM } from '../lib/links';
 import { isCurrencyCode, isStoredPrice, parseMoney } from '../lib/money';
 import { MAX_PROGRESS_PAGE } from '../lib/progress';
-import { isReadStatus, readDateProblem, summarizeReads, todayUtc, type ReadDraft } from '../lib/reads';
+import { isReadStatus, readDateProblem, summarizeReads, type ReadDraft } from '../lib/reads';
 import { reviewText } from '../lib/reviews';
 import { cleanSeriesName, formatSeriesNumber, parseSeriesNumber, type SeriesDraft } from '../lib/series';
 import { parseDetails } from '../lib/share';
@@ -96,7 +96,7 @@ import {
   WantBar,
   WantedPill,
 } from '../views/components';
-import { page } from '../views/layout';
+import { page, todayOf } from '../views/layout';
 import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
 import { recommendOnItemPage } from './recommendations';
@@ -711,7 +711,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const addedBy = item.addedBy ? (people.find((p) => p.id === item.addedBy) ?? null) : null;
   const grouped = showsPeople(people, viewer, log);
   const ratings = log.reviews.filter((r) => r.rating !== null).length;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayOf(c);
   const isOverdue = (l: { dueOn: string | null }) => !!(l.dueOn && l.dueOn < today);
   const overdue = loans.some(isOverdue);
   const loan = loans[0] ?? null; // for the status pill: lent at all, and overdue if any is
@@ -870,7 +870,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
 
         {/* a game's or record's plays (§16 #54) — and any item's that has some, from before its type changed */}
         {isPlayable(item.mediaType) || plays.count ? (
-          <PlaysSection item={item} count={plays.count} plays={plays.plays} today={todayUtc()} viewer={viewer} people={people} />
+          <PlaysSection item={item} count={plays.count} plays={plays.plays} today={today} viewer={viewer} people={people} />
         ) : null}
 
         {buyIsShown(item, log.want.wanters) || link ? (
@@ -894,14 +894,14 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
             item={item}
             reads={log.reads}
             entries={log.entries}
-            today={todayUtc()}
+            today={today}
             viewer={viewer}
             people={people}
             grouped={grouped}
           />
         ) : grouped && log.reads.length && !isPlayable(item.mediaType) ? (
           // a record's or game's reads are kept from the edit form; with more than one person, here is whose they are
-          <ReadsByPerson item={item} reads={log.reads} viewer={viewer} people={people} />
+          <ReadsByPerson item={item} reads={log.reads} viewer={viewer} people={people} today={today} />
         ) : null}
 
         {discussion}
@@ -1043,14 +1043,14 @@ async function readingResponse(c: Context<AppEnv>, id: number, error?: string) {
           item={item}
           reads={log.reads}
           entries={log.entries}
-          today={todayUtc()}
+          today={todayOf(c)}
           viewer={viewer}
           people={people}
           grouped={showsPeople(people, viewer, log)}
           error={error}
         />
       ) : (
-        <ReadsByPerson item={item} reads={log.reads} viewer={viewer} people={people} error={error} />
+        <ReadsByPerson item={item} reads={log.reads} viewer={viewer} people={people} today={todayOf(c)} error={error} />
       )}
       <ItemStatusPills item={item} oob={true} />
     </>,
@@ -1087,7 +1087,7 @@ items.post('/items/:id/progress', async (c) => {
   const page = Number(raw);
   const invalid = !/^\d+$/.test(raw) || !Number.isSafeInteger(page) || page < 1 || page > MAX_PROGRESS_PAGE;
   // a finished or stopped book has no open read to record into: reading it again starts with "Read again"
-  const recorded = !invalid && (await addProgress(c.env.DB, id, page, c.get('user').id));
+  const recorded = !invalid && (await addProgress(c.env.DB, id, page, c.get('user').id, todayOf(c)));
   return readingResponse(
     c,
     id,
@@ -1120,7 +1120,7 @@ items.post('/items/:id/progress/:entryId/delete', async (c) => {
 items.post('/items/:id/reads/start', async (c) => {
   const item = await bookFor(c);
   if (!item) return c.notFound();
-  const beganOn = formDate((await c.req.parseBody())['date']) ?? todayUtc();
+  const beganOn = formDate((await c.req.parseBody())['date']) ?? todayOf(c);
   const problem = readDateProblem({ status: 'in_progress', beganOn, endedOn: null });
   if (problem) return readingResponse(c, item.id, problem);
   const started = await startRead(c.env.DB, item.id, beganOn, c.get('user').id);
@@ -1152,7 +1152,7 @@ for (const [action, status] of [
     if (!item) return c.notFound();
     const read = await readFor(c, item);
     if (read === 'refused') return notYours(c, 'read');
-    const endedOn = formDate((await c.req.parseBody())['date']) ?? todayUtc();
+    const endedOn = formDate((await c.req.parseBody())['date']) ?? todayOf(c);
     const problem = readDateProblem({ status, beganOn: null, endedOn });
     if (problem) return readingResponse(c, item.id, problem);
     const closed = read !== 'missing' && (await closeRead(c.env.DB, item.id, read.id, status, endedOn, viewerOf(c)));
@@ -1302,7 +1302,7 @@ async function playsResponse(c: Context<AppEnv>, id: number, error?: string) {
     return c.body(null, 200);
   }
   if (!item) return c.notFound();
-  return c.html(<PlaysSection item={item} count={plays.count} plays={plays.plays} today={todayUtc()} viewer={viewerOf(c)} people={people} error={error} />);
+  return c.html(<PlaysSection item={item} count={plays.count} plays={plays.plays} today={todayOf(c)} viewer={viewerOf(c)} people={people} error={error} />);
 }
 
 /** "Played": a play of a board game or a record, today or on the date given, logged by the signed-in person. */
@@ -1310,7 +1310,7 @@ items.post('/items/:id/plays', async (c) => {
   const item = await getItem(c.env.DB, Number(c.req.param('id')));
   if (!item) return c.notFound();
   if (!isPlayable(item.mediaType)) return c.text('Plays are for board games and records. A book has reads.', 400);
-  const playedOn = formDate((await c.req.parseBody())['date']) ?? todayUtc();
+  const playedOn = formDate((await c.req.parseBody())['date']) ?? todayOf(c);
   const problem = playDateProblem(playedOn);
   if (problem) return playsResponse(c, item.id, problem);
   const logged = await logPlay(c.env.DB, item.id, playedOn, c.get('user').id);

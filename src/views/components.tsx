@@ -9,7 +9,7 @@ import { currencyDigits, formatCount, formatMoney, isStoredPrice, minorToDecimal
 import { progressPercent } from '../lib/progress';
 import { linkHost } from '../lib/links';
 import { isPlayable } from '../lib/plays';
-import { latestReadDate, ordinal, summarizeReads, todayUtc, type ReadDraft, type ReadRow } from '../lib/reads';
+import { latestReadDate, ordinal, summarizeReads, type ReadDraft, type ReadRow } from '../lib/reads';
 import { formatSeriesNumber } from '../lib/series';
 import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
@@ -486,11 +486,12 @@ export const ReadingSection: FC<{
  * an admin corrects or deletes it, and an admin moves it to another member, as on a book's page. No pages, no Read
  * again: those are for books. Swaps itself on every change, like the Reading section it stands in for.
  */
-export const ReadsByPerson: FC<{ item: Item; reads: ReadingRead[]; viewer: Viewer; people: Person[]; error?: string }> = ({
+export const ReadsByPerson: FC<{ item: Item; reads: ReadingRead[]; viewer: Viewer; people: Person[]; today: string; error?: string }> = ({
   item,
   reads,
   viewer,
   people,
+  today,
   error,
 }) => {
   const readers = [...new Set(reads.map((r) => r.readerId))].sort((a, b) =>
@@ -521,7 +522,7 @@ export const ReadsByPerson: FC<{ item: Item; reads: ReadingRead[]; viewer: Viewe
             <p class="reading-summary">{them.summary}</p>
             {them.open && (viewer.admin || id === viewer.id) ? (
               <div class="read-actions">
-                <CloseReadForms item={item} read={them.open} today={todayUtc()} rereading={them.state.rereading} />
+                <CloseReadForms item={item} read={them.open} today={today} rereading={them.state.rereading} />
               </div>
             ) : null}
             <ol class="read-history">
