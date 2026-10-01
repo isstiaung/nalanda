@@ -499,6 +499,11 @@ async function furnish(admin, member) {
   await expect('/', 'the goal and a book to read next', /Reading goal[\s\S]*Read next/);
   const seriesId = Number((await html(admin, '/series')).match(/href="\/series\/(\d+)"/)?.[1]);
   if (!seriesId) throw new Error('furnishing: /series lists no series');
+  // one item deleted, so the trash has a row to show (§16 #74)
+  await post(admin, '/items', { title: 'Doomed Volume', libraryId: String(shelves.books), mediaType: 'book', creators: 'Nobody Much' });
+  const doomed = await find('Doomed Volume');
+  if (!doomed) throw new Error('furnishing: the doomed volume was not added');
+  await post(admin, `/items/${doomed}/delete`, {});
   const creator = (await html(admin, '/creators')).match(/href="\/creators\/([^"]+)"/)?.[1];
   if (!creator) throw new Error('furnishing: /creators lists nobody');
   const publisher = (await html(admin, '/publishers')).match(/href="\/publishers\/([^"]+)"/)?.[1];
@@ -555,6 +560,7 @@ function pageList(ids) {
     ['Import / export', '/import'],
     ['Account', '/account'],
     ['Members', '/settings/users'],
+    ['Trash', '/trash'],
     ['Connections', '/connections'],
     ['Feed', '/feed'],
     ['Notifications', '/notifications'],

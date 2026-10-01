@@ -16,7 +16,6 @@ import {
   type BulkResult,
 } from '../db/queries';
 import type { AppEnv } from '../env';
-import { deleteCover } from '../lib/covers';
 import { DeleteConfirmation } from '../views/bulk';
 import { page } from '../views/layout';
 
@@ -123,9 +122,7 @@ bulk.post('/bulk', async (c) => {
         if (!found.length) return refuse(c, 400, 'None of the selected items exist any more.', back);
         return page(c, 'Delete items', <DeleteConfirmation items={found} back={back} />);
       }
-      result = await bulkDelete(c.env.DB, ids);
-      // only now, with the batch done, is nothing pointing at them — as the single delete does
-      c.executionCtx.waitUntil(Promise.all(result.covers.map((k) => deleteCover(c.env.COVERS, k))));
+      result = await bulkDelete(c.env.DB, ids, c.get('user').id); // into the trash, covers kept (§16 #74)
       break;
     }
   }

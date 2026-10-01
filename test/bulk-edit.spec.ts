@@ -402,7 +402,7 @@ describe('deleting', () => {
     expect(page).not.toContain(' more.');
   });
 
-  it('deletes on confirmation, and its covers once the batch is done', async () => {
+  it('deletes on confirmation into the trash, keeping its covers for a restore (§16 #74)', async () => {
     const { admin, shelf } = await household();
     const a = await item(shelf.id, { title: 'Gone Girl', coverKey: 'cover-a' });
     const b = await item(shelf.id, { title: 'Gone Baby Gone', coverKey: 'cover-b' });
@@ -413,8 +413,8 @@ describe('deleting', () => {
     expect(await getItem(env.DB, a.id)).toBeNull();
     expect(await getItem(env.DB, b.id)).toBeNull();
     expect(await getItem(env.DB, kept.id)).not.toBeNull();
-    expect(await env.COVERS.get('cover-a')).toBeNull();
-    expect(await env.COVERS.get('cover-b')).toBeNull();
+    expect(await env.COVERS.get('cover-a')).not.toBeNull(); // kept until the trash row is purged
+    expect(await env.COVERS.get('cover-b')).not.toBeNull();
     expect(await env.COVERS.get('cover-c')).not.toBeNull();
     expect(await searchItems(env.DB, 'gone')).toEqual([]);
     await ftsIntact();

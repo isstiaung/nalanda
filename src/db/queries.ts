@@ -762,9 +762,9 @@ export async function applyGameFill(
   return res.meta.changes > 0;
 }
 
-/** Deletes an item, and its series with it if it was the series' last volume here (§16 #52). */
-export async function deleteItem(d1: D1Database, id: number): Promise<void> {
-  await d1.batch([d1.prepare('DELETE FROM items WHERE id = ?1').bind(id), pruneSeries(d1)]);
+/** Deletes an item into the trash (§16 #74), and its series with it if it was the series' last volume here (§16 #52). */
+export async function deleteItem(d1: D1Database, id: number, deletedBy: number | null = null): Promise<void> {
+  await trashItems(d1, [id], deletedBy);
 }
 
 /**
@@ -1448,16 +1448,10 @@ export async function bulkSetOwned(d1: D1Database, ids: number[], owned: boolean
  * DELETE triggers tell a connection that a book lent to it is returned and that a request waiting on it is declined,
  * row by row, as N single deletes would. Returns the cover keys to remove once this has succeeded.
  */
-export async function bulkDelete(d1: D1Database, ids: number[]): Promise<BulkResult> {
-  const json = JSON.stringify(ids);
-  const [found] = await d1.batch([
-    d1.prepare(`SELECT id, cover_key AS coverKey FROM items WHERE ${SELECTED}`).bind(json),
-    d1.prepare(`DELETE FROM items WHERE ${SELECTED}`).bind(json),
-    pruneSeries(d1), // a series whose last volumes were among them goes too (§16 #52), as with a single delete
-  ]);
-  const rows = (found?.results ?? []) as Array<{ id: number; coverKey: string | null }>;
-  const covers = rows.map((r) => r.coverKey).filter((k): k is string => !!k);
-  return { found: rows.length, changed: rows.length, same: 0, skipped: 0, covers };
+export async function bulkDelete(d1: D1Database, ids: number[], deletedBy: number | null = null): Promise<BulkResult> {
+  const { trashed } = await trashItems(d1, ids, deletedBy);
+  // no covers to delete: a trashed item's cover stays in storage until its row is purged (§16 #74)
+  return { found: trashed, changed: trashed, same: 0, skipped: 0, covers: [] };
 }
 
 /** The selection as a delete's confirmation names it: which still exist, and their titles, in the order they were picked. */
@@ -3553,7 +3547,36 @@ export type ImportRow = {
   // a Nalanda export's want lists and purchase links (§16 #53), each want already resolved to a member here
   wants?: PersonWant[];
   links?: LinkDraft[];
+  // the pages recorded, each with the read it belonged to — only a restore from the trash brings these (§16 #74)
+  progress?: ProgressDraft[];
 };
+
+/** A page recorded, as the trash keeps it: its read named by what it was, since ids are new on restore. */
+export type ProgressDraft = { page: number; at: string; addedBy: number | null; read: PersonRead | null };
+
+/**
+ * Pages recorded, for an item inserted earlier in the batch, each pointed at its read — found again by its reader,
+ * status and dates among the reads inserted just before (readInsertStatements), or at no read when it had none.
+ */
+function progressInsertStatements(d1: D1Database, progress: ProgressDraft[]): D1PreparedStatement[] {
+  if (!progress.length) return [];
+  const json = JSON.stringify(progress.slice(0, MAX_PROGRESS_ROWS));
+  return [
+    d1
+      .prepare(
+        `INSERT INTO reading_progress (item_id, page, at, added_by, read_id)
+         SELECT (SELECT max(id) FROM items), json_extract(value, '$.page'), json_extract(value, '$.at'), json_extract(value, '$.addedBy'),
+           (SELECT r.id FROM reads r WHERE r.item_id = (SELECT max(id) FROM items)
+              AND json_type(value, '$.read') = 'object'
+              AND r.reader_id IS json_extract(value, '$.read.readerId') AND r.status = json_extract(value, '$.read.status')
+              AND r.began_on IS json_extract(value, '$.read.beganOn') AND r.ended_on IS json_extract(value, '$.read.endedOn')
+            ORDER BY r.id LIMIT 1)
+         FROM json_each(?1) ORDER BY key`,
+      )
+      .bind(json),
+  ];
+}
+const MAX_PROGRESS_ROWS = 5_000;
 
 /**
  * Batched insert used by /api/import. One network round trip per batch of rows: each item goes in with the
@@ -3562,7 +3585,7 @@ export type ImportRow = {
  * plays, which nothing on the item depends on (§16 #54). Loans go only onto the item their row makes, never onto one
  * already here.
  */
-export async function importItems(d1: D1Database, rows: ImportRow[]): Promise<number> {
+export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1PreparedStatement[] = []): Promise<number> {
   if (!rows.length) return 0;
   const writes: D1PreparedStatement[] = [];
   const itemAt: number[] = []; // each row's item insert, as an index into the batch's results
@@ -3587,9 +3610,10 @@ export async function importItems(d1: D1Database, rows: ImportRow[]): Promise<nu
       ...playInsertStatements(d1, r.plays ?? [], person),
       ...wantInsertStatements(d1, 'newest', r.wants ?? []),
       ...linkInsertStatements(d1, 'newest', r.links ?? []),
+      ...progressInsertStatements(d1, r.progress ?? []),
     );
   }
-  const results = await d1.batch(asImport(d1, writes));
+  const results = await d1.batch(asImport(d1, [...writes, ...extra]));
 
   const pairs: Array<{ itemId: number; tag: string }> = [];
   rows.forEach((r, i) => {
@@ -3851,4 +3875,161 @@ export async function setCover(d1: D1Database, id: number, coverKey: string | nu
   ]);
   const row = (was?.results?.[0] as { before: string | null } | undefined) ?? null;
   return row && did?.meta?.changes ? row : null;
+}
+
+// ---------- the trash (ARCH.md §16 #74) ----------
+
+/** How long a deleted item can be restored. Past it, the row and its cover's object are purged. */
+export const TRASH_DAYS = 30;
+
+/** SQL text for one JSON array of objects over `from`, in `order` — wrapped in json() so it nests as JSON, not as a string. */
+const jsonRows = (fields: string, from: string, order = 'id') =>
+  `json((SELECT coalesce(json_group_array(json_object(${fields})), '[]') FROM (SELECT * FROM ${from} ORDER BY ${order})))`;
+
+/**
+ * The snapshot an item leaves in the trash, built by SQLite in the delete's own batch. The item's columns come from
+ * the schema, so a column added later is in the snapshot the day it exists (a test holds the keys to the table's);
+ * what hangs off it is each dependent table as the import's row shape takes it back (ImportRow).
+ */
+function trashPayloadSql(): string {
+  const cols = Object.entries(getTableColumns(s.items))
+    .filter(([key]) => key !== 'id')
+    .map(([key, col]) => `'${key}', i.${col.name}`)
+    .join(', ');
+  return `json_object(
+    'item', json_object(${cols}),
+    'tags', json((SELECT coalesce(json_group_array(name), '[]') FROM (SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = i.id ORDER BY t.name))),
+    'series', json((SELECT json_object('name', sr.name, 'number', i.series_number, 'total', sr.total) FROM series sr WHERE sr.id = i.series_id)),
+    'reads', ${jsonRows("'status', status, 'beganOn', began_on, 'endedOn', ended_on, 'readerId', reader_id", 'reads WHERE item_id = i.id')},
+    'reviews', ${jsonRows("'userId', user_id, 'rating', rating, 'review', review, 'reviewedAt', reviewed_at, 'ratedAt', rated_at", 'reviews WHERE item_id = i.id')},
+    'loans', ${jsonRows("'borrower', borrower, 'loanedOn', loaned_on, 'dueOn', due_on, 'returnedOn', returned_on, 'contact', contact, 'note', note", 'loans WHERE item_id = i.id')},
+    'plays', ${jsonRows("'playedOn', played_on, 'loggedBy', logged_by", 'plays WHERE item_id = i.id')},
+    'wants', ${jsonRows("'userId', user_id, 'at', created_at", 'wants WHERE item_id = i.id', 'created_at, user_id')},
+    'links', ${jsonRows("'label', label, 'url', url", 'purchase_links WHERE item_id = i.id')},
+    'progress', json((SELECT coalesce(json_group_array(json_object(
+        'page', page, 'at', at, 'addedBy', added_by,
+        'read', json(CASE WHEN rid IS NULL THEN NULL ELSE json_object('status', rstatus, 'beganOn', rbegan, 'endedOn', rended, 'readerId', rreader) END)
+      )), '[]')
+      FROM (SELECT p.page, p.at, p.added_by, r.id AS rid, r.status AS rstatus, r.began_on AS rbegan, r.ended_on AS rended, r.reader_id AS rreader
+            FROM reading_progress p LEFT JOIN reads r ON r.id = p.read_id WHERE p.item_id = i.id ORDER BY p.id)))
+  )`;
+}
+
+/**
+ * Deletes items into the trash: each one's snapshot is written, then the rows go, in one batch — nothing is ever
+ * deleted without its snapshot, and nothing snapshotted stays. The delete is the one it always was: cascades take
+ * the dependents, triggers tell connections, the series is pruned (§16 #52). The cover's object is left in storage.
+ */
+export async function trashItems(d1: D1Database, ids: number[], deletedBy: number | null): Promise<{ trashed: number }> {
+  if (!ids.length) return { trashed: 0 };
+  const json = JSON.stringify(ids);
+  const [inserted] = await d1.batch([
+    d1
+      .prepare(
+        `INSERT INTO trash (item_id, library_id, media_type, title, creators, cover_key, payload, deleted_by)
+         SELECT i.id, i.library_id, i.media_type, i.title, i.creators, i.cover_key, ${trashPayloadSql()}, ?2
+         FROM items i WHERE i.${SELECTED} ORDER BY i.id`,
+      )
+      .bind(json, deletedBy),
+    d1.prepare(`DELETE FROM items WHERE ${SELECTED}`).bind(json),
+    pruneSeries(d1),
+  ]);
+  return { trashed: inserted?.meta?.changes ?? 0 };
+}
+
+export type TrashRow = {
+  id: number;
+  itemId: number;
+  libraryId: number | null;
+  mediaType: MediaType;
+  title: string;
+  creators: string | null;
+  coverKey: string | null;
+  deletedAt: string;
+  deletedBy: number | null;
+};
+
+const TRASH_COLUMNS = `id, item_id AS itemId, library_id AS libraryId, media_type AS mediaType, title, creators, cover_key AS coverKey,
+  deleted_at AS deletedAt, deleted_by AS deletedBy`;
+
+/** What the trash holds, newest first. */
+export async function listTrash(d1: D1Database): Promise<TrashRow[]> {
+  return (await d1.prepare(`SELECT ${TRASH_COLUMNS} FROM trash ORDER BY deleted_at DESC, id DESC`).all<TrashRow>()).results;
+}
+
+export async function getTrash(d1: D1Database, id: number): Promise<(TrashRow & { payload: string }) | null> {
+  return (await d1.prepare(`SELECT ${TRASH_COLUMNS}, payload FROM trash WHERE id = ?1`).bind(id).first<TrashRow & { payload: string }>()) ?? null;
+}
+
+/** The snapshot, as the trash row holds it. */
+export type TrashPayload = {
+  item: Record<string, unknown>;
+  tags: string[];
+  series: { name: string; number: number | null; total: number | null } | null;
+  reads: Array<{ status: ReadStatus; beganOn: string | null; endedOn: string | null; readerId: number | null }>;
+  reviews: Array<{ userId: number | null; rating: number | null; review: string | null; reviewedAt: string | null; ratedAt: string | null }>;
+  loans: LoanDraft[];
+  plays: Array<{ playedOn: string; loggedBy: number | null }>;
+  wants: Array<{ userId: number; at: string | null }>;
+  links: LinkDraft[];
+  progress: ProgressDraft[];
+};
+
+/**
+ * Restores a trashed item: its snapshot goes back through the import's insert — the item under a new id, its series,
+ * tags, reads, reviews, pages, plays, wants, links and loans — and the trash row goes in the same batch, so a restore
+ * can't happen twice. A member removed since is nobody on their reads, reviews, plays and pages, and their wants are
+ * dropped: `members` is who exists now. Bracketed as an import, so old reads aren't news to connections (§16 #40).
+ * The new item's id, or null when the row is gone.
+ */
+export async function restoreFromTrash(d1: D1Database, trashId: number, members: Set<number>): Promise<number | null> {
+  const row = await getTrash(d1, trashId);
+  if (!row) return null;
+  const p = JSON.parse(row.payload) as TrashPayload;
+  const who = (id: number | null | undefined): number | null => (id !== null && id !== undefined && members.has(id) ? id : null);
+  const { seriesId: _series, ...rest } = p.item as Record<string, unknown> & { seriesId?: unknown };
+  const item = { ...rest, addedBy: who(rest['addedBy'] as number | null) } as NewItem;
+  const importRow: ImportRow = {
+    item,
+    tags: p.tags ?? [],
+    series: p.series ? { name: p.series.name, number: p.series.number, total: p.series.total } : null,
+    reads: (p.reads ?? []).map((r) => ({ status: r.status, beganOn: r.beganOn, endedOn: r.endedOn, readerId: who(r.readerId) })),
+    reviews: (p.reviews ?? []).map((r) => ({ rating: r.rating, review: r.review, reviewedAt: r.reviewedAt, ratedAt: r.ratedAt, userId: who(r.userId) })),
+    loans: p.loans ?? [],
+    plays: (p.plays ?? []).map((pl) => ({ playedOn: pl.playedOn, loggedBy: who(pl.loggedBy) })),
+    wants: (p.wants ?? []).filter((w) => members.has(w.userId)),
+    links: p.links ?? [],
+    progress: (p.progress ?? []).map((pr) => ({
+      page: pr.page,
+      at: pr.at,
+      addedBy: who(pr.addedBy),
+      read: pr.read ? { ...pr.read, readerId: who(pr.read.readerId) } : null,
+    })),
+  };
+  const before = (await d1.prepare('SELECT max(id) AS id FROM items').first<{ id: number | null }>())?.id ?? 0;
+  // the latest page reached is the item's own column (progress_page), which an insert derives from its reads alone —
+  // the pages are inserted after it, so it is written back from the snapshot once they are
+  const latestPage = typeof rest['progressPage'] === 'number' ? rest['progressPage'] : null;
+  await importItems(d1, [importRow], [
+    ...(latestPage === null ? [] : [d1.prepare('UPDATE items SET progress_page = ?1 WHERE id = (SELECT max(id) FROM items)').bind(latestPage)]),
+    d1.prepare('DELETE FROM trash WHERE id = ?1').bind(trashId),
+  ]);
+  const after = (await d1.prepare('SELECT max(id) AS id FROM items').first<{ id: number | null }>())?.id ?? 0;
+  return after > before ? after : null;
+}
+
+/** Deletes one trash row for good: its cover's key, for the caller to delete the object. */
+export async function discardTrash(d1: D1Database, id: number): Promise<string | null> {
+  const row = await d1.prepare('DELETE FROM trash WHERE id = ?1 RETURNING cover_key AS coverKey').bind(id).first<{ coverKey: string | null }>();
+  return row?.coverKey ?? null;
+}
+
+/** Purges rows older than TRASH_DAYS, in one batch: the cover keys of what went, for the caller to delete the objects. */
+export async function purgeTrash(d1: D1Database): Promise<string[]> {
+  const cutoff = `datetime('now', '-${TRASH_DAYS} days')`;
+  const [old] = await d1.batch([
+    d1.prepare(`SELECT cover_key AS coverKey FROM trash WHERE deleted_at < ${cutoff} AND cover_key IS NOT NULL`),
+    d1.prepare(`DELETE FROM trash WHERE deleted_at < ${cutoff}`),
+  ]);
+  return ((old?.results ?? []) as Array<{ coverKey: string }>).map((r) => r.coverKey);
 }

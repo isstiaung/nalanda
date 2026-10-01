@@ -537,6 +537,31 @@ export const isGoalKind = (k: unknown): k is GoalKind => (GOAL_KINDS as readonly
  * Progress is the exception — every update is its own entry, pointing at its reading_progress row,
  * and goes when that row does (§16 #35).
  */
+/**
+ * The trash (ARCH.md §16 #74): a deleted item, kept for 30 days as one row. The delete is a real delete — the item
+ * leaves every shelf, share, view, export and search as it always did — and this row holds what it was: the item's
+ * columns and everything that hung off it (tags, series, reads, reviews, pages, plays, wants, links, loans), built by
+ * SQLite as JSON in the same batch as the delete. Restoring runs it back through the import's insert, under a new id.
+ * The cover's object stays in R2 under `cover_key` until the row is purged. No foreign keys: the shelf and the member
+ * may be gone by then, and the row must still say what it said.
+ */
+export const trash = sqliteTable(
+  'trash',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    itemId: integer('item_id').notNull(), // the id it had — for the record; a restore gets a new one
+    libraryId: integer('library_id'),
+    mediaType: text('media_type').notNull(),
+    title: text('title').notNull(),
+    creators: text('creators'),
+    coverKey: text('cover_key'),
+    payload: text('payload').notNull(), // JSON: { item, tags, series, reads, reviews, loans, plays, wants, links, progress }
+    deletedAt: text('deleted_at').notNull().default(now),
+    deletedBy: integer('deleted_by'),
+  },
+  (t) => [index('idx_trash_deleted').on(t.deletedAt)],
+);
+
 export const activityLog = sqliteTable(
   'activity_log',
   {

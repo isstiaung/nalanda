@@ -9,6 +9,8 @@ src/index.ts       Hono app entry; route order matters: public (share, covers, a
                    then requireAuth, then protected routes. Origin-check CSRF on mutations.
 src/routes/        pages + htmx partials + /api/lookup, /api/import + share.tsx (public
                    share pages) and shares.tsx (admin share management — don't confuse)
+                   + trash.tsx (what was deleted in the last 30 days, admin-only; the snapshot
+                   and restore are trashItems()/restoreFromTrash() in db/queries.ts, ARCH.md §16 #74)
 src/views/         hono/jsx layout + components (page() helper wraps Layout + doctype)
 src/db/            schema.ts (Drizzle) + queries.ts — the ONLY code touching D1
 src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googlebooks, bgg,

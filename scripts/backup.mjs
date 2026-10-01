@@ -52,6 +52,7 @@ export const TABLES = [
   'borrowed_items',
   'recommendations', // after connections, items and users, which it references (§16 #58)
   'notifications',
+  'trash', // deleted items waiting to be restored (ARCH.md §16 #74): no references, so last is fine
 ];
 
 // D1's export API fails transiently now and then ("createMultipartUpload: internal error"), so each table
