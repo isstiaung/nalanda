@@ -63,6 +63,12 @@ describe('parseSearch', () => {
     expect(ftsMatch(parseSearch('o*k "quo^te" author:a:b'))).toBe('"o k"* "quo te"* creators:"a b"*');
     expect(ftsMatch(parseSearch('tag:fantasy status:unread'))).toBe('');
     expect(hasFilters(parseSearch('tag:fantasy'))).toBe(true);
+    // a word with no letter or digit is no phrase: the tokenizer would empty it, and FTS5 reads a lone empty phrase
+    // as matching nothing rather than as no phrase
+    expect(ftsMatch(parseSearch('&'))).toBe('');
+    expect(ftsMatch(parseSearch('pratchett & gaiman'))).toBe('"pratchett"* "gaiman"*');
+    expect(ftsMatch(parseSearch('tag:fantasy ... - title:— author:"&"'))).toBe('');
+    expect(ftsMatch(parseSearch('गोदान 1984 re:zero'))).toBe('"गोदान"* "1984"* "re zero"*');
   });
 });
 
@@ -142,6 +148,19 @@ describe('searchItems with operators', () => {
     expect(ids(await searchItems(env.DB, `year:1968 lang:en status:unread status:read status:reading status:abandoned ${q}`))).toEqual([earthsea.id]);
     const res = await as(admin, `/search?q=${encodeURIComponent(q)}`);
     expect(res.status).toBe(200);
+  });
+
+  it('lists what the operator lists when a stray dash, ampersand or ellipsis stands beside it', async () => {
+    const { lib, earthsea, game } = await seed();
+    const omens = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', details: '{}', title: 'Good Omens', creators: 'Terry Pratchett, Neil Gaiman' });
+    expect(ids(await searchItems(env.DB, 'tag:fantasy &'))).toEqual([earthsea.id]);
+    const unread = await searchItems(env.DB, 'status:unread');
+    expect(unread).toHaveLength(6); // nothing here has been read
+    expect(ids(await searchItems(env.DB, 'status:unread -'))).toEqual(ids(unread));
+    expect(ids(await searchItems(env.DB, 'type:game ...'))).toEqual([game.id]);
+    // between real words the stray character never mattered, and still doesn't; alone it finds nothing, as before
+    expect(ids(await searchItems(env.DB, 'pratchett & gaiman'))).toEqual([omens.id]);
+    expect(await searchItems(env.DB, '&')).toEqual([]);
   });
 
   it('limits a query of operators alone as it limits a text search', async () => {
