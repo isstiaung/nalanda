@@ -118,6 +118,21 @@ describe('a StoryGraph row', () => {
     expect(undated.reads).toEqual([{ status: 'completed', beganOn: null, endedOn: '2021-12-31' }]);
     expect(mapStoryGraphRow(storygraph({ 'Title': '' }))).toBeNull();
   });
+
+  it('tops the dated reads up to Read Count with undated finishes, as a book with no dates and a merge are', () => {
+    const m = mapStoryGraphRow(storygraph({ 'Title': 'Often', 'Read Status': 'read', 'Dates Read': '2022/01/04-2022/01/19, 2023/03/01-2023/03/02', 'Read Count': '5' }))!;
+    expect(m.reads).toEqual([
+      { status: 'completed', beganOn: '2022-01-04', endedOn: '2022-01-19' },
+      { status: 'completed', beganOn: '2023-03-01', endedOn: '2023-03-02' },
+      { status: 'completed', beganOn: null, endedOn: null },
+      { status: 'completed', beganOn: null, endedOn: null },
+      { status: 'completed', beganOn: null, endedOn: null },
+    ]);
+    expect(m.goodreads).toMatchObject({ readCount: 5 });
+    // a count below the dated reads adds nothing; one that isn't a number is the dated reads' own
+    expect(mapStoryGraphRow(storygraph({ 'Title': 'X', 'Read Status': 'read', 'Dates Read': '2022/01/04-2022/01/19, 2023/03/01-2023/03/02', 'Read Count': '1' }))!.reads).toHaveLength(2);
+    expect(mapStoryGraphRow(storygraph({ 'Title': 'X', 'Read Status': 'read', 'Dates Read': '2022/01/04-2022/01/19', 'Read Count': 'lots' }))!.reads).toHaveLength(1);
+  });
 });
 
 describe('a LibraryThing row', () => {
@@ -261,5 +276,28 @@ describe('through the Import page', () => {
     const ltRows = [librarything({ 'Title': 'The Fifth Season', 'Primary Author': 'Jemisin, N. K.', 'ISBNs': '[9780356508191]', 'Date Read': '2024-03-22', 'Rating': '5', 'Collections': 'Your library' })];
     const lt = await call(ravi.cookie, { libraryId: lib.id, rows: ltRows, dryRun: true });
     expect(lt.json).toMatchObject({ format: 'librarything', mapped: 1, merged: 1, fresh: 0 });
+  });
+
+  it('a merge keeps every dated range and the read count, as an insert does — and a second import adds nothing', async () => {
+    const lib = await createLibrary(env.DB, 'Books');
+    const ravi = await member('ravi');
+    const here = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'Piranesi', creators: 'Susanna Clarke', isbn13: '9781635575637', details: '{}', copies: 1 });
+    const dates = (r: { beganOn: string | null; endedOn: string | null }) => [r.beganOn, r.endedOn];
+    const twice = [storygraph({ 'Title': 'Piranesi', 'Authors': 'Susanna Clarke', 'ISBN/UID': '9781635575637', 'Read Status': 'read', 'Dates Read': '2019/01/01-2019/02/01, 2022/01/04-2022/01/19', 'Read Count': '2', 'Owned?': 'Yes' })];
+    expect((await call(ravi.cookie, { libraryId: lib.id, rows: twice })).json).toMatchObject({ merged: 1, inserted: 0, reads: 2 });
+    // every range, not the last with an undated stand-in for the first
+    expect((await readsOf(here.id)).map(dates)).toEqual([
+      ['2019-01-01', '2019-02-01'],
+      ['2022-01-04', '2022-01-19'],
+    ]);
+    expect((await call(ravi.cookie, { libraryId: lib.id, rows: twice })).json).toMatchObject({ merged: 1, reads: 0 });
+    expect(await readsOf(here.id)).toHaveLength(2);
+    // Read Count past the dated ranges tops a new book up, and a re-import of it adds nothing more
+    const often = [storygraph({ 'Title': 'Often', 'Authors': 'Someone', 'Read Status': 'read', 'Dates Read': '2022/01/04-2022/01/19, 2023/03/01-2023/03/02', 'Read Count': '5', 'Owned?': 'No' })];
+    expect((await call(ravi.cookie, { libraryId: lib.id, rows: often })).json).toMatchObject({ inserted: 1, reads: 5 });
+    const fresh = (await rows<{ id: number }>("SELECT id FROM items WHERE title = 'Often'"))[0]!.id;
+    expect(await readsOf(fresh)).toHaveLength(5);
+    expect((await call(ravi.cookie, { libraryId: lib.id, rows: often })).json).toMatchObject({ merged: 1, reads: 0 });
+    expect(await readsOf(fresh)).toHaveLength(5);
   });
 });

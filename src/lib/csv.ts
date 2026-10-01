@@ -902,9 +902,10 @@ function storyGraphRanges(raw: string | undefined): Array<{ start: string | null
 
 /**
  * Maps one StoryGraph-export row (ARCH.md §16 #87) onto our item shape; null if unusable. Every dated read in "Dates
- * Read" becomes a read of its own; the row's status, last read and count make the `goodreads` reading a merge
- * reconciles with the reads already here. Owned? says whether it is a copy; Format says which. Moods, pace and the
- * rest stay in details.
+ * Read" becomes a read of its own, and Read Count tops them up with undated finishes, as it does a book with no dates
+ * and as a merge does; the row's status, last read and count make the `goodreads` reading a merge reconciles with the
+ * reads already here (every earlier dated range too — readingsOf in queries.ts). Owned? says whether it is a copy;
+ * Format says which. Moods, pace and the rest stay in details.
  */
 export function mapStoryGraphRow(row: Record<string, string>): MappedRow | null {
   const r = keyed(row);
@@ -918,22 +919,22 @@ export function mapStoryGraphRow(row: Record<string, string>): MappedRow | null 
   const ranges = storyGraphRanges(r['dates_read']);
   const last = ranges.at(-1);
   const countRaw = (r['read_count'] ?? '').trim();
+  // the dated reads the file lists, as they are: the last one open while currently reading, or stopped on a DNF
+  const dated: ReadDraft[] = ranges.map((x, i) => {
+    const lastOne = i === ranges.length - 1;
+    if (lastOne && status === 'in_progress' && !x.end) return { status: 'in_progress', beganOn: x.start, endedOn: null };
+    if (lastOne && status === 'abandoned') return { status: 'abandoned', beganOn: x.start, endedOn: x.end };
+    return { status: 'completed', beganOn: x.start, endedOn: x.end };
+  });
   const goodreads: GoodreadsReading = {
     shelf: status,
     dateRead: status === 'in_progress' ? (ranges.filter((x) => x.end).at(-1)?.end ?? null) : (last?.end ?? dateOf(r['last_date_read'])),
     dateStarted: last?.start ?? null,
-    readCount: /^\d+$/.test(countRaw) ? Number(countRaw) : ranges.length || null,
+    // the file's count, else the finished reads it dates — an open or stopped range is never counted as a finish
+    readCount: /^\d+$/.test(countRaw) ? Number(countRaw) : dated.filter((x) => x.status === 'completed').length || null,
   };
-  // the dated reads the file lists, as they are; without any, the same rules a merge applies, from none
-  const dated = ranges.filter((x) => x.start || x.end);
-  const reads: ReadDraft[] = dated.length
-    ? dated.map((x, i) => {
-        const lastOne = i === dated.length - 1;
-        if (lastOne && status === 'in_progress' && !x.end) return { status: 'in_progress', beganOn: x.start, endedOn: null };
-        if (lastOne && status === 'abandoned') return { status: 'abandoned', beganOn: x.start, endedOn: x.end };
-        return { status: 'completed', beganOn: x.start, endedOn: x.end };
-      })
-    : reconcileGoodreads([], goodreads).map((op) => op.read);
+  // the dated reads, topped up to Read Count with undated finishes; without any, the same rules a merge applies, from none
+  const reads: ReadDraft[] = dated.length ? topUpReads(dated, goodreads.readCount) : reconcileGoodreads([], goodreads).map((op) => op.read);
   if (dated.length && status === 'in_progress' && !reads.some((x) => x.status === 'in_progress')) reads.push({ status: 'in_progress', beganOn: null, endedOn: null });
   const state = summarizeReads(reads);
   // the reader's own impressions — moods, pace, what drove the story, the content warnings — are opinions, closer to a

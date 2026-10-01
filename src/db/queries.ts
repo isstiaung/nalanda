@@ -4387,6 +4387,21 @@ const readingOf = (item: NewItem): GoodreadsReading => ({
 });
 
 /**
+ * What a row says about reading, as the readings a merge reconciles one after another: every finished read the row
+ * dates beyond the one its summary names — StoryGraph's earlier "Dates Read" ranges (§16 #87) — oldest first, then
+ * the summary itself. So a merge keeps every dated read an insert would, and a re-import still adds nothing: each
+ * finish is checked for before it is added (reconcileGoodreads). A Goodreads or LibraryThing row dates at most the one
+ * read its summary names, so it reconciles once, as before.
+ */
+const readingsOf = (r: ImportRow): GoodreadsReading[] => {
+  const main = r.goodreads ?? readingOf(r.item);
+  const earlier = (r.reads ?? [])
+    .filter((x) => x.status === 'completed' && x.endedOn !== null && x.endedOn !== main.dateRead)
+    .map((x): GoodreadsReading => ({ shelf: 'completed', dateRead: x.endedOn, dateStarted: x.beganOn, readCount: null }));
+  return [...earlier, main];
+};
+
+/**
  * Rows matching an existing item (by ISBN-13, then ISBN-10, then normalized
  * title + first-author surname) merge their reading data onto it — Goodreads wins
  * for rating, review and notes (ARCH.md §16 #14) but never blanks a field it has no
@@ -4437,7 +4452,7 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
   }
 
   const inserts: ImportRow[] = [];
-  const merges: Array<{ id: number; set: Partial<NewItem>; tags: string[]; reading: GoodreadsReading }> = [];
+  const merges: Array<{ id: number; set: Partial<NewItem>; tags: string[]; readings: GoodreadsReading[] }> = [];
   const redate = new Map<number, string>(); // matched books the file dates differently; a later row for the same book wins
   for (const r of rows) {
     const id =
@@ -4454,7 +4469,7 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
     if (r.item.rating != null) set.rating = r.item.rating;
     if (r.item.review) set.review = r.item.review;
     if (r.item.notes) set.notes = r.item.notes;
-    merges.push({ id, set, tags: r.tags, reading: r.goodreads ?? readingOf(r.item) });
+    merges.push({ id, set, tags: r.tags, readings: readingsOf(r) });
   }
 
   // the importer's reads already here for the books that matched: one query, the ids as one JSON parameter
@@ -4477,9 +4492,11 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
   let standIn = 0; // ids for reads this run will insert; negative, so they never meet a real one
   for (const m of merges) {
     const list = work.get(m.id) ?? (readsHere.get(m.id) ?? []).map((r) => ({ ...r, fresh: false, changed: false }));
-    for (const op of reconcileGoodreads(list, m.reading)) {
-      if (op.op === 'insert') list.push({ ...op.read, id: --standIn, fresh: true, changed: true });
-      else Object.assign(list.find((r) => r.id === op.id)!, op.read, { changed: true });
+    for (const reading of m.readings) {
+      for (const op of reconcileGoodreads(list, reading)) {
+        if (op.op === 'insert') list.push({ ...op.read, id: --standIn, fresh: true, changed: true });
+        else Object.assign(list.find((r) => r.id === op.id)!, op.read, { changed: true });
+      }
     }
     work.set(m.id, list);
   }

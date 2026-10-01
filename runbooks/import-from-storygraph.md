@@ -38,7 +38,7 @@ run and merge instead of duplicating.
 | Format (hardcover, paperback, ebook, audiobook) | Held as |
 | Read Status (read, currently-reading, to-read, did-not-finish) | Reading status |
 | Dates Read ("start-end", several joined by commas) | One read per dated range; an open range while currently reading is the open read |
-| Last Date Read, Read Count | The finish and count a merge reconciles with reads already here |
+| Last Date Read, Read Count | The finish and count a merge reconciles with reads already here; Read Count beyond the dated ranges adds undated finished reads, on a new book and a matched one alike |
 | Star Rating (0–5, halves and quarters) | Rating 1–10 (4.25 → 9) |
 | Review | Your review |
 | Tags | Tags |
