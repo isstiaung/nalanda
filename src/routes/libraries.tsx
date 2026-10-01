@@ -503,10 +503,24 @@ libraries.get('/libraries/:id', async (c) => {
               {mediaTypes.length > 1 || statuses.length > 1
                 ? ' Share links hold one value per filter, so a multi-selection publishes as "all".'
                 : ''}
-              {/* who read what is never published (§16 #43): the form above has no field for it */}
-              {reader ? ' "Read by" is never published: the link shows this view without it.' : ''}
-              {/* the Format filter is the shelf's own (§16 #75): a share link has no field for it */}
-              {formatsSel.length ? ' Format isn’t part of a share link: the link shows this view without it.' : ''}{' '}
+              {/* every filter the form above has no field for, named, so the link never silently shows more than the screen:
+                  who read what (§16 #43), the Format filter (§16 #75), the Holding filter's Borrowed choice (§16 #82), the
+                  decluttering filters (§16 #81) and the search box, which matches where things are kept (§16 #51) */}
+              {(() => {
+                const dropped = [
+                  reader ? '"Read by"' : null,
+                  formatsSel.length ? 'Format' : null,
+                  q.holding !== undefined ? 'Borrowed from someone' : null,
+                  q.addedYears !== undefined ? 'Unread for years' : null,
+                  q.unplayedMonths !== undefined ? 'Not played lately' : null,
+                  name ? 'the search box' : null,
+                ].filter((f): f is string => f !== null);
+                if (!dropped.length) return '';
+                const list = dropped.length === 1 ? dropped[0] : `${dropped.slice(0, -1).join(', ')} and ${dropped[dropped.length - 1]}`;
+                return dropped.length === 1
+                  ? ` ${list} is never published: the link shows this view without it.`
+                  : ` ${list} are never published: the link shows this view without them.`;
+              })()}{' '}
               Public pages show only whitelisted fields — never notes, loans, or copy counts.
             </small>
           </div>

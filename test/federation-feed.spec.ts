@@ -7,8 +7,10 @@ import {
   countItemsInView,
   createConnectionView,
   createSubscription,
+  deleteConnection,
   deleteConnectionView,
   dueSubscriptions,
+  getConnectionByBaseUrl,
   getFederationSettings,
   listConnectionViews,
   storeEntries,
@@ -347,6 +349,22 @@ describe('the feed this household serves', () => {
     expect(gone.status).toBe(404);
     expect(await gone.json()).toEqual({ error: 'no such view' });
     expect((await disabled.signedGet(path, peer)).status).toBe(404);
+  });
+
+  it('refuses a household the moment its connection ends — the key cache is trusted for the key alone', async () => {
+    const view = await shareView();
+    const path = `/federation/feed?view=${view.id}&since=0`;
+    expect((await a.signedGet(path, peer)).status).toBe(200); // warms this isolate's key cache
+    expect((await a.signedGet(path, peer)).status).toBe(200);
+    // a disconnect handled on another isolate: the row goes, this isolate's cache never hears of it
+    await deleteConnection(env.DB, (await getConnectionByBaseUrl(env.DB, peer.url))!.id);
+    expect((await a.signedGet(path, peer)).status).toBe(401);
+    expect((await a.signedGet(`/federation/shelf?view=${view.id}&page=1`, peer)).status).toBe(401);
+    // back and waiting for confirmation: still nothing; active again: served, the key from the cache
+    await connectPeer(peer, 'awaiting_us');
+    expect((await a.signedGet(path, peer)).status).toBe(401);
+    await env.DB.prepare("UPDATE connections SET status = 'active' WHERE base_url = ?1").bind(peer.url).run();
+    expect((await a.signedGet(path, peer)).status).toBe(200);
   });
 
   it('starts a new subscriber at the newest page, then delivers everything after its cursor, in order', async () => {
