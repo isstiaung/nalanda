@@ -1,8 +1,75 @@
-// The Add page's review list (ARCH.md §16 #48): barcodes held on this device while it was offline, each looked up
-// now through GET /add/review, two at a time. For each one the person picks a shelf and adds it, wants it (onto their
-// want list: added as Not owned, or the copy already in the catalog) or drops it, or adds them all to one shelf.
-// Nothing is added unless someone presses a button, and an entry leaves the device's queue only once the server has
-// said it was added or wanted — or when it's dropped.
+// The Add page's review list (ARCH.md §16 #48, #94): barcodes held on this device — scanned with no signal, or with
+// "Keep scanning" on — one list whichever way they came. An entry is the barcode and when it was scanned; nothing is
+// looked up at scan time. "Add all to <shelf>" sends them to POST /api/scans/add twenty at a time (nalandaScanBatch,
+// below): the server looks each one up, leaves alone what the catalog already has and adds the rest as bare records,
+// and the list says what became of each — added and already-here entries leave the device's queue, a barcode nothing
+// was found for stays, with a way to add it by hand. "Look up" on one entry fetches it alone through GET /add/review,
+// to pick its shelf, add it, want it or drop it; it leaves the queue only once the server has said it was added.
+
+// The batch loop, with no DOM in it, so a test runs it as import.js's is run (test/scan-batch-browser.spec.ts).
+window.nalandaScanBatch = (() => {
+  const SIZE = 20; // MAX_SCANS_PER_REQUEST in src/routes/add.tsx: twenty keep one request inside its subrequest budget
+
+  /** The codes in batches of SIZE, in order; a barcode listed twice goes once. */
+  function split(codes) {
+    const out = [];
+    const seen = new Set();
+    for (const entry of codes) {
+      if (seen.has(entry.code)) continue;
+      seen.add(entry.code);
+      if (!out.length || out[out.length - 1].length === SIZE) out.push([]);
+      out[out.length - 1].push(entry);
+    }
+    return out;
+  }
+
+  /**
+   * Posts every batch in turn and tallies the answers; `onBatch` sees each answer as it lands. Stops at the first batch
+   * that fails — a refusal, a lapsed session, no connection — and says so in `failed`: what was sent before it stands,
+   * and the rest stays held.
+   */
+  async function run({ codes, libraryId, scanOwner, onBatch, fetch: doFetch }) {
+    const send = doFetch || ((...args) => fetch(...args));
+    const tally = { added: [], already: [], notFound: [], notices: [], sent: 0, failed: null };
+    for (const batch of split(codes)) {
+      let res = null;
+      try {
+        res = await send('/api/scans/add', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ libraryId: Number(libraryId), codes: batch, scanOwner }),
+          redirect: 'manual',
+        });
+      } catch {
+        res = null;
+      }
+      // our own server's answer, and only a real one: a lapsed session redirects to the login page
+      const signedOut = !!res && (res.type === 'opaqueredirect' || res.status === 0);
+      if (!res || signedOut || !res.ok) {
+        let why = !res ? 'No connection.' : signedOut ? 'Signed out — reload and sign in.' : `Failed (${res.status}).`;
+        if (res && !signedOut) {
+          try {
+            const data = await res.json();
+            if (data && typeof data.error === 'string') why = data.error;
+          } catch { /* not JSON: the status says it */ }
+        }
+        tally.failed = { at: tally.sent, why };
+        break;
+      }
+      const data = await res.json();
+      tally.added.push(...(data.added || []));
+      tally.already.push(...(data.already || []));
+      tally.notFound.push(...(data.notFound || []));
+      for (const n of data.notices || []) if (!tally.notices.includes(n)) tally.notices.push(n);
+      tally.sent += batch.length;
+      if (onBatch) await onBatch(data, batch);
+    }
+    return tally;
+  }
+
+  return { SIZE, split, run };
+})();
+
 (() => {
   const section = document.getElementById('scan-review');
   const list = document.getElementById('scan-review-list');
@@ -10,6 +77,7 @@
   if (!section || !list || !queue) return;
   const countEl = document.getElementById('scan-review-count');
   const nounEl = document.getElementById('scan-review-noun');
+  const statusEl = document.getElementById('scan-review-status');
   const allForm = document.getElementById('scan-review-all');
   const allSelect = allForm?.querySelector('select');
   const allButton = allForm?.querySelector('button');
@@ -17,18 +85,22 @@
 
   let loading = false;
   let addingAll = false;
+  const tell = (msg) => {
+    if (statusEl) statusEl.textContent = msg;
+  };
+  const plural = (n, noun) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 
   const waiting = () => [...list.querySelectorAll('.review-entry[data-barcode]:not([data-added])')];
 
   function refresh() {
     const left = waiting();
-    const added = list.querySelectorAll('[data-added]').length;
+    const done = list.querySelectorAll('[data-added]').length;
     countEl.textContent = String(left.length);
-    nounEl.textContent = left.length ? 'scanned while offline' : 'left to review — all done';
-    section.hidden = !left.length && !added;
+    nounEl.textContent = left.length ? 'held on this device' : 'left — all done';
+    section.hidden = !left.length && !done;
     if (allForm) {
       allForm.hidden = !left.length;
-      allButton.disabled = loading || addingAll || !list.querySelector('form[data-review-add]');
+      allButton.disabled = loading || addingAll || !left.length;
     }
   }
 
@@ -42,32 +114,53 @@
       if (!Number.isNaN(d.getTime())) t.textContent = ledgerDateTime(d);
     });
 
-  function placeholder(scan) {
+  const button = (label, attr) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'btn';
+    b.setAttribute(attr, '');
+    b.textContent = label;
+    return b;
+  };
+
+  /** A held barcode as the list shows it before anything is looked up: the code, when it was scanned, Look up, Drop. */
+  function held(scan) {
     const el = document.createElement('article');
     el.className = 'candidate review-entry';
     el.dataset.barcode = scan.barcode;
-    el.dataset.scannedAt = scan.scannedAt;
+    el.dataset.scannedAt = scan.scannedAt || '';
     const cover = document.createElement('div');
     cover.className = 'candidate-cover';
     const box = document.createElement('div');
     box.className = 'cover-fallback';
     box.setAttribute('aria-hidden', 'true');
-    box.textContent = '…';
+    box.textContent = '▥';
     cover.append(box);
     const body = document.createElement('div');
     body.className = 'candidate-body';
     const code = document.createElement('small');
     code.className = 'review-scan';
     code.textContent = scan.barcode;
+    const at = scan.scannedAt ? new Date(scan.scannedAt) : null;
+    if (at && !Number.isNaN(at.getTime())) {
+      const time = document.createElement('time');
+      time.setAttribute('datetime', scan.scannedAt);
+      time.textContent = ledgerDateTime(at);
+      code.append(' · scanned ', time);
+    }
     const note = document.createElement('div');
-    note.className = 'muted';
-    note.textContent = 'Looking it up…';
-    body.append(code, note);
+    note.className = 'muted review-held';
+    note.textContent = 'Held. "Add all" looks it up and adds it — or look it up here to choose.';
+    const actions = document.createElement('div');
+    actions.className = 'candidate-save';
+    actions.append(button('Look up', 'data-review-lookup'), button('Drop', 'data-review-drop'));
+    body.append(code, note, actions);
     el.append(cover, body);
     return el;
   }
 
-  function trouble(entry, message) {
+  /** A line under an entry saying what went wrong, or what to do next — with a link when there is somewhere to go. */
+  function trouble(entry, message, link) {
     let line = entry.querySelector('.review-trouble');
     if (!line) {
       line = document.createElement('p');
@@ -75,6 +168,12 @@
       entry.querySelector('.candidate-body')?.append(line);
     }
     line.textContent = message;
+    if (link) {
+      const a = document.createElement('a');
+      a.href = link.href;
+      a.textContent = link.text;
+      line.append(a);
+    }
   }
 
   // Our own server's answer, and only a real one: a lapsed session redirects to the login page, which must never
@@ -90,7 +189,10 @@
     return entry;
   }
 
+  /** One entry looked up alone: the server renders it with its shelf, Add, Want and Drop (ReviewEntry). */
   async function lookUp(entry) {
+    const buttons = [...entry.querySelectorAll('button')];
+    buttons.forEach((b) => (b.disabled = true));
     const params = new URLSearchParams({ barcode: entry.dataset.barcode, scanned: entry.dataset.scannedAt ?? '' });
     try {
       const fresh = await partial(
@@ -102,25 +204,20 @@
       localTime(fresh);
       entry.replaceWith(fresh);
     } catch (err) {
+      buttons.forEach((b) => (b.disabled = false));
       trouble(entry, `${err.message || 'Couldn’t look it up.'} It stays held.`);
     }
+    refresh();
   }
 
+  /** Lists what the device holds — an entry for each barcode not shown yet. Nothing is looked up. */
   async function load() {
-    if (loading || !navigator.onLine) return;
+    if (loading) return;
     loading = true;
     try {
-      const held = await queue.list();
+      const scans = await queue.list();
       const shown = new Set([...list.querySelectorAll('.review-entry[data-barcode]')].map((e) => e.dataset.barcode));
-      const fresh = held.filter((scan) => !shown.has(scan.barcode)).map((scan) => placeholder(scan));
-      list.append(...fresh);
-      refresh();
-      // two at a time: the providers behind a lookup don't like bursts
-      const pending = [...fresh];
-      const worker = async () => {
-        while (pending.length) await lookUp(pending.shift());
-      };
-      await Promise.all([worker(), worker()]);
+      list.append(...scans.filter((scan) => !shown.has(scan.barcode)).map(held));
     } catch {
       // the queue couldn't be read (storage blocked): nothing to show
     } finally {
@@ -156,6 +253,38 @@
     refresh();
   }
 
+  /** What "Add all" made of an entry — added, or already in the catalog: out of the queue, and the line says which. */
+  async function settle(entry, outcome, kind, shelf) {
+    if (!entry) return;
+    await queue.remove(outcome.code);
+    const done = document.createElement('article');
+    done.className = 'notice review-entry';
+    done.dataset.added = '';
+    const a = document.createElement('a');
+    a.href = `/items/${outcome.id}`;
+    a.textContent = outcome.title || outcome.code;
+    if (kind === 'added') done.append('Added ', a, ` to ${shelf}.`);
+    else done.append('Already in the catalog: ', a, '.');
+    entry.replaceWith(done);
+  }
+
+  /** A barcode nothing was found for: it stays held, with a way to add it by hand (the manual form, prefilled). */
+  function unknown(entry, code) {
+    if (!entry) return;
+    entry.dataset.unknown = '';
+    trouble(entry, `Nothing found for ${code} — it stays held. `, { href: `/add?barcode=${encodeURIComponent(code)}`, text: 'Add by hand' });
+  }
+
+  /** The run's report: the three counts, then what to do about what's left and what the new items still lack. */
+  function report(tally, total) {
+    let msg = `${tally.added.length} added, ${tally.already.length} already here, ${tally.notFound.length} not found.`;
+    if (tally.notFound.length) msg += ' Unknown barcodes stay on the list — look one up again, or add it by hand.';
+    if (tally.notices.length) msg += ` ${tally.notices.join(' ')}`;
+    if (tally.added.length) msg += ' New items arrive without covers — run the cover backfill on the Import page.';
+    if (tally.failed) msg += ` Stopped after ${tally.failed.at} of ${total}: ${tally.failed.why} The rest stays held — press Add all again.`;
+    return msg;
+  }
+
   list.addEventListener('submit', (e) => {
     const form = e.target.closest?.('form[data-review-add]');
     if (!form) return;
@@ -167,31 +296,43 @@
     const entry = e.target.closest?.('.review-entry');
     if (!entry) return;
     if (e.target.closest('[data-review-drop]')) drop(entry);
-    if (e.target.closest('[data-review-retry]')) {
-      const again = placeholder({ barcode: entry.dataset.barcode, scannedAt: entry.dataset.scannedAt });
-      entry.replaceWith(again);
-      lookUp(again).then(refresh);
-    }
+    if (e.target.closest('[data-review-lookup], [data-review-retry]')) lookUp(entry);
   });
 
   allSelect?.addEventListener('change', () => {
     allName.textContent = allSelect.selectedOptions[0]?.textContent ?? '';
   });
 
-  // "Add all to <shelf>": every entry that found a match, one after another, each to that shelf — they're all on
-  // screen, and each one's own shelf changes to it as it goes. Entries with no match stay for a decision.
+  // "Add all to <shelf>": every waiting entry, twenty a request, each looked up by the server and added there — the
+  // entries settle as each answer lands, and the status line says where it got to and, at the end, what it did.
   allForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (addingAll) return;
+    const entries = waiting();
+    if (!entries.length) return;
     addingAll = true;
     refresh();
-    for (const form of list.querySelectorAll('form[data-review-add]')) {
-      const select = form.querySelector('select[name="libraryId"]');
-      if (select) select.value = allSelect.value;
-      await add(form);
-    }
+    const shelf = allSelect.selectedOptions[0]?.textContent ?? '';
+    const byCode = new Map(entries.map((el) => [el.dataset.barcode, el]));
+    const total = byCode.size;
+    let sent = 0;
+    tell(`Adding ${plural(total, 'barcode')} to ${shelf}…`);
+    const tally = await window.nalandaScanBatch.run({
+      codes: entries.map((el) => ({ code: el.dataset.barcode, at: el.dataset.scannedAt || '' })),
+      libraryId: allSelect.value,
+      scanOwner: document.body.dataset.scanOwner || '',
+      onBatch: async (data, batch) => {
+        for (const a of data.added || []) await settle(byCode.get(a.code), a, 'added', shelf);
+        for (const a of data.already || []) await settle(byCode.get(a.code), a, 'already', shelf);
+        for (const code of data.notFound || []) unknown(byCode.get(code), code);
+        sent += batch.length;
+        refresh();
+        if (sent < total) tell(`Adding… ${sent}/${total}`);
+      },
+    });
     addingAll = false;
     refresh();
+    tell(report(tally, total));
   });
 
   // Someone else signed in from another tab (app.js rewrote the stamp and emptied the queue): this list isn't theirs.
@@ -199,8 +340,8 @@
     if (e.key === queue.OWNER_KEY) location.reload();
   });
 
-  // Back online with this page open (scans held from it while offline): the list picks them up.
-  window.addEventListener('online', load);
+  // A barcode held by the scanner on this page — offline, or with "Keep scanning" on — joins the list at once.
+  document.addEventListener('nalanda:held', load);
 
   load();
 })();
