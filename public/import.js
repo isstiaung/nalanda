@@ -67,6 +67,7 @@
   // (ARCH.md §16 #57); a row with more still goes, alone.
   const LOANS_PER_BATCH = 1000;
   let rows = null;
+  let format = null; // what the server read the file as: from the preview, or from each batch that landed
 
   /** [start, end) of each batch: at most BATCH rows, and at most LOANS_PER_BATCH loans unless one row has more. */
   function batches(all) {
@@ -89,7 +90,7 @@
   }
 
   // picking a different file invalidates previously parsed rows
-  fileInput.addEventListener('change', () => { rows = null; });
+  fileInput.addEventListener('change', () => { rows = null; format = null; });
   const dateBox = () => document.getElementById('import-dates');
 
   const say = (msg) => { status.textContent = msg; };
@@ -157,6 +158,7 @@
     const res = await fetch('/api/import', options(true, rows.slice(0, 200)));
     if (!res.ok) { append(`Preview failed (${res.status}).`); return; }
     const data = await res.json();
+    format = data.format;
     const sampled = Math.min(200, rows.length);
     // what the counts below cover: the whole file when the sample is all of it — never "the first 1 rows"
     const inSample = sampled === rows.length ? 'in the file' : `in the first ${sampled} rows`;
@@ -218,11 +220,21 @@
     for (const [i, end] of batches(rows)) {
       const res = await fetch('/api/import', options(false, rows.slice(i, end)));
       if (!res.ok) {
-        append(`Batch at row ${i} failed (${res.status}) — stopped. ${inserted} imported so far; re-run after fixing (already-imported rows merge instead of duplicating).`);
+        // the truth for the format (ARCH.md §16 #14): only a Goodreads, StoryGraph or LibraryThing row imported before
+        // matches and merges on a re-run; a libib or Nalanda row is added again. Nothing landed when the first batch failed.
+        const landed = inserted + merged;
+        const advice = !landed
+          ? 'Nothing was imported; re-run after fixing.'
+          : format === 'goodreads' || format === 'storygraph' || format === 'librarything'
+            ? `${plural(inserted, 'row')} added and ${merged} merged so far; re-run after fixing — rows already imported match and merge rather than duplicate.`
+            : `${plural(inserted, 'row')} added so far, from the first ${plural(i, 'row')} of the file; re-running the whole file would add them again — delete them first (they are the newest on the shelf), or cut those rows from the file.`;
+        append(`Batch at row ${i} failed (${res.status}) — stopped. ${advice}`);
         previewBtn.disabled = false;
+        runBtn.disabled = false;
         return;
       }
       const data = await res.json();
+      format = data.format ?? format;
       inserted += data.inserted;
       merged += data.merged ?? 0;
       skipped += data.skipped;

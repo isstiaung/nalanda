@@ -316,12 +316,13 @@ importexport.post('/api/import', async (c) => {
     });
   }
 
+  // `format` too: after a failed batch the page says what a re-run would do, which depends on it (public/import.js)
   if (isGoodreads) {
     const { inserted, merged, reads, dated } = await mergeImportItems(c.env.DB, withOwners, false, writerOf(c), dates);
-    return c.json({ inserted, merged, reads, skipped, dated: dates ? dated : 0 });
+    return c.json({ inserted, merged, reads, skipped, dated: dates ? dated : 0, format });
   }
   const inserted = await importItems(c.env.DB, withOwners);
-  return c.json({ inserted, merged: 0, skipped });
+  return c.json({ inserted, merged: 0, skipped, format });
 });
 
 /**
