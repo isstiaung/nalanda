@@ -468,7 +468,9 @@ export function mapLibibRow(row: Record<string, string>, opts: ImportOptions): M
     .split(',')
     .map((t) => t.trim())
     .filter(Boolean);
-  if (r['group']) tags.push(r['group']); // libib "group" becomes a tag, as it always has
+  // libib "group" becomes a tag, as it always has — split on commas like every other tag cell, so a group of
+  // "sci-fi, classics" isn't one tag the export writes and the next import splits
+  tags.push(...(r['group'] ?? '').split(',').map((t) => t.trim()).filter(Boolean));
   // …and, since libib documents it as "what series an item belongs to", the item's series (§16 #52). libib keeps no
   // number; a file with a series column of its own is taken at its word first.
   const seriesName = cleanSeriesName(r['series'] || r['group']);

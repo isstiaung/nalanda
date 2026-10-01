@@ -83,6 +83,11 @@ describe('libib row mapping', () => {
   it('keeps an explicit copies of 0 (cataloged, not owned)', () => {
     expect(mapLibibRow({ title: 'X', copies: '0' }, opts)!.item.copies).toBe(0);
   });
+  it('splits a group on commas as it does tags, so the export and the next import agree on what the tags are', () => {
+    const m = mapLibibRow({ title: 'X', group: 'sci-fi, classics', tags: 'utopia' }, opts)!;
+    expect(m.tags).toEqual(['utopia', 'sci-fi', 'classics']);
+    expect(mapLibibRow({ title: 'X', group: ' , ' }, opts)!.tags).toEqual([]);
+  });
   it("dates an item from libib's `added` (§16 #90), a known column that never lands in details", () => {
     const dated = mapLibibRow({ title: 'X', added: '2021-05-03', esrb: 'E' }, opts)!;
     expect(dated.item.addedAt).toBe('2021-05-03 00:00:00');
