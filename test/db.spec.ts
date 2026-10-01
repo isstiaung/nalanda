@@ -25,7 +25,9 @@ import {
   shelvesWithTotals,
   tagsForItem,
   updateItem,
+  deleteItem,
 } from '../src/db/queries';
+import { itemStamp } from '../src/federation/items';
 
 async function seedLibrary() {
   return createLibrary(env.DB, 'Test shelf');
@@ -284,7 +286,7 @@ describe('goodreads match-and-merge import', () => {
         tags: [],
       },
     ]);
-    expect(result).toEqual({ merged: 1, inserted: 1, reads: 2 }); // a finished read for each
+    expect(result).toEqual({ merged: 1, inserted: 1, reads: 2, dated: 0 }); // a finished read for each
 
     const after = await getItem(env.DB, owned.id);
     expect(after!.rating).toBe(10); // goodreads wins
@@ -326,7 +328,7 @@ describe('goodreads match-and-merge import', () => {
         tags: [],
       },
     ]);
-    expect(result).toEqual({ merged: 1, inserted: 0, reads: 1 });
+    expect(result).toEqual({ merged: 1, inserted: 0, reads: 1, dated: 0 });
     const after = await getItem(env.DB, owned.id);
     expect(after!.rating).toBe(8);
     expect(after!.review).toBe('My old review.'); // goodreads had none — not blanked
@@ -350,9 +352,74 @@ describe('goodreads match-and-merge import', () => {
         tags: ['fantasy'],
       },
     ];
-    expect(await mergeImportItems(env.DB, rows)).toEqual({ merged: 0, inserted: 1, reads: 1 });
-    expect(await mergeImportItems(env.DB, rows)).toEqual({ merged: 1, inserted: 0, reads: 0 }); // its read is already here
+    expect(await mergeImportItems(env.DB, rows)).toEqual({ merged: 0, inserted: 1, reads: 1, dated: 0 });
+    expect(await mergeImportItems(env.DB, rows)).toEqual({ merged: 1, inserted: 0, reads: 0, dated: 0 }); // its read is already here
     const { total } = await listItems(env.DB, lib.id, {});
     expect(total).toBe(1);
+  });
+
+  it('dates a new book from the file, and a matched one only when asked — keeping the stamp connections hold (§16 #90)', async () => {
+    const lib = await seedLibrary();
+    const here = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'Piranesi', creators: 'Susanna Clarke', isbn13: '9781635575637', details: '{}' });
+    const before = (await getItem(env.DB, here.id))!;
+    const stamp = await itemStamp(before);
+    const row = (title: string, isbn13: string, addedAt: string) => ({
+      item: { libraryId: lib.id, mediaType: 'book' as const, title, creators: 'Susanna Clarke', isbn13, status: 'not_started' as const, copies: 0, details: '{}', addedAt },
+      tags: [],
+    });
+    const piranesi = row('Piranesi', '9781635575637', '2019-03-12 00:00:00');
+
+    // not asked: the match keeps its date, and the result counts what the box would change
+    expect(await mergeImportItems(env.DB, [piranesi])).toEqual({ merged: 1, inserted: 0, reads: 0, dated: 1 });
+    expect((await getItem(env.DB, here.id))!.addedAt).toBe(before.addedAt);
+    // a dry run counts the same, and writes nothing
+    expect(await mergeImportItems(env.DB, [piranesi], true, undefined, true)).toMatchObject({ dated: 1 });
+    expect((await getItem(env.DB, here.id))!.addedAt).toBe(before.addedAt);
+
+    // asked: the date moves, the row's own time is kept, and the stamp is as it was
+    expect(await mergeImportItems(env.DB, [piranesi], false, undefined, true)).toMatchObject({ merged: 1, dated: 1 });
+    const after = (await getItem(env.DB, here.id))!;
+    expect(after.addedAt).toBe('2019-03-12 00:00:00');
+    expect(after.createdAt).toBe(before.addedAt);
+    expect(after.updatedAt).toBe(before.updatedAt); // nothing a connection sees changed
+    expect(await itemStamp(after)).toBe(stamp);
+
+    // the same date again changes nothing; a later date moves it once more, and the time kept is still the first
+    expect(await mergeImportItems(env.DB, [piranesi], false, undefined, true)).toMatchObject({ dated: 0 });
+    expect(await mergeImportItems(env.DB, [row('Piranesi', '9781635575637', '2020-01-01 00:00:00')], false, undefined, true)).toMatchObject({ dated: 1 });
+    const again = (await getItem(env.DB, here.id))!;
+    expect(again.addedAt).toBe('2020-01-01 00:00:00');
+    expect(again.createdAt).toBe(before.addedAt);
+    expect(await itemStamp(again)).toBe(stamp);
+
+    // a row without a date never touches one, asked or not; a new book takes the file's date, asked or not
+    expect(await mergeImportItems(env.DB, [{ ...piranesi, item: { ...piranesi.item, addedAt: undefined } }], false, undefined, true)).toMatchObject({ dated: 0 });
+    expect((await getItem(env.DB, here.id))!.addedAt).toBe('2020-01-01 00:00:00');
+    expect(await mergeImportItems(env.DB, [row('Jonathan Strange & Mr Norrell', '9781582344164', '2017-06-01 00:00:00')])).toMatchObject({ inserted: 1, dated: 0 });
+    const { items } = await listItems(env.DB, lib.id, {});
+    const fresh = items.find((i) => i.title === 'Jonathan Strange & Mr Norrell')!;
+    expect(fresh.addedAt).toBe('2017-06-01 00:00:00');
+    expect(fresh.createdAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/); // a file-dated insert keeps its own time
+  });
+
+  it('stamps a book a file dates by the second it was made here, so a reused id names no other book (review on #130)', async () => {
+    const lib = await seedLibrary();
+    const row = (title: string, isbn13: string) => ({
+      item: { libraryId: lib.id, mediaType: 'book' as const, title, creators: 'Susanna Clarke', isbn13, status: 'not_started' as const, copies: 0, details: '{}', addedAt: '2019-03-12 00:00:00' },
+      tags: [],
+    });
+    await mergeImportItems(env.DB, [row('Piranesi', '9781635575637')]);
+    // made a minute ago, for the test's sake: the stamp follows created_at, so a day in the file never decides it
+    await env.DB.prepare(`UPDATE items SET created_at = datetime(created_at, '-1 minute')`).run();
+    const first = (await listItems(env.DB, lib.id, {})).items[0]!;
+    const stamp = await itemStamp(first);
+    expect(stamp).not.toBe(await itemStamp({ ...first, createdAt: null }));
+
+    await deleteItem(env.DB, first.id);
+    await mergeImportItems(env.DB, [row('Jonathan Strange & Mr Norrell', '9781582344164')]);
+    const second = (await listItems(env.DB, lib.id, {})).items[0]!;
+    expect(second.id).toBe(first.id); // SQLite hands the newest id out again
+    expect(second.addedAt).toBe(first.addedAt); // the same day in the file
+    expect(await itemStamp(second)).not.toBe(stamp); // but not the same book, to a connection
   });
 });

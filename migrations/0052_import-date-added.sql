@@ -1,0 +1,1 @@
+ALTER TABLE `items` ADD `created_at` text;

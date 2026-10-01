@@ -865,6 +865,7 @@ is a section of this document and "#N" another decision.
 | 87 | 2026-10-01 | [StoryGraph and LibraryThing exports import as Goodreads' does: matched and merged, the importer's own reads and reviews](docs/decisions/087-storygraph-librarything.md) |
 | 88 | 2026-10-01 | [A read-only API behind per-member tokens: made on the Account page, shown once, bound to the account as a session is; a token sees what its member sees and changes nothing](docs/decisions/088-token-api.md) |
 | 89 | 2026-10-01 | [A static demo: a seeded instance crawled into HTML behind a skeletal sign-in, every form intercepted, published to GitHub Pages on release](docs/decisions/089-static-demo.md) |
+| 90 | 2026-10-01 | [An import dates a book by the file's "date added"; a re-import re-dates the books already here only when asked, the row's own time kept for the stamp connections hold](docs/decisions/090-import-date-added.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

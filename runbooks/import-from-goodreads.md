@@ -18,10 +18,13 @@ link appears on the same page when it's ready. One CSV covers everything.
 2. Pick the CSV and the destination library. (The Goodreads format is auto-detected —
    the "default type" and "music as vinyl" options don't apply and are ignored.)
    The destination only affects **new** entries; matched books stay on their shelf.
+   Tick **Also set the date added of books already here from the file** if the matched
+   books should take Goodreads' `Date Added` too ([below](#dates-added)) — off by default.
 3. **Preview (dry run, optional)** — shows, for the first 200 rows, how many map
    cleanly, how many **match books already in Nalanda** (their reviews will merge), how
-   many are **new** (added as "Not owned"), and how many **reads** it would add or date.
-   It names you as the member they'll be credited to. Nothing is written yet.
+   many are **new** (added as "Not owned"), how many **reads** it would add or date, and how
+   many matched books the file **dates** differently. It names you as the member they'll
+   be credited to. Nothing is written yet.
 4. **Import** — uploads in batches of 200 with live progress. Works directly without a
    preview.
 
@@ -61,6 +64,19 @@ subtitles after ":", and initials spacing are ignored). On a match:
 - **Copies, title, and bibliographic metadata are never touched** — Nalanda's
   provider-sourced metadata is better than Goodreads CSV metadata.
 - Custom bookshelves are **added** as tags (existing tags kept).
+- **The date added moves only when the box is ticked** — see the next section.
+
+## Dates added
+
+A book's *date added* is what newest-first shelves order by and what "Unread for years"
+counts from, so it should be when the book joined your collection, not when a file was
+imported (ARCH.md §16 #90). A **new** entry is always dated by the row's `Date Added`. A
+**matched** book keeps its date unless **Also set the date added of books already here from
+the file** is ticked; then it takes the file's where the two differ. So a catalogue imported
+before this existed is put right by re-importing the same export with the box ticked: the
+preview says how many books it would date, the summary how many it did, and a second run
+with the same file changes nothing. Nothing else about the book moves — not its "updated"
+time, not its history — and connections keep every reference they hold.
 
 ## What maps where
 
@@ -79,8 +95,9 @@ subtitles after ":", and initials spacing are ignored). On a match:
 | `Number of Pages`, `Year Published` | length, published |
 | `Bookshelves` + any custom exclusive shelf (e.g. `to-re-read`) | tags — only the three built-ins (`read`, `currently-reading`, `to-read`) are dropped, since status captures them |
 | `Owned Copies` | copies — 0 (the Goodreads default) = "Not owned" reading-log entry |
+| `Date Added` | the book's date added — always for a new entry, for a matched one only with the box ticked |
 | `Book Id` | `goodreads_book_id` in details |
-| anything else (`Average Rating`, `Binding`, `Date Added`, …) | kept losslessly in the item's details JSON |
+| anything else (`Average Rating`, `Binding`, …) | kept losslessly in the item's details JSON |
 
 Rows without a title are skipped and counted; nothing is silently dropped.
 

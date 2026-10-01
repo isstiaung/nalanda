@@ -89,7 +89,8 @@ describe('a StoryGraph row', () => {
     // the reader's impressions are private notes, never details (which share pages publish); the day added stays
     expect(m.item.notes).toBe('StoryGraph — moods: dark, mysterious, tense; pace: medium; driven by: Plot; content warnings: moderate: violence');
     const details = JSON.parse(m.item.details as string);
-    expect(details.storygraph_date_added).toBe('2022-03-01');
+    expect(details).not.toHaveProperty('storygraph_date_added'); // the item's own date added now (§16 #90)
+    expect(m.item.addedAt).toBe('2022-03-01 00:00:00');
     for (const gone of ['moods', 'pace', 'character_or_plot_driven', 'content_warnings', 'title', 'authors', 'read_status', 'star_rating', 'review', 'tags', 'owned', 'dates_read']) expect(details).not.toHaveProperty(gone);
   });
 
@@ -165,7 +166,8 @@ describe('a LibraryThing row', () => {
     expect(m.tags).toEqual(['sf', 'hainish']);
     const details = JSON.parse(m.item.details as string);
     expect(details.librarything_book_id).toBe('67202782');
-    expect(details.librarything_entry_date).toBe('2010-11-27');
+    expect(details).not.toHaveProperty('librarything_entry_date'); // the item's own date added now (§16 #90)
+    expect(m.item.addedAt).toBe('2010-11-27 00:00:00');
     expect(details.subjects).toBe('Science fiction|Gender');
     expect(details.work_id).toBe('243179');
     for (const gone of ['title', 'primary_author', 'review', 'rating', 'comment', 'private_comment', 'collections', 'isbns', 'copies']) expect(details).not.toHaveProperty(gone);

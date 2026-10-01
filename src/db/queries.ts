@@ -4273,9 +4273,13 @@ export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1Pr
     const person = r.item.addedBy ?? null;
     const reads = oneOpenReadEach(r.reads ?? readsFromColumns(r.item.status ?? 'not_started', r.item.beganOn, r.item.completedOn), person).reads;
     const reviews = stampReviews(r.reviews ?? reviewsFromColumns(r.item));
+    // A row dated by its file (§16 #90) keeps the time of its insert in created_at, so its stamp to connections is
+    // still the second it was made here: ids are reused, and two books added over there on one day are the common case.
+    // A row that brings its own time — a trash restore, giving the book back the stamp it had — keeps that.
+    const values = withSeries(withReviewState(withReadState(r.item, reads), reviews), r.series);
     const q = db(d1)
       .insert(s.items)
-      .values(withSeries(withReviewState(withReadState(r.item, reads), reviews), r.series))
+      .values(r.item.addedAt && r.item.createdAt == null ? { ...values, createdAt: sql`(datetime('now'))` } : values)
       .returning({ id: s.items.id })
       .toSQL();
     writes.push(...seriesUpsert(d1, r.series));
@@ -4328,7 +4332,8 @@ const surname = (creators: string | null) => {
 
 export const titleKey = (title: string, creators: string | null) => `${normTitle(title)}|${surname(creators)}`;
 
-export type MergeImportResult = { inserted: number; merged: number; reads: number };
+/** `dated`: the matched books whose date added the file would change — and did, when the caller asked for dates. */
+export type MergeImportResult = { inserted: number; merged: number; reads: number; dated: number };
 
 /** What a row says about reading, for one that came without a Goodreads reading (a test, or an older caller). */
 const readingOf = (item: NewItem): GoodreadsReading => ({
@@ -4353,9 +4358,15 @@ const readingOf = (item: NewItem): GoodreadsReading => ({
  * A Goodreads file is one person's (§16 #43): the importer's, every row's added_by. Its reads are reconciled with
  * theirs alone, and its rating and review are theirs — someone else's reads and reviews of the same book are
  * never touched. Private notes stay the item's own, as before.
+ *
+ * A row's `addedAt` is when the book joined the collection over there (§16 #90): a new book is dated by it, and a
+ * matched one only with `dates` — the import page's box — since it moves the book on every newest-first shelf. That
+ * write keeps the row's own time in `created_at` (the stamp connections hold is taken from it) and never moves
+ * `updated_at`: nothing a connection sees has changed. `dated` counts the matches whose date differs from the file's,
+ * whether or not they were written, so a dry run can say what the box would do.
  */
-export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun = false, who?: Writer): Promise<MergeImportResult> {
-  if (!rows.length) return { inserted: 0, merged: 0, reads: 0 };
+export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun = false, who?: Writer, dates = false): Promise<MergeImportResult> {
+  if (!rows.length) return { inserted: 0, merged: 0, reads: 0, dated: 0 };
   const dbi = db(d1);
   const person = rows[0]!.item.addedBy ?? null;
 
@@ -4368,19 +4379,23 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
       isbn10Upc: s.items.isbn10Upc,
       title: s.items.title,
       creators: s.items.creators,
+      addedAt: s.items.addedAt,
     })
     .from(s.items);
   const byIsbn13 = new Map<string, number>();
   const byIsbn10 = new Map<string, number>();
   const byTitle = new Map<string, number>();
+  const addedHere = new Map<number, string>();
   for (const e of existing) {
     if (e.isbn13) byIsbn13.set(e.isbn13, e.id);
     if (e.isbn10Upc) byIsbn10.set(e.isbn10Upc.toUpperCase(), e.id);
     byTitle.set(titleKey(e.title, e.creators), e.id);
+    addedHere.set(e.id, e.addedAt);
   }
 
   const inserts: ImportRow[] = [];
   const merges: Array<{ id: number; set: Partial<NewItem>; tags: string[]; reading: GoodreadsReading }> = [];
+  const redate = new Map<number, string>(); // matched books the file dates differently; a later row for the same book wins
   for (const r of rows) {
     const id =
       (r.item.isbn13 ? byIsbn13.get(r.item.isbn13) : undefined) ??
@@ -4390,6 +4405,8 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
       inserts.push(r);
       continue;
     }
+    if (r.item.addedAt && addedHere.get(id) !== r.item.addedAt) redate.set(id, r.item.addedAt);
+    else if (r.item.addedAt) redate.delete(id);
     const set: Partial<NewItem> = {};
     if (r.item.rating != null) set.rating = r.item.rating;
     if (r.item.review) set.review = r.item.review;
@@ -4465,15 +4482,28 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
         ...(touched.length ? [refreshReadState(d1, touched, { touch: true })] : []),
         ...(untouched.length ? [refreshReadState(d1, untouched)] : []),
       ];
+      // the file's dates, when asked (§16 #90): one statement over the pairs as JSON. The SET sees the row as it was,
+      // so created_at takes the added_at being replaced — only the first time; a book re-dated again keeps it.
+      const redates = dates && redate.size
+        ? [
+            d1
+              .prepare(
+                `UPDATE items SET created_at = coalesce(created_at, added_at), added_at = j.at
+                 FROM (SELECT json_extract(value, '$.id') AS id, json_extract(value, '$.at') AS at FROM json_each(?1)) AS j
+                 WHERE items.id = j.id AND items.added_at <> j.at`,
+              )
+              .bind(JSON.stringify([...redate].map(([id, at]) => ({ id, at })))),
+          ]
+        : [];
       // reads and their refresh first, so a rating merged in the same batch is dated by the finish it arrived with
-      await d1.batch(asImport(d1, asWriter(d1, who, [...writes, ...refreshes, ...reviews, ...notes, refreshReviewState(d1, ids)])));
+      await d1.batch(asImport(d1, asWriter(d1, who, [...writes, ...refreshes, ...reviews, ...notes, ...redates, refreshReviewState(d1, ids)])));
       const pairs: Array<{ itemId: number; tag: string }> = [];
       for (const m of merges) for (const tag of normalizeTags(m.tags)) pairs.push({ itemId: m.id, tag });
       await linkTags(dbi, pairs);
     }
     await importItems(d1, inserts);
   }
-  return { inserted: inserts.length, merged: merges.length, reads: readChanges };
+  return { inserted: inserts.length, merged: merges.length, reads: readChanges, dated: redate.size };
 }
 
 // ---------- creators and publishers (ARCH.md §16 #72) ----------
@@ -4758,7 +4788,13 @@ export async function restoreFromTrash(d1: D1Database, trashId: number, members:
   const shelf = await shelfForRestore(d1, row.libraryId, row.libraryName);
   if (shelf === null) return { refused: 'no-shelf', shelf: row.libraryName };
   const { seriesId: _series, ...rest } = p.item as Record<string, unknown> & { seriesId?: unknown };
-  const item = { ...rest, libraryId: shelf, addedBy: who(rest['addedBy'] as number | null) } as NewItem;
+  // the time its stamp to connections was taken from (§16 #90), so a book back under its own id is still that book
+  const item = {
+    ...rest,
+    libraryId: shelf,
+    addedBy: who(rest['addedBy'] as number | null),
+    createdAt: (rest['createdAt'] as string | null | undefined) ?? (rest['addedAt'] as string),
+  } as NewItem;
   const importRow: ImportRow = {
     item,
     tags: p.tags ?? [],

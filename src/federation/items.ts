@@ -160,10 +160,11 @@ export const isStamp = (v: unknown): v is string => typeof v === 'string' && STA
 /**
  * Which book an item id means. SQLite reuses the id of a deleted newest item, so an id alone can come to name a
  * different book; every reference a connection keeps — feed entries, comment threads — carries this stamp too.
- * A hash of the id and when the row was added: stable for the row, opaque to the connection.
+ * A hash of the id and the row's own time: `added_at`, until an import re-dates the item from its file (§16 #90),
+ * which keeps the time it moved from in `created_at`. Stable for the row, opaque to the connection.
  */
-export async function itemStamp(item: Pick<Item, 'id' | 'addedAt'>): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${item.id}|${item.addedAt}`));
+export async function itemStamp(item: Pick<Item, 'id' | 'addedAt' | 'createdAt'>): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${item.id}|${item.createdAt ?? item.addedAt}`));
   return Array.from(new Uint8Array(digest).slice(0, 8), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 const isText = (v: unknown, max: number): v is string | null => v === null || (typeof v === 'string' && v.length <= max);
