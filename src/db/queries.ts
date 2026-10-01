@@ -245,7 +245,19 @@ function rekeyMoved(d1: D1Database, moved: { readId: number } | { reviewId: numb
   ];
 }
 
-export async function deleteUser(d1: D1Database, id: number): Promise<void> {
+/**
+ * Removes a member — by `by`, an admin — never the last admin: the batch's first statement re-sets the leaving row's
+ * role to itself only while `by` is still an admin here other than them (so an admin remains); else to NULL, which
+ * the column's NOT NULL refuses, and D1 rolls the whole batch back, so nothing of theirs is cleared either. Two
+ * admins removing each other at once would otherwise leave nobody, and /setup open to the next visitor. Without
+ * `by` — a call from outside the app — an admin still goes only while another remains. False when refused.
+ */
+export async function deleteUser(d1: D1Database, id: number, by?: number): Promise<boolean> {
+  const remains =
+    by === undefined
+      ? `role <> 'admin' OR EXISTS (SELECT 1 FROM users u WHERE u.role = 'admin' AND u.id <> ?1)`
+      : `EXISTS (SELECT 1 FROM users u WHERE u.id = ?2 AND u.role = 'admin' AND u.id <> ?1)`;
+  const guard = d1.prepare(`UPDATE users SET role = CASE WHEN ${remains} THEN role ELSE NULL END WHERE id = ?1`).bind(...(by === undefined ? [id] : [id, by]));
   // Three references to users have no ON DELETE action (migrations 0000, 0012 and 0024, all applied — drizzle-kit
   // drops the clause on ALTER TABLE): items.added_by, reading_progress.added_by and reads.reader_id. Any of them
   // would stop a member being removed, so all are cleared in the same batch, and reviews.user_id too, which its
@@ -255,25 +267,32 @@ export async function deleteUser(d1: D1Database, id: number): Promise<void> {
   // the saved views naming them in "Read by" (§16 #81) lose that filter: ids are reused (#56), so a view saved as
   // "Read by ravi" must not list a newcomer's reads under the old name once ravi is gone
   const views = await viewsWithoutReader(d1, id);
-  await d1.batch([
-    ...views,
-    // first, while their reads still say whose: their named entries get new ids, so connections drop the named copies
-    ...rekeyMemberActivity(d1, id),
-    d1.prepare('UPDATE items SET added_by = NULL WHERE added_by = ?1').bind(id),
-    d1.prepare('UPDATE reading_progress SET added_by = NULL WHERE added_by = ?1').bind(id),
-    d1.prepare('UPDATE reads SET reader_id = NULL WHERE reader_id = ?1').bind(id),
-    d1.prepare('UPDATE reviews SET user_id = NULL WHERE user_id = ?1').bind(id),
-    d1.prepare('UPDATE quotes SET user_id = NULL WHERE user_id = ?1').bind(id), // their quotes stay, a former member's (§16 #77)
-    // their plays are the household's and stay; only who logged them goes (its table would set null on its own too)
-    d1.prepare('UPDATE plays SET logged_by = NULL WHERE logged_by = ?1').bind(id),
-    // Their want list goes with them, and every gift list published of it (§16 #53): a want is a wish for later, not
-    // history, and nobody's wish is nothing to keep — a link to it must not outlive them. shares.want_user_id has no
-    // ON DELETE action (drizzle-kit drops it on ALTER TABLE), so it is cleared here, before the user row; wants would
-    // go with it by cascade, and are cleared here too, so the batch says everything that leaves with them.
-    d1.prepare('DELETE FROM shares WHERE want_user_id = ?1').bind(id),
-    d1.prepare('DELETE FROM wants WHERE user_id = ?1').bind(id),
-    d1.prepare('DELETE FROM users WHERE id = ?1').bind(id),
-  ]);
+  try {
+    await d1.batch([
+      guard,
+      ...views,
+      // first, while their reads still say whose: their named entries get new ids, so connections drop the named copies
+      ...rekeyMemberActivity(d1, id),
+      d1.prepare('UPDATE items SET added_by = NULL WHERE added_by = ?1').bind(id),
+      d1.prepare('UPDATE reading_progress SET added_by = NULL WHERE added_by = ?1').bind(id),
+      d1.prepare('UPDATE reads SET reader_id = NULL WHERE reader_id = ?1').bind(id),
+      d1.prepare('UPDATE reviews SET user_id = NULL WHERE user_id = ?1').bind(id),
+      d1.prepare('UPDATE quotes SET user_id = NULL WHERE user_id = ?1').bind(id), // their quotes stay, a former member's (§16 #77)
+      // their plays are the household's and stay; only who logged them goes (its table would set null on its own too)
+      d1.prepare('UPDATE plays SET logged_by = NULL WHERE logged_by = ?1').bind(id),
+      // Their want list goes with them, and every gift list published of it (§16 #53): a want is a wish for later, not
+      // history, and nobody's wish is nothing to keep — a link to it must not outlive them. shares.want_user_id has no
+      // ON DELETE action (drizzle-kit drops it on ALTER TABLE), so it is cleared here, before the user row; wants would
+      // go with it by cascade, and are cleared here too, so the batch says everything that leaves with them.
+      d1.prepare('DELETE FROM shares WHERE want_user_id = ?1').bind(id),
+      d1.prepare('DELETE FROM wants WHERE user_id = ?1').bind(id),
+      d1.prepare('DELETE FROM users WHERE id = ?1').bind(id),
+    ]);
+  } catch (err) {
+    if (refusedBy(err, 'users.role')) return false;
+    throw err;
+  }
+  return true;
 }
 
 /**

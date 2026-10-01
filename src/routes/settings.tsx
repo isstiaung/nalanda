@@ -307,8 +307,11 @@ settings.post('/settings/users/:id/display-name', async (c) => {
 
 settings.post('/settings/users/:id/delete', async (c) => {
   const id = Number(c.req.param('id'));
-  if (id === c.get('user').id) return c.text('You cannot remove yourself.', 400);
-  await deleteUser(c.env.DB, id);
+  const me = c.get('user');
+  if (id === me.id) return c.text('You cannot remove yourself.', 400);
+  // refused in the batch itself when no admin would remain, or the remover is no longer one: two admins removing each
+  // other at once would otherwise leave nobody, and /setup open to the next visitor
+  if (!(await deleteUser(c.env.DB, id, me.id))) return c.text('Not removed: a household keeps at least one admin, and only an admin still here can remove a member.', 409);
   return c.redirect('/settings/users');
 });
 
