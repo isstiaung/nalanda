@@ -1552,3 +1552,7 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .views .inline-form { margin-left: auto; }
 .views .inline-form input { flex: 0 1 14rem; min-width: 0; }
 .shelf-views { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
+
+/* QR codes on Shared links (ARCH.md §16 #85): drawn at 512px, shown small and crisp; the download keeps it whole */
+.share-qr { display: flex; align-items: flex-end; gap: 0.6rem; margin-top: 0.45rem; }
+.share-qr img { width: 104px; height: 104px; image-rendering: pixelated; border: 1px solid var(--line); border-radius: 4px; background: var(--paper); }
