@@ -86,7 +86,7 @@ time, not its history — and connections keep every reference they hold.
 |---|---|
 | `Title`, `Author` + `Additional Authors`, `Publisher` | title, creators, publisher |
 | a `Title`'s series suffix, e.g. "The Gunslinger (The Dark Tower, #1)" | a new book's series and number — the title keeps the rest ("The Gunslinger"). Only the first of several series; an omnibus "#1-4" gets the series without a number. A book the row merges into keeps its own title and series |
-| `ISBN13` / `ISBN` (Excel guard `="…"` stripped) | `isbn13` / `isbn10_upc` |
+| `ISBN13` / `ISBN` (Excel guard `="…"` stripped) | `isbn13` / `isbn10_upc` — only when the cell is one (13 digits, or nine and a check digit, hyphens aside); anything else stays in details as text and is never matched on |
 | `My Rating` (0–5 whole stars, 0 = unrated) | your half-star rating (×2) |
 | `Exclusive Shelf` | reads, and so status: read → a finished read, currently-reading → an open read, a dnf/abandoned shelf → a stopped read, to-read → none |
 | `My Review` (`<br/>` → line breaks) | your review |

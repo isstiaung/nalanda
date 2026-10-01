@@ -772,6 +772,18 @@ function unguard(raw: string | undefined): string {
   return v.startsWith('=') ? v.slice(1).replace(/^"|"$/g, '') : v;
 }
 
+/** A cell as an ISBN-13 — 13 digits once hyphens and spaces are gone — or null: never the digits of something else. */
+function isbn13Of(raw: string): string | null {
+  const v = raw.replace(/[-\s]/g, '');
+  return /^\d{13}$/.test(v) ? v : null;
+}
+
+/** A cell as an ISBN-10 — nine digits and a check digit, X allowed — upper-cased, or null. */
+function isbn10Of(raw: string): string | null {
+  const v = raw.replace(/[-\s]/g, '').toUpperCase();
+  return /^\d{9}[\dX]$/.test(v) ? v : null;
+}
+
 /** Goodreads dates are 2024/01/15; we store 2024-01-15 — and only a calendar date (isIsoDate): 2024/13/45 is none. */
 function isoDate(raw: string | undefined): string | null {
   const v = (raw ?? '').trim().replaceAll('/', '-');
@@ -921,9 +933,8 @@ export function mapStoryGraphRow(row: Record<string, string>): MappedRow | null 
   const title = r['title'];
   if (!title) return null;
   const rawUid = (r['isbn_uid'] ?? '').trim();
-  const uid = rawUid.replace(/[^0-9Xx]/g, '');
-  const isbn13 = /^\d{13}$/.test(uid) ? uid : null;
-  const isbn10 = /^\d{9}[\dXx]$/.test(uid) ? uid.toUpperCase() : null;
+  const isbn13 = isbn13Of(rawUid);
+  const isbn10 = isbn10Of(rawUid);
   const status = storyGraphStatus(r['read_status']);
   const ranges = storyGraphRanges(r['dates_read']);
   const last = ranges.at(-1);
@@ -1059,9 +1070,9 @@ export function mapLibraryThingRow(row: Record<string, string>): MappedRow | nul
   const r = keyed(row);
   const title = r['title'];
   if (!title) return null;
-  const codes = `${r['isbns'] ?? ''} ${r['isbn'] ?? ''}`.replace(/[[\]]/g, ' ').split(/[\s,]+/).map((x) => x.replace(/[^0-9Xx]/g, '')).filter(Boolean);
-  const isbn13 = codes.find((x) => /^\d{13}$/.test(x)) ?? null;
-  const isbn10 = codes.find((x) => /^\d{9}[\dXx]$/.test(x))?.toUpperCase() ?? null;
+  const codes = `${r['isbns'] ?? ''} ${r['isbn'] ?? ''}`.replace(/[[\]]/g, ' ').split(/[\s,]+/).filter(Boolean);
+  const isbn13 = codes.map(isbn13Of).find((x) => x !== null) ?? null;
+  const isbn10 = codes.map(isbn10Of).find((x) => x !== null) ?? null;
   const collections = (r['collections'] ?? '').split(/[|,]/).map((x) => x.trim().toLowerCase()).filter(Boolean);
   const has = (name: string) => collections.includes(name);
   const dateRead = dateOf(r['date_read']);
@@ -1140,8 +1151,12 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
   const title = r['title'];
   if (!title) return null;
 
-  const isbn13 = unguard(r['isbn13']).replace(/\D/g, '');
-  const isbn10 = unguard(r['isbn']).replace(/[^0-9Xx]/g, '');
+  // an ISBN is one or nothing: hyphens and spaces aside, 13 digits, or 9 and a check digit. Reducing "n/a 1" to its
+  // digits made junk cells match each other on a later batch; a cell that isn't one is kept in details, as text
+  const isbn13Raw = unguard(r['isbn13']);
+  const isbn10Raw = unguard(r['isbn']);
+  const isbn13 = isbn13Of(isbn13Raw);
+  const isbn10 = isbn10Of(isbn10Raw);
   const ratingNum = Number.parseInt(r['my_rating'] ?? '', 10); // 0–5 whole stars, 0 = unrated
   const pages = Number.parseInt(r['number_of_pages'] ?? '', 10);
   const ownedNum = Number.parseInt(r['owned_copies'] ?? '', 10);
@@ -1155,6 +1170,8 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
 
   const details = leftover(r, KNOWN_GOODREADS);
   if (r['book_id']) details['goodreads_book_id'] = r['book_id'];
+  if (isbn13Raw && !isbn13) details['isbn13'] = isbn13Raw;
+  if (isbn10Raw && !isbn10) details['isbn'] = isbn10Raw;
 
   // Read Count: a whole number, or nothing — "abc" isn't a count of anything
   const countRaw = (r['read_count'] ?? '').trim();
@@ -1178,8 +1195,8 @@ export function mapGoodreadsRow(row: Record<string, string>): MappedRow | null {
       mediaType: 'book',
       title: split?.title ?? title,
       creators: [r['author'], r['additional_authors']].filter(Boolean).join(', ') || null,
-      isbn13: isbn13.length === 13 ? isbn13 : null,
-      isbn10Upc: isbn10 || null,
+      isbn13,
+      isbn10Upc: isbn10,
       publisher: r['publisher'] || null,
       published: r['year_published'] || r['original_publication_year'] || null,
       description: null,

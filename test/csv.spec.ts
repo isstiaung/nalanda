@@ -179,6 +179,19 @@ describe('goodreads row mapping', () => {
     expect(mapGoodreadsRow({ ...base, 'Owned Copies': '1' })!.item.copies).toBe(1);
   });
 
+  it('takes an ISBN column only as an ISBN: hyphens and spaces aside, 13 digits, or nine and a check digit — else text in details', () => {
+    const isbns = (over: Record<string, string>) => {
+      const m = mapGoodreadsRow({ 'Title': 'X', 'Exclusive Shelf': 'to-read', ...over })!;
+      return { isbn13: m.item.isbn13, isbn10: m.item.isbn10Upc, details: JSON.parse(m.item.details as string) as Record<string, string> };
+    };
+    expect(isbns({ 'ISBN': '="0-316-22929-6"', 'ISBN13': '="978-0316229296"' })).toEqual({ isbn13: '9780316229296', isbn10: '0316229296', details: {} });
+    expect(isbns({ 'ISBN': '="080442957x"' })).toMatchObject({ isbn10: '080442957X' });
+    // junk reduced to its digits — "n/a 1" and "see note 1" both to "1" — made two rows match each other on a later batch
+    expect(isbns({ 'ISBN': '="n/a 1"', 'ISBN13': '="see note 1"' })).toEqual({ isbn13: null, isbn10: null, details: { isbn: 'n/a 1', isbn13: 'see note 1' } });
+    expect(isbns({ 'ISBN': '="12345"', 'ISBN13': '="9780316229296 (pbk)"' })).toEqual({ isbn13: null, isbn10: null, details: { isbn: '12345', isbn13: '9780316229296 (pbk)' } });
+    expect(isbns({ 'ISBN': '=""', 'ISBN13': '' })).toEqual({ isbn13: null, isbn10: null, details: {} });
+  });
+
   it('keeps custom exclusive shelves as tags (only the three built-ins are dropped)', () => {
     const m = mapGoodreadsRow({ 'Title': 'X', 'Exclusive Shelf': 'to-re-read', 'Bookshelves': 'sci-fi' })!;
     expect(m.item.status).toBe('not_started'); // unknown exclusive shelf → not started

@@ -107,6 +107,11 @@ describe('a StoryGraph row', () => {
     expect(reading.item.rating).toBeNull();
     expect(reading.item.isbn13).toBeNull();
     expect(JSON.parse(reading.item.details as string).storygraph_uid).toBe('a1b2c3d4e5f6');
+    // a UID with digits in it is not an ISBN by its digits alone: never 'see note 1234567890' as ISBN 1234567890
+    const noted = mapStoryGraphRow(storygraph({ 'Title': 'X', 'Read Status': 'to-read', 'ISBN/UID': 'see note 1234567890' }))!;
+    expect(noted.item.isbn10Upc).toBeNull();
+    expect(JSON.parse(noted.item.details as string).storygraph_uid).toBe('see note 1234567890');
+    expect(mapStoryGraphRow(storygraph({ 'Title': 'X', 'Read Status': 'to-read', 'ISBN/UID': '978-0-356-50819-1' }))!.item.isbn13).toBe('9780356508191');
     const dnf = mapStoryGraphRow(storygraph({ 'Title': 'Dropped', 'Read Status': 'did-not-finish', 'Dates Read': '2024/05/01-2024/05/10' }))!;
     expect(dnf.item.status).toBe('abandoned');
     expect(dnf.reads).toEqual([{ status: 'abandoned', beganOn: '2024-05-01', endedOn: '2024-05-10' }]);
