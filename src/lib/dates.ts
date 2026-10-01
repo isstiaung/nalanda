@@ -21,21 +21,23 @@ export const TZ_COOKIE = 'tz';
 /** Plausible IANA zone names only — "Asia/Kolkata", "America/Argentina/Buenos_Aires", "UTC" — before Intl sees one. */
 const ZONE_SHAPE = /^[A-Za-z][A-Za-z0-9_+-]{0,30}(?:\/[A-Za-z0-9_+-]{1,30}){0,2}$/;
 
-// One formatter per zone, kept for the isolate's life: a page asks for today several times a request, and there are
-// a few hundred zones at most. A zone the runtime refuses is remembered as null, so it's probed once.
-const formatters = new Map<string, Intl.DateTimeFormat | null>();
+// One formatter per zone, kept for the isolate's life: a page asks for today several times a request. The names come
+// from a cookie, so the cache keeps only what the runtime accepted — a refused name is cheap to refuse again — and
+// stops growing at a cap well past the zones that exist (ICU knows about 600, and accepts case variants of each):
+// past it a formatter is built and not kept, so no input can grow the isolate's memory.
+const formatters = new Map<string, Intl.DateTimeFormat>();
+const FORMATTERS_KEPT = 1_000;
 
 function formatterFor(zone: string): Intl.DateTimeFormat | null {
-  let f = formatters.get(zone);
-  if (f === undefined) {
-    try {
-      f = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' });
-    } catch {
-      f = null;
-    }
-    formatters.set(zone, f);
+  const kept = formatters.get(zone);
+  if (kept) return kept;
+  try {
+    const f = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    if (formatters.size < FORMATTERS_KEPT) formatters.set(zone, f);
+    return f;
+  } catch {
+    return null;
   }
-  return f;
 }
 
 /**
