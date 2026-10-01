@@ -407,6 +407,13 @@
       "when": 1790890079469,
       "tag": "0057_interface-language",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "6",
+      "when": 1790891482475,
+      "tag": "0058_display-fonts",
+      "breakpoints": true
     }
   ]
 }

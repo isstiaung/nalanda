@@ -28,6 +28,13 @@ export type SleeveGrade = (typeof SLEEVE_GRADES)[number];
 export const CUSTOM_KINDS = ['text', 'bool', 'date'] as const;
 export type CustomKind = (typeof CUSTOM_KINDS)[number];
 
+/**
+ * What a household's own display font may be (ARCH.md §16 #96), read from its bytes (sniffFontType in
+ * src/lib/fonts.ts), never from the file's name or the type the browser claimed.
+ */
+export const FONT_FORMATS = ['woff2', 'woff', 'ttf', 'otf'] as const;
+export type FontFormat = (typeof FONT_FORMATS)[number];
+
 const now = sql`(datetime('now'))`;
 
 export const users = sqliteTable('users', {
@@ -432,6 +439,22 @@ export const translations = sqliteTable('translations', {
   strings: text('strings').notNull(),
   updatedAt: text('updated_at').notNull().default(now),
 });
+
+/**
+ * The household's own display font (§16 #96), at most one per shipped locale: the face titles and the brand take in
+ * that language, ahead of Eczar and Tiro Tamil. Uploaded by an admin under Members; the file is an R2 object under a
+ * random UUID (`key`), public at /fonts/<key> like a cover. `name` is the file's name as uploaded, cleaned, shown on
+ * Members alone; `bytes` its size. Pages read only `key` and `format`, each checked before it reaches a <style>.
+ */
+export const displayFonts = sqliteTable('display_fonts', {
+  locale: text('locale').primaryKey(),
+  key: text('key').notNull(),
+  format: text('format', { enum: FONT_FORMATS }).notNull(),
+  name: text('name').notNull(),
+  bytes: integer('bytes').notNull(),
+  uploadedAt: text('uploaded_at').notNull().default(now),
+});
+export type DisplayFont = typeof displayFonts.$inferSelect;
 
 /**
  * The household's custom fields (ARCH.md §16 #95): up to ten, each a name, a kind and whether its values may show on
