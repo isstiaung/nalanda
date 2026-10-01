@@ -8,7 +8,7 @@ household's, not per member, with the two decluttering views shipped as presets,
 "Read by" filter may be saved — inside the app.
 
 **What was decided:**
-- **A saved view is the filter bar, verbatim.** `saved_views` (migration 0046) holds a name, the
+- **A saved view is the filter bar, verbatim.** `saved_views` (migration 0047) holds a name, the
   shelf, who saved it, and `params`: the bar's query string exactly as the bar writes it
   (`shelfQueryString()`), read back by the same code that reads the shelf's own URL
   (`parseShelfQuery()` in `src/routes/libraries.tsx`). One parser means a view can hold only what

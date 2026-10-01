@@ -54,6 +54,7 @@ export const TABLES = [
   'borrowed_items',
   'recommendations', // after connections, items and users, which it references (§16 #58)
   'notifications',
+  'quotes', // quotes and highlights (ARCH.md §16 #77): after items and users, which they reference
   'trash', // deleted items waiting to be restored (ARCH.md §16 #74): no references, so last is fine
 ];
 
