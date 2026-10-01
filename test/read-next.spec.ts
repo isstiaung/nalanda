@@ -274,8 +274,9 @@ describe('D1 calls', () => {
     // the Overview made 9 calls before this card (measured with the pick left out): the pick is one more, the
     // signed-in member's reading goal (§16 #49) one more again, and the shelves' paid totals (§16 #61) one more — 12,
     // until the shelves, their counts, their totals and the holdings by type became one batch, read once for the page
-    // and its sidebar (§16 #68): 7
-    expect(small.page).toBe(7);
+    // and its sidebar (§16 #68): 7 — and 6 once the loan stats were counted in that batch rather than from the list
+    // of the newest 200 open loans, which the page no longer reads
+    expect(small.page).toBe(6);
 
     // about 2,000 books, a third finished by asha and a third read by ravi, and some records
     await env.DB.prepare(

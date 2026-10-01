@@ -69,7 +69,7 @@ const FilterMenu: FC<{
  * filter. Never publishable: it isn't in ItemFilters, and a share or connection view has nowhere to hold it.
  */
 export function parseReadBy(raw: string | undefined, me: number, people: Array<{ id: number }>): ReaderFilter | undefined {
-  const m = /^(now-)?(me|not-me|anyone|\d{1,15})$/.exec(raw ?? '');
+  const m = READ_BY.exec(raw ?? '');
   if (!m) return undefined;
   const mode = m[1] ? 'reading' : m[2] === 'not-me' ? 'unfinished' : 'finished';
   if (m[1] && m[2] === 'not-me') return undefined;
@@ -77,6 +77,23 @@ export function parseReadBy(raw: string | undefined, me: number, people: Array<{
   if (m[2] === 'me' || m[2] === 'not-me') return { readerId: me, mode };
   const id = Number(m[2]);
   return people.some((p) => p.id === id) ? { readerId: id, mode } : undefined;
+}
+
+/** A "Read by" value's shape: `now-` or not, then who — `me`, `not-me`, `anyone`, or a member's id. */
+const READ_BY = /^(now-)?(me|not-me|anyone|\d{1,15})$/;
+
+/**
+ * A "Read by" value as the menu writes it — a member's id without leading zeros, `02` as `2` — for the bar's links and a
+ * saved view; '' for one parseReadBy() would refuse. Never the value as typed: a view saved from `readBy=02` named
+ * member 2 and yet escaped deleteUser()'s rewrite, which looked for `2`, so once they left it listed whoever was
+ * given the id next under the old name (§16 #81, #56). Written from the value's shape, not the filter it parsed to:
+ * `me` and one's own id parse alike, but a view saved as `me` is each member's own and one saved by id is one person's.
+ */
+export function readByValue(raw: string | undefined): string {
+  const m = READ_BY.exec(raw ?? '');
+  if (!m || (m[1] && m[2] === 'not-me')) return '';
+  const who = /^\d/.test(m[2]!) ? String(Number(m[2])) : m[2];
+  return `${m[1] ?? ''}${who}`;
 }
 
 /** The Read by select — shown once the household has more than one member; one person's shelf is already theirs. */
@@ -115,7 +132,7 @@ export type ShelfQuery = {
   formatsSel: string[];
   name: string | undefined; // the search box
   reader: ReaderFilter | undefined;
-  readBy: string; // the Read by value as written, for the links and the saved view
+  readBy: string; // the Read by value as the menu writes it (readByValue), for the links and the saved view
   sort: 'added' | 'title' | 'author' | 'rating' | 'completed';
   addedYears: number | undefined; // the decluttering filters: added this many years ago or more…
   unplayedMonths: number | undefined; // …and not played in this many months
@@ -147,7 +164,7 @@ export function parseShelfQuery(sp: URLSearchParams, me: number, people: Array<{
   const formatsSel = [...new Set(sp.getAll('format'))].filter((f) => ALL_FORMATS.some((k) => k.code === f));
   const name = (sp.get('q') ?? '').trim().slice(0, 200) || undefined;
   const reader = parseReadBy(sp.get('readBy') ?? undefined, me, people);
-  const readBy = reader ? (sp.get('readBy') ?? '') : '';
+  const readBy = reader ? readByValue(sp.get('readBy') ?? undefined) : '';
   const sortQ = sp.get('sort');
   const sort = sortQ === 'title' || sortQ === 'author' || sortQ === 'rating' || sortQ === 'completed' ? sortQ : 'added';
   const addedYears = smallCount(sp.get('addedYears'));

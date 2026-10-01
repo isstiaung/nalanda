@@ -429,21 +429,45 @@ export async function apiItems(
     .limit(API_PAGE + 1);
 }
 
-// ---------- login throttling ----------
+// ---------- login throttling (ARCH.md §8) ----------
 
-export async function recordLoginAttempt(d1: D1Database, ip: string): Promise<void> {
-  const dbi = db(d1);
-  await dbi.insert(s.loginAttempts).values({ ip });
-  // opportunistic prune; keeps the table tiny without any cron
-  await dbi.delete(s.loginAttempts).where(sql`${s.loginAttempts.attemptedAt} < datetime('now', '-1 hour')`);
+/** Failed password checks an address, or an account, may make in `LOGIN_ATTEMPT_WINDOW_MINUTES` before it is refused. */
+export const LOGIN_ATTEMPT_LIMIT = 10;
+export const LOGIN_ATTEMPT_WINDOW_MINUTES = 10;
+
+/** A recorded attempt, to take back when the password turns out right (`forgetLoginAttempt()`). */
+export type LoginAttempt = { rowid: number };
+
+/**
+ * Records a password check *before* it is made — or refuses it. One statement inserts the row only while both the
+ * address and the account named are under the limit, and returns nothing once either is over: counting first, in the
+ * statement that counts, is what makes a burst of guesses in parallel stop at ten, where a count followed by a check
+ * and a record let every one of them through. `username` is as typed, cut to a length — an account's guesses from many
+ * addresses count together, and a household's shared address locks out only the accounts guessed at. The hour-old rows
+ * are pruned in the same batch, so the table stays tiny without a cron. A right password takes its row back with
+ * `forgetLoginAttempt()`: only failures count.
+ */
+export async function recordLoginAttempt(d1: D1Database, ip: string, username: string): Promise<LoginAttempt | null> {
+  const window = `-${LOGIN_ATTEMPT_WINDOW_MINUTES} minutes`;
+  const [inserted] = await d1.batch([
+    d1
+      .prepare(
+        `INSERT INTO login_attempts (ip, username)
+         SELECT ?1, ?2
+         WHERE (SELECT count(*) FROM login_attempts WHERE ip = ?1 AND attempted_at > datetime('now', ?4)) < ?3
+           AND (SELECT count(*) FROM login_attempts WHERE username = ?2 AND attempted_at > datetime('now', ?4)) < ?3
+         RETURNING rowid`,
+      )
+      .bind(ip, username.slice(0, 200), LOGIN_ATTEMPT_LIMIT, window),
+    d1.prepare(`DELETE FROM login_attempts WHERE attempted_at < datetime('now', '-1 hour')`),
+  ]);
+  const row = inserted?.results?.[0] as LoginAttempt | undefined;
+  return row ?? null;
 }
 
-export async function recentLoginAttempts(d1: D1Database, ip: string): Promise<number> {
-  const [row] = await db(d1)
-    .select({ n: count() })
-    .from(s.loginAttempts)
-    .where(and(eq(s.loginAttempts.ip, ip), sql`${s.loginAttempts.attemptedAt} > datetime('now', '-10 minutes')`));
-  return row?.n ?? 0;
+/** The password was right: the attempt recorded for it was no failure, and counts towards nobody's limit. */
+export async function forgetLoginAttempt(d1: D1Database, attempt: LoginAttempt): Promise<void> {
+  await d1.prepare('DELETE FROM login_attempts WHERE rowid = ?1').bind(attempt.rowid).run();
 }
 
 // ---------- libraries ----------
@@ -519,24 +543,56 @@ export async function shelfTotals(d1: D1Database, libraryId?: number): Promise<T
   return readShelfTotals(await d1.batch(shelfTotalsStatements(d1, libraryId)));
 }
 
+/** How many loans are out, and how many of those are overdue by a day — counted in SQL, so exact however many are out. */
+export type LoanCounts = { open: number; overdue: number };
+
+/**
+ * The statement behind LoanCounts, for a page's batch: the open loans, and those due before `today` (the device's
+ * day, §16 #69). The Overview and the Loans page once counted activeLoans()'s list, which stops at the newest
+ * ACTIVE_LOANS_SHOWN, so past that both stats under-reported, and an older loan — the likeliest overdue — was never
+ * counted. sum() over a comparison is NULL with no rows: coalesced.
+ */
+const loanCountsStatement = (d1: D1Database, today: string): D1PreparedStatement =>
+  d1.prepare('SELECT count(*) AS open, coalesce(sum(due_on < ?1), 0) AS overdue FROM loans WHERE returned_on IS NULL').bind(today);
+
+const readLoanCounts = (r: D1Result | undefined): LoanCounts => {
+  const row = (r?.results ?? [])[0] as Partial<LoanCounts> | undefined;
+  return { open: row?.open ?? 0, overdue: row?.overdue ?? 0 };
+};
+
+/** The open loans and how many are overdue by `today`, one call — the Loans page's heading, whatever its table lists. */
+export async function loanCounts(d1: D1Database, today: string): Promise<LoanCounts> {
+  return readLoanCounts(await loanCountsStatement(d1, today).all());
+}
+
+type Shelves = { shelves: Array<Library & { itemCount: number }>; totals: Totals; holdings: Holding[]; views: SavedView[] };
+
 /**
  * Every shelf with its count, every shelf's totals and the household's holdings by type, in one D1 call (§16 #68).
  * The Overview and a shelf's page each read listLibraries() and shelfTotals() — two passes over every item — and the
  * Overview a third for holdingsByType(); this reads one. A shelf's count is the sum of its types', which is exactly
- * what listLibraries() counts; holdings are holdingsByType()'s, in its order.
+ * what listLibraries() counts; holdings are holdingsByType()'s, in its order. Given `today`, the loans out and how
+ * many are overdue by it join the batch too (`loans`) — the Overview's stats, at no further call.
  */
-export async function shelvesWithTotals(
-  d1: D1Database,
-): Promise<{ shelves: Array<Library & { itemCount: number }>; totals: Totals; holdings: Holding[]; views: SavedView[] }> {
+export async function shelvesWithTotals(d1: D1Database): Promise<Shelves>;
+export async function shelvesWithTotals(d1: D1Database, today: string): Promise<Shelves & { loans: LoanCounts }>;
+export async function shelvesWithTotals(d1: D1Database, today?: string): Promise<Shelves & { loans?: LoanCounts }> {
   const [libraries, ...rest] = await d1.batch([
     d1.prepare('SELECT id, name, position, share_token AS shareToken, created_at AS createdAt FROM libraries ORDER BY position, id'),
     ...shelfTotalsStatements(d1),
     // every shelf's saved views (§16 #81), in the same batch: the shelf page and the Overview both list them
     d1.prepare(SAVED_VIEWS_SQL),
+    ...(today === undefined ? [] : [loanCountsStatement(d1, today)]),
   ]);
   const totals = readShelfTotals(rest);
   const shelves = ((libraries?.results ?? []) as Library[]).map((l) => ({ ...l, itemCount: totals.shelves.get(l.id)?.items ?? 0 }));
-  return { shelves, totals, holdings: holdingsOf((rest[0]?.results ?? []) as ShelfTypeRow[]), views: (rest[3]?.results ?? []) as SavedView[] };
+  return {
+    shelves,
+    totals,
+    holdings: holdingsOf((rest[0]?.results ?? []) as ShelfTypeRow[]),
+    views: (rest[3]?.results ?? []) as SavedView[],
+    ...(today === undefined ? {} : { loans: readLoanCounts(rest[4]) }),
+  };
 }
 
 /**
@@ -1776,8 +1832,11 @@ async function loansJoined(d1: D1Database, where: SQL, limit: number): Promise<L
   return rows.map((r) => ({ ...r.loan, itemTitle: r.itemTitle, itemCoverKey: r.itemCoverKey }));
 }
 
+/** How many open loans activeLoans() lists, newest first; the counts past it are loanCounts()'s. */
+export const ACTIVE_LOANS_SHOWN = 200;
+
 export async function activeLoans(d1: D1Database): Promise<LoanWithItem[]> {
-  return loansJoined(d1, isNull(s.loans.returnedOn), 200);
+  return loansJoined(d1, isNull(s.loans.returnedOn), ACTIVE_LOANS_SHOWN);
 }
 
 export async function loanHistory(d1: D1Database, limit = 100): Promise<LoanWithItem[]> {
@@ -2115,15 +2174,16 @@ export async function saveView(
 /**
  * The views that name a member in "Read by" — `readBy=<id>` or `now-<id>` — each rewritten without it, for
  * deleteUser()'s batch. The id would otherwise name whoever is given it next (#56); `me`, `not-me` and `anyone`
- * name nobody in particular and stay.
+ * name nobody in particular and stay. Compared as numbers, as the bar reads them: a view saved before readByValue()
+ * wrote the id canonically may still hold `02`, which named member 2 and yet escaped a comparison of strings.
  */
 async function viewsWithoutReader(d1: D1Database, id: number): Promise<D1PreparedStatement[]> {
   const views = (await d1.prepare(SAVED_VIEWS_SQL).all<SavedView>()).results;
   const out: D1PreparedStatement[] = [];
   for (const v of views) {
     const sp = new URLSearchParams(v.params);
-    const r = sp.get('readBy');
-    if (r !== String(id) && r !== `now-${id}`) continue;
+    const m = /^(now-)?0*(\d+)$/.exec(sp.get('readBy') ?? '');
+    if (!m || Number(m[2]) !== id) continue;
     sp.delete('readBy');
     // only the version read: a view re-saved between the read and the batch keeps its newer filters
     out.push(d1.prepare('UPDATE saved_views SET params = ?2 WHERE id = ?1 AND params = ?3').bind(v.id, sp.toString(), v.params));

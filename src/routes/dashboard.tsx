@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { activeLoans, goalOf, listShares, pickNextRead, recentItems, shelvesWithTotals, type SavedView } from '../db/queries';
+import { goalOf, listShares, pickNextRead, recentItems, shelvesWithTotals, type SavedView } from '../db/queries';
 import { formatCount, formatMoney } from '../lib/money';
 import type { Share } from '../db/schema';
 import type { AppEnv } from '../env';
@@ -28,12 +28,11 @@ dashboard.get('/', async (c) => {
 
   const today = todayOf(c);
   const year = Number(today.slice(0, 4));
-  const [{ shelves: libraries, totals, holdings, views: savedViews }, recent, loans, shares, pick, goal] = await Promise.all([
-    // the shelves and their counts, what the household paid per shelf and currency (§16 #61) and the holdings by type —
-    // one call, one pass over the items (§16 #68)
-    shelvesWithTotals(c.env.DB),
+  const [{ shelves: libraries, totals, holdings, views: savedViews, loans }, recent, shares, pick, goal] = await Promise.all([
+    // the shelves and their counts, what the household paid per shelf and currency (§16 #61), the holdings by type and
+    // the loans out and overdue by today, counted in SQL — one call, one pass over the items (§16 #68)
+    shelvesWithTotals(c.env.DB, today),
     recentItems(c.env.DB, 12),
-    activeLoans(c.env.DB),
     listShares(c.env.DB),
     pickNextRead(c.env.DB, reader, notId),
     // the signed-in member's own goal for this year (§16 #49) — one call, its count worked out in it
@@ -54,7 +53,6 @@ dashboard.get('/', async (c) => {
   const viewsByLibrary = new Map<number, SavedView[]>();
   for (const v of savedViews) viewsByLibrary.set(v.libraryId, [...(viewsByLibrary.get(v.libraryId) ?? []), v]);
   for (const v of shares) sharesByLibrary.set(v.libraryId, [...(sharesByLibrary.get(v.libraryId) ?? []), v]);
-  const overdue = loans.filter((l) => l.dueOn && l.dueOn < today).length;
   const owned = holdings.reduce((n, h) => n + h.owned, 0);
   const notOwned = holdings.reduce((n, h) => n + h.notOwned, 0);
   // "Read next" is for books: a catalog without any leaves it off, rather than saying there's nothing to read
@@ -90,8 +88,8 @@ dashboard.get('/', async (c) => {
           <Stat n={owned} label="Owned" detail={typeLine((h) => h.owned)} />
           {notOwned > 0 ? <Stat n={notOwned} label="Not owned" detail={typeLine((h) => h.notOwned)} /> : null}
           <Stat n={libraries.length} label="Shelves" />
-          <Stat n={loans.length} label="On loan" />
-          <Stat n={overdue} label="Overdue" warn={overdue > 0} />
+          <Stat n={loans.open} label="On loan" />
+          <Stat n={loans.overdue} label="Overdue" warn={loans.overdue > 0} />
         </div>
       </section>
 
@@ -197,15 +195,15 @@ dashboard.get('/', async (c) => {
         </details>
       </section>
 
-      {loans.length ? (
+      {loans.open ? (
         <section>
           <p class="eyebrow">Circulation</p>
           <p>
-            {loans.length} {loans.length === 1 ? 'item' : 'items'} out
-            {overdue ? (
+            {formatCount(loans.open)} {loans.open === 1 ? 'item' : 'items'} out
+            {loans.overdue ? (
               <>
                 {' · '}
-                <span class="error">{overdue} overdue</span>
+                <span class="error">{formatCount(loans.overdue)} overdue</span>
               </>
             ) : null}
             {' — '}

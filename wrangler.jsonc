@@ -7,6 +7,8 @@
     "directory": "./public",
     // /offline.html is served as /offline.html, not redirected to /offline: the service worker keeps that file
     // under its own name, and a missing one 404s (MISSING_ASSET) instead of reaching the login redirect.
+    // These files are served before the Worker runs (no run_worker_first), so their headers come from
+    // public/_headers, not from secureHeaders() in src/index.ts.
     "html_handling": "none"
   },
   // database_id is an all-zero placeholder on purpose: this repo names no specific

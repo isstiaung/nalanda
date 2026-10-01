@@ -5,7 +5,8 @@ import { Hono, type Context } from 'hono';
 import type { Candidate } from '../metadata/provider';
 import { olSeriesWorks } from '../metadata/openlibrary';
 import { CandidateCard } from '../views/components';
-import { catalogMatches, getSeries, listLibraries, listSeries, seriesWithVolumes, shelfFlags, shelfForType, updateSeries } from '../db/queries';
+import { catalogMatches, getSeries, listLibraries, listSeries, seriesWithVolumes, shelfFlags, shelfForType, updateSeries, type SeriesVolumeRow } from '../db/queries';
+import type { Series } from '../db/schema';
 import type { AppEnv } from '../env';
 import { cleanSeriesName, countRanges, formatRanges, inRanges, missingNumbers, nextUp, parseSeriesTotal, seriesKey } from '../lib/series';
 import { page } from '../views/layout';
@@ -94,13 +95,23 @@ type Found =
     }
   | { failed: true };
 
-/** A series' page. `error` says why a change to it was refused; `found` is a look-up's answer (§16 #79). */
-async function seriesPage(c: Context<AppEnv>, id: number, error?: string, sent?: { name: string; total: string }, found?: Found) {
-  const foundSeries = await seriesWithVolumes(c.env.DB, id, c.get('user').id);
+type SeriesPageOptions = {
+  error?: string; // why a change to the series was refused
+  sent?: { name: string; total: string }; // the form's values, shown back with the error
+  found?: Found; // a look-up's answer (§16 #79)
+  own?: { series: Series; volumes: SeriesVolumeRow[] }; // the series and its volumes, when the route read them already
+};
+
+/** A series' page: its volumes in order, the gaps, the viewer's next one, and — after a look-up — what Open Library offers. */
+async function seriesPage(c: Context<AppEnv>, id: number, { error, sent, found, own }: SeriesPageOptions = {}) {
+  const foundSeries = own ?? (await seriesWithVolumes(c.env.DB, id, c.get('user').id));
   if (!foundSeries) return c.notFound();
   const found_ = foundSeries;
   const { series: s } = found_;
-  const [libs, shelfFor] = found ? await Promise.all([listLibraries(c.env.DB), shelfForType(c.env.DB)]) : [[], {}];
+  // the cards' shelves and the shelf each type starts on: read only when a look-up has cards to offer, and the list
+  // handed to page() for the sidebar rather than read a second time (§16 #68)
+  const cards = found && !('failed' in found) ? found.gaps.length + found.elsewhere.length : 0;
+  const [libs, shelfFor] = cards ? await Promise.all([listLibraries(c.env.DB), shelfForType(c.env.DB)]) : [undefined, {}];
   const foundBlock = found && 'failed' in found ? (
     <section id="series-found" class="detail-section">
       <p class="error" role="alert">
@@ -121,11 +132,11 @@ async function seriesPage(c: Context<AppEnv>, id: number, error?: string, sent?:
         </p>
       ) : null}
       {found.gaps.map(({ candidate, held }) => (
-        <CandidateCard candidate={candidate} libraries={libs} inCatalog={held} shelfFor={shelfFor} />
+        <CandidateCard candidate={candidate} libraries={libs ?? []} inCatalog={held} shelfFor={shelfFor} />
       ))}
       {found.elsewhere.length ? <p class="eyebrow">Without a number Open Library knows</p> : null}
       {found.elsewhere.map(({ candidate, held }) => (
-        <CandidateCard candidate={candidate} libraries={libs} inCatalog={held} shelfFor={shelfFor} />
+        <CandidateCard candidate={candidate} libraries={libs ?? []} inCatalog={held} shelfFor={shelfFor} />
       ))}
       <p class="muted form-note">
         Each is offered with this series’ name and the number Open Library gives it; what you have numbered yourself is
@@ -186,6 +197,7 @@ async function seriesPage(c: Context<AppEnv>, id: number, error?: string, sent?:
         </form>
       </details>
     </>,
+    libs,
   );
 }
 
@@ -207,7 +219,7 @@ series.get('/series/:id/find', async (c) => {
   const own = await seriesWithVolumes(c.env.DB, id, c.get('user').id);
   if (!own) return c.notFound();
   const works = await seriesWorksOf(own.series.name);
-  if (works === null) return seriesPage(c, id, undefined, undefined, { failed: true });
+  if (works === null) return seriesPage(c, id, { found: { failed: true }, own });
   const missing = missingNumbers(own.volumes.map((v) => v.seriesNumber), own.series.total);
   const heldNumbers = new Set(own.volumes.map((v) => v.seriesNumber).filter((n): n is number => n !== null));
   const byIsbn = await catalogMatches(c.env.DB, works.map((w) => w.candidate));
@@ -221,7 +233,7 @@ series.get('/series/:id/find', async (c) => {
     else if (position !== null && inRanges(position, missing)) found.gaps.push({ candidate: offered, held });
     else found.elsewhere.push({ candidate: offered, held });
   });
-  return seriesPage(c, id, undefined, undefined, found);
+  return seriesPage(c, id, { found, own });
 });
 
 /** Renames a series and sets its total — any member, as any catalog edit is. */
@@ -234,8 +246,8 @@ series.post('/series/:id', async (c) => {
   const sent = { name: String(body['name'] ?? ''), total: String(body['total'] ?? '') };
   const name = cleanSeriesName(sent.name);
   const total = parseSeriesTotal(sent.total);
-  if (!name) return seriesPage(c, id, 'A series needs a name. To take a book out of it, clear the series on the book.', sent);
-  if (total === undefined) return seriesPage(c, id, 'The number of volumes is a whole number from 1 to 9999, or blank.', sent);
+  if (!name) return seriesPage(c, id, { error: 'A series needs a name. To take a book out of it, clear the series on the book.', sent });
+  if (total === undefined) return seriesPage(c, id, { error: 'The number of volumes is a whole number from 1 to 9999, or blank.', sent });
   const now = await updateSeries(c.env.DB, id, name, total, writerOf(c)); // a merge moves volumes: their history names who (§16 #84)
   return c.redirect(`/series/${now ?? id}`);
 });
