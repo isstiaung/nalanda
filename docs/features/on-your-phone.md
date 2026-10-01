@@ -23,8 +23,7 @@ lookup. Where each barcode goes, and what a result offers, is in
 In a basement or a bookshop, the scanner keeps working. Opening the app with no connection shows a
 scan-only page, and a barcode scanned there — or on the Add page when the lookup can't reach the
 server — is held on the phone: the barcode and the time, nothing else, up to 200. Back online,
-**Add items** lists what you scanned, each looked up, for you to add to a shelf, put on your want
-list, or drop — one at a time or all to one shelf. Nothing is added until you say so.
+**Add items** lists what you scanned, for you to look up one at a time (add to a shelf, want it, or drop it) or add all to one shelf. Nothing is added until you say so.
 
 Held scans belong to the account signed in on the phone: logging out clears them, and another
 account signing in on the same phone never sees them. Nothing is synced in the background.
