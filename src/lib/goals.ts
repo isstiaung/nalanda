@@ -19,7 +19,7 @@ export type GoalPace =
 const isLeap = (y: number) => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
 
 /**
- * Where a goal stands on `today` (YYYY-MM-DD, the server's UTC day). Pace is linear through the year, from 1 January
+ * Where a goal stands on `today` (YYYY-MM-DD, the device's day, §16 #69). Pace is linear through the year, from 1 January
  * whenever the goal was set: by the end of day d of a year of D days, d/D of the target — rounded down, so a goal is on
  * pace until it is a whole book behind, and ahead once it is a whole book past.
  */

@@ -3,10 +3,9 @@ import { activeLoans, goalOf, listShares, pickNextRead, recentItems, shelvesWith
 import { formatCount, formatMoney } from '../lib/money';
 import type { Share } from '../db/schema';
 import type { AppEnv } from '../env';
-import { todayUtc } from '../lib/reads';
 import { shareVisibility, shareVisibilityLabel } from '../lib/share';
 import { GoalMeter, ItemGrid, MEDIA_LABEL, MEDIA_PLURAL, ReadNextCard, Stat } from '../views/components';
-import { page } from '../views/layout';
+import { page, todayOf } from '../views/layout';
 import { ledgerDate } from '../lib/dates';
 
 const dashboard = new Hono<AppEnv>();
@@ -27,7 +26,7 @@ dashboard.get('/', async (c) => {
   c.header('Vary', 'HX-Request');
   if (c.req.header('HX-Request')) return c.html(<ReadNextCard pick={await pickNextRead(c.env.DB, reader, notId)} />);
 
-  const today = todayUtc();
+  const today = todayOf(c);
   const year = Number(today.slice(0, 4));
   const [{ shelves: libraries, totals, holdings }, recent, loans, shares, pick, goal] = await Promise.all([
     // the shelves and their counts, what the household paid per shelf and currency (§16 #61) and the holdings by type —

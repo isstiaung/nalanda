@@ -8,7 +8,7 @@ import {
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { isIsoDate } from '../lib/reads';
-import { page } from '../views/layout';
+import { page, todayOf } from '../views/layout';
 import { loanRequestsSection } from './borrowing';
 
 const loans = new Hono<AppEnv>();
@@ -21,7 +21,7 @@ loans.get('/loans', async (c) => {
   const [active, past] = await Promise.all([activeLoans(c.env.DB), loanHistory(c.env.DB, HISTORY_SHOWN + 1)]);
   const history = past.slice(0, HISTORY_SHOWN);
   const returned = past.length > HISTORY_SHOWN ? `${HISTORY_SHOWN}+` : String(history.length);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayOf(c);
   const requests = await loanRequestsSection(c); // null unless connections are enabled and someone asked
 
   return page(
@@ -144,6 +144,7 @@ loans.post('/items/:id/loan', async (c) => {
     const lent = await lendIfFree(c.env.DB, {
       itemId,
       borrower,
+      loanedOn: todayOf(c), // the device's day, not the server's (§16 #69)
       contact: String(body['contact'] ?? '').trim() || null,
       // a calendar date or none, as a connection's lend takes it: anything else couldn't round-trip through the export
       dueOn: isIsoDate(String(body['dueOn'] ?? '').trim()) ? String(body['dueOn']).trim() : null,
@@ -154,7 +155,7 @@ loans.post('/items/:id/loan', async (c) => {
 });
 
 loans.post('/loans/:id/return', async (c) => {
-  await returnLoan(c.env.DB, Number(c.req.param('id')));
+  await returnLoan(c.env.DB, Number(c.req.param('id')), todayOf(c));
   const referer = c.req.header('referer');
   // back where the return was pressed — only on this origin, and a Referer that isn't a URL just means /loans
   const back = referer && URL.canParse(referer) && new URL(referer).origin === new URL(c.req.url).origin ? referer : '/loans';

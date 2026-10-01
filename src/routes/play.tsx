@@ -19,10 +19,9 @@ import {
   type GameFilters,
 } from '../lib/games';
 import { ledgerDate } from '../lib/dates';
-import { todayUtc } from '../lib/reads';
 import { BggAttribution } from '../views/attribution';
 import { accNo, Cover } from '../views/components';
-import { page } from '../views/layout';
+import { page, todayOf } from '../views/layout';
 
 const play = new Hono<AppEnv>();
 
@@ -263,7 +262,7 @@ play.get('/play', async (c) => {
   const q = c.req.query();
   const f = parseGameFilters(q);
   const picking = q['pick'] === '1';
-  const today = todayUtc();
+  const today = todayOf(c);
   const view: View = picking
     ? { mode: 'pick', ...(await pickGameForTonight(c.env.DB, f, shownPick(q['not']))) }
     : { mode: 'list', ...(await gamesForTonight(c.env.DB, f, TONIGHT_LIMIT)) };

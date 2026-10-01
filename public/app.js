@@ -1,6 +1,22 @@
 // Small vanilla helpers: add-page tabs, mobile sidebar, and table column choices — and, first, the installed app's
 // service worker and whose offline scans this device holds.
 
+// ── the day it is here (ARCH.md §16 #69) ──
+// The server's clock is UTC; a `tz` cookie tells it this device's time zone, so a Finish or Played form offers the
+// right date at 2 am in Chennai. Written like the sidebar's `nav` cookie (§16 #62): a year, this origin, same-site.
+(() => {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (!zone || !/^[A-Za-z][A-Za-z0-9_+-]{0,30}(?:\/[A-Za-z0-9_+-]{1,30}){0,2}$/.test(zone)) return;
+    const held = (document.cookie.match(/(?:^|;\s*)tz=([^;]*)/) || [])[1];
+    if (held === zone) return;
+    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    document.cookie = `tz=${zone}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
+  } catch {
+    /* no Intl, or no cookies: the server keeps to UTC */
+  }
+})();
+
 // ── the offline scan queue belongs to whoever is signed in here (ARCH.md §16 #48) ──
 // Top level, not DOMContentLoaded: this runs before the Add page's review list reads the queue (deferred scripts run
 // in order, and IndexedDB serves a delete before any open queued after it).

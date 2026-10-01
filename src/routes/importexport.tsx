@@ -33,7 +33,7 @@ import {
 import { findCover, findDescription } from '../metadata';
 import { parseDetails } from '../lib/share';
 import { MEDIA_LABEL } from '../views/components';
-import { page } from '../views/layout';
+import { page, todayOf } from '../views/layout';
 
 const importexport = new Hono<AppEnv>();
 
@@ -400,7 +400,7 @@ importexport.get('/export.csv', async (c) => {
   if (after !== undefined && !/^\d{1,15}$/.test(after)) return c.text('after must be an item id', 400);
   const libs = await listLibraries(c.env.DB);
   const libNames = new Map(libs.map((l) => [l.id, l.name]));
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayOf(c);
   const headers = {
     'content-type': 'text/csv; charset=utf-8',
     'content-disposition': `attachment; filename="nalanda-export-${today}.csv"`,

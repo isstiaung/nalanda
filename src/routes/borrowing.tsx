@@ -35,7 +35,7 @@ import { borrowAccept, borrowDecline, borrowRequest, borrowWithdraw, type Direct
 import { pushNow, pushQueued } from '../federation/outbox';
 import { DiscogsAttribution, discogsLink } from '../views/attribution';
 import { DetailsList, MEDIA_ICON, MEDIA_LABEL, Pagination, stars } from '../views/components';
-import { page } from '../views/layout';
+import { page, todayOf } from '../views/layout';
 import { ledgerDate } from '../lib/dates';
 
 const borrowing = new Hono<AppEnv>();
@@ -50,7 +50,6 @@ async function enabled(c: Context<AppEnv>): Promise<Enabled | null> {
 }
 
 const digits = (raw: unknown) => (typeof raw === 'string' && /^\d{1,15}$/.test(raw) ? Number(raw) : null);
-const today = () => new Date().toISOString().slice(0, 10);
 
 /** Pulls connections' outboxes and retries our undelivered pushes, after the response and within its query budget. */
 function refreshAfterResponse(c: Context<AppEnv>, ctx: Enabled) {
@@ -448,8 +447,9 @@ borrowing.post('/borrow-requests/:id/accept', async (c) => {
 
   const form = await c.req.parseBody();
   const dueOn = typeof form['dueOn'] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(form['dueOn']) ? form['dueOn'] : null;
-  const message = borrowAccept(ctx.settings.baseUrl, request.activityId, today(), dueOn);
-  const loanId = await lendToConnection(c.env.DB, request, `${request.requesterName} (${connection.householdName})`, dueOn, message);
+  const loanedOn = todayOf(c); // the device's day (§16 #69), on the loan and in the message alike
+  const message = borrowAccept(ctx.settings.baseUrl, request.activityId, loanedOn, dueOn);
+  const loanId = await lendToConnection(c.env.DB, request, `${request.requesterName} (${connection.householdName})`, loanedOn, dueOn, message);
   if (loanId) pushQueued(c, ctx.identity, ctx.settings, connection, message);
   return c.redirect('/loans');
 });
@@ -505,7 +505,7 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
   const returned = borrowed.filter((b) => b.returnedOn);
   const households = connections.filter((row) => row.status === 'active');
   const waiting = requests.filter((r) => r.status === 'pending').length;
-  const todayStr = today();
+  const todayStr = todayOf(c);
 
   return page(
     c,

@@ -29,6 +29,13 @@ constraints bullets.
   every field labelled, errors `role="alert"` (+ `invalid()` on their fields), colour never the only
   signal; a new page or htmx swap joins `scripts/a11y.mjs`, and `npm run lint` + `npm run a11y` pass.
 - Mutations are POSTs; CSRF = `SameSite=Lax` session cookie + Origin-check middleware.
+- **Today is the device's day** (ARCH.md §16 #69). The Worker's clock is UTC; `public/app.js` writes the
+  browser's IANA zone into a `tz` cookie, and `todayOf(c)` (src/views/layout.tsx) reads it, falling back to
+  UTC for a missing or unknown zone. Every date a page offers (Finish, Played, Start) or a handler fills in
+  when none is given (a first page's read, a loan, a return) comes from it: a route never takes a day from
+  `new Date()` or lets SQL default one with `date('now')`. `todayUtc()` is for tests and for the bound on
+  how late a date may be (`latestReadDate()`, tomorrow in UTC, at or after today anywhere). Stored
+  timestamps are still shown as their UTC date.
 
 ## Writes, accounts and permissions
 

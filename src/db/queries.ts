@@ -16,6 +16,7 @@ import {
   type PersonRead,
   type ReadDraft,
   type ReadRow,
+  todayUtc,
 } from '../lib/reads';
 import { FEWEST_PLAYERS, WEIGHT_BANDS, type GameFilters } from '../lib/games';
 import { MAX_LINKS_PER_ITEM, type LinkDraft } from '../lib/links';
@@ -1478,10 +1479,11 @@ export async function createLoan(
   await db(d1).insert(s.loans).values(values);
 }
 
-export async function returnLoan(d1: D1Database, id: number): Promise<void> {
+/** Marks a loan returned on `today`, the device's day (§16 #69) — once; a loan already back keeps its date. */
+export async function returnLoan(d1: D1Database, id: number, today: string = todayUtc()): Promise<void> {
   await db(d1)
     .update(s.loans)
-    .set({ returnedOn: sql`(date('now'))` })
+    .set({ returnedOn: today })
     .where(and(eq(s.loans.id, id), isNull(s.loans.returnedOn)));
 }
 
@@ -1586,17 +1588,17 @@ export async function pastLoansForItem(
  */
 export async function lendIfFree(
   d1: D1Database,
-  values: { itemId: number; borrower: string; contact: string | null; dueOn: string | null },
+  values: { itemId: number; borrower: string; loanedOn?: string; contact: string | null; dueOn: string | null },
 ): Promise<boolean> {
   const row = await d1
     .prepare(
-      `INSERT INTO loans (item_id, borrower, contact, due_on)
-       SELECT ?1, ?2, ?3, ?4
+      `INSERT INTO loans (item_id, borrower, loaned_on, contact, due_on)
+       SELECT ?1, ?2, ?5, ?3, ?4
        WHERE (SELECT copies FROM items WHERE id = ?1)
            > (SELECT count(*) FROM loans WHERE item_id = ?1 AND returned_on IS NULL)
        RETURNING id`,
     )
-    .bind(values.itemId, values.borrower, values.contact, values.dueOn)
+    .bind(values.itemId, values.borrower, values.contact, values.dueOn, values.loanedOn ?? todayUtc())
     .first<{ id: number }>();
   return !!row;
 }
@@ -2878,25 +2880,32 @@ export async function listProgress(d1: D1Database, itemId: number): Promise<Prog
 /**
  * Records a page `reader` reached, in their open read. One batch, so the page, its read and the copy on `items`
  * can't disagree. Someone with no reads of the book gets their first, opened today, because recording a page is what
- * starting a book looks like (§16 #34); an open read with no start date takes today's, as before. Someone who has
+ * starting a book looks like (§16 #34); an open read with no start date takes today's, as before — `today` being the
+ * reader's device's day (§16 #69), not the server's. Someone who has
  * finished or stopped it, with no read open, records nothing — reading it again is a deliberate "Read again" first
  * (§16 #41). Anyone else's reads don't matter. True when the page was recorded.
  */
-export async function addProgress(d1: D1Database, itemId: number, page: number, reader: number | null): Promise<boolean> {
+export async function addProgress(
+  d1: D1Database,
+  itemId: number,
+  page: number,
+  reader: number | null,
+  today: string = todayUtc(), // a route passes the device's day; the default is for calls with no device (tests)
+): Promise<boolean> {
   const results = await d1.batch([
     d1
       .prepare(
         `INSERT INTO reads (item_id, reader_id, status, began_on)
-         SELECT ?1, ?2, 'in_progress', date('now')
+         SELECT ?1, ?2, 'in_progress', ?3
          WHERE EXISTS (SELECT 1 FROM items WHERE id = ?1) AND NOT EXISTS (SELECT 1 FROM reads WHERE item_id = ?1 AND reader_id IS ?2)`,
       )
-      .bind(itemId, reader),
+      .bind(itemId, reader, today),
     d1
       .prepare(
-        `UPDATE reads SET began_on = date('now')
+        `UPDATE reads SET began_on = ?3
          WHERE item_id = ?1 AND reader_id IS ?2 AND status = 'in_progress' AND (began_on IS NULL OR trim(began_on) = '')`,
       )
-      .bind(itemId, reader),
+      .bind(itemId, reader, today),
     adoptOrphanPages(d1, itemId, reader),
     d1
       .prepare(
