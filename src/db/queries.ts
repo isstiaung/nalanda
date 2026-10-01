@@ -1510,6 +1510,31 @@ export async function createItemWithTags(
 }
 
 /**
+ * Items from a run of scans (ARCH.md §16 #94): each a bare record as its lookup described it — no cover, no tags, no
+ * reads or review — in one batch, so a request's twenty land whole or not at all. `who` is the member adding them,
+ * for the history triggers (#84: a creation records nothing, but the marker and the sweeps ride as with every item
+ * write). Their activity to connections is today's, as an Add from the page is — not an import's. Returns the ids
+ * in the rows' order, from the batch's own results.
+ */
+export async function addScannedItems(d1: D1Database, rows: Array<{ item: NewItem; series?: SeriesDraft | null }>, who?: Writer): Promise<number[]> {
+  if (!rows.length) return [];
+  const writes: D1PreparedStatement[] = [];
+  const itemAt: number[] = []; // each row's insert, as an index into the batch's results
+  for (const r of rows) {
+    const q = db(d1)
+      .insert(s.items)
+      .values(withSeries(withReviewState(withReadState(r.item, []), []), r.series))
+      .returning({ id: s.items.id })
+      .toSQL();
+    writes.push(...seriesUpsert(d1, r.series));
+    itemAt.push(writes.length + (who ? 1 : 0)); // asWriter's marker leads the batch when someone is writing
+    writes.push(d1.prepare(q.sql).bind(...q.params));
+  }
+  const results = await d1.batch(asWriter(d1, who, writes));
+  return rows.map((_, i) => (results[itemAt[i]!]?.results[0] as { id: number }).id);
+}
+
+/**
  * What the edit form says about its person's reading (§16 #43): it describes that person's read that decides their
  * status. `clearReads` is "Not started" for an item with no Reading section to delete reads from — a record, a board
  * game — whose reads of theirs then go (the route allows it only there).
@@ -3503,6 +3528,16 @@ export async function catalogMatches(d1: D1Database, candidates: CatalogProbe[])
           (k.bgg !== null && r.mediaType === 'boardgame' && r.bgg === k.bgg),
       )?.id ?? null,
   );
+}
+
+/** The titles of these items, by id — for a report that names what the catalog already had. One query; none for no ids. */
+export async function itemTitles(d1: D1Database, ids: number[]): Promise<Map<number, string>> {
+  if (!ids.length) return new Map();
+  const { results } = await d1
+    .prepare('SELECT id, title FROM items WHERE id IN (SELECT value FROM json_each(?1))')
+    .bind(JSON.stringify([...new Set(ids)]))
+    .all<{ id: number; title: string }>();
+  return new Map(results.map((r) => [r.id, r.title]));
 }
 
 export async function existingForWant(d1: D1Database, c: CatalogProbe): Promise<number | null> {
