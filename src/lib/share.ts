@@ -1,13 +1,14 @@
 // The public-field whitelist for share pages. This is a whitelist on purpose:
 // new item columns stay private until explicitly added here (ARCH.md §9).
 import { checkPurchaseLink } from './links';
+import { publicCustom, type PublicCustom } from './custom';
 import { withoutMoney } from './money';
 import { formatsOf } from './formats';
 import { isPlayable } from './plays';
 import { progressPercent } from './progress';
 import { matchesStatus } from './reads';
 import type { ItemFilters } from '../db/queries';
-import type { Item, MediaType, Share } from '../db/schema';
+import type { CustomField, Item, MediaType, Share } from '../db/schema';
 
 /**
  * Does this item fall inside a share view's scope? Guards the public item-detail
@@ -128,6 +129,11 @@ export type PublicItem = {
   // series in — the share item page does; listings and connections don't, so what they serve is unchanged. Never the
   // gaps or anyone's "next up", which are about the household's shelves and reading.
   series?: { name: string; number: number | null };
+  // The household's custom fields' values (§16 #95), each by its field's name — only the fields whose own "Show on
+  // share pages" switch is on, and only when the caller passed the fields in, which the share item page does;
+  // listings, feeds, gift lists and connections don't, so what they serve is unchanged. Never a field's id, never
+  // the raw column, never a value of a field whose switch is off.
+  custom?: PublicCustom[];
 };
 
 export function parseDetails(json: string | null | undefined): Record<string, unknown> {
@@ -165,9 +171,12 @@ export function toPublicItem(
     wanted?: boolean;
     // the quotes marked shared (§16 #77), each signed with a display name only while names are on for share pages
     quotes?: Array<{ by: string | null; text: string; page: string | null }>;
+    // the household's custom fields (§16 #95): publicCustom() keeps only those switched on for share pages
+    customFields?: CustomField[];
   } = {},
 ): PublicItem {
   const owned = item.copies > 0;
+  const custom = opts.customFields ? publicCustom(item.custom, opts.customFields) : [];
   const readingNow = matchesStatus(item, 'in_progress');
   const showProgress = owned && opts.progress === true && item.mediaType === 'book' && readingNow && !!item.progressPage;
   return {
@@ -202,6 +211,8 @@ export function toPublicItem(
     ...(opts.series && opts.series.id === item.seriesId ? { series: { name: opts.series.name, number: item.seriesNumber } } : {}),
     // only the quotes marked shared, and only when the caller passed them: never a note, never a username
     ...(opts.quotes?.length ? { quotes: opts.quotes.map((q) => ({ by: q.by || null, text: q.text, page: q.page })) } : {}),
+    // only the fields switched on for share pages, by name, and only when the caller passed the fields: the item page does
+    ...(custom.length ? { custom } : {}),
   };
 }
 

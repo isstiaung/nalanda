@@ -21,6 +21,13 @@ export type MediaGrade = (typeof MEDIA_GRADES)[number];
 export const SLEEVE_GRADES = [...MEDIA_GRADES, 'Generic', 'No Cover'] as const;
 export type SleeveGrade = (typeof SLEEVE_GRADES)[number];
 
+/**
+ * What a household's custom field holds (ARCH.md §16 #95): a line of text, a yes/no, or a calendar date. An admin
+ * defines up to CUSTOM_FIELD_LIMIT of them (src/lib/custom.ts); every item form shows them.
+ */
+export const CUSTOM_KINDS = ['text', 'bool', 'date'] as const;
+export type CustomKind = (typeof CUSTOM_KINDS)[number];
+
 const now = sql`(datetime('now'))`;
 
 export const users = sqliteTable('users', {
@@ -146,6 +153,11 @@ export const items = sqliteTable(
     // like the publisher. And the title it was first published under, in any script, optional and public.
     language: text('language'),
     originalTitle: text('original_title'),
+    // The household's custom fields' values (§16 #95): a JSON object keyed by the field's id as a string — text of up
+    // to 500 characters, `true` for a yes/no that is ticked, or a calendar date — '{}' for none. Its own column, never
+    // `details`, which share pages render whole: a value is private unless its field's own switch (custom_fields.on_shares)
+    // is on, and then it reaches a share page only through toPublicItem() given the fields. Never to connections.
+    custom: text('custom').notNull().default('{}'),
   },
   (t) => [
     index('idx_items_library').on(t.libraryId),
@@ -404,6 +416,28 @@ export const siteSettings = sqliteTable('site_settings', {
   language: text('language').notNull().default('en'),
   updatedAt: text('updated_at').notNull().default(now),
 });
+
+/**
+ * The household's custom fields (ARCH.md §16 #95): up to ten, each a name, a kind and whether its values may show on
+ * share pages — off by default, so a new field is private like notes until an admin says otherwise. Values live on
+ * each item in `items.custom`, keyed by the field's id. Ids are never reused (AUTOINCREMENT): a value a trash
+ * snapshot keeps under a deleted field's id can't come back under a newer field's. Deleting a field strips its key
+ * from every item in the same batch. Names are unique without regard to case; the export writes values by name, so a
+ * file moves between households.
+ */
+export const customFields = sqliteTable(
+  'custom_fields',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull(),
+    kind: text('kind', { enum: CUSTOM_KINDS }).notNull(),
+    position: integer('position').notNull().default(0),
+    onShares: integer('on_shares', { mode: 'boolean' }).notNull().default(false),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (t) => [uniqueIndex('idx_custom_fields_name').on(sql`lower(${t.name})`)],
+);
+export type CustomField = typeof customFields.$inferSelect;
 
 /**
  * One-time invites. Only the SHA-256 of the token is stored — the token itself is shown to the

@@ -8,6 +8,7 @@ import {
   getLibrary,
   getSiteSettings,
   importItems,
+  listCustomFields,
   listLibraries,
   listPeople,
   loansForIdRange,
@@ -39,6 +40,7 @@ import {
 } from '../lib/csv';
 import { findCover, findDescription } from '../metadata';
 import { parseDetails } from '../lib/share';
+import { parseCustom } from '../lib/custom';
 import { MEDIA_LABEL } from '../views/components';
 import { page, todayOf } from '../views/layout';
 
@@ -237,12 +239,14 @@ importexport.post('/api/import', async (c) => {
   const isGoodreads = format === 'goodreads' || format === 'storygraph' || format === 'librarything';
   const dates = body.dates === true;
 
+  // the household's custom fields (§16 #95), which a Nalanda export's `custom` cell is matched to by name — read only for one
+  const customFields = format === 'nalanda' ? await listCustomFields(c.env.DB) : [];
   const mapped = [];
   let skipped = sent.length - rows.length;
   for (const row of rows) {
     const m =
       format === 'nalanda'
-        ? mapNalandaRow(row, settings.currency, settings.language)
+        ? mapNalandaRow(row, settings.currency, settings.language, customFields)
         : format === 'goodreads'
           ? mapGoodreadsRow(row)
           : format === 'storygraph'
@@ -293,6 +297,11 @@ importexport.post('/api/import', async (c) => {
       currency: settings.currency,
       // libib prices that couldn't be read as one in the household's currency (or there is none): they stay in details
       pricesLeft: mapped.filter((m) => m.item.purchasePrice == null && 'price' in parseDetails(m.item.details)).length,
+      // a Nalanda export's custom fields' values (§16 #95): how many land on a field of the same name here, how many
+      // had no field here, and how many didn't fit their field's kind — the last two are dropped, never kept in details
+      customValues: mapped.reduce((n, m) => n + Object.keys(parseCustom(m.item.custom)).length, 0),
+      customDropped: mapped.reduce((n, m) => n + (m.customDropped ?? 0), 0),
+      customUnfit: mapped.reduce((n, m) => n + (m.customUnfit ?? 0), 0),
       // A household of one importing its own file has nobody to tell apart: the preview says nothing new then.
       ...(people.length > 1 || [...tally.keys()].some((name) => name !== undefined && name !== user.username)
         ? { importer: user.username, keepsNames: keepNames }
@@ -489,6 +498,7 @@ async function exportRows(
       cells.quotes.get(item.id) ?? [],
       cells.borrows.get(item.id) ?? [],
       item.addedBy === null ? null : (people.get(item.addedBy) ?? null),
+      cells.customFields, // the household's fields (§16 #95), read in the cells' batch: their names key the `custom` cell
     );
   }
   return { csv, count: items.length, lastId: items.at(-1)!.id, more };

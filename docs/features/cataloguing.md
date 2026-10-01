@@ -183,7 +183,13 @@ a few seconds apart, never changing what you typed. They are what game night fil
 ([reading.md](reading.md#plays-and-game-night)). The "Powered by BGG" logo sits beside BGG's data,
 as its terms require.
 
-## Not yet
+## Custom fields
 
-Custom fields of your own are not in Nalanda yet; what a form has no field for goes in the item's
-details.
+An admin defines up to ten fields of the household's own under Members — a line of text, a yes/no,
+or a date; "Signed", "Gifted by", "Bought on" — and every item form shows them. Values live in a
+column of their own, never in the item's public details, and stay private unless a field's own
+**Show on share pages** switch is on, when the share item page shows that field by name; nothing
+of them ever reaches a connected household. They round-trip through the CSV as a `custom` cell
+keyed by field name, so a file moves between households, and a deleted field takes its values
+with it, named in the item's history ([#95](../decisions/095-custom-fields.md),
+[runbooks/accounts-and-access.md → Custom fields](../../runbooks/accounts-and-access.md)).
