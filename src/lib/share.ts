@@ -110,6 +110,9 @@ export type PublicItem = {
   playCount?: number;
   // Only when the household has turned progress on for share pages, and only for a book in progress.
   progress?: { page: number; length: number | null; percent: number | null };
+  // Quotes a member marked shared (§16 #77): the text and its page, signed with a display name only while names are on
+  // for share pages (else null, shown as "A member"). Never a note, never a username, absent when there are none.
+  quotes?: Array<{ by: string | null; text: string; page: string | null }>;
   // Only when an admin has switched names on for share pages (§16 #45): each member's rating and review, signed with
   // their display name or unsigned (null). Never a username, never a read or its date.
   reviews?: Array<{ by: string | null; rating: number | null; review: string | null }>;
@@ -148,6 +151,8 @@ export function toPublicItem(
     series?: { id: number; name: string } | null;
     // anyone in the household wants it (§16 #53) — shown only while it isn't owned
     wanted?: boolean;
+    // the quotes marked shared (§16 #77), each signed with a display name only while names are on for share pages
+    quotes?: Array<{ by: string | null; text: string; page: string | null }>;
   } = {},
 ): PublicItem {
   const readingNow = matchesStatus(item, 'in_progress');
@@ -178,6 +183,8 @@ export function toPublicItem(
     ...(opts.reviews ? { reviews: opts.reviews.map((r) => ({ by: r.by || null, rating: r.rating, review: r.review })) } : {}),
     // the name from the series row, the number from the item — and only for the item's own series
     ...(opts.series && opts.series.id === item.seriesId ? { series: { name: opts.series.name, number: item.seriesNumber } } : {}),
+    // only the quotes marked shared, and only when the caller passed them: never a note, never a username
+    ...(opts.quotes?.length ? { quotes: opts.quotes.map((q) => ({ by: q.by || null, text: q.text, page: q.page })) } : {}),
   };
 }
 

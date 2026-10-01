@@ -48,6 +48,10 @@ import {
   type ReadEntry,
   type ReviewEntry,
   setCover,
+  addQuote,
+  getQuote,
+  updateQuote,
+  deleteQuote,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { scanQueueOwner } from '../lib/auth';
@@ -100,6 +104,8 @@ import {
 import { page, todayOf } from '../views/layout';
 import { CreatorLinks } from '../views/creators';
 import { CoverPhotoForm, PHOTO_REFUSED } from '../views/cover-photo';
+import { QuotesSection } from '../views/quotes';
+import { cleanQuote, type QuoteDraft } from '../lib/quotes';
 import { BggAttribution, fromBgg } from '../views/attribution';
 import { itemComments } from './comments';
 import { recommendOnItemPage } from './recommendations';
@@ -910,6 +916,10 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
         ) : null}
 
         {item.mediaType === 'book' ? (
+          <QuotesSection itemId={item.id} quotes={log.quotes} viewer={viewer} people={people} error={c.req.query('quote') === 'refused' ? 'A quote needs some text.' : undefined} />
+        ) : null}
+
+        {item.mediaType === 'book' ? (
           <ReadingSection
             item={item}
             reads={log.reads}
@@ -1274,6 +1284,49 @@ items.post('/items/:id/reviews/:reviewId', async (c) => {
   const body = await c.req.parseBody();
   await updateReview(c.env.DB, id, found.id, { rating: formRating(body['rating']), review: reviewText(String(body['review'] ?? '').trim()) }, viewerOf(c));
   return c.redirect(`/items/${id}#reviews`);
+});
+
+// ---------- quotes and highlights (§16 #77) ----------
+
+/** What a quote form sent, tidied, or null without any text. */
+const quoteFromForm = (body: Record<string, unknown>): QuoteDraft | null =>
+  cleanQuote({ text: body['text'], page: body['where'], note: body['note'], shared: body['shared'] === '1' });
+
+/** Adds the signed-in person's quote to a book. */
+items.post('/items/:id/quotes', async (c) => {
+  const id = Number(c.req.param('id'));
+  const item = await getItem(c.env.DB, id);
+  if (!item) return c.notFound();
+  const draft = quoteFromForm(await c.req.parseBody());
+  if (!draft) return c.redirect(`/items/${id}?quote=refused#quotes`);
+  await addQuote(c.env.DB, id, c.get('user').id, draft);
+  return c.redirect(`/items/${id}#quotes`);
+});
+
+/** Edits a quote — the writer's own, or anyone's for an admin; the share checkbox is part of it. */
+items.post('/items/:id/quotes/:quoteId', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!(await getItem(c.env.DB, id))) return c.notFound();
+  const quote = await getQuote(c.env.DB, id, Number(c.req.param('quoteId')));
+  if (!quote) return c.redirect(`/items/${id}#quotes`);
+  const viewer = viewerOf(c);
+  if (!viewer.admin && quote.userId !== viewer.id) return notYours(c, 'quote');
+  const draft = quoteFromForm(await c.req.parseBody());
+  if (!draft) return c.redirect(`/items/${id}?quote=refused#quotes`);
+  await updateQuote(c.env.DB, id, quote.id, draft, viewer);
+  return c.redirect(`/items/${id}#quotes`);
+});
+
+items.post('/items/:id/quotes/:quoteId/delete', async (c) => {
+  const id = Number(c.req.param('id'));
+  if (!(await getItem(c.env.DB, id))) return c.notFound();
+  const quote = await getQuote(c.env.DB, id, Number(c.req.param('quoteId')));
+  if (quote) {
+    const viewer = viewerOf(c);
+    if (!viewer.admin && quote.userId !== viewer.id) return notYours(c, 'quote');
+    await deleteQuote(c.env.DB, id, quote.id, viewer);
+  }
+  return c.redirect(`/items/${id}#quotes`);
 });
 
 /** Deletes a review — the writer's own, or anyone's for an admin. */

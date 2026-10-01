@@ -499,6 +499,8 @@ async function furnish(admin, member) {
   await expect('/', 'the goal and a book to read next', /Reading goal[\s\S]*Read next/);
   const seriesId = Number((await html(admin, '/series')).match(/href="\/series\/(\d+)"/)?.[1]);
   if (!seriesId) throw new Error('furnishing: /series lists no series');
+  // a quote of the admin's on the book being read, shared, so the item page, the Quotes page and its share page show one (§16 #77)
+  await post(admin, `/items/${reading}/quotes`, { text: 'A line worth keeping, for the audit.', page: 'p. 12', note: 'And a note on it.', shared: '1' });
   // one item deleted, so the trash has a row to show (§16 #74)
   await post(admin, '/items', { title: 'Doomed Volume', libraryId: String(shelves.books), mediaType: 'book', creators: 'Nobody Much' });
   const doomed = await find('Doomed Volume');
@@ -548,6 +550,7 @@ function pageList(ids) {
     ['Publisher: one publisher', `/publishers/${ids.publisher}`],
     ['Reading goals', '/goals'],
     ['Want list: yours', '/wants'],
+    ['Quotes: yours', '/quotes'],
     ['Want list: a member\'s', `/wants?member=${ids.raviId}`],
     ['Add items', '/add'],
     ['Search: empty', '/search'],

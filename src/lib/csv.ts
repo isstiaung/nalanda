@@ -19,6 +19,7 @@ import {
   type ReadRow,
 } from './reads';
 import { formatLinksCell, formatWantsCell, parseLinksCell, parseWantsCell, type CellWant, type LinkDraft } from './links';
+import { formatQuotesCell, parseQuotesCell, type CellQuote } from './quotes';
 import { formatLoansCell, parseLoansCell, type LoanDraft } from './loans';
 import { formatPlaysCell, parsePlaysCell, type CellPlay, type PersonPlay } from './plays';
 import { formatReviewsCell, parseReviewsCell, summarizeReviews, type CellReview, type PersonReview } from './reviews';
@@ -61,6 +62,7 @@ export const EXPORT_COLUMNS = [
   'progress_history',
   'wanted_by',
   'purchase_links',
+  'quotes', // quotes and highlights (§16 #77): JSON, each with its writer's username
   'details',
 ] as const;
 
@@ -109,6 +111,7 @@ export function itemToCsvLine(
   series: { name: string; total: number | null } | null = null,
   wants: Array<{ by: string; at: string }> = [],
   links: LinkDraft[] = [],
+  quotes: CellQuote[] = [],
 ): string {
   const ordered = inDisplayOrder(reads);
   const position = new Map(ordered.map((r, i) => [r.id, i + 1]));
@@ -148,6 +151,7 @@ export function itemToCsvLine(
     progressHistoryCell(progress, position),
     formatWantsCell(wants),
     formatLinksCell(links),
+    formatQuotesCell(quotes),
     item.details === '{}' ? '' : item.details,
   ]);
 }
@@ -193,6 +197,8 @@ export type MappedRow = {
   // a Nalanda export's `wanted_by` and `purchase_links` (§16 #53)
   wants?: CellWant[];
   links?: LinkDraft[];
+  // quotes and highlights (§16 #77), by username as the reviews cell names people
+  quotes?: CellQuote[];
   // a Goodreads row's reading, which a merge reconciles with the reads already here
   goodreads?: GoodreadsReading;
   // a Nalanda export's `loans`, restored onto the item the row makes (§16 #57); libib and Goodreads have none
@@ -223,6 +229,8 @@ const KNOWN_COLUMNS = new Set([
   // fall into details, which every share page renders
   'wanted_by',
   'purchase_links',
+  // and quotes (§16 #77), each with its writer, private until shared
+  'quotes',
   // and what was paid (§16 #61): money is never published. libib's own `price` is mapped below, and stays in details
   // — which published pages strip of money — only when it can't be read as a price in the household's currency
   'purchase_price',
@@ -471,6 +479,7 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
     ...(plays.length ? { plays } : {}),
     wants: parseWantsCell(r['wanted_by']),
     links: parseLinksCell(r['purchase_links']),
+    quotes: parseQuotesCell(r['quotes']),
     tags: (r['tags'] ?? '')
       .split(',')
       .map((t) => t.trim())
@@ -550,7 +559,9 @@ export function attributePeople(
     }
     wants = [...byPerson].map(([userId, at]) => ({ userId, at }));
   }
-  return { ...(reads ? { reads } : {}), ...(reviews ? { reviews } : {}), ...(plays ? { plays } : {}), ...(wants ? { wants } : {}) };
+  // Quotes (§16 #77) resolve as a review's writer does; a former member's stay nobody's
+  const quotes = m.quotes?.map(({ by, ...quote }) => ({ ...quote, userId: resolve(by) }));
+  return { ...(reads ? { reads } : {}), ...(reviews ? { reviews } : {}), ...(plays ? { plays } : {}), ...(wants ? { wants } : {}), ...(quotes ? { quotes } : {}) };
 }
 
 // ---------- Goodreads import mapping ----------

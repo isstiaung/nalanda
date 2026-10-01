@@ -1508,3 +1508,17 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .cover-photo label { font-size: 12.5px; margin: 0; }
 .cover-photo input[type='file'] { font-size: 12.5px; max-width: 100%; }
 .cover-photo-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+/* quotes and highlights (ARCH.md §16 #77) */
+.quotes { list-style: none; padding: 0; margin: 0; }
+.quotes .quote { padding: 0.65rem 0; border-top: 1px solid var(--line); }
+.quotes .quote.shared { border-left: 3px solid var(--accent); padding-left: 0.6rem; }
+.quote-text { margin: 0 0 0.3rem; padding: 0 0 0 0.75rem; border-left: 2px solid var(--line); font-style: italic; }
+.quote-by { display: flex; flex-wrap: wrap; gap: 0.3rem 0.75rem; align-items: baseline; margin: 0 0 0.25rem; font-size: 12.5px; }
+.quote-note { margin: 0.2rem 0 0.4rem; font-size: 13px; }
+.quote-form { display: grid; gap: 0.4rem; max-width: 40rem; }
+.quote-form .inline-check { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 24px; font-size: 13px; }
+.quote-add { margin-top: 0.5rem; }
+.quote-book { display: flex; align-items: center; gap: 0.6rem; text-decoration: none; margin-bottom: 0.3rem; }
+.quote-cover { width: 32px; flex: none; display: block; }
+.quote-cover .cover-img, .quote-cover .cover-fallback { width: 32px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 2px; font-size: 1rem; display: flex; align-items: center; justify-content: center; background: var(--surface-2); }

@@ -850,6 +850,7 @@ is a section of this document and "#N" another decision.
 | 72 | 2026-10-01 | [Creators and publishers are pages: authors, designers and artists read out of `creators`, publishers and labels out of `publisher`, no table](docs/decisions/072-creator-and-publisher-pages.md) |
 | 73 | 2026-10-01 | [A cover from the camera: the browser shrinks the picture, the Worker sniffs and stores it, under the rules every cover keeps](docs/decisions/073-cover-from-the-camera.md) |
 | 74 | 2026-10-01 | [Deleting an item puts it in the trash for 30 days: a snapshot SQLite builds in the delete's own batch, restored through the import's insert, never a soft delete](docs/decisions/074-item-trash.md) |
+| 77 | 2026-10-01 | [Quotes are a member's own, private until each is marked shared; Kindle highlights come in as quotes, parsed in the browser](docs/decisions/077-quotes-and-highlights.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
