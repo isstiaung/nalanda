@@ -72,7 +72,10 @@ constraints bullets.
 ## Catalogue data
 
 - Barcode routing lives in `src/metadata/index.ts`: EAN-13 starting `978`/`979` → book
-  providers (Open Library + Google Books merged); any other EAN/UPC → Discogs.
+  providers (Open Library + Google Books merged); an ISBN-10 — nine digits and a check digit,
+  which can be `X` — the same, recorded as `isbn10Upc` beside the ISBN-13 it stands for (Google
+  Books' when it names one, else `isbn13Of()` derives it), so a later EAN-13 scan of the book
+  is "In your catalog"; any other EAN/UPC → Discogs.
 - Tags are normalized lowercase at write time; uniqueness is by exact string.
 - `copies = 0` = "in the catalog, not in the physical collection" (reading-log entries,
   e.g. Goodreads imports). Not lendable; badged "Not owned" everywhere incl. share pages
