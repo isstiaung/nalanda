@@ -56,6 +56,9 @@ import {
   deleteQuote,
   markOwnedUnlessBorrowed,
   openBorrowLender,
+  historyOf,
+  itemHistoryStatements,
+  type Writer,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { scanQueueOwner } from '../lib/auth';
@@ -108,6 +111,7 @@ import {
   BorrowedPill,
   FormatPills,
   LanguagePill,
+  ItemHistory,
 } from '../views/components';
 import { page, todayOf } from '../views/layout';
 import { CreatorLinks } from '../views/creators';
@@ -125,6 +129,12 @@ import { ledgerDate } from '../lib/dates';
 const items = new Hono<AppEnv>();
 
 /** The signed-in person, as the reading and review routes check them: their own, or anyone's for an admin (§16 #43). */
+/** Who is writing (§16 #84): the signed-in member, with the key that says it is still their account (#56). */
+export function writerOf(c: Context<AppEnv>): Writer {
+  const user = c.get('user');
+  return { id: user.id, sessionKey: user.sessionKey };
+}
+
 function viewerOf(c: Context<AppEnv>): Viewer & Actor {
   const user = c.get('user');
   return { id: user.id, admin: user.role === 'admin' };
@@ -766,13 +776,15 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const viewer = viewerOf(c);
   // "Recommend to…" (§16 #58): its queries ride in the reading log's batch — no call of their own
   const recommend = await recommendOnItemPage(c, item);
+  // the item's history (§16 #84), admins only: its purge and read ride in the reading log's batch too
+  const history = viewer.admin ? itemHistoryStatements(c.env.DB, id) : [];
   const [lib, tags, loans, people, log, lent, plays, inSeries] = await Promise.all([
     getLibrary(c.env.DB, item.libraryId),
     tagsForItem(c.env.DB, id),
     activeLoansForItem(c.env.DB, id),
     listPeople(c.env.DB),
     // with its want list and purchase links, in the same call (§16 #53), and Recommend to…'s (§16 #58)
-    itemPageLog(c.env.DB, id, recommend.statements),
+    itemPageLog(c.env.DB, id, [...recommend.statements, ...history]),
     pastLoansForItem(c.env.DB, id),
     playLog(c.env.DB, id),
     // its series, with the viewer's own reading of every volume (§16 #52): one call, only for an item in one
@@ -791,6 +803,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
   const record = isRecord(item.mediaType);
   const discussion = await itemComments(c, item); // null unless connections are enabled and someone commented
   const recommending = recommend.render(log.extra); // null unless connections are enabled and one is active (§16 #58)
+  const changes = viewer.admin ? historyOf(log.extra[recommend.statements.length + 1]) : null;
 
   return page(
     c,
@@ -1057,6 +1070,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
         </div>
 
         <LendingHistory loans={lent.loans} total={lent.total} />
+        {changes ? <ItemHistory entries={changes} /> : null}
 
         {recommending}
 
@@ -1560,7 +1574,7 @@ items.post('/items/:id/discogs', async (c) => {
   const byBarcode = found.via === 'barcode';
   const fill = fillPressing(item, found.pressing, 'gaps');
   if (!fill.filled.length) return answer('nothing', undefined, byBarcode);
-  if (!(await applyPressingFill(c.env.DB, id, item, fill))) {
+  if (!(await applyPressingFill(c.env.DB, id, item, fill, writerOf(c)))) {
     // someone saved it meanwhile: in place, show what they saved (one more read, on this rare path only)
     const now = htmx ? await getItem(c.env.DB, id) : item;
     return now ? answer('changed', undefined, false, now) : c.notFound();
@@ -1671,7 +1685,7 @@ items.post('/items/:id/bgg', async (c) => {
   if (!found.ok) return answer(found.failure);
   const fill = fillGame(item, found.game);
   if (!fill.filled.length) return answer('nothing');
-  if (!(await applyGameFill(c.env.DB, id, item, fill))) {
+  if (!(await applyGameFill(c.env.DB, id, item, fill, writerOf(c)))) {
     // someone saved it meanwhile: in place, show what they saved (one more read, on this rare path only)
     const now = htmx ? await getItem(c.env.DB, id) : item;
     return now ? answer('changed', undefined, now) : c.notFound();
@@ -1683,7 +1697,7 @@ items.post('/items/:id/mark-owned', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
-  if (item.copies === 0 && !(await markOwnedUnlessBorrowed(c.env.DB, id))) {
+  if (item.copies === 0 && !(await markOwnedUnlessBorrowed(c.env.DB, id, writerOf(c)))) {
     // borrowed from someone (§16 #82): theirs until it is marked returned — the button stays, and says why
     const lender = await openBorrowLender(c.env.DB, id);
     return c.html(
@@ -1706,7 +1720,7 @@ items.post('/items/:id/mark-not-owned', async (c) => {
   // left alone even for a hand-rolled POST — zeroing it would silently discard a
   // number that round-trips through /export.csv.
   if (item.copies > 1) return c.html(<CopiesPill copies={item.copies} />);
-  if (item.copies === 1) await updateItem(c.env.DB, id, { copies: 0 });
+  if (item.copies === 1) await updateItem(c.env.DB, id, { copies: 0 }, writerOf(c));
   return c.html(<MarkOwnedButton id={id} />);
 });
 
@@ -1802,6 +1816,7 @@ items.post('/items/:id', async (c) => {
       'seriesName' in body || 'seriesNumber' in body ? parsed.series : undefined,
       // likewise "also held as": a form without its lines leaves them as they are (§16 #75)
       'edition-0-isbn' in body ? parsed.editions : undefined,
+      writerOf(c), // for the item's history (§16 #84)
     );
   } catch (err) {
     if (coverKey !== existing.coverKey) c.executionCtx.waitUntil(deleteCover(c.env.COVERS, coverKey)); // the new one: unused
@@ -1825,14 +1840,14 @@ items.post('/items/:id/cover', async (c) => {
   if (!item) return c.notFound();
   const body = await c.req.parseBody();
   if (body['action'] === 'remove') {
-    const was = await setCover(c.env.DB, id, null);
+    const was = await setCover(c.env.DB, id, null, writerOf(c));
     c.executionCtx.waitUntil(deleteCover(c.env.COVERS, was?.before));
     return c.redirect(`/items/${id}`);
   }
   const photo = body['photo'] instanceof File && body['photo'].size > 0 ? body['photo'] : null;
   const key = await storeUploadedCover(c.env.COVERS, photo);
   if (!key) return c.redirect(`/items/${id}?cover=refused`);
-  const was = await setCover(c.env.DB, id, key);
+  const was = await setCover(c.env.DB, id, key, writerOf(c));
   if (!was) {
     c.executionCtx.waitUntil(deleteCover(c.env.COVERS, key)); // the item went while the photo was stored
     return c.notFound();

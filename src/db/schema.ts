@@ -292,6 +292,41 @@ export const savedViews = sqliteTable(
   (t) => [uniqueIndex('idx_saved_views_name').on(t.libraryId, t.name)],
 );
 
+/**
+ * Who is writing, for the item-history triggers (ARCH.md §16 #84): one row (id 1) set as the first statement of a
+ * batch that changes items and deleted as its last — a batch is one transaction, so no other request ever sees it
+ * (the import_in_progress marker's pattern, #40). Holds the member's session key as well as the id, so a history row
+ * names the account as it was then and a reused id (#56) names nobody.
+ */
+export const acting = sqliteTable('acting', {
+  id: integer('id').primaryKey(),
+  userId: integer('user_id').notNull(),
+  sessionKey: text('session_key').notNull(),
+});
+
+/**
+ * Item history (ARCH.md §16 #84): each change to one of an item's own fields — title, creators, shelf, holding, cover,
+ * notes, location… never reads, reviews or plays, which show who did them already — written by the triggers of
+ * migration 0050 from whatever path changed it, with the member the `acting` row named, if any. Admin-only on the item
+ * page; rows older than HISTORY_DAYS are purged when the page reads them. Values are kept to 200 characters.
+ */
+export const itemHistory = sqliteTable(
+  'item_history',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    field: text('field').notNull(), // the column's name as the triggers write it
+    before: text('before'),
+    after: text('after'),
+    changedBy: integer('changed_by'), // the member's id then, or null; never a reference — the row outlives the account
+    changedKey: text('changed_key'), // their session key then (#56): shown as theirs only while it still matches
+    at: text('at').notNull().default(now),
+  },
+  (t) => [index('idx_item_history_item').on(t.itemId, t.id)],
+);
+
 export const loginAttempts = sqliteTable('login_attempts', {
   ip: text('ip').notNull(),
   attemptedAt: text('attempted_at').notNull().default(now),

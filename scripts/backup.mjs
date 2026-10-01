@@ -22,6 +22,7 @@ import { DATABASE, removeRemoteConfig, writeRemoteConfig } from './remote-config
 // worthless within a day. So is import_in_progress, which only ever holds a row inside an import's batch. The federation private key isn't data at all — it's a secret.
 export const TABLES = [
   'users',
+  'acting', // the writing member's marker (ARCH.md §16 #84): empty between batches, listed so the backup names every table
   'libraries',
   'shares',
   'saved_views', // a shelf's named filter sets (ARCH.md §16 #81): after libraries and users, which it references
@@ -40,6 +41,7 @@ export const TABLES = [
   'item_tags',
   'loans',
   'borrows', // borrowed from people not on Nalanda (ARCH.md §16 #82): after items, which it references
+  'item_history', // changes to items' own fields (ARCH.md §16 #84): after items and users
   'federation_settings',
   'connection_invites', // before connections, which reference it
   'connections',
