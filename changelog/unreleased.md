@@ -16,6 +16,7 @@ for what a host must do; link runbooks as ../runbooks/…); a release commit ren
 
 ### Fixed
 - **The login throttle now holds against guesses sent all at once, and counts per account as well as per address.** Ten wrong passwords in ten minutes from one address already locked it out, but a burst sent in parallel all reached the password check before any was counted; the attempt is now counted in the statement that checks the count, before the password is looked at, so a burst stops at ten too. The rule has changed in two ways: ten wrong guesses at one account, from however many addresses, lock that account out for ten minutes (the right password included — before, only the guessing address was slowed), and a household's shared address locks out only the accounts guessed at on it, not everyone behind it. The lockout page reads as it did and now answers HTTP 429, so a script can tell it from a wrong password. A login that succeeds counts towards nobody's ten.
+- **Login no longer says, by how long it takes, which usernames exist.** A name nobody has was answered without checking a password, in a fraction of the time a wrong password took; it is now checked against a fixed stand-in hash, so both answers take the same work.
 
 ### Upgrading
 - **One migration, 0053: a new column on `login_attempts` (`username`), no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. The table is throttling state, left out of backups and stale within minutes; nothing in it survives the hour.

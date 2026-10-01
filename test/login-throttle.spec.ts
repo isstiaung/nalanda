@@ -6,7 +6,7 @@ import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:
 import { describe, expect, it } from 'vitest';
 import { createUser, LOGIN_ATTEMPT_LIMIT } from '../src/db/queries';
 import app from '../src/index';
-import { hashPassword } from '../src/lib/auth';
+import { DUMMY_HASH, hashPassword } from '../src/lib/auth';
 import { rows } from './member-helpers';
 
 const ORIGIN = 'http://nalanda.test';
@@ -108,6 +108,8 @@ describe('the login throttle', () => {
       { ip: '203.0.113.1', username: 'asha' },
       { ip: '203.0.113.2', username: 'nobody-here' },
     ]);
+    // the stand-in hash an unknown name is checked against costs what a real one does: pbkdf2, 100k iterations
+    expect(DUMMY_HASH.startsWith('pbkdf2$100000$')).toBe(true);
     // and ten guesses at a name nobody has lock that name out like any other, with no word on whether it exists
     for (let i = 0; i < LOGIN_ATTEMPT_LIMIT - 1; i++) await login('nobody-here', `guess-${i}`, `198.51.100.${i}`);
     const locked = await login('nobody-here', 'guess-x', '198.51.100.50');

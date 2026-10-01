@@ -35,7 +35,9 @@ vulnerability. Login is throttled to 10 failed attempts in 10 minutes per IP *an
 account (the username as typed, so guesses spread over many addresses still add up): the
 attempt is counted in the statement that checks the count, before the password is verified,
 so a burst of parallel guesses stops at ten too; past the limit the answer is 429, the right
-password included, until the failures age out. A login that succeeds takes its row back.
+password included, until the failures age out. A login that succeeds takes its row back. An
+unknown username is checked against a fixed hash (`DUMMY_HASH`), so it costs what a wrong
+password does and the response time says nothing about which usernames exist.
 
 **CSRF.** `SameSite=Lax` cookies plus an Origin-check middleware on every mutation. All
 mutations are POSTs; a state-changing GET would itself be a bug.

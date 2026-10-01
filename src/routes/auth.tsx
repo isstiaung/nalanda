@@ -12,6 +12,7 @@ import {
 import type { AppEnv } from '../env';
 import {
   createSessionToken,
+  DUMMY_HASH,
   hasSessionSecret,
   hashPassword,
   isSessionKey,
@@ -134,7 +135,9 @@ auth.post('/auth/login', async (c) => {
     return page(c, 'Log in', <LoginForm error={TOO_MANY_ATTEMPTS} fieldsWrong={false} />);
   }
   const user = username ? await getUserByUsername(c.env.DB, username) : null;
-  const ok = user ? await verifyPassword(password, user.passwordHash) : false;
+  // a name nobody has is checked against a fixed hash: the answer takes as long either way, and says nothing about
+  // which usernames exist
+  const ok = (await verifyPassword(password, user?.passwordHash ?? DUMMY_HASH)) && user !== null;
   if (!user || !ok) return page(c, 'Log in', <LoginForm error="Wrong username or password." />);
   await forgetLoginAttempt(c.env.DB, attempt); // no failure: a login counts towards nobody's ten
   // an account restored from an older backup, or added by hand, has no key yet: it gets one now
