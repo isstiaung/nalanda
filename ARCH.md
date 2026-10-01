@@ -848,6 +848,7 @@ is a section of this document and "#N" another decision.
 | 70 | 2026-10-01 | [Sign out other devices: a session generation beside the identity key, named by the cookie and moved on by a sign-out, a new password or a reset](docs/decisions/070-sign-out-other-devices.md) |
 | 71 | 2026-10-01 | [A share link previews where it's pasted: Open Graph tags carrying only what the page shows, and the page stays noindex](docs/decisions/071-share-page-link-previews.md) |
 | 72 | 2026-10-01 | [Creators and publishers are pages: authors, designers and artists read out of `creators`, publishers and labels out of `publisher`, no table](docs/decisions/072-creator-and-publisher-pages.md) |
+| 73 | 2026-10-01 | [A cover from the camera: the browser shrinks the picture, the Worker sniffs and stores it, under the rules every cover keeps](docs/decisions/073-cover-from-the-camera.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

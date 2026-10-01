@@ -15,6 +15,7 @@ import { parseDetails } from '../lib/share';
 import type { Candidate } from '../metadata';
 import { DiscogsAttribution, DiscogsCredit, discogsLink, discogsUrl } from './attribution';
 import { ledgerDate, ledgerDateTime } from '../lib/dates';
+import { CoverPhotoField } from './cover-photo';
 
 export const MEDIA_LABEL: Record<MediaType, string> = {
   book: 'Book',
@@ -1214,6 +1215,7 @@ export const ItemForm: FC<{
   error?: string;
   /** The error is the cover URL's: Discogs' image, which is never stored (§16 #67). */
   coverError?: boolean;
+  photoError?: boolean; // the photo on the form isn't a picture that can be kept (§16 #73)
   // what a refused form sends back, so nothing typed is lost
   coverUrl?: string;
   removeCover?: boolean;
@@ -1224,7 +1226,7 @@ export const ItemForm: FC<{
   seriesNames?: string[];
   // the purchase price field (§16 #61): the household's currency (null: none set yet) and whether the viewer can set one
   money?: PriceFieldProps;
-}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverError, coverUrl, removeCover, perMember, series, seriesNames, money }) => {
+}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverError, photoError, coverUrl, removeCover, perMember, series, seriesNames, money }) => {
   // a book being read again: status and dates describe its last finish, and the re-read is managed on its page
   const readingLocked = item?.mediaType === 'book' && !!item?.rereading;
   // a game or record takes plays, not reads: its form shows no status or reading dates (the Add form's type is picked
@@ -1242,7 +1244,7 @@ export const ItemForm: FC<{
   const reviewedIn = Array.isArray(details['reviewed_in']) ? (details['reviewed_in'] as string[]) : [];
   delete details['reviewed_in'];
   return (
-  <form method="post" action={action} class="form-card">
+  <form method="post" action={action} class="form-card" enctype="multipart/form-data">
     {/* the form refuses only a read that doesn't add up: status and dates point at the reason */}
     {error ? (
       <p class="error" role="alert" id="item-form-error">
@@ -1433,6 +1435,7 @@ export const ItemForm: FC<{
       Cover image URL <small>(fetched once into storage on save)</small>
       <input name="coverUrl" placeholder="https://…" value={coverUrl ?? ''} {...invalid(coverError && error, 'item-form-error')} />
     </label>
+    <CoverPhotoField invalid={invalid(photoError && error, 'item-form-error')} />
     {item?.coverKey ? (
       <label>
         <input type="checkbox" name="removeCover" value="1" checked={!!removeCover} /> Remove current cover

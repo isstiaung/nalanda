@@ -398,3 +398,53 @@ document.addEventListener('htmx:afterSettle', (e) => {
     if (e.persisted && redirected) location.reload();
   });
 })();
+
+// ── a cover from the camera (ARCH.md §16 #73): shrink the picture here, before it's sent ──
+// The Worker never resizes an image (10 ms CPU), and a phone's photo is 3–12 MB. So a file picked into a
+// [data-resize="cover"] field is redrawn at most 1200 px on its long side as a JPEG and put back into the field, which
+// the form then sends as any file. A browser that can't (no canvas, no DataTransfer, an odd file) sends the original,
+// and the server's size limit decides. The person still presses the button: nothing is sent on its own.
+(() => {
+  const MAX = 1200;
+  const QUALITY = 0.85;
+  const load = (file) =>
+    'createImageBitmap' in window
+      ? createImageBitmap(file, { imageOrientation: 'from-image' }) // EXIF orientation applied, as a viewer would
+      : new Promise((resolve, reject) => {
+          const img = new Image();
+          const url = URL.createObjectURL(file);
+          img.onload = () => (URL.revokeObjectURL(url), resolve(img));
+          img.onerror = () => (URL.revokeObjectURL(url), reject(new Error('not an image')));
+          img.src = url;
+        });
+  const shrink = async (file) => {
+    const img = await load(file);
+    const w = img.width || img.naturalWidth;
+    const h = img.height || img.naturalHeight;
+    const scale = Math.min(1, MAX / Math.max(w, h));
+    if (scale === 1 && file.size < 600 * 1024 && file.type === 'image/jpeg') return null; // small enough as it is
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(w * scale));
+    canvas.height = Math.max(1, Math.round(h * scale));
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    if (img.close) img.close();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', QUALITY));
+    if (!blob) return null;
+    return new File([blob], (file.name || 'cover').replace(/\.[^.]*$/, '') + '.jpg', { type: 'image/jpeg' });
+  };
+  document.addEventListener('change', async (e) => {
+    const input = e.target;
+    if (!(input instanceof HTMLInputElement) || input.type !== 'file' || input.dataset.resize !== 'cover') return;
+    const file = input.files && input.files[0];
+    if (!file || !/^image\//.test(file.type) || typeof DataTransfer === 'undefined') return;
+    try {
+      const smaller = await shrink(file);
+      if (!smaller) return;
+      const dt = new DataTransfer();
+      dt.items.add(smaller);
+      input.files = dt.files;
+    } catch {
+      /* the original goes as it is */
+    }
+  });
+})();

@@ -82,6 +82,9 @@ manuscripts.
   and invite-only, never a network or the fediverse; off unless you give the instance a key.
   **Notifications** count connection requests, borrowing and comments, and Feed counts what's
   new, per person in the household.
+- **A cover from your camera**: under any item's cover, take a photo or pick a file and make it
+  the cover — shrunk in the browser before it's sent, so a phone photo goes up in a second. For
+  the old paperback, the Indian edition, the small-press game nobody has an image of.
 - **Creators and publishers**: every author, designer and artist the catalog names, grouped by
   which they mostly are, and every publisher and label — each with a page of their items and how
   many you've finished, linked from each item's page. Read from the items as they are: "Le Guin,
