@@ -538,6 +538,7 @@ function pageList(ids) {
     ['Shelf: unread for years', `/libraries/${s.books}?owned=1&status=not_started&addedYears=3`],
     ['Shelf: not played lately', `/libraries/${s.games}?owned=1&unplayedMonths=12`],
     ['Shelf: borrowed from someone', `/libraries/${s.books}?owned=b`],
+    ['Shelf: by author', `/libraries/${s.books}?sort=author`],
     ['Shelf: empty', `/libraries/${ids.wishlist}`],
     ['Shelf: books, second page', `/libraries/${s.books}?page=2`],
     ['Item: book, being read', `/items/${ids.reading}`],

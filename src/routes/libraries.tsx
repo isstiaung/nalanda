@@ -115,7 +115,7 @@ export type ShelfQuery = {
   name: string | undefined; // the search box
   reader: ReaderFilter | undefined;
   readBy: string; // the Read by value as written, for the links and the saved view
-  sort: 'added' | 'title' | 'rating' | 'completed';
+  sort: 'added' | 'title' | 'author' | 'rating' | 'completed';
   addedYears: number | undefined; // the decluttering filters: added this many years ago or more…
   unplayedMonths: number | undefined; // …and not played in this many months
   filtered: boolean;
@@ -148,7 +148,7 @@ export function parseShelfQuery(sp: URLSearchParams, me: number, people: Array<{
   const reader = parseReadBy(sp.get('readBy') ?? undefined, me, people);
   const readBy = reader ? (sp.get('readBy') ?? '') : '';
   const sortQ = sp.get('sort');
-  const sort = sortQ === 'title' || sortQ === 'rating' || sortQ === 'completed' ? sortQ : 'added';
+  const sort = sortQ === 'title' || sortQ === 'author' || sortQ === 'rating' || sortQ === 'completed' ? sortQ : 'added';
   const addedYears = smallCount(sp.get('addedYears'));
   const unplayedMonths = smallCount(sp.get('unplayedMonths'));
   const filtered =
@@ -378,6 +378,9 @@ libraries.get('/libraries/:id', async (c) => {
             </option>
             <option value="title" selected={sort === 'title'}>
               Title A–Z
+            </option>
+            <option value="author" selected={sort === 'author'}>
+              Author A–Z
             </option>
             <option value="rating" selected={sort === 'rating'}>
               Highest rated

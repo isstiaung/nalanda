@@ -60,6 +60,12 @@ for a surface before changing anything it shows to someone outside the household
 - A shelf's search box (`ItemFilters.q`) matches `location`, so share links and connection views
   must never capture `q` (`shareFilters()`, `shelfPage()` don't) — a view filtered by "loft" would
   publish where things are kept.
+- **A share link's feeds** (ARCH.md §16 #86) — `/share/:token/feed.atom` and `.rss` — carry what
+  `toPublicItem()` (or `toGiftItem()`) carries and nothing more, for the link's twenty newest
+  items, each dated by the **day** of `added_at` — the day an item was added is public through a
+  feed, the time of day never; a gift list's entries are all dated by the day of its newest want,
+  never each want's own — never a read, a finish or its date, never progress, never a name. The
+  feed is the page's whitelist in another shape.
 - **Saved views** (ARCH.md §16 #81) are the shelf's filter bar stored verbatim, so one may hold `q`,
   `readBy` and the decluttering filters (`addedYears`, `unplayedMonths` — `StaleFilter`, outside
   `ItemFilters` like `ReaderFilter`): never a share's source, never a key the publish form carries,
