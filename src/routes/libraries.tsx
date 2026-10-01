@@ -360,7 +360,9 @@ libraries.get('/libraries/:id', async (c) => {
                 ? ' Share links hold one value per filter, so a multi-selection publishes as "all".'
                 : ''}
               {/* who read what is never published (§16 #43): the form above has no field for it */}
-              {reader ? ' "Read by" is never published: the link shows this view without it.' : ''}{' '}
+              {reader ? ' "Read by" is never published: the link shows this view without it.' : ''}
+              {/* the Format filter is the shelf's own (§16 #75): a share link has no field for it */}
+              {formatsSel.length ? ' Format isn’t part of a share link: the link shows this view without it.' : ''}{' '}
               Public pages show only whitelisted fields — never notes, loans, or copy counts.
             </small>
           </div>
