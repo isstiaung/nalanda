@@ -886,10 +886,10 @@ is a section of this document and "#N" another decision.
 | 90 | 2026-10-01 | [An import dates a book by the file's "date added"; a re-import re-dates the books already here only when asked, the row's own time kept for the stamp connections hold](docs/decisions/090-import-date-added.md) |
 | 91 | 2026-10-01 | [The export guards formula-leading cells with `'`, and a Nalanda import strips exactly one — a title a connection sent never reaches a spreadsheet as a formula](docs/decisions/091-csv-formula-guard.md) |
 | 92 | 2026-10-01 | [`FEDERATION_OFFLINE`: a plain runtime variable under which an instance contacts no connected household, for a copy of the database restored anywhere but production](docs/decisions/092-federation-offline.md) |
+| 93 | 2026-10-01 | [The interface language: one strings table, English the source, Hindi and Tamil machine-drafted and marked so; the interface follows the household's language, a member's own choice over it; a household imports its own translation](docs/decisions/093-interface-language.md) |
+| 94 | 2026-10-01 | [Rapid batch scanning: "Keep scanning" holds each barcode on the device; "Add all" resolves them twenty a request, as bare records, covers later](docs/decisions/094-rapid-batch-scanning.md) |
 | 95 | 2026-10-01 | [Custom fields: up to ten household fields (text, yes/no, date) on every item form, kept in `items.custom`, private unless a field's own share switch is on, never to connections](docs/decisions/095-custom-fields.md) |
 | 96 | 2026-10-02 | [A household's own display font: one per shipped locale, uploaded by an admin under Members, stored in R2 under a random key, public at `/fonts/<key>`, set in front of Eczar on every page in that language](docs/decisions/096-display-font.md) |
-| 94 | 2026-10-01 | [Rapid batch scanning: "Keep scanning" holds each barcode on the device; "Add all" resolves them twenty a request, as bare records, covers later](docs/decisions/094-rapid-batch-scanning.md) (#93 is taken on another branch) |
-| 93 | 2026-10-01 | [The interface language: one strings table, English the source, Hindi and Tamil machine-drafted and marked so; the interface follows the household's language, a member's own choice over it; a household imports its own translation](docs/decisions/093-interface-language.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
