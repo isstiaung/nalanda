@@ -117,6 +117,9 @@ the code that enforces it and why — read its section before changing anything 
   `toPublicItem()`/`toConnectionItem()`, and never move a price into `details` (`toPublicItem()`
   strips `MONEY_DETAIL_KEYS`). Money is never a float (`parseMoney()`, `CAST(sum(…) AS TEXT)`,
   `formatMoney()`); never add two currencies together.
+- **Custom fields** (`items.custom`, never `details`) are private unless a field's own "Show on share
+  pages" switch is on — then by name, on the share item page only (`toPublicItem(item, { customFields })`);
+  never to connections (`ConnectionItem` omits the key). The export's `custom` cell is by name (§16 #95).
 - **Connections** see only `toConnectionItem()` fields, only for items inside a connection view:
   availability a boolean (never borrower, due date, copies or `location`); reading history a count
   (never the reads, their dates or readers); rating and review the household summary, names only as

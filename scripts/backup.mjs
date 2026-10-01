@@ -28,6 +28,7 @@ export const TABLES = [
   'shares',
   'saved_views', // a shelf's named filter sets (ARCH.md §16 #81): after libraries and users, which it references
   'site_settings',
+  'custom_fields', // the household's custom fields (ARCH.md §16 #95): their values ride on items, keyed by these ids
   'translations', // the household's own interface translations (ARCH.md §16 #93): no references
   'series', // before items, which reference it (§16 #52)
   'items',

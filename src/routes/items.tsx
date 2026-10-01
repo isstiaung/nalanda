@@ -61,6 +61,7 @@ import {
   quoteCount,
   historyOf,
   itemHistoryStatements,
+  listCustomFields,
   type Writer,
 } from '../db/queries';
 import type { AppEnv } from '../env';
@@ -77,6 +78,7 @@ import { isReadStatus, readDateProblem, summarizeReads, type ReadDraft } from '.
 import { reviewText } from '../lib/reviews';
 import { cleanSeriesName, formatSeriesNumber, parseSeriesNumber, type SeriesDraft } from '../lib/series';
 import { parseDetails } from '../lib/share';
+import { customEntries, customFromForm, parseCustom } from '../lib/custom';
 import { bggRefresh, discogsPressing, recordCover } from '../metadata';
 import {
   accNo,
@@ -113,6 +115,7 @@ import {
   FormatPills,
   LanguagePill,
   ItemHistory,
+  CustomProps,
 } from '../views/components';
 import { Fill, lengthUnit, mediaLabel, useI18n } from '../views/i18n';
 import { page, partial, todayOf } from '../views/layout';
@@ -432,9 +435,12 @@ items.post('/items', async (c) => {
   if (!parsed) return c.text('Title and shelf are required.', 400);
   // the shelf and the household's settings in one call: every added item takes the household's language unless the
   // form or its source said (§16 #76), and a price is read in the household's currency
-  const { library: lib, settings: site } = await getLibraryAndSettings(c.env.DB, parsed.values.libraryId);
+  const { library: lib, settings: site, customFields } = await getLibraryAndSettings(c.env.DB, parsed.values.libraryId);
   if (!lib) return c.text('No such shelf.', 400);
   parsed.values.language ??= site.language;
+  // the household's custom fields (§16 #95), each value read by its kind; a form that carried none writes nothing
+  const custom = customFromForm(body, customFields);
+  if (custom.values) parsed.values.custom = JSON.stringify(custom.values);
 
   // "Log — not owned" on scan/search results: a copies=0 reading-log entry,
   // landing on the edit form so rating/review/status go in immediately.
@@ -465,7 +471,7 @@ items.post('/items', async (c) => {
   const price = formPrice(body, household, null);
   if (price.values) Object.assign(parsed.values, price.values);
   const photoProblem = await photoProblemOf(parsed);
-  const problem = formProblem(formReadProblem(null, readFields(parsed.values)), parsed, photoProblem) ?? price.problem;
+  const problem = formProblem(formReadProblem(null, readFields(parsed.values)), parsed, photoProblem) ?? price.problem ?? custom.problem;
   if (problem && htmx) return c.text(problem, 400);
   if (problem) {
     const [libs, people, names, currency] = await Promise.all([
@@ -499,6 +505,9 @@ items.post('/items', async (c) => {
           money={priceField(c, currency, price)}
           editions={parsed.editions}
           language={site.language}
+          customFields={customFields}
+          custom={custom.shown}
+          customErrorField={problem === custom.problem ? custom.problemField : null}
         />
       </>,
       libs, // nothing was written: the sidebar's list too (§16 #68)
@@ -968,6 +977,9 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           </dd>
         </dl>
 
+        {/* the household's custom fields' values (§16 #95): every one set, on this page; a share page shows only the fields switched on */}
+        <CustomProps entries={customEntries(item.custom, log.customFields).map((e) => ({ name: e.field.name, kind: e.field.kind, value: e.value }))} />
+
         {inSeries ? <SeriesSection series={inSeries.series} volumes={inSeries.volumes} currentId={item.id} /> : null}
 
         {item.description ? <p class="prewrap">{item.description}</p> : null}
@@ -1101,7 +1113,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
         </div>
 
         <LendingHistory loans={lent.loans} total={lent.total} />
-        {changes ? <ItemHistory entries={changes} /> : null}
+        {changes ? <ItemHistory entries={changes} fields={log.customFields} /> : null}
 
         {recommending}
 
@@ -1127,7 +1139,7 @@ items.get('/items/:id/edit', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
-  const [libs, tags, log, people, names, current, settings, editions] = await Promise.all([
+  const [libs, tags, log, people, names, current, settings, editions, customFields] = await Promise.all([
     listLibraries(c.env.DB),
     tagsForItem(c.env.DB, id),
     readingLog(c.env.DB, id),
@@ -1136,6 +1148,7 @@ items.get('/items/:id/edit', async (c) => {
     item.seriesId !== null ? getSeries(c.env.DB, item.seriesId) : null,
     getSiteSettings(c.env.DB), // the household's currency, for the price field (§16 #61)
     editionsOf(c.env.DB, id), // "also held as" (§16 #75)
+    listCustomFields(c.env.DB), // the household's custom fields (§16 #95)
   ]);
   return page(
     c,
@@ -1159,6 +1172,8 @@ items.get('/items/:id/edit', async (c) => {
         money={priceField(c, settings.currency)}
         editions={editions}
         language={settings.language}
+        customFields={customFields}
+        custom={parseCustom(item.custom)}
       />
     </>,
     libs, // the sidebar's list too (§16 #68)
@@ -1783,15 +1798,17 @@ items.post('/items/:id', async (c) => {
   const body = await c.req.parseBody();
   const parsed = parseItemForm(body);
   if (!parsed) return c.text('Title and shelf are required.', 400);
-  const [lib, log, people, settings] = await Promise.all([
-    getLibrary(c.env.DB, parsed.values.libraryId),
+  const [{ library: lib, settings, customFields }, log, people] = await Promise.all([
+    getLibraryAndSettings(c.env.DB, parsed.values.libraryId), // the shelf, the household's currency (§16 #61) and its custom fields (§16 #95), one call
     readingLog(c.env.DB, id),
     listPeople(c.env.DB),
-    getSiteSettings(c.env.DB), // the household's currency (§16 #61)
   ]);
   if (!lib) return c.text('No such shelf.', 400);
   const price = formPrice(body, settings.currency, existing);
   if (price.values) Object.assign(parsed.values, price.values);
+  // the custom fields' values, each read by its kind; a form that carried none leaves the item's as they are
+  const custom = customFromForm(body, customFields);
+  if (custom.values) parsed.values.custom = JSON.stringify(custom.values);
   const user = c.get('user');
   // the form's reading, rating and review are the editor's own (§16 #43)
   const mine = personalItem(existing, log, user.id);
@@ -1829,6 +1846,9 @@ items.post('/items/:id', async (c) => {
           series={parsed.seriesSent}
           seriesNames={names}
           money={priceField(c, settings.currency, price)}
+          customFields={customFields}
+          custom={custom.shown}
+          customErrorField={problem === custom.problem ? custom.problemField : null}
         />
       </>,
       libs, // nothing was written: the sidebar's list too (§16 #68)
@@ -1842,7 +1862,7 @@ items.post('/items/:id', async (c) => {
       : formReadProblem(mine, sent),
     parsed,
     photoProblem,
-  ) ?? price.problem;
+  ) ?? price.problem ?? custom.problem;
   if (problem) return refused(problem);
 
   // a form without a language of ours keeps the item's own (§16 #76): never a NULL written over a code

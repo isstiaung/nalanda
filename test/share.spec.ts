@@ -48,6 +48,7 @@ const item: Item = {
   formats: '',
   language: null,
   originalTitle: null,
+  custom: '{}',
 };
 
 describe('share whitelist', () => {

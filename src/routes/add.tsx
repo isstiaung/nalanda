@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { FC } from 'hono/jsx';
-import { catalogMatches, getSiteSettings, listLibraries, listPeople, seriesNames, shelfForType } from '../db/queries';
+import { catalogMatches, getSiteSettings, listCustomFields, listLibraries, listPeople, seriesNames, shelfForType } from '../db/queries';
 import type { AppEnv } from '../env';
 import { lookupByBarcode, searchByName, type SearchType } from '../metadata';
 import { BggAttribution, DiscogsNotice } from '../views/attribution';
@@ -12,11 +12,12 @@ import { page, partial } from '../views/layout';
 const add = new Hono<AppEnv>();
 
 add.get('/add', async (c) => {
-  const [libs, people, names, settings] = await Promise.all([
+  const [libs, people, names, settings, customFields] = await Promise.all([
     listLibraries(c.env.DB),
     listPeople(c.env.DB),
     seriesNames(c.env.DB),
     getSiteSettings(c.env.DB), // the household's currency, for the manual form's purchase price (§16 #61)
+    listCustomFields(c.env.DB), // the household's custom fields, on the manual form (§16 #95)
   ]);
   const i18n = c.get('i18n');
   const { t } = i18n;
@@ -123,6 +124,7 @@ add.get('/add', async (c) => {
           perMember={people.length > 1}
           seriesNames={names}
           money={{ household: settings.currency, admin: c.get('user').role === 'admin' }}
+          customFields={customFields}
         />
       </section>
       <script src="/scan-queue.js" defer></script>

@@ -107,11 +107,17 @@ you do.
   new. Each imported read is dated by its completed date. A read without one isn't sent at all.
   A household following you sees last week's reads in last week's place. Older ones fall outside
   what they keep.
-- **Reading a book again** keeps it Completed, so it stays in the views it was in: a view of
-  books in progress won't show a re-read, and a view of finished books keeps it. Its pages are
-  sent as you record them, and its finish, when you get there, is sent as a new finish dated
-  that day. Starting or stopping a re-read sends nothing. Households on this version see
-  "re-reading" and "finished again"; one on an older version sees plain reading and finished.
+- **Reading a book again** keeps it Completed, and while the re-read is open it counts as In
+  progress too (ARCH.md §16 #64): a view of finished books keeps it, and a view of books in
+  progress shows it. An In progress view carries only reading still going on — no finish and no
+  goal milestone, so a book entering it brings no old finish along — and a reader's start and
+  pages only while their read is open; when it closes they are withdrawn at the next check, even
+  if someone else here is still reading the book. Starting a re-read records nothing as the
+  household's and, with names on, one "started" entry as the person's, like a first read; its
+  pages are sent as you record them; its finish, when you get there, is sent as a new finish
+  dated that day where you are (§16 #69); stopping it sends nothing. Households on this version
+  see "re-reading" and "finished again"; one on an older version sees plain reading and
+  finished, and its own In progress views keep the old meaning until it updates.
 - **Share reading progress**, in the same section, is on by default. Turn it off and nothing new
   is sent; entries already sent are withdrawn the next time each household checks. It's
   separate from showing progress on public share links (**Shared links**), which is off by

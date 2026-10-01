@@ -4,6 +4,7 @@ node_modules
 .wrangler-remote*.jsonc
 .dev.vars
 backups/
+demo/
 .backfill/
 .record-covers/
 public/vendor/

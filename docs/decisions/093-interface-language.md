@@ -35,8 +35,8 @@ imported by an admin, or as a pull request that ships to everyone.
   `resolveLocale()` (`sessionAccount()`). No translation for that locale, and the third statement is
   simply empty. A page with no session (log in, setup) reads the household's in one batch
   (`householdLocale()`); a share page reads it in the batch that looks the token up
-  (`shareWithLocale()`); Members reads its translations beside the settings
-  (`siteSettingsWithTranslations()`). Every page keeps the count it had; test/i18n.spec.ts
+  (`shareWithLocale()`); Members reads its translations beside the settings and the custom fields
+  (`membersSettings()`). Every page keeps the count it had; test/i18n.spec.ts
   holds the Overview, a shelf and Account to it. The translation is read fresh each request, not
   cached per isolate: an admin's import shows on their next page load, on every isolate.
 - **Anyone can download the strings**: `GET /strings/<locale>.json`, signed in, the shipped table

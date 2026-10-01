@@ -19,6 +19,7 @@ import {
   todayUtc,
 } from '../lib/reads';
 import { countName, nameKey, sortNames, splitCreators, type NameCount } from '../lib/creators';
+import { CUSTOM_FIELD_LIMIT } from '../lib/custom';
 import { MAX_EDITIONS_PER_ITEM, type EditionDraft } from '../lib/formats';
 import { DEFAULT_LANGUAGE, isLanguageCode } from '../lib/language';
 import { locales, parseTranslation, resolveLocale, type Locale, type Overrides } from '../i18n';
@@ -34,7 +35,7 @@ import { isCurrencyCode, type CurrencyTotal } from '../lib/money';
 import { seriesKey, type SeriesDraft } from '../lib/series';
 import { emptyPlays, emptyStats, PLAYS_TOP, YEAR_TOP, yearRange, type YearReview } from '../lib/yearreview';
 import * as s from './schema';
-import type { Borrow, Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Series, Share, User } from './schema';
+import type { Borrow, CustomField, CustomKind, Item, ItemStatus, Library, Loan, MediaType, NewItem, ReadStatus, Series, Share, User } from './schema';
 
 const db = (d1: D1Database) => drizzle(d1);
 
@@ -212,17 +213,22 @@ export async function shareWithLocale(
   return { share: token ? (shares[0] ?? null) : null, language: isLanguageCode(language) ? language : DEFAULT_LANGUAGE, translation: overridesOf(rows[0]) };
 }
 
-/** The site settings with every household translation (§16 #93) — the Members page's two reads as one call. */
-export async function siteSettingsWithTranslations(
+/**
+ * Everything the Members page shows beside its members, in one call: the settings, the household's custom fields
+ * (§16 #95) and its own interface translations (§16 #93) — the page makes the calls it made before either existed.
+ */
+export async function membersSettings(
   d1: D1Database,
-): Promise<{ settings: SiteSettings; translations: Array<{ locale: string; count: number; updatedAt: string }> }> {
+): Promise<{ settings: SiteSettings; customFields: CustomField[]; translations: Array<{ locale: string; count: number; updatedAt: string }> }> {
   const dbi = db(d1);
-  const [rows, trs] = await dbi.batch([
+  const [rows, fields, trs] = await dbi.batch([
     dbi.select().from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
+    dbi.select().from(s.customFields).orderBy(asc(s.customFields.position), asc(s.customFields.id)),
     dbi.select().from(s.translations).orderBy(asc(s.translations.locale)),
   ]);
   return {
     settings: settingsOf(rows[0]),
+    customFields: fields,
     translations: trs.map((r) => ({ locale: r.locale, count: Object.keys(overridesOf(r) ?? {}).length, updatedAt: r.updatedAt })),
   };
 }
@@ -770,13 +776,18 @@ function readShelfTotals([types, money, setting]: D1Result[]): Totals {
  * A shelf and the household's settings in one call (§16 #76): what an add needs before it writes. Both reads are
  * Drizzle's, so the settings come through settingsOf() as getSiteSettings()'s do.
  */
-export async function getLibraryAndSettings(d1: D1Database, id: number): Promise<{ library: Library | null; settings: SiteSettings }> {
+export async function getLibraryAndSettings(
+  d1: D1Database,
+  id: number,
+): Promise<{ library: Library | null; settings: SiteSettings; customFields: CustomField[] }> {
   const dbi = db(d1);
-  const [libs, rows] = await dbi.batch([
+  const [libs, rows, fields] = await dbi.batch([
     dbi.select().from(s.libraries).where(eq(s.libraries.id, id)),
     dbi.select().from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
+    // the household's custom fields (§16 #95), for the form's values to be read by kind — in the same call
+    dbi.select().from(s.customFields).orderBy(asc(s.customFields.position), asc(s.customFields.id)),
   ]);
-  return { library: libs[0] ?? null, settings: settingsOf(rows[0]) };
+  return { library: libs[0] ?? null, settings: settingsOf(rows[0]), customFields: fields };
 }
 
 export async function getLibrary(d1: D1Database, id: number): Promise<Library | null> {
@@ -2723,6 +2734,7 @@ export async function itemPageLog(
   householdLanguage: string; // the household's default (§16 #76), read in the same call, for the language pill
   quotes: QuoteEntry[]; // the household's quotes on it (§16 #77), in the same call
   borrows: Borrow[]; // borrowed from someone not on Nalanda (§16 #82), newest first, in the same call
+  customFields: CustomField[]; // the household's custom fields (§16 #95), for the page's Fields section, in the same call
   extra: D1Result[];
 }> {
   const own = [
@@ -2732,16 +2744,18 @@ export async function itemPageLog(
     d1.prepare('SELECT format, isbn, publisher, year FROM editions WHERE item_id = ?1 ORDER BY id').bind(itemId),
     d1.prepare(`SELECT ${QUOTE_COLUMNS} FROM quotes WHERE item_id = ?1 ORDER BY at, id`).bind(itemId),
     d1.prepare(`SELECT ${BORROW_COLUMNS} FROM borrows WHERE item_id = ?1 ORDER BY id DESC`).bind(itemId),
+    customFieldsStatement(d1),
   ];
   const results = await d1.batch([...own, ...extra]);
-  const lang = (results[own.length - 4]?.results?.[0] as { language?: string } | undefined)?.language;
+  const lang = (results[own.length - 5]?.results?.[0] as { language?: string } | undefined)?.language;
   return {
     ...readingLogOf(results),
     want: wantsAndLinksOf(results.slice(3)),
     householdLanguage: isLanguageCode(lang) ? lang : DEFAULT_LANGUAGE,
-    editions: (results[own.length - 3]?.results ?? []) as EditionDraft[],
-    quotes: ((results[own.length - 2]?.results ?? []) as QuoteRow[]).map((q) => ({ ...q, shared: !!q.shared })),
-    borrows: (results[own.length - 1]?.results ?? []) as Borrow[],
+    editions: (results[own.length - 4]?.results ?? []) as EditionDraft[],
+    quotes: ((results[own.length - 3]?.results ?? []) as QuoteRow[]).map((q) => ({ ...q, shared: !!q.shared })),
+    borrows: (results[own.length - 2]?.results ?? []) as Borrow[],
+    customFields: customFieldsOf(results[own.length - 1]),
     extra: results.slice(own.length),
   };
 }
@@ -3472,8 +3486,8 @@ export async function wantListExtras(
 export async function shareGuardFacts(
   d1: D1Database,
   itemId: number,
-): Promise<{ tags: string[]; wanters: number[]; quotes: Array<{ by: string | null; text: string; page: string | null }> }> {
-  const [t, w, q] = await d1.batch([
+): Promise<{ tags: string[]; wanters: number[]; quotes: Array<{ by: string | null; text: string; page: string | null }>; fields: CustomField[] }> {
+  const [t, w, q, f] = await d1.batch([
     // no ORDER BY, as tagsForItems() had none: a shelf's share page lists an item's tags as it always did
     d1.prepare('SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = ?1').bind(itemId),
     d1.prepare('SELECT user_id AS id FROM wants WHERE item_id = ?1').bind(itemId),
@@ -3484,11 +3498,14 @@ export async function shareGuardFacts(
          WHERE q.item_id = ?1 AND q.shared = 1 ORDER BY q.at, q.id`,
       )
       .bind(itemId),
+    // the custom fields whose own switch is on (§16 #95): the only ones a share page may name — toPublicItem() checks again
+    d1.prepare(`SELECT ${CUSTOM_FIELD_COLUMNS} FROM custom_fields WHERE on_shares = 1 ORDER BY position, id`),
   ]);
   return {
     tags: ((t?.results ?? []) as Array<{ name: string }>).map((r) => r.name),
     wanters: ((w?.results ?? []) as Array<{ id: number }>).map((r) => r.id),
     quotes: ((q?.results ?? []) as Array<{ by: string | null; text: string; page: string | null }>).map((r) => ({ by: r.by || null, text: r.text, page: r.page })),
+    fields: customFieldsOf(f),
   };
 }
 
@@ -3653,6 +3670,7 @@ export async function existingForWant(d1: D1Database, c: CatalogProbe): Promise<
 }
 
 export type ExportCells = {
+  customFields: CustomField[]; // the household's fields (§16 #95), read in the same batch: their names key each line's `custom` cell
   tags: Map<number, string[]>;
   progress: Map<number, ProgressEntry[]>;
   reads: Map<number, Array<ReadRow & { reader: string | null }>>;
@@ -3719,6 +3737,7 @@ export async function exportCellsForIdRange(
       `SELECT item_id AS itemId, lender AS borrower, borrowed_on AS loanedOn, due_on AS dueOn, returned_on AS returnedOn, contact, note
        FROM borrows WHERE item_id BETWEEN ?1 AND ?2 ${scoped('item_id')} ORDER BY item_id, id`,
     ),
+    customFieldsStatement(d1),
   ]);
   const rowsOf = <T,>(i: number) => (results[i]?.results ?? []) as Array<T & { itemId: number }>;
   const group = <T, U>(rows: Array<T & { itemId: number }>, pick: (r: T & { itemId: number }) => U) => {
@@ -3749,6 +3768,7 @@ export async function exportCellsForIdRange(
       source: r.source,
     })),
     borrows: group(rowsOf<LoanDraft>(11), (r) => ({ borrower: r.borrower, loanedOn: r.loanedOn, dueOn: r.dueOn, returnedOn: r.returnedOn, contact: r.contact, note: r.note })),
+    customFields: customFieldsOf(results[12]),
   };
 }
 
@@ -5269,4 +5289,81 @@ export async function booksNamed(d1: D1Database, author: string): Promise<Array<
     .from(s.items)
     .where(and(eq(s.items.mediaType, 'book'), narrow));
   return rows.filter((r) => splitCreators(r.creators).some((n) => nameKey(n) === key));
+}
+
+// ---------- the household's custom fields (ARCH.md §16 #95) ----------
+
+const CUSTOM_FIELD_COLUMNS = 'id, name, kind, position, on_shares AS onShares, created_at AS createdAt';
+/** A custom_fields row as D1 hands it back: `onShares` an integer. */
+type CustomFieldRow = Omit<CustomField, 'onShares'> & { onShares: number };
+/** Every field, in the order the forms and pages show them, as a statement for a page's batch. */
+const customFieldsStatement = (d1: D1Database) => d1.prepare(`SELECT ${CUSTOM_FIELD_COLUMNS} FROM custom_fields ORDER BY position, id`);
+const customFieldsOf = (res: D1Result | undefined): CustomField[] =>
+  ((res?.results ?? []) as CustomFieldRow[]).map((r) => ({ ...r, onShares: !!r.onShares }));
+
+export async function listCustomFields(d1: D1Database): Promise<CustomField[]> {
+  return customFieldsOf(await customFieldsStatement(d1).all());
+}
+
+/** The household's settings and its custom fields in one call, for the Members page, which shows both. */
+export async function getSiteSettingsAndCustomFields(d1: D1Database): Promise<{ settings: SiteSettings; customFields: CustomField[] }> {
+  const dbi = db(d1);
+  const [rows, fields] = await dbi.batch([
+    dbi.select().from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
+    dbi.select().from(s.customFields).orderBy(asc(s.customFields.position), asc(s.customFields.id)),
+  ]);
+  return { settings: settingsOf(rows[0]), customFields: fields };
+}
+
+/**
+ * Adds a field, after the others. The cap (CUSTOM_FIELD_LIMIT) and the name's uniqueness, case aside, are checked in
+ * the statement itself, so two admins adding at once can't make an eleventh or two of one name; refused, it says
+ * which — and the unique index on lower(name) stands behind it.
+ */
+export async function createCustomField(
+  d1: D1Database,
+  draft: { name: string; kind: CustomKind; onShares: boolean },
+): Promise<'created' | 'full' | 'taken'> {
+  const res = await d1
+    .prepare(
+      `INSERT INTO custom_fields (name, kind, on_shares, position)
+       SELECT ?1, ?2, ?3, coalesce((SELECT max(position) FROM custom_fields), 0) + 1
+       WHERE (SELECT count(*) FROM custom_fields) < ${CUSTOM_FIELD_LIMIT}
+         AND NOT EXISTS (SELECT 1 FROM custom_fields WHERE lower(name) = lower(?1))`,
+    )
+    .bind(draft.name, draft.kind, draft.onShares ? 1 : 0)
+    .run();
+  if (res.meta.changes > 0) return 'created';
+  const n = await d1.prepare('SELECT count(*) AS n FROM custom_fields').first<{ n: number }>();
+  return (n?.n ?? 0) >= CUSTOM_FIELD_LIMIT ? 'full' : 'taken';
+}
+
+/** Renames a field and sets its share switch — the name still unique, case aside, checked in the statement. Its kind never changes: the values already hold it. */
+export async function updateCustomField(d1: D1Database, id: number, draft: { name: string; onShares: boolean }): Promise<'updated' | 'taken' | 'gone'> {
+  const res = await d1
+    .prepare(
+      `UPDATE custom_fields SET name = ?2, on_shares = ?3
+       WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM custom_fields WHERE lower(name) = lower(?2) AND id <> ?1)`,
+    )
+    .bind(id, draft.name, draft.onShares ? 1 : 0)
+    .run();
+  if (res.meta.changes > 0) return 'updated';
+  const row = await d1.prepare('SELECT 1 FROM custom_fields WHERE id = ?1').bind(id).first();
+  return row ? 'taken' : 'gone';
+}
+
+/**
+ * Deletes a field and strips its key from every item's `custom` in the same batch (§16 #95): the values go with the
+ * field, as the confirm says, and nothing is left for a later field to inherit (ids aren't reused either). `who` is
+ * named in each item's history, since every item that held a value changes. False when there was no such field.
+ */
+export async function deleteCustomField(d1: D1Database, id: number, who?: Writer): Promise<boolean> {
+  const path = `$."${id}"`;
+  const results = await d1.batch(
+    asWriter(d1, who, [
+      d1.prepare(`UPDATE items SET custom = json_remove(custom, ?1) WHERE json_valid(custom) AND json_type(custom, ?1) IS NOT NULL`).bind(path),
+      d1.prepare('DELETE FROM custom_fields WHERE id = ?1').bind(id),
+    ]),
+  );
+  return (results[who ? 2 : 1]?.meta.changes ?? 0) > 0;
 }

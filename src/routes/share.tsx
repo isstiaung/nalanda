@@ -34,7 +34,7 @@ import {
 } from '../lib/share';
 import { BggCredit, fromBgg } from '../views/attribution';
 import { languageName } from '../lib/language';
-import { BuyLinks, DetailsList, FormatPills, MEDIA_ICON, NotOwnedPill, Pagination, RecordDetails, stars, WantedPill } from '../views/components';
+import { BuyLinks, CustomProps, DetailsList, FormatPills, MEDIA_ICON, NotOwnedPill, Pagination, RecordDetails, stars, WantedPill } from '../views/components';
 import { I18n, lengthUnit, mediaLabel, useI18n } from '../views/i18n';
 import { i18nOf } from '../views/layout';
 import { resolveLocale, translator, type Translator } from '../i18n';
@@ -528,7 +528,7 @@ share.get('/:token/items/:id', async (c) => {
   // on — the default for a new instance since §16 #49 — and are used only once the item is known to be in the view.
   // Its tags and who wants it (a gift list's guard, §16 #53) come in one call, for every id alike.
   // its tags, who wants it, and its shared quotes (§16 #77) come in one call, for every id alike
-  const [item, { tags, wanters, quotes: shared }, plays, settings, named] = await Promise.all([
+  const [item, { tags, wanters, quotes: shared, fields }, plays, settings, named] = await Promise.all([
     getItem(c.env.DB, id),
     shareGuardFacts(c.env.DB, id),
     // counted for every id, played or not, so a hit and a miss still do the same work; the whitelist keeps it for games
@@ -548,7 +548,8 @@ share.get('/:token/items/:id', async (c) => {
   // §16 #53: the "Wanted" badge, from the wanters the guard already read — a boolean, never whose
   // §16 #77: a shared quote is shown whatever the names switch says; its writer's name only while names are on
   const quotes = shared.map((q) => (settings.namesOnShares ? q : { ...q, by: null }));
-  const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews, plays, series, wanted: wanters.length > 0, quotes });
+  // §16 #95: the custom fields switched on for share pages, by name — the whitelist keeps the others back
+  const pub = toPublicItem(item, { progress: settings.progressOnShares, reviews, plays, series, wanted: wanters.length > 0, quotes, customFields: fields });
   const preview: LinkPreview = {
     title: pub.title,
     description: itemLine(i18n, pub, view.name),
@@ -684,6 +685,8 @@ share.get('/:token/items/:id', async (c) => {
             </>
           ) : null}
         </dl>
+        {/* the custom fields an admin switched on for share pages (§16 #95), by name; the rest never reach here */}
+        <CustomProps entries={pub.custom ?? []} />
         {pub.description ? <p class="prewrap">{pub.description}</p> : null}
         {/* a record's pressing and tracklist are public catalogue data (§9, §16 #55); its grades are not, and
             toPublicItem() never carries them */}

@@ -16,8 +16,8 @@ over. (libib exports one CSV per library.)
 3. **Preview (dry run, optional)** — parses the file in your browser and shows how the
    first rows map: how many rows map cleanly, type counts, and a sample. Nothing is
    written yet.
-4. **Import** — uploads in batches of 200 with live progress; works directly without a
-   preview. A few thousand rows take a handful of seconds.
+4. **Import** — uploads 200 rows a batch with live progress (the server takes up to 250 a
+   request); works directly without a preview. A few thousand rows take a handful of seconds.
 
 Re-running an import creates duplicates (there's no upsert) — import into an empty library
 so a do-over is just delete-and-retry.

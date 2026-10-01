@@ -1,6 +1,6 @@
 {
   "name": "nalanda",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -23,7 +23,8 @@
     "postinstall": "node scripts/vendor.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
-    "a11y": "node scripts/a11y.mjs"
+    "a11y": "node scripts/a11y.mjs",
+    "demo:build": "node scripts/demo-build.mjs"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.3",

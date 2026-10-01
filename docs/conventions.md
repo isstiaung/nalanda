@@ -51,7 +51,7 @@ constraints bullets.
   and it never goes inside an inline handler (confirmations use `data-confirm`). The pages' own
   language is the resolved locale on `<html lang>`; share pages carry the household's, never a
   member's. The reads cost no call: the session's batch, the share lookup's batch, Members' settings
-  batch (`sessionAccount()`, `shareWithLocale()`, `siteSettingsWithTranslations()`).
+  batch (`sessionAccount()`, `shareWithLocale()`, `membersSettings()`).
 
 ## Writes, accounts and permissions
 

@@ -513,6 +513,12 @@ portable, and makes share routes trivially public. CF Access remains available l
 - **Money is never published** (§16 #61). The purchase price and its currency are columns no whitelist carries, and
   `toPublicItem()` drops money keys — libib's `price`, which a libib import used to put in `details` — from the
   details it publishes, so share pages and connections never carry a price, however it got into the catalog.
+- **Custom fields are private unless a field says otherwise** (§16 #95). The household's own fields —
+  up to ten, text, yes/no or date, defined by an admin under Members — keep their values in `items.custom`,
+  never in `details`. `toPublicItem()` adds a `custom` key, each value by its field's *name*, only for
+  fields whose own "Show on share pages" switch is on (off by default), and only on a shared item's page,
+  which passes the fields in; listings, feeds and gift lists are unchanged. Never to connections, whatever
+  the switch says.
 - **Who read what is never published.** The shelf's "Read by" filter isn't one of the
   filters a view captures, so no link can be made of it (§16 #43).
 - **Reading goals never reach a share page** (§16 #49): no field of `toPublicItem()` carries one, and
@@ -871,9 +877,11 @@ is a section of this document and "#N" another decision.
 | 86 | 2026-10-01 | [A share link has an Atom and an RSS feed of its newest additions — the page's whitelist, dated by the addition, never by a read](docs/decisions/086-share-feeds.md) |
 | 87 | 2026-10-01 | [StoryGraph and LibraryThing exports import as Goodreads' does: matched and merged, the importer's own reads and reviews](docs/decisions/087-storygraph-librarything.md) |
 | 88 | 2026-10-01 | [A read-only API behind per-member tokens: made on the Account page, shown once, bound to the account as a session is; a token sees what its member sees and changes nothing](docs/decisions/088-token-api.md) |
+| 89 | 2026-10-01 | [A static demo: a seeded instance crawled into HTML behind a skeletal sign-in, every form intercepted, published to GitHub Pages on release](docs/decisions/089-static-demo.md) |
 | 90 | 2026-10-01 | [An import dates a book by the file's "date added"; a re-import re-dates the books already here only when asked, the row's own time kept for the stamp connections hold](docs/decisions/090-import-date-added.md) |
 | 91 | 2026-10-01 | [The export guards formula-leading cells with `'`, and a Nalanda import strips exactly one — a title a connection sent never reaches a spreadsheet as a formula](docs/decisions/091-csv-formula-guard.md) |
 | 92 | 2026-10-01 | [`FEDERATION_OFFLINE`: a plain runtime variable under which an instance contacts no connected household, for a copy of the database restored anywhere but production](docs/decisions/092-federation-offline.md) |
+| 95 | 2026-10-01 | [Custom fields: up to ten household fields (text, yes/no, date) on every item form, kept in `items.custom`, private unless a field's own share switch is on, never to connections](docs/decisions/095-custom-fields.md) |
 | 93 | 2026-10-01 | [The interface language: one strings table, English the source, Hindi and Tamil machine-drafted and marked so; the interface follows the household's language, a member's own choice over it; a household imports its own translation](docs/decisions/093-interface-language.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React

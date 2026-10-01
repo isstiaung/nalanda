@@ -25,8 +25,8 @@ link appears on the same page when it's ready. One CSV covers everything.
    many are **new** (added as "Not owned"), how many **reads** it would add or date, and how
    many matched books the file **dates** differently. It names you as the member they'll
    be credited to. Nothing is written yet.
-4. **Import** — uploads in batches of 200 with live progress. Works directly without a
-   preview.
+4. **Import** — uploads 200 rows a batch with live progress (the server takes up to 250 a
+   request). Works directly without a preview.
 
 Unlike the libib import, **re-running is safe**: rows imported last time match by ISBN
 (or title + author) on the next run and merge instead of duplicating. The rare exception
