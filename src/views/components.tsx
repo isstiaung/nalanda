@@ -2282,8 +2282,8 @@ export const EditionsFields: FC<{ mediaType: MediaType; editions: EditionDraft[]
               </select>
             </label>
             <label>
-              <span class="muted">ISBN / barcode</span>
-              <input name={`edition-${i}-isbn`} value={e.isbn ?? ''} inputmode="numeric" class="mono" aria-label={`Edition ${i + 1} ISBN or barcode`} />
+              <span class="muted">ISBN / EAN</span>
+              <input name={`edition-${i}-isbn`} value={e.isbn ?? ''} inputmode="numeric" class="mono" aria-label={`Edition ${i + 1} ISBN or EAN`} />
             </label>
             <label>
               <span class="muted">Publisher</span>
