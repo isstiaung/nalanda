@@ -154,6 +154,42 @@ describe('deleting an item', () => {
     expect(await trashItems(env.DB, [42], null)).toEqual({ trashed: 0, expired: [] });
     expect(await listTrash(env.DB)).toEqual([]);
   });
+
+  it('a whole shelf, likewise, by an admin only: its items wait in the trash, restorable onto a shelf of that name', async () => {
+    const asha = await member('asha', 'admin');
+    const ravi = await member('ravi');
+    const shelf = await createLibrary(env.DB, 'Everything');
+    await env.COVERS.put('cover-one', 'x');
+    const one = await book(asha, { libraryId: shelf.id, title: 'One', coverKey: 'cover-one', notes: 'private' });
+    const two = await book(asha, { libraryId: shelf.id, title: 'Two' });
+    await setItemTags(env.DB, one.id, ['keep']);
+    // a member sees no Delete shelf form, and a hand-rolled POST is refused with the reason — nothing moves
+    expect(await html(ravi, `/libraries/${shelf.id}`)).not.toContain(`action="/libraries/${shelf.id}/delete"`);
+    const refused = await as(ravi, `/libraries/${shelf.id}/delete`, { body: {} });
+    expect(refused.status).toBe(403);
+    expect(await refused.text()).toContain('Only an admin can delete a shelf');
+    expect(await rows('SELECT id FROM items WHERE library_id = ?1 ORDER BY id', shelf.id)).toEqual([{ id: one.id }, { id: two.id }]);
+    expect(await listTrash(env.DB)).toEqual([]);
+    // an admin: the shelf goes, its items to the trash in the same batch, each naming the shelf and who deleted it
+    const page = await html(asha, `/libraries/${shelf.id}`);
+    expect(page).toContain(`action="/libraries/${shelf.id}/delete"`);
+    expect(page).toContain('can restore the items from the trash');
+    expect((await as(asha, `/libraries/${shelf.id}/delete`, { body: {} })).status).toBe(302);
+    expect(await rows('SELECT id FROM libraries WHERE id = ?1', shelf.id)).toEqual([]);
+    expect(await rows('SELECT id FROM items')).toEqual([]);
+    const trashed = await listTrash(env.DB);
+    expect(trashed.map((r) => [r.title, r.libraryName, r.deletedBy])).toEqual([
+      ['Two', 'Everything', asha.id],
+      ['One', 'Everything', asha.id],
+    ]);
+    expect(await env.COVERS.get('cover-one')).not.toBeNull(); // kept for a restore, as a single delete keeps it
+    // the shelf itself is not restorable; a shelf made again under its name takes the items back, with what they had
+    expect(await restoreFromTrash(env.DB, trashed[1]!.id, await members())).toEqual({ refused: 'no-shelf', shelf: 'Everything' });
+    const again = await createLibrary(env.DB, 'Everything');
+    const back = await restored(trashed[1]!.id);
+    expect((await getItem(env.DB, back))!).toMatchObject({ libraryId: again.id, title: 'One', coverKey: 'cover-one', notes: 'private' });
+    expect(await rows('SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = ?1', back)).toEqual([{ name: 'keep' }]);
+  });
 });
 
 describe('restoring', () => {

@@ -589,21 +589,24 @@ export async function renameLibrary(d1: D1Database, id: number, name: string): P
   await db(d1).update(s.libraries).set({ name }).where(eq(s.libraries.id, id));
 }
 
-export async function deleteLibrary(d1: D1Database, id: number): Promise<string[]> {
-  const dbi = db(d1);
-  const covers = await dbi
-    .select({ coverKey: s.items.coverKey })
-    .from(s.items)
-    .where(and(eq(s.items.libraryId, id), sql`${s.items.coverKey} IS NOT NULL`));
-  // items cascade, and so may the shelf's connection views: with none left, both activity logs go, as they do when the
-  // last view is removed on the Connections page (deleteConnectionView), so a stale log can't outlive every view
-  await d1.batch([
+/**
+ * Deletes a shelf — an admin's to do (the route checks). Its items go to the trash first (§16 #74), each with its
+ * snapshot, in the same batch as the shelf: the snapshot keeps the shelf's name, so a restore goes onto a shelf made
+ * again under that name. The shelf's connection views cascade with it, and with none left both activity logs go, as
+ * they do when the last view is removed on the Connections page (deleteConnectionView), so a stale log can't outlive
+ * every view. `expired` is the cover keys of trash rows purged on the way, for the caller to delete the objects — the
+ * shelf's own items keep theirs, for a restore.
+ */
+export async function deleteLibrary(d1: D1Database, id: number, deletedBy: Deleter = null): Promise<{ trashed: number; expired: string[] }> {
+  const [old, , inserted] = await d1.batch([
+    ...purgeStatements(d1),
+    ...trashStatements(d1, (table) => `${table}library_id = ?1`, id, deletedBy),
     d1.prepare('DELETE FROM libraries WHERE id = ?1').bind(id),
     d1.prepare('DELETE FROM activity_log WHERE NOT EXISTS (SELECT 1 FROM connection_views)'),
     d1.prepare('DELETE FROM member_activity WHERE NOT EXISTS (SELECT 1 FROM connection_views)'),
     pruneSeries(d1), // a series whose volumes were all on this shelf
   ]);
-  return covers.map((c) => c.coverKey).filter((k): k is string => !!k);
+  return { trashed: inserted?.meta?.changes ?? 0, expired: expiredKeys(old) };
 }
 
 // ---------- share views ----------
@@ -4695,21 +4698,31 @@ export type Deleter = { id: number; sessionKey: string } | null;
  */
 export async function trashItems(d1: D1Database, ids: number[], deletedBy: Deleter): Promise<{ trashed: number; expired: string[] }> {
   if (!ids.length) return { trashed: 0, expired: [] };
-  const json = JSON.stringify(ids);
   const [old, , inserted] = await d1.batch([
     ...purgeStatements(d1),
+    ...trashStatements(d1, (table) => `${table}${SELECTED}`, JSON.stringify(ids), deletedBy),
+    pruneSeries(d1),
+  ]);
+  return { trashed: inserted?.meta?.changes ?? 0, expired: expiredKeys(old) };
+}
+
+/**
+ * The two statements that move the items `where` selects into the trash — the snapshot of each, then the delete —
+ * for a batch that leads with the purge. `where` is given the table prefix to write its column under ('i.' for the
+ * snapshot's select, '' for the delete); `bind` is its ?1.
+ */
+function trashStatements(d1: D1Database, where: (table: string) => string, bind: unknown, deletedBy: Deleter): [D1PreparedStatement, D1PreparedStatement] {
+  return [
     d1
       .prepare(
         `INSERT INTO trash (item_id, library_id, library_name, media_type, title, creators, cover_key, payload, deleted_by, deleted_by_key)
          SELECT i.id, i.library_id, (SELECT l.name FROM libraries l WHERE l.id = i.library_id), i.media_type, i.title, i.creators, i.cover_key,
                 ${trashPayloadSql()}, ?2, ?3
-         FROM items i WHERE i.${SELECTED} ORDER BY i.id`,
+         FROM items i WHERE ${where('i.')} ORDER BY i.id`,
       )
-      .bind(json, deletedBy?.id ?? null, deletedBy?.sessionKey ?? null),
-    d1.prepare(`DELETE FROM items WHERE ${SELECTED}`).bind(json),
-    pruneSeries(d1),
-  ]);
-  return { trashed: inserted?.meta?.changes ?? 0, expired: expiredKeys(old) };
+      .bind(bind, deletedBy?.id ?? null, deletedBy?.sessionKey ?? null),
+    d1.prepare(`DELETE FROM items WHERE ${where('')}`).bind(bind),
+  ];
 }
 
 const purgeStatements = (d1: D1Database): [D1PreparedStatement, D1PreparedStatement] => {

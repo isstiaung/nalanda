@@ -1,6 +1,6 @@
 # §16 #74 — Deleting an item puts it in the trash for 30 days: a snapshot SQLite builds in the delete's own batch, restored through the import's insert, never a soft delete
 
-**Decided:** 2026-10-01 (where it is now). Cited as `ARCH.md §16 #74`; "§N" is a section of [ARCH.md](../../ARCH.md), "#N" another decision here.
+**Decided:** 2026-10-01 (where it is now). **Amended 2026-10-01:** deleting a shelf trashes its items, and is an admin's. Cited as `ARCH.md §16 #74`; "§N" is a section of [ARCH.md](../../ARCH.md), "#N" another decision here.
 
 A delete was a delete: an item, its reads, reviews, pages, plays, loans, wants, links and
 tags, and its cover's object, gone at once, with a confirm dialog the only guard. A family
@@ -43,6 +43,16 @@ a soft delete.
   never silently onto whatever shelf has the id now, which might be a shared one. It is
   bracketed as an import, so old reads aren't news to connections (#40), which see it as
   newly added.
+- **Deleting a shelf trashes its items, and is an admin's** (amended 2026-10-01). The shelf's
+  delete was the one path left that took items for good — `DELETE FROM libraries`, the items
+  cascading — and it was open to every member, while deleting in bulk had been made an admin's
+  (#47) and a single delete goes to the trash. Now `deleteLibrary()` runs the same snapshot and
+  delete over the shelf's items (`trashStatements()`, shared with `trashItems()`) in the one
+  batch with the shelf's own delete, naming the deleter as a single delete does, and the route
+  refuses a member with the reason; the form is shown to admins only. The snapshot keeps the
+  shelf's name, so the items come back onto a shelf made again under it (the refusal names it
+  until then). The shelf itself is still not restorable — the activity-log clearing the delete
+  always did stays, and its views, shares and saved views go with it as before.
 - **The cover's object stays in R2** until the row is purged, so a restore has its cover with
   no fetch. Both delete paths — an item's page (any member) and the bulk delete (an admin's,
   #47) — now leave the object alone; `discardTrash()` and `purgeTrash()` delete it.
@@ -65,8 +75,9 @@ a soft delete.
 
 **What it rules out:** a soft delete (above); restoring under the old id (a race with a new
 item given it, and a stale id in a connection's hands means nothing anyway); a trash for
-shelves, tags or members; a member restoring their own deletions (deleting is any member's,
-undeleting is an admin's, as bulk deleting is).
+shelves, tags or members (a deleted shelf's items are trashed, the shelf is not); a member
+restoring their own deletions (deleting an item is any member's, a shelf an admin's, undeleting
+an admin's, as bulk deleting is).
 
 `test/trash.spec.ts` holds it: a delete leaves every surface as before and keeps the cover;
 the snapshot's keys match the schema and its contents match what the item had; bulk delete
