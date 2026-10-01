@@ -41,9 +41,27 @@ import { isId } from './items';
 import type { Identity } from './keys';
 import { isDirected, parseInboxMessage, type DirectedMessage } from './messages';
 
-const delivered = (status: number) => status >= 200 && status < 300;
-/** An answer that won't change on a retry: the message is refused for good. */
-const refused = (status: number) => status >= 400 && status < 500 && status !== 429;
+type Answer = { status: number; body: unknown };
+
+const delivered = (res: Answer) => res.status >= 200 && res.status < 300;
+
+/** The inbox's own answer — src/federation/routes.tsx writes JSON with an `error` or `status` key — as against a server's or Hono's page. */
+const fromInbox = (body: unknown) => !!body && typeof body === 'object' && !Array.isArray(body) && ('error' in body || 'status' in body);
+
+/**
+ * An answer that won't change on a retry: their inbox itself refused the message, in its own words — not available,
+ * not connected, no such request. Any other 4xx is not one. An instance whose key is unset answers every connections
+ * route with Hono's not-found page, and a proxy in front of one answers 401 or 404 in its own words: a message
+ * dropped on either was never seen over there, so a BorrowAccept or a Returned lost that way never arrived, not even
+ * by their pull. Such a row now waits in the outbox as if they were unreachable, retried on page loads and delivered
+ * by their pull, bounded by PUSH_RETRY_DAYS. A 401 in the inbox's own words — "unknown sender" from a household that
+ * has disconnected, "signature rejected" once a key no longer matches — is final as before: nothing short of
+ * reconnecting changes it, and their Disconnect, when it arrives, clears the outbox for them anyway.
+ */
+const refused = (res: Answer) => res.status >= 400 && res.status < 500 && res.status !== 429 && fromInbox(res.body);
+
+/** What a push now came to: landed, turned away for good, or neither — the outbox keeps it then. */
+export type PushOutcome = 'delivered' | 'refused' | 'waiting';
 
 /**
  * Pushes a message already queued after the response — queued, where it reports a change, in one batch with
@@ -59,7 +77,7 @@ export function pushQueued(
   c.executionCtx.waitUntil(
     postSigned(identity, settings.baseUrl, connection.baseUrl, '/federation/inbox', message)
       .then(async (res) => {
-        if (res && delivered(res.status)) await markDelivered(c.env.DB, message.id);
+        if (res && delivered(res)) await markDelivered(c.env.DB, message.id);
       })
       .catch((err) => console.error('outbox push failed', err)),
   );
@@ -79,8 +97,9 @@ export async function sendToConnection(
 
 /**
  * Pushes a message already queued, now, waiting for the answer — for a request whose sender needs to know at
- * once. Returns their status, or null when they couldn't be reached (the outbox keeps it then). A refusal
- * leaves nothing to deliver, so it leaves the outbox, and a refused request of ours is declined with it.
+ * once. Says whether it landed, was refused, or is waiting: unreachable, or an answer that settles nothing (the
+ * outbox keeps it then). A refusal leaves nothing to deliver, so it leaves the outbox, and a refused request of
+ * ours is declined with it.
  */
 export async function pushNow(
   d1: D1Database,
@@ -88,12 +107,18 @@ export async function pushNow(
   settings: FederationSettings,
   connection: Connection,
   message: DirectedMessage,
-): Promise<number | null> {
+): Promise<PushOutcome> {
   const res = await postSigned(identity, settings.baseUrl, connection.baseUrl, '/federation/inbox', message);
-  if (!res) return null;
-  if (delivered(res.status)) await markDelivered(d1, message.id);
-  else if (refused(res.status)) await dropRefused(d1, message);
-  return res.status;
+  if (!res) return 'waiting';
+  if (delivered(res)) {
+    await markDelivered(d1, message.id);
+    return 'delivered';
+  }
+  if (refused(res)) {
+    await dropRefused(d1, message);
+    return 'refused';
+  }
+  return 'waiting';
 }
 
 // ---------- pulling a connection's outbox ----------
@@ -207,8 +232,9 @@ async function pullOutbox(db: D1Database, d1: D1Database, identity: Identity, se
 
 /**
  * Retries a push that didn't land, or pushes one a trigger queued — a few per page load, each now and then. A
- * refusal ends a message's life: it leaves the outbox, and a refused request of ours is declined rather than left
- * waiting. A request withdrawn or answered since it was queued isn't sent at all.
+ * refusal in the inbox's own words ends a message's life: it leaves the outbox, and a refused request of ours is
+ * declined rather than left waiting. Any other answer leaves the row for the next retry, within PUSH_RETRY_DAYS.
+ * A request withdrawn or answered since it was queued isn't sent at all.
  */
 async function retryPushes(db: D1Database, identity: Identity, settings: FederationSettings) {
   for (const row of await undeliveredOutbox(db, PUSH_RETRIES_PER_REQUEST, PUSH_RETRY_MINUTES, PUSH_RETRY_DAYS)) {
@@ -220,9 +246,9 @@ async function retryPushes(db: D1Database, identity: Identity, settings: Federat
     }
     const res = await postSigned(identity, settings.baseUrl, row.connection.baseUrl, '/federation/inbox', JSON.parse(row.message));
     if (!res) continue;
-    if (delivered(res.status)) {
+    if (delivered(res)) {
       await markDelivered(db, row.activityId);
-    } else if (refused(res.status)) {
+    } else if (refused(res)) {
       await dropRefused(db, { id: row.activityId, type: message?.type ?? 'unreadable' });
     }
   }

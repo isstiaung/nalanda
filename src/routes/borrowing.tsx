@@ -426,8 +426,9 @@ borrowing.post('/households/:id/requests', async (c) => {
     message,
   );
   if (requestId === null) return c.redirect('/borrowed');
-  const status = await pushNow(c.env.DB, ctx.identity, ctx.settings, connection, message);
-  if (status !== null && status >= 400 && status < 500 && status !== 429) {
+  // refused in their inbox's own words: declined here and gone from the outbox; anything else — delivered, or an
+  // answer that settles nothing — leaves the request waiting on its page
+  if ((await pushNow(c.env.DB, ctx.identity, ctx.settings, connection, message)) === 'refused') {
     return renderBorrowed(c, ctx, { error: `${connection.householdName} couldn’t take that request: the book isn’t available any more.` });
   }
   return c.redirect('/borrowed');

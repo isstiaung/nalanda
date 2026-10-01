@@ -23,6 +23,8 @@ for what a host must do; link runbooks as ../runbooks/…); a release commit ren
 
 - **Borrow requests count against the daily limit.** Comments and recommendations stop at a hundred messages to one household a day; asking to borrow didn't, so every request was queued and pushed. The hundred-and-first is now refused on the Borrowed page, neither sent nor queued, before the household is asked anything.
 
+- **A message isn't dropped on a 404 or 401 that isn't the household's own.** Any 4xx but 429 was taken as a final refusal, so a household whose key was unset for a while — every connections route answers a plain not-found page then — or one behind a proxy answering 401 lost a queued acceptance, return notice or comment for good, and a request of ours was declined with "isn't available any more". Only an answer in the inbox's own words is final now; anything else leaves the message in the outbox, retried on page loads and delivered by their pull, for two days.
+
 ### Upgrading
 - **One migration, 0051: a new `api_tokens` table, no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. The backup's table order gains `api_tokens`.
 - **One migration, 0052: a new column on `items` (`created_at`, empty until an import re-dates a book), no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. Then, to date a catalogue imported from Goodreads before this version, re-import the same export with the box ticked ([runbook](../runbooks/import-from-goodreads.md#dates-added)).

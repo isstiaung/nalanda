@@ -256,9 +256,9 @@ recommendations.post('/items/:id/recommend', async (c) => {
   );
   if (id === null) return back('duplicate', connection.id);
   // A refusal takes it out of the outbox and marks it refused, together (dropRefused); nothing is retried after it.
-  const status = await pushNow(c.env.DB, ctx.identity, ctx.settings, connection, message);
-  if (status !== null && status >= 200 && status < 300) return back('sent', connection.id);
-  if (status !== null && status >= 400 && status < 500 && status !== 429) return back('refused', connection.id);
+  const outcome = await pushNow(c.env.DB, ctx.identity, ctx.settings, connection, message);
+  if (outcome === 'delivered') return back('sent', connection.id);
+  if (outcome === 'refused') return back('refused', connection.id);
   return back('queued', connection.id);
 });
 

@@ -191,6 +191,50 @@ describe('lending: what a connection sees and asks for', () => {
     expect(await rows('SELECT * FROM loans WHERE item_id = ?', lendable.id)).toHaveLength(1);
   });
 
+  it('keeps an acceptance their inbox never saw — Hono’s 404, a proxy’s 401 — and delivers it later; a refusal in their words still ends it', async () => {
+    const retryDue = () => env.DB.prepare("UPDATE outbox SET attempted_at = datetime('now', '-1 hour')").run();
+    const onlyRetries = () => env.DB.prepare("UPDATE connections SET outbox_pulled_at = datetime('now')").run(); // no outbox pull: the retry alone
+    const answerInbox = (make: () => Response) => answerOutbound((req) => (new URL(req.url).pathname === '/federation/inbox' ? make() : json({}, 404)));
+    const undelivered = () => rows<{ type: string }>("SELECT json_extract(message, '$.type') AS type FROM outbox WHERE delivered_at IS NULL");
+    const member = await sessionCookie('member');
+
+    // their key unset at the moment we lend: every connections route over there is Hono's not-found page
+    await ask(lendable);
+    const [first] = await rows<{ id: number }>('SELECT id FROM borrow_requests');
+    answerInbox(() => new Response('404 Not Found', { status: 404 }));
+    await a.postForm(`/borrow-requests/${first!.id}/accept`, { dueOn: '2026-10-01' }, member);
+    expect(await rows('SELECT status FROM borrow_requests')).toEqual([{ status: 'accepted' }]);
+    expect(await undelivered()).toEqual([{ type: 'BorrowAccept' }]); // kept, not dropped
+    // a proxy's 401 on a retry settles nothing either
+    await onlyRetries();
+    await retryDue();
+    answerInbox(() => new Response('unauthorized', { status: 401 }));
+    await a.get('/loans', member);
+    expect(await undelivered()).toEqual([{ type: 'BorrowAccept' }]);
+    // back, their inbox takes it on the next retry
+    await retryDue();
+    const pushes: Record<string, unknown>[] = [];
+    answerOutbound((req) => {
+      if (new URL(req.url).pathname !== '/federation/inbox') return json({}, 404);
+      pushes.push(decode(req.body));
+      return json({ status: 'accepted' });
+    });
+    await a.get('/loans', member);
+    expect(pushes).toEqual([expect.objectContaining({ type: 'BorrowAccept', dueOn: '2026-10-01' })]);
+    expect(await undelivered()).toEqual([]);
+
+    // a 404 in the inbox's own words — the request isn't known there — is a refusal, and ends the message on the retry
+    await ask(twoCopies);
+    const [second] = await rows<{ id: number }>("SELECT id FROM borrow_requests WHERE status = 'pending'");
+    answerInbox(() => json({ error: 'no such request' }, 404));
+    await a.postForm(`/borrow-requests/${second!.id}/accept`, {}, member);
+    expect(await undelivered()).toEqual([{ type: 'BorrowAccept' }]); // a queued push leaves the verdict to the retry
+    await retryDue();
+    await a.get('/loans', member);
+    expect(await undelivered()).toEqual([]);
+    expect(await rows('SELECT * FROM outbox')).toHaveLength(1); // the first, delivered; the second, dropped
+  });
+
   it('lends the last copy once, however many members lend it at the same moment', async () => {
     const other = await makePeer('Lakeside library');
     await connectPeer(other);
@@ -502,6 +546,33 @@ describe('borrowing: this household asks', () => {
     expect(await rows('SELECT count(*) AS n FROM outbox')).toEqual([{ n: MAX_SENT_PER_DAY }]);
     // the Borrowed page still pulls their outbox after its response, as every load does; nothing else goes their way
     expect(calls.map((r) => new URL(r.url).pathname).filter((path) => path !== '/federation/outbox')).toEqual([]);
+  });
+
+  it('leaves a request waiting when the answer isn’t their inbox’s — a not-found page — rather than declining it', async () => {
+    answerOutbound((req) => {
+      const { pathname } = new URL(req.url);
+      if (pathname === '/federation/item') return json(detailJson(true));
+      if (pathname === '/federation/inbox') return new Response('404 Not Found', { status: 404 }); // their key unset: Hono's page
+      return json({}, 404);
+    });
+    const member = await sessionCookie('member');
+    const res = await askForFreeOne(member);
+    expect(res.status).toBe(302); // not the "couldn't take that request" page
+    expect(await rows('SELECT status FROM borrow_requests')).toEqual([{ status: 'pending' }]);
+    expect(await rows('SELECT delivered_at FROM outbox')).toEqual([{ delivered_at: null }]);
+    // the same answer in the inbox's own words declines it at once, as before
+    answerOutbound((req) => {
+      const { pathname } = new URL(req.url);
+      if (pathname === '/federation/item') return json(detailJson(true));
+      if (pathname === '/federation/inbox') return json({ error: 'no such item' }, 404);
+      return json({}, 404);
+    });
+    await env.DB.prepare('DELETE FROM borrow_requests').run();
+    await env.DB.prepare('DELETE FROM outbox').run();
+    const html = await (await askForFreeOne(member)).text();
+    expect(html).toContain('the book isn’t available any more');
+    expect(await rows('SELECT status FROM borrow_requests')).toEqual([{ status: 'declined' }]);
+    expect(await rows('SELECT * FROM outbox')).toHaveLength(0);
   });
 
   it('won’t ask for a book that isn’t free, and can withdraw a request', async () => {
