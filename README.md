@@ -55,6 +55,9 @@ scriptorium: palm-leaf paper, indigo and vermilion, Devanagari-first display typ
 framework (ARCH.md §16 #16). Screenshots come from seeded demo data — `npm run dev:demo` and
 `npm run seed:demo` will reproduce them on your own machine.
 
+A **read-only demo** of the same seeded data is published to GitHub Pages on each release — see
+[runbooks/demo.md](runbooks/demo.md) for the address and how it is built; sign in with `demo` / `demo`.
+
 ## Local development
 
 ```sh
@@ -112,6 +115,7 @@ scanner keeps working with no signal, and no page of your catalog is ever stored
 | [import-from-goodreads.md](runbooks/import-from-goodreads.md) | Bringing your Goodreads history over (and leaving) |
 | [import-from-storygraph.md](runbooks/import-from-storygraph.md) | Bringing your StoryGraph library over |
 | [import-from-librarything.md](runbooks/import-from-librarything.md) | Bringing your LibraryThing catalog over |
+| [demo.md](runbooks/demo.md) | The read-only demo on GitHub Pages: how it is built and published |
 | [import-from-libib.md](runbooks/import-from-libib.md) | Migrating your libib collection |
 | [import-from-kindle.md](runbooks/import-from-kindle.md) | Your Kindle highlights as quotes |
 | [metadata-backfill.md](runbooks/metadata-backfill.md) | Filling in covers and descriptions for a large catalog, from your machine |
