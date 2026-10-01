@@ -56,6 +56,10 @@ for a surface before changing anything it shows to someone outside the household
 - A shelf's search box (`ItemFilters.q`) matches `location`, so share links and connection views
   must never capture `q` (`shareFilters()`, `shelfPage()` don't) — a view filtered by "loft" would
   publish where things are kept.
+- **Saved views** (ARCH.md §16 #81) are the shelf's filter bar stored verbatim, so one may hold `q`,
+  `readBy` and the decluttering filters (`addedYears`, `unplayedMonths` — `StaleFilter`, outside
+  `ItemFilters` like `ReaderFilter`): never a share's source, never a key the publish form carries,
+  never sent to connections.
 
 ## Gift lists, want lists and purchase links
 

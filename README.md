@@ -91,6 +91,8 @@ manuscripts.
 - **New from your authors**: the authors you've finished, and on a click their works from Open
   Library, newest first, with what you already have marked — the extent of discovery here: no
   recommendation engine, nothing about your reading sent anywhere.
+- **Saved views**: a shelf's filters under a name, the household's, opened from the shelf or the
+  Overview; two decluttering views on every shelf — unread for years, not played lately.
 - **A trash**: a deleted item waits 30 days with everything it had — reads, reviews, pages,
   plays, loans, tags, cover — and an admin can restore it or let it go. The delete itself is
   still a delete: nothing trashed stays on a share link or in a connection's view.

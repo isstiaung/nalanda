@@ -1530,3 +1530,12 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .authors-finished li form .btn { margin-left: auto; }
 /* a series' gaps from Open Library (ARCH.md §16 #79) */
 .series-find { margin-top: 0.5rem; }
+
+/* saved views (ARCH.md §16 #81): the row of views under a shelf's filter bar, and under a shelf's name on the Overview */
+.views { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.5rem; margin: -0.5rem 0 1rem; }
+.views .eyebrow { margin: 0 0.25rem 0 0; }
+.views .pill, .shelf-views .pill { display: inline-flex; align-items: center; min-height: 24px; text-decoration: none; }
+.views .pill.active { border-color: var(--accent); color: var(--accent); }
+.views .inline-form { margin-left: auto; }
+.views .inline-form input { flex: 0 1 14rem; min-width: 0; }
+.shelf-views { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }

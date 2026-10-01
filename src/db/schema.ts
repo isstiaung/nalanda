@@ -245,6 +245,29 @@ export const shares = sqliteTable('shares', {
   wantUserId: integer('want_user_id').references(() => users.id),
 });
 
+/**
+ * Saved views (ARCH.md §16 #81): the household's named filter sets, one per shelf — the shelf's filter bar as a
+ * query string (`params`), parsed by the same code as the bar's own URL (parseShelfQuery), so a view can hold
+ * everything the bar can: types, statuses, holding, formats, the search box, "Read by", the sort, and the two
+ * decluttering filters (addedYears, unplayedMonths). Any member saves, replaces (by name) or deletes one. In the
+ * app only: never a share's source — `params` may hold `q` and `readBy`, which no share may.
+ */
+export const savedViews = sqliteTable(
+  'saved_views',
+  {
+    // AUTOINCREMENT: a view's id is in its delete route, so it never names another view
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    libraryId: integer('library_id')
+      .notNull()
+      .references(() => libraries.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    params: text('params').notNull(),
+    createdBy: integer('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (t) => [uniqueIndex('idx_saved_views_name').on(t.libraryId, t.name)],
+);
+
 export const loginAttempts = sqliteTable('login_attempts', {
   ip: text('ip').notNull(),
   attemptedAt: text('attempted_at').notNull().default(now),
