@@ -37,17 +37,6 @@ export function isDiscogsUrl(url: string | null | undefined): boolean {
   return !!host && (host === 'discogs.com' || host.endsWith('.discogs.com'));
 }
 
-/**
- * Whether a URL names its host by IP number — `http://10.0.0.5/…`, `http://[::1]/…`, or a form the URL parser reads
- * as one — rather than by name. A cover URL someone types is refused with that host: no image anyone would paste
- * lives at a bare address, and a Worker's fetch is not for reaching into networks by number. Not a rule of
- * fetchCover() itself — a connection in development is `http://127.0.0.1`, and its covers come by this path.
- */
-export function isIpLiteralUrl(url: string | null | undefined): boolean {
-  const host = url ? hostOf(url) : null;
-  return !!host && (host.startsWith('[') || /^\d{1,3}(\.\d{1,3}){3}$/.test(host));
-}
-
 /** The Cover Art Archive and the Internet Archive, where its images live: the only hosts its redirects may lead to. */
 const isArchiveHost = (host: string | null) =>
   !!host && (host === 'coverartarchive.org' || host === 'archive.org' || host.endsWith('.archive.org'));

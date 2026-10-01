@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createItem, createLibrary, getItem } from '../src/db/queries';
 import type { Bindings } from '../src/env';
 import { scanQueueOwner } from '../src/lib/auth';
-import { fetchCover, isDiscogsUrl, isIpLiteralUrl } from '../src/lib/covers';
+import { fetchCover, isDiscogsUrl } from '../src/lib/covers';
 import { findCover } from '../src/metadata';
 import { pickRelease, recordCover, releaseByBarcode, resetMusicBrainzPacing, type MbRelease } from '../src/metadata/musicbrainz';
 import { CandidateCard } from '../src/views/components';
@@ -226,24 +226,6 @@ describe('a cover URL typed by hand', () => {
     for (const url of ['https://discogs.com.example/x.jpg', 'https://notdiscogs.com/x.jpg', 'https://example.com/i.discogs.com./x.jpg', 'not a url', '', null, undefined]) {
       expect(isDiscogsUrl(url), String(url)).toBe(false);
     }
-  });
-
-  it('has to name a site: a host by IP address is refused with the reason, and nothing is fetched', async () => {
-    const asha = await member('asha', 'admin');
-    const shelf = await createLibrary(env.DB, 'Records');
-    const urls = requested();
-    // dotted, bracketed IPv6, and a bare number the URL parser reads as 127.0.0.1
-    for (const url of ['http://10.0.0.5/cover.jpg', 'https://[::1]/cover.jpg', 'http://2130706433/cover.jpg', 'http://192.168.1.20.:8080/nas/cover.jpg']) {
-      expect(isIpLiteralUrl(url), url).toBe(true);
-      const res = await as(asha, '/items', { body: { libraryId: String(shelf.id), mediaType: 'vinyl', title: 'Typed', coverUrl: url } });
-      expect(res.status, url).toBe(400);
-      expect(await res.text()).toContain('<p class="error" role="alert" id="item-form-error">A cover URL has to name a site');
-    }
-    for (const url of ['https://covers.example/mine.jpg', 'https://127.0.0.1.nip.io/x.jpg', 'https://localhost/x.jpg', 'not a url', null]) {
-      expect(isIpLiteralUrl(url), String(url)).toBe(false);
-    }
-    expect(await rows('SELECT id FROM items')).toEqual([]);
-    expect(urls).toEqual([]);
   });
 });
 

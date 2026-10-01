@@ -63,7 +63,7 @@ import {
 import type { AppEnv } from '../env';
 import { scanQueueOwner } from '../lib/auth';
 import { isRecord, parseGrade } from '../lib/condition';
-import { deleteCover, isDiscogsUrl, isIpLiteralUrl, isUploadableCover, storeCover, storeUploadedCover } from '../lib/covers';
+import { deleteCover, isDiscogsUrl, isUploadableCover, storeCover, storeUploadedCover } from '../lib/covers';
 import { bggIdOf, fillGame, type GameFill } from '../lib/games';
 import { isPlayable, MAX_PLAYS_PER_ITEM, playDateProblem } from '../lib/plays';
 import { fillPressing, recordBarcode, releaseIdOf, type Filled } from '../lib/pressing';
@@ -205,13 +205,12 @@ type ParsedForm = {
   seriesProblem: string | null;
   /** Why a grade was refused: one off the fixed scale (§16 #55). */
   gradeProblem: string | null;
-  /** Why the typed cover URL was refused: it's Discogs' image (§16 #67), or its host is an IP address. */
+  /** Why the typed cover URL was refused: it's Discogs' image (§16 #67). */
   coverProblem: string | null;
 };
 
 const DISCOGS_COVER =
   'Discogs’ images can’t be kept as a cover: its API terms restrict them. Use another image’s URL, or leave the cover blank.';
-const IP_COVER = 'A cover URL has to name a site: one by IP address can’t be used. Use the image’s address at its site, or leave the cover blank.';
 
 /** The series fields: a name, and a number that needs one. Blank both, and the item is in no series. */
 function parseSeriesFields(nameRaw: string, numberRaw: string): Pick<ParsedForm, 'series' | 'seriesProblem'> {
@@ -379,7 +378,7 @@ function parseItemForm(body: Record<string, string | File>): ParsedForm | null {
     // A Discogs result's own form never sends its image now, and one from a page rendered before that is ignored on
     // save (POST /items): only a URL someone typed is refused, with the reason — Discogs' image, or a host by number.
     coverProblem:
-      body['source'] !== 'discogs' && isDiscogsUrl(str('coverUrl')) ? DISCOGS_COVER : isIpLiteralUrl(str('coverUrl')) ? IP_COVER : null,
+      body['source'] !== 'discogs' && isDiscogsUrl(str('coverUrl')) ? DISCOGS_COVER : null,
   };
 }
 
