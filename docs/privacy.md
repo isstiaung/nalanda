@@ -261,10 +261,12 @@ for a surface before changing anything it shows to someone outside the household
 - `/covers/:key` is intentionally public — keys are random UUIDs; never make them
   enumerable or derived from item data.
 - **The service worker never stores a page or an API answer** (ARCH.md §16 #48): only the
-  files in `STATIC` in `public/sw.js`, and it leaves `/share/*` entirely alone. Offline scans
-  hold a barcode and a time, nothing else, and belong to the account signed in on the device:
-  a different account's pages empty the queue, logout empties it, and POST /items refuses a
-  held scan's add (`scanOwner`) for anyone else. Bump `VERSION` in sw.js when `STATIC` or its
+  files in `STATIC` in `public/sw.js`, and it leaves `/share/*` entirely alone. Held scans —
+  offline, or with "Keep scanning" on (§16 #94): one queue — hold a barcode and a time, nothing
+  else, and belong to the account signed in on the device: a different account's pages empty the
+  queue, logout empties it, and POST /items and `POST /api/scans/add` each refuse a held scan
+  (`scanOwner`) for anyone else. "Add all" sends the barcodes, the shelf and the device's stamp,
+  nothing about anyone; nothing new leaves the app. Bump `VERSION` in sw.js when `STATIC` or its
   behaviour changes.
 - **The browser keeps no signed-in answer either** (ARCH.md §16 #48, amended 2026-10-01): every
   response served behind the session middleware carries `Cache-Control: no-store` (set in

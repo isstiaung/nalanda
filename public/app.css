@@ -884,6 +884,13 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .review-scan { display: block; text-transform: uppercase; color: var(--ink-3); margin-bottom: 0.3rem; overflow-wrap: anywhere; }
 .review-entry[data-added] { margin: 0.75rem 0; }
 .review-trouble { margin: 0.65rem 0 0; }
+.review-held { margin-top: 0.3rem; }
+/* "Add all" says where it is and what it did (§16 #94): a status line in the data face, hidden until it has something to say */
+/* kept in the accessibility tree while empty (a live region hidden as it changes may not be announced): it only loses its margin */
+.scan-review-status { margin: 0.5rem 0 0; font-family: var(--mono); font-size: 11.5px; }
+.scan-review-status:empty { margin: 0; }
+/* "Keep scanning", beside Start camera: the box, its label and the hint in one run */
+.scanner-keep { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 0 0.3rem; margin: 0; }
 
 /* ── auth (login / setup / account) ───────────────────────────────────────── */
 

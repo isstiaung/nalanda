@@ -93,7 +93,9 @@ public/            app.css, scanner.js, import.js, translations.js (the Members 
                    + the installed app (ARCH.md §16 #48): manifest.webmanifest, icons/, sw.js (keeps
                    only static files — never a page or API answer, never touches /share), offline.html
                    (static scan-only page), scan-queue.js (the device's IndexedDB queue of offline
-                   scans: barcode + time only) and scan-review.js (the Add page's review list)
+                   scans: barcode + time only — offline, or with "Keep scanning" on, ARCH.md §16 #94) and
+                   scan-review.js (the Add page's review list, and the "Add all" loop that posts
+                   held barcodes to POST /api/scans/add twenty a request)
                    + bgg/ (BGG's "Powered by BGG" logos, committed unmodified — its API terms
                    require them beside its data; src/views/attribution.tsx, ARCH.md §16 #44 —
                    Discogs' credit, text only, lives there too, §16 #63)
