@@ -108,8 +108,9 @@ export const ReadByMenu: FC<{ value: string; me: number; people: Array<{ id: num
 export type ShelfQuery = {
   mediaTypes: MediaType[];
   statuses: ItemStatus[];
-  ownedSel: string[];
+  ownedSel: string[]; // the Holding checkboxes: '1' owned, '0' not owned, 'b' borrowed from someone (§16 #82)
   owned: boolean | undefined;
+  holding: StaleFilter['holding']; // the Holding filter once Borrowed is among its choices — in the app only
   formatsSel: string[];
   name: string | undefined; // the search box
   reader: ReaderFilter | undefined;
@@ -134,8 +135,13 @@ export function parseShelfQuery(sp: URLSearchParams, me: number, people: Array<{
   const mediaTypes = [...new Set(sp.getAll('type'))].filter((t): t is MediaType => (MEDIA_TYPES as readonly string[]).includes(t));
   const statuses = [...new Set(sp.getAll('status'))].filter((st): st is ItemStatus => (ITEM_STATUSES as readonly string[]).includes(st));
   // Ownership is two checkboxes over one tri-state: exactly one checked filters; both or neither means "owned + logged" (no filter).
-  const ownedSel = [...new Set(sp.getAll('owned'))].filter((v) => v === '1' || v === '0');
-  const owned = ownedSel.length === 1 ? ownedSel[0] === '1' : undefined;
+  // With Borrowed (§16 #82) among the choices the filter is any-of, in the app only: a share captures `owned` alone.
+  const ownedSel = [...new Set(sp.getAll('owned'))].filter((v) => v === '1' || v === '0' || v === 'b');
+  const borrowedSel = ownedSel.includes('b');
+  const owned = !borrowedSel && ownedSel.length === 1 ? ownedSel[0] === '1' : undefined;
+  const holding = borrowedSel
+    ? ownedSel.map((v) => (v === '1' ? ('owned' as const) : v === '0' ? ('not_owned' as const) : ('borrowed' as const)))
+    : undefined;
   // held in any of these forms (§16 #75): the shelf's own filter, never captured by a share link
   const formatsSel = [...new Set(sp.getAll('format'))].filter((f) => ALL_FORMATS.some((k) => k.code === f));
   const name = (sp.get('q') ?? '').trim().slice(0, 200) || undefined;
@@ -152,9 +158,10 @@ export function parseShelfQuery(sp: URLSearchParams, me: number, people: Array<{
     name !== undefined ||
     !!reader ||
     formatsSel.length > 0 ||
+    holding !== undefined ||
     addedYears !== undefined ||
     unplayedMonths !== undefined;
-  return { mediaTypes, statuses, ownedSel, owned, formatsSel, name, reader, readBy, sort, addedYears, unplayedMonths, filtered };
+  return { mediaTypes, statuses, ownedSel, owned, holding, formatsSel, name, reader, readBy, sort, addedYears, unplayedMonths, filtered };
 }
 
 /** The query string a ShelfQuery writes: what the bar's links carry and a saved view stores. The page and the display (table or covers) are the URL's own. */
@@ -255,8 +262,8 @@ libraries.get('/libraries/:id', async (c) => {
   const pageNum = Number.parseInt(url.searchParams.get('page') ?? '1', 10) || 1;
   // the decluttering filters, dated by the device's day (#69)
   const stale: StaleFilter | undefined =
-    q.addedYears !== undefined || q.unplayedMonths !== undefined
-      ? { today: todayOf(c), addedYearsAgo: q.addedYears, unplayedMonths: q.unplayedMonths }
+    q.addedYears !== undefined || q.unplayedMonths !== undefined || q.holding !== undefined
+      ? { today: todayOf(c), addedYearsAgo: q.addedYears, unplayedMonths: q.unplayedMonths, holding: q.holding }
       : undefined;
 
   // No filter at all, and nothing found: the shelf itself is empty, and the filters have nothing to work on.
@@ -277,7 +284,7 @@ libraries.get('/libraries/:id', async (c) => {
     stale,
   );
   const ids = items.map((i) => i.id);
-  const [{ onLoan: onLoanIds, wanted: wantedIds }, tagsMap] = await Promise.all([
+  const [{ onLoan: onLoanIds, wanted: wantedIds, borrowed: borrowedIds }, tagsMap] = await Promise.all([
     shelfFlags(c.env.DB, ids), // loans and the "Wanted" badge (§16 #53), one call
     view === 'table' ? tagsForItems(c.env.DB, ids) : Promise.resolve(undefined),
   ]);
@@ -358,6 +365,7 @@ libraries.get('/libraries/:id', async (c) => {
             options={[
               ['1', 'Owned'],
               ['0', 'Logged — not owned'],
+              ['b', 'Borrowed from someone'],
             ]}
             selected={ownedSel}
           />
@@ -406,9 +414,9 @@ libraries.get('/libraries/:id', async (c) => {
 
       {items.length ? (
         view === 'table' ? (
-          <ItemTable items={items} onLoanIds={onLoanIds} wantedIds={wantedIds} tagsMap={tagsMap} selectable />
+          <ItemTable items={items} onLoanIds={onLoanIds} wantedIds={wantedIds} borrowedIds={borrowedIds} tagsMap={tagsMap} selectable />
         ) : (
-          <ItemGrid items={items} onLoanIds={onLoanIds} wantedIds={wantedIds} selectable />
+          <ItemGrid items={items} onLoanIds={onLoanIds} wantedIds={wantedIds} borrowedIds={borrowedIds} selectable />
         )
       ) : total === 0 && !filtered ? (
         <p class="muted">

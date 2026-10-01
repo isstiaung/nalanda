@@ -54,6 +54,8 @@ import {
   getQuote,
   updateQuote,
   deleteQuote,
+  markOwnedUnlessBorrowed,
+  openBorrowLender,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { scanQueueOwner } from '../lib/auth';
@@ -102,6 +104,8 @@ import {
   type Viewer,
   WantBar,
   WantedPill,
+  BorrowedFrom,
+  BorrowedPill,
   FormatPills,
   LanguagePill,
 } from '../views/components';
@@ -851,6 +855,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           <dd>
             <HoldingPill item={item} />
             {item.copies === 0 && log.want.wanters.length ? <WantedPill /> : null}
+            {item.copies === 0 && log.borrows.some((b) => !b.returnedOn) ? <BorrowedPill /> : null}
           </dd>
           {/* where it lives (§16 #51) — private, like notes: share pages and connections never carry it */}
           {item.location ? (
@@ -1008,6 +1013,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           {item.copies === 0 && !loans.length ? (
             <p class="muted">Not in the physical collection — nothing to lend.</p>
           ) : null}
+          {/* borrowed from someone not on Nalanda (§16 #82): the mirror of a loan, on an item not owned */}
+          {item.copies === 0 ? <BorrowedFrom itemId={item.id} borrows={log.borrows} today={today} /> : null}
           {/* every open loan: with two copies out, both borrowers show, each with its own return */}
           {loans.map((l) => (
             <form method="post" action={`/loans/${l.id}/return`} class="inline-form">
@@ -1676,7 +1683,18 @@ items.post('/items/:id/mark-owned', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
-  if (item.copies === 0) await updateItem(c.env.DB, id, { copies: 1 });
+  if (item.copies === 0 && !(await markOwnedUnlessBorrowed(c.env.DB, id))) {
+    // borrowed from someone (§16 #82): theirs until it is marked returned — the button stays, and says why
+    const lender = await openBorrowLender(c.env.DB, id);
+    return c.html(
+      <>
+        <MarkOwnedButton id={id} />{' '}
+        <small class="error" role="alert">
+          Borrowed from {lender ?? 'someone'} — mark it returned first.
+        </small>
+      </>,
+    );
+  }
   return c.html(<MarkNotOwnedButton id={id} />);
 });
 
@@ -1716,7 +1734,9 @@ items.post('/items/:id', async (c) => {
   const unchanged =
     sent.status === mine.status && sent.beganOn === (mine.beganOn || null) && sent.completedOn === (mine.completedOn || null);
   const photoProblem = await photoProblemOf(parsed);
-  const problem = formProblem(
+  // borrowed from someone (§16 #82): theirs until marked returned, so the form can't count a copy as yours either
+  const borrowedFrom = existing.copies === 0 && (parsed.values.copies ?? 1) > 0 ? await openBorrowLender(c.env.DB, id) : null;
+  const problem = (borrowedFrom ? `Borrowed from ${borrowedFrom} — mark it returned before counting a copy as yours.` : null) ?? formProblem(
     locked
       ? 'status' in body && !unchanged
         ? 'This book is being read again: its reads are started, finished and corrected on its page, not here.'

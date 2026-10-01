@@ -39,6 +39,7 @@ export const TABLES = [
   'tags',
   'item_tags',
   'loans',
+  'borrows', // borrowed from people not on Nalanda (ARCH.md §16 #82): after items, which it references
   'federation_settings',
   'connection_invites', // before connections, which reference it
   'connections',
