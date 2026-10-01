@@ -409,21 +409,45 @@ export async function apiItems(
     .limit(API_PAGE + 1);
 }
 
-// ---------- login throttling ----------
+// ---------- login throttling (ARCH.md §8) ----------
 
-export async function recordLoginAttempt(d1: D1Database, ip: string): Promise<void> {
-  const dbi = db(d1);
-  await dbi.insert(s.loginAttempts).values({ ip });
-  // opportunistic prune; keeps the table tiny without any cron
-  await dbi.delete(s.loginAttempts).where(sql`${s.loginAttempts.attemptedAt} < datetime('now', '-1 hour')`);
+/** Failed password checks an address, or an account, may make in `LOGIN_ATTEMPT_WINDOW_MINUTES` before it is refused. */
+export const LOGIN_ATTEMPT_LIMIT = 10;
+export const LOGIN_ATTEMPT_WINDOW_MINUTES = 10;
+
+/** A recorded attempt, to take back when the password turns out right (`forgetLoginAttempt()`). */
+export type LoginAttempt = { rowid: number };
+
+/**
+ * Records a password check *before* it is made — or refuses it. One statement inserts the row only while both the
+ * address and the account named are under the limit, and returns nothing once either is over: counting first, in the
+ * statement that counts, is what makes a burst of guesses in parallel stop at ten, where a count followed by a check
+ * and a record let every one of them through. `username` is as typed, cut to a length — an account's guesses from many
+ * addresses count together, and a household's shared address locks out only the accounts guessed at. The hour-old rows
+ * are pruned in the same batch, so the table stays tiny without a cron. A right password takes its row back with
+ * `forgetLoginAttempt()`: only failures count.
+ */
+export async function recordLoginAttempt(d1: D1Database, ip: string, username: string): Promise<LoginAttempt | null> {
+  const window = `-${LOGIN_ATTEMPT_WINDOW_MINUTES} minutes`;
+  const [inserted] = await d1.batch([
+    d1
+      .prepare(
+        `INSERT INTO login_attempts (ip, username)
+         SELECT ?1, ?2
+         WHERE (SELECT count(*) FROM login_attempts WHERE ip = ?1 AND attempted_at > datetime('now', ?4)) < ?3
+           AND (SELECT count(*) FROM login_attempts WHERE username = ?2 AND attempted_at > datetime('now', ?4)) < ?3
+         RETURNING rowid`,
+      )
+      .bind(ip, username.slice(0, 200), LOGIN_ATTEMPT_LIMIT, window),
+    d1.prepare(`DELETE FROM login_attempts WHERE attempted_at < datetime('now', '-1 hour')`),
+  ]);
+  const row = inserted?.results?.[0] as LoginAttempt | undefined;
+  return row ?? null;
 }
 
-export async function recentLoginAttempts(d1: D1Database, ip: string): Promise<number> {
-  const [row] = await db(d1)
-    .select({ n: count() })
-    .from(s.loginAttempts)
-    .where(and(eq(s.loginAttempts.ip, ip), sql`${s.loginAttempts.attemptedAt} > datetime('now', '-10 minutes')`));
-  return row?.n ?? 0;
+/** The password was right: the attempt recorded for it was no failure, and counts towards nobody's limit. */
+export async function forgetLoginAttempt(d1: D1Database, attempt: LoginAttempt): Promise<void> {
+  await d1.prepare('DELETE FROM login_attempts WHERE rowid = ?1').bind(attempt.rowid).run();
 }
 
 // ---------- libraries ----------

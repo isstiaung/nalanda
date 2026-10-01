@@ -25,15 +25,16 @@ export async function member(name: string, role: 'admin' | 'member' = 'member'):
 /** Who a DB call acts as. */
 export const actor = (m: Member) => ({ id: m.id, admin: m.admin });
 
-/** A request as `who` — or signed out. A body makes it a POST. */
+/** A request as `who` — or signed out. A body makes it a POST; `ip` is the address Cloudflare would report it from. */
 export async function as(
   who: Member | null,
   path: string,
-  init: { body?: Record<string, string>; htmx?: boolean; json?: unknown } = {},
+  init: { body?: Record<string, string>; htmx?: boolean; json?: unknown; ip?: string } = {},
 ): Promise<Response> {
   const headers: Record<string, string> = { origin: 'http://nalanda.test' };
   if (who) headers.cookie = who.cookie;
   if (init.htmx) headers['HX-Request'] = 'true';
+  if (init.ip) headers['cf-connecting-ip'] = init.ip;
   let body: string | undefined;
   if (init.json !== undefined) {
     headers['content-type'] = 'application/json';

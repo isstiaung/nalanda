@@ -354,8 +354,15 @@ export const apiTokens = sqliteTable(
 );
 export type ApiToken = typeof apiTokens.$inferSelect;
 
+/**
+ * Failed password checks, for throttling (ARCH.md §8): a row is written before the password is checked, in the one
+ * statement that also refuses it once the IP or the account has ten in ten minutes (`recordLoginAttempt()`), and
+ * taken back when the password turns out right. `username` is as typed — the account guessed at — so guesses spread
+ * over many addresses are still counted together, and one address's guesses lock out only the accounts they named.
+ */
 export const loginAttempts = sqliteTable('login_attempts', {
   ip: text('ip').notNull(),
+  username: text('username').notNull().default(''),
   attemptedAt: text('attempted_at').notNull().default(now),
 });
 
