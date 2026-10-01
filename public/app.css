@@ -1508,3 +1508,7 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .cover-photo label { font-size: 12.5px; margin: 0; }
 .cover-photo input[type='file'] { font-size: 12.5px; max-width: 100%; }
 .cover-photo-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+
+/* new from your authors (ARCH.md §16 #78) */
+.authors-finished li form { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; width: 100%; }
+.authors-finished li form .btn { margin-left: auto; }
