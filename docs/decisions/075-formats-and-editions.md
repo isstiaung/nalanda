@@ -17,9 +17,12 @@ in as metadata on it, and the copy that went out recorded on the loan.
   held the same way compare equal. The item form shows one checkbox group per kind (each
   checkbox named `format-<code>`, so a plain post carries the set) and app.js shows the chosen
   kind's; the item page and share pages show pills beside the type; the shelf gains a Format
-  filter (`ItemFilters.formats`, the shelf's own, never captured by a share link). Public
-  catalogue data, like the publisher: in `toPublicItem()` as `formats`, on gift lists (what
-  someone buying another copy needs), to connections (older households drop the key). Filled
+  filter (`ItemFilters.formats`, the shelf's own, never captured by a share link). **Public,
+  by the owner's explicit decision** — the reviewer asked, since held formats describe this
+  household's own copies as `copies` and a record's condition do, and those stay private. The
+  owner chose public: a gift list needs it ("they have the paperback, don't buy that"), and
+  "held as an LP" says nothing about where a thing is kept, what it cost or who has it. So in
+  `toPublicItem()` as `formats`, on gift lists, to connections (older households drop the key). Filled
   on add from Open Library's `format` ("Paperback", "Audio CD") and from Discogs' pressing text
   ("2×Vinyl, LP" → LP), never changing what the form said. A `formats` CSV cell round-trips it.
 - **"Also held as" are the editions' identifiers**, in an `editions` table (migration 0043):
