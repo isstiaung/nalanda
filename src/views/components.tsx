@@ -16,6 +16,8 @@ import type { Candidate } from '../metadata';
 import { DiscogsAttribution, DiscogsCredit, discogsLink, discogsUrl } from './attribution';
 import { ledgerDate, ledgerDateTime } from '../lib/dates';
 import { CoverPhotoField } from './cover-photo';
+import { ALL_FORMATS, FORMATS, formatLabel, formatsOf, MAX_EDITIONS_PER_ITEM, type EditionDraft } from '../lib/formats';
+import { DEFAULT_LANGUAGE, LANGUAGES, languageName } from '../lib/language';
 
 export const MEDIA_LABEL: Record<MediaType, string> = {
   book: 'Book',
@@ -1226,7 +1228,11 @@ export const ItemForm: FC<{
   seriesNames?: string[];
   // the purchase price field (§16 #61): the household's currency (null: none set yet) and whether the viewer can set one
   money?: PriceFieldProps;
-}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverError, photoError, coverUrl, removeCover, perMember, series, seriesNames, money }) => {
+  // "also held as" (§16 #75): the item's lines, or what a refused form sent back
+  editions?: EditionDraft[];
+  // the household's default language (§16 #76): what a new item's Language field starts on, and what a NULL reads as
+  language?: string;
+}> = ({ libraries, action, submitLabel, item, tags, selectedLibraryId, error, coverError, photoError, coverUrl, removeCover, perMember, series, seriesNames, money, editions, language }) => {
   // a book being read again: status and dates describe its last finish, and the re-read is managed on its page
   const readingLocked = item?.mediaType === 'book' && !!item?.rereading;
   // a game or record takes plays, not reads: its form shows no status or reading dates (the Add form's type is picked
@@ -1317,6 +1323,20 @@ export const ItemForm: FC<{
     </div>
     <div class="grid">
       <label>
+        Language
+        <select name="language">
+          {LANGUAGES.map((l) => (
+            <option value={l.code} selected={l.code === (item?.language ?? language ?? DEFAULT_LANGUAGE)}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        Original title <small>(as first published, in any script)</small>
+        <input name="originalTitle" value={item?.originalTitle ?? ''} />
+      </label>
+      <label>
         Publisher / label
         <input name="publisher" value={item?.publisher ?? ''} />
       </label>
@@ -1329,6 +1349,7 @@ export const ItemForm: FC<{
         <input name="length" value={item?.length?.toString() ?? ''} inputmode="numeric" />
       </label>
     </div>
+    <FormatsFields mediaType={item?.mediaType ?? 'book'} formats={formatsOf(item ?? {})} />
     <label>
       Description
       <textarea name="description" rows={4}>
@@ -1441,6 +1462,7 @@ export const ItemForm: FC<{
         <input type="checkbox" name="removeCover" value="1" checked={!!removeCover} /> Remove current cover
       </label>
     ) : null}
+    <EditionsFields mediaType={item?.mediaType ?? 'book'} editions={editions ?? []} />
     <details>
       <summary>Advanced: details JSON</summary>
       <textarea name="details" rows={3} aria-label="Details JSON">
@@ -1469,6 +1491,10 @@ const CandidateFields: FC<{ candidate: Candidate }> = ({ candidate }) => (
     {/* Discogs' image is shown above, from Discogs, and goes no further: a record's cover is the Cover Art Archive's,
         looked up on save (§16 #67) */}
     <input type="hidden" name="coverUrl" value={candidate.provider === 'discogs' ? '' : (candidate.coverUrl ?? '')} />
+    {/* the form it comes in, when the provider said (§16 #75): Open Library's physical format */}
+    <input type="hidden" name="formats" value={(candidate.formats ?? []).join(',')} />
+    {/* its language, when the provider said (§16 #76); blank takes the household's */}
+    <input type="hidden" name="language" value={candidate.language ?? ''} />
     <input type="hidden" name="details" value={JSON.stringify(candidate.details)} />
     {/* a Discogs result's release is fetched once on save, for its tracklist and full pressing (§16 #55) */}
     {candidate.provider === 'discogs' ? <input type="hidden" name="source" value="discogs" /> : null}
@@ -2201,3 +2227,99 @@ export const BuySection: FC<{
     </details>
   </div>
 );
+
+// ---------- formats and editions (ARCH.md §16 #75) ----------
+
+/** An item's formats as pills: "Hardcover · Ebook". Nothing for an item held in none. */
+export const FormatPills: FC<{ formats: string[] }> = ({ formats }) =>
+  formats.length ? (
+    <span class="format-pills">
+      {formats.map((code) => (
+        <span class="pill format">{formatLabel(code)}</span>
+      ))}
+    </span>
+  ) : null;
+
+/**
+ * The form's "Held as" checkboxes: one group per kind, each named by its code (`format-hardcover`), so a plain form
+ * post carries the set without repeated names. Every kind's group is rendered; app.js shows the one the Type select
+ * says, and without script all show, each saying which kind it is for.
+ */
+export const FormatsFields: FC<{ mediaType: MediaType; formats: string[] }> = ({ mediaType, formats }) => (
+  <div class="formats-fields" data-formats-for={mediaType}>
+    {(Object.keys(FORMATS) as MediaType[])
+      .filter((t) => FORMATS[t].length)
+      .map((t) => (
+        <fieldset class="formats-group" data-formats-kind={t} hidden={t !== mediaType}>
+          <legend>
+            Held as <small class="muted">({MEDIA_LABEL[t].toLowerCase()})</small>
+          </legend>
+          {FORMATS[t].map((f) => (
+            <label class="inline-check">
+              <input type="checkbox" name={`format-${f.code}`} value="1" checked={t === mediaType && formats.includes(f.code)} /> {f.label}
+            </label>
+          ))}
+        </fieldset>
+      ))}
+  </div>
+);
+
+/**
+ * "Also held as": the other editions' identifiers, one line each — format, ISBN or barcode, publisher, year — the
+ * item's lines and two blank ones, each field named by its line (`edition-0-isbn`). Their point is the scan: a
+ * barcode of another edition finds this item. Private like the main ISBN.
+ */
+export const EditionsFields: FC<{ mediaType: MediaType; editions: EditionDraft[] }> = ({ mediaType, editions }) => {
+  const lines = [...editions, { format: null, isbn: null, publisher: null, year: null }, { format: null, isbn: null, publisher: null, year: null }].slice(
+    0,
+    MAX_EDITIONS_PER_ITEM,
+  );
+  const options = FORMATS[mediaType].length ? FORMATS[mediaType] : ALL_FORMATS;
+  return (
+    <details class="editions-fields" open={editions.length > 0}>
+      <summary>
+        Also held as <small class="muted">({editions.length ? `${editions.length} other ${editions.length === 1 ? 'edition' : 'editions'}` : 'other editions'})</small>
+      </summary>
+      <p class="muted form-note">
+        Other editions of the same work you hold or have scanned — the audiobook, the old paperback. Their ISBN or barcode
+        finds this item on a scan instead of adding it again. Never shown on share pages.
+      </p>
+      <div class="editions-rows">
+        {lines.map((e, i) => (
+          <div class="edition-row">
+            <label>
+              <span class="muted">Format</span>
+              <select name={`edition-${i}-format`} aria-label={`Edition ${i + 1} format`}>
+                <option value="" selected={!e.format}>
+                  —
+                </option>
+                {options.map((f) => (
+                  <option value={f.code} selected={e.format === f.code}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span class="muted">ISBN / EAN</span>
+              <input name={`edition-${i}-isbn`} value={e.isbn ?? ''} inputmode="numeric" class="mono" aria-label={`Edition ${i + 1} ISBN or EAN`} />
+            </label>
+            <label>
+              <span class="muted">Publisher</span>
+              <input name={`edition-${i}-publisher`} value={e.publisher ?? ''} aria-label={`Edition ${i + 1} publisher`} />
+            </label>
+            <label>
+              <span class="muted">Year</span>
+              <input name={`edition-${i}-year`} value={e.year ?? ''} class="mono" size={6} aria-label={`Edition ${i + 1} year`} />
+            </label>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+};
+// ---------- language (ARCH.md §16 #76) ----------
+
+/** An item's language as a pill — only when it differs from the household's, so a shelf of one language stays plain. */
+export const LanguagePill: FC<{ language: string | null; household: string }> = ({ language, household }) =>
+  language && language !== household ? <span class="pill language">{languageName(language)}</span> : null;

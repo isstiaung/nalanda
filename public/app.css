@@ -1509,6 +1509,25 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .cover-photo input[type='file'] { font-size: 12.5px; max-width: 100%; }
 .cover-photo-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 
+/* formats and editions (ARCH.md §16 #75) */
+.pill.format { background: var(--surface-2); }
+.format-pills { display: inline-flex; flex-wrap: wrap; gap: 0.3rem; margin-left: 0.4rem; vertical-align: middle; }
+/* each checkbox keeps 24px clear of its neighbours, wrapped onto a phone's width too (WCAG 2.2 target size) */
+.formats-group { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 0.5rem 0.75rem 0.65rem; margin: 0 0 0.75rem; }
+.formats-group legend { font-size: 12.5px; padding: 0 0.3rem; }
+.formats-group .inline-check { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 24px; margin: 0; font-size: 13px; }
+.editions-fields { margin: 0.5rem 0 1rem; }
+.editions-rows { display: grid; gap: 0.5rem; }
+.edition-row { display: grid; grid-template-columns: 9rem 1fr 1fr 5rem; gap: 0.5rem; align-items: end; }
+.edition-row label { margin: 0; font-size: 12.5px; }
+.edition-row input, .edition-row select { margin: 0; width: 100%; }
+@media (max-width: 640px) { .edition-row { grid-template-columns: 1fr 1fr; } }
+/* language (ARCH.md §16 #76) */
+.pill.language { background: var(--surface-2); margin-left: 0.4rem; }
+.original-title { margin: -0.25rem 0 0.35rem; font-style: italic; }
+/* new from your authors (ARCH.md §16 #78) */
+.authors-finished li form { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; width: 100%; }
+.authors-finished li form .btn { margin-left: auto; }
 /* quotes and highlights (ARCH.md §16 #77) */
 .quotes { list-style: none; padding: 0; margin: 0; }
 .quotes .quote { padding: 0.65rem 0; border-top: 1px solid var(--line); }

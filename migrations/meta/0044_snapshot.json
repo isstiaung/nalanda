@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ced1f71a-213e-4c34-8f1e-42f3b9ccaae8",
-  "prevId": "40aeef8d-f1fd-4d6a-8110-3c841a326e01",
+  "id": "c1fb2ca0-637d-4537-afbe-0bb9b481b4c8",
+  "prevId": "ced1f71a-213e-4c34-8f1e-42f3b9ccaae8",
   "tables": {
     "activity_log": {
       "name": "activity_log",
@@ -1562,6 +1562,20 @@
           "notNull": true,
           "autoincrement": false,
           "default": "''"
+        },
+        "language": {
+          "name": "language",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "original_title": {
+          "name": "original_title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -3381,6 +3395,14 @@
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
+        },
+        "language": {
+          "name": "language",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'en'"
         },
         "updated_at": {
           "name": "updated_at",

@@ -1,8 +1,11 @@
 import { fetchWithTimeout, USER_AGENT } from '../env';
+import { formatFromPhysical } from '../lib/formats';
+import { languageFromProvider } from '../lib/language';
 import { cleanSeriesName, parseSeriesNumber, type SeriesDraft } from '../lib/series';
 import { cleanDescription, PAGE_SIZE, type Candidate, type MetadataProvider, type SearchPage } from './provider';
 
 type OlDoc = {
+  format?: string[]; // the edition's physical form: 'Paperback', 'Hardcover', 'Audio CD'…
   key?: string;
   title?: string;
   author_name?: string[];
@@ -16,13 +19,14 @@ type OlDoc = {
   // position can be "0.5", or an omnibus's "1-3".
   series_name?: string[];
   series_position?: string[];
+  language?: string[]; // ISO 639-2/B codes, 'eng'
 };
 
-const FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,isbn,series_name,series_position';
+const FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,isbn,series_name,series_position,format,language';
 // The backfill never reads the isbn list, and it dwarfs the rest: a search for a work with many
 // editions answers in 78 KB with it and 17 KB without. A Worker parses that inside a 10 ms CPU
 // budget, several times per item — so cover/detail lookups ask for the lean set.
-const LEAN_FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,series_name,series_position';
+const LEAN_FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,series_name,series_position,format,language';
 
 async function searchOl(q: string, limit: number, fields: string = FIELDS, page = 1): Promise<{ docs: OlDoc[]; found: number }> {
   const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&fields=${fields}&limit=${limit}${page > 1 ? `&page=${page}` : ''}`;
@@ -62,6 +66,10 @@ function toCandidate(doc: OlDoc, isbn13?: string): Candidate | null {
     coverUrl,
     workKey: doc.key?.startsWith('/works/') ? doc.key : undefined,
     ...seriesOf(doc),
+    // the edition's physical form, when the index names one clearly (§16 #75)
+    ...(formatFromPhysical(doc.format?.find((f) => formatFromPhysical(f))) ? { formats: [formatFromPhysical(doc.format!.find((f) => formatFromPhysical(f)))!] } : {}),
+    // the edition's language, when the index names one (§16 #76): the first of the work's, which is usually the only one
+    ...(languageFromProvider(doc.language?.[0]) ? { language: languageFromProvider(doc.language?.[0])! } : {}),
     details: {},
     provider: 'openlibrary',
   };
@@ -121,6 +129,26 @@ export async function olWorkDescription(workKey: string): Promise<string | null>
 }
 
 /** Cover and description lookups: fewer results, and none of the ISBN bulk the backfill never reads. */
+/**
+ * An author's works, newest first (ARCH.md §16 #78): one keyless request to the search index by author name, sorted
+ * by first publication, so "new from authors you've finished" is one call per author, made on a click. Each doc
+ * becomes a candidate with its first ISBN-13 (for "In your catalog") and its cover.
+ */
+export async function olRecentByAuthor(author: string, limit = 12): Promise<Candidate[] | null> {
+  const url = `https://openlibrary.org/search.json?author=${encodeURIComponent(author)}&sort=new&fields=${FIELDS}&limit=${limit}`;
+  try {
+    const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } });
+    if (!res.ok) return null; // no answer — a burst block, an outage — is not an empty answer, and is never cached
+    const data = (await res.json()) as { docs?: OlDoc[] };
+    return (data.docs ?? [])
+      .map((d) => toCandidate(d, d.isbn?.find((i) => /^\d{13}$/.test(i))))
+      .filter((c): c is Candidate => !!c)
+      .sort((a, b) => Number(b.published ?? 0) - Number(a.published ?? 0));
+  } catch {
+    return null;
+  }
+}
+
 export async function olSearchLean(query: string, limit = 5): Promise<Candidate[]> {
   const { docs } = await searchOl(query, limit, LEAN_FIELDS);
   return docs.map((d) => toCandidate(d)).filter((c): c is Candidate => !!c);

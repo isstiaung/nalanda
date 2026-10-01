@@ -306,8 +306,29 @@
     {
       "idx": 43,
       "version": "6",
-      "when": 1790847057803,
-      "tag": "0043_quotes",
+      "when": 1790844658391,
+      "tag": "0043_formats-and-editions",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "6",
+      "when": 1790848990299,
+      "tag": "0044_language-and-original-title",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "6",
+      "when": 1790848990931,
+      "tag": "0045_original-title-fts",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "6",
+      "when": 1790849584182,
+      "tag": "0046_quotes",
       "breakpoints": true
     }
   ]

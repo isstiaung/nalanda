@@ -259,7 +259,7 @@ export function toShelfItem(item: Item, available: boolean, stamp: string): Shel
 /** One member's rating and review on a connection's item page (§16 #45): by display name, or unsigned (null). */
 export type NamedReview = { by: string | null; rating: number | null; review: string | null };
 
-export type ItemDetail = Omit<ConnectionItem, 'details' | 'readCount'> & {
+export type ItemDetail = Omit<ConnectionItem, 'details' | 'readCount' | 'formats' | 'language' | 'originalTitle'> & {
   details: Record<string, string | number | boolean>;
   readCount: number | null; // null from a household on an older version
   available: boolean;

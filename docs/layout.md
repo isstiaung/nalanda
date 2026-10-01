@@ -7,7 +7,8 @@ architectural view.
 ```
 src/index.ts       Hono app entry; route order matters: public (share, covers, auth) first,
                    then requireAuth, then protected routes. Origin-check CSRF on mutations.
-src/routes/        pages + htmx partials + /api/lookup, /api/import + share.tsx (public
+src/routes/        pages + htmx partials + /api/lookup, /api/import + discover.tsx (new from your
+                   authors, ARCH.md §16 #78) + share.tsx (public
                    share pages) and shares.tsx (admin share management — don't confuse)
                    + trash.tsx (what was deleted in the last 30 days, admin-only; the snapshot
                    and restore are trashItems()/restoreFromTrash() in db/queries.ts, ARCH.md §16 #74)
@@ -24,6 +25,10 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    log for games and records: which types take plays, the export's plays cell —
                    ARCH.md §16 #54), series.ts (series names and numbers, the gaps, each member's next up;
                    its queries are in db/queries.ts, its pages in routes/series.tsx, ARCH.md §16 #52),
+                   formats.ts (the forms an item is held in, per kind; "also held as" lines and their
+                   CSV cells; what a provider's format words map to — ARCH.md §16 #75),
+                   language.ts (every ISO 639-1 language by name, the household default, what a provider's
+                   or a file's code means — ARCH.md §16 #76),
                    quotes.ts (a quote's shape and tidying, the `quotes` CSV cell, what the Kindle import posts —
                    ARCH.md §16 #77; its pages are routes/quotes.tsx and views/quotes.tsx, the file's parsing
                    public/kindle.js),

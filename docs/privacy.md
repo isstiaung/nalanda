@@ -27,6 +27,14 @@ for a surface before changing anything it shows to someone outside the household
   being read now — in progress, or finished and being read again (`rereading`) — as the
   latest page anyone reading it recorded; `toPublicItem(item, { progress })` omits the key
   otherwise. Share pages get `noindex`.
+- **Formats are public, editions' identifiers are not** (ARCH.md §16 #75): `formats` (the forms an
+  item is held in) is in `toPublicItem()` like the publisher, on shelves' and gift lists' pages and to
+  connections; the `editions` table (another edition's ISBN or barcode, publisher, year) is as private as
+  the main ISBN, never a key of `toPublicItem()` or `toConnectionItem()`. The shelf's Format filter is
+  the shelf's own: `shareFilters()` doesn't capture it. A loan's `edition` is circulation detail, private
+  like the borrower.
+- **Language and original title are public** (ARCH.md §16 #76), like the publisher: `language` and
+  `originalTitle` are keys of `toPublicItem()`, on gift lists, and to connections.
 - **Quotes** (ARCH.md §16 #77) reach a share page one at a time, only those a member marked `shared`,
   as text and page through `toPublicItem(item, { quotes })` — never a note, never an unshared quote,
   never a username; signed with a display name only while `names_on_shares` is on. Not sent to

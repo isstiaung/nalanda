@@ -19,6 +19,8 @@ import {
   todayUtc,
 } from '../lib/reads';
 import { countName, nameKey, sortNames, splitCreators, type NameCount } from '../lib/creators';
+import { MAX_EDITIONS_PER_ITEM, type EditionDraft } from '../lib/formats';
+import { DEFAULT_LANGUAGE, isLanguageCode } from '../lib/language';
 import { MAX_QUOTES_PER_ITEM, type CellQuote, type KindleBook, type PersonQuote, type QuoteDraft } from '../lib/quotes';
 import { FEWEST_PLAYERS, WEIGHT_BANDS, type GameFilters } from '../lib/games';
 import { MAX_LINKS_PER_ITEM, type LinkDraft } from '../lib/links';
@@ -458,6 +460,19 @@ function readShelfTotals([types, money, setting]: D1Result[]): Totals {
   return { shelves: out, currency };
 }
 
+/**
+ * A shelf and the household's settings in one call (§16 #76): what an add needs before it writes. Both reads are
+ * Drizzle's, so the settings come through settingsOf() as getSiteSettings()'s do.
+ */
+export async function getLibraryAndSettings(d1: D1Database, id: number): Promise<{ library: Library | null; settings: SiteSettings }> {
+  const dbi = db(d1);
+  const [libs, rows] = await dbi.batch([
+    dbi.select().from(s.libraries).where(eq(s.libraries.id, id)),
+    dbi.select().from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
+  ]);
+  return { library: libs[0] ?? null, settings: settingsOf(rows[0]) };
+}
+
 export async function getLibrary(d1: D1Database, id: number): Promise<Library | null> {
   const [l] = await db(d1).select().from(s.libraries).where(eq(s.libraries.id, id));
   return l ?? null;
@@ -554,6 +569,8 @@ export type ItemFilters = {
   owned?: boolean; // true = copies > 0, false = copies = 0 (reading-log entries)
   q?: string; // title/creators/location substring, case-insensitive — the signed-in shelf's only, never a view's
   tag?: string; // only items carrying this tag (tags are stored lowercase)
+  // held in any of these formats (§16 #75) — the shelf's filter only: share links don't capture it (shareFilters)
+  formats?: string[];
   // only items on this member's want list (§16 #53) — what a gift list captures, and the want-list page shows
   wantedBy?: number;
   // 'wanted': newest on the want list first — only with wantedBy
@@ -598,6 +615,10 @@ function itemFilterWhere(libraryId: number | null, f: ItemFilters, reader?: Read
   if (f.mediaTypes?.length) conds.push(inArray(s.items.mediaType, f.mediaTypes));
   if (f.statuses?.length) conds.push(statusWhere(f.statuses)!);
   if (f.owned !== undefined) conds.push(f.owned ? gt(s.items.copies, 0) : eq(s.items.copies, 0));
+  if (f.formats?.length) {
+    // the column is a comma-joined set; a code matches between commas, so "cd" never matches "cdr"
+    conds.push(or(...f.formats.map((code) => sql`(',' || ${s.items.formats} || ',') LIKE ${`%,${code},%`}`))!);
+  }
   // The tag's and the want list's items as IN, not a correlated EXISTS: the same set (neither item_id is ever NULL), but
   // SQLite starts from the tag's links (idx_item_tags_tag) or the member's wants (their primary key) instead of probing
   // every item in the catalogue — 829 rows read rather than 4,274 to count a tag of 276 items (§16 #68).
@@ -1186,7 +1207,7 @@ export async function createItemWithTags(
   values: NewItem,
   names: string[],
   series: SeriesDraft | null = null,
-  opts: { wantedBy?: number; before?: D1PreparedStatement[]; after?: D1PreparedStatement[] } = {},
+  opts: { wantedBy?: number; before?: D1PreparedStatement[]; after?: D1PreparedStatement[]; editions?: EditionDraft[] } = {},
 ): Promise<number> {
   const reads = readsFromColumns(values.status ?? 'not_started', values.beganOn, values.completedOn);
   const reviews = stampReviews(reviewsFromColumns(values));
@@ -1207,6 +1228,7 @@ export async function createItemWithTags(
     ...reviewInsertStatements(d1, 'newest', reviews, values.addedBy ?? null),
     refreshReviewState(d1, 'newest'),
     ...(opts.wantedBy !== undefined ? wantInsertStatements(d1, 'newest', [{ userId: opts.wantedBy, at: null }]) : []),
+    ...editionInsertStatements(d1, 'newest', opts.editions ?? []),
     ...(opts.after ?? []),
   ]);
   const row = results[before.length + upsert.length]?.results[0] as { id: number } | undefined;
@@ -1241,6 +1263,7 @@ export async function updateItemWithTags(
   person: number | null = null,
   formReview?: FormReview,
   series?: SeriesDraft | null, // undefined leaves the item's series as it is; null takes it out of one (§16 #52)
+  editions?: EditionDraft[], // undefined leaves "also held as" as it is; a list replaces it (§16 #75)
 ): Promise<void> {
   // reading state and the rating and review come from reads and reviews alone; the series only from `series`
   const {
@@ -1268,6 +1291,7 @@ export async function updateItemWithTags(
     ...(series === undefined ? [] : [pruneSeries(d1)]),
     d1.prepare('DELETE FROM item_tags WHERE item_id = ?1').bind(id),
     ...tagLinkStatements(d1, id, names),
+    ...(editions ? [d1.prepare('DELETE FROM editions WHERE item_id = ?1').bind(id), ...editionInsertStatements(d1, id, editions)] : []),
     ...(formRead ? formReadStatements(d1, id, person, formRead) : []),
     refreshReadState(d1, [id]),
     // reads first, as everywhere: a rating given with a finish is dated by it inside an import (§16 #40)
@@ -1588,17 +1612,17 @@ export async function pastLoansForItem(
  */
 export async function lendIfFree(
   d1: D1Database,
-  values: { itemId: number; borrower: string; loanedOn?: string; contact: string | null; dueOn: string | null },
+  values: { itemId: number; borrower: string; loanedOn?: string; contact: string | null; dueOn: string | null; edition?: string | null },
 ): Promise<boolean> {
   const row = await d1
     .prepare(
-      `INSERT INTO loans (item_id, borrower, loaned_on, contact, due_on)
-       SELECT ?1, ?2, ?5, ?3, ?4
+      `INSERT INTO loans (item_id, borrower, loaned_on, contact, due_on, edition)
+       SELECT ?1, ?2, ?5, ?3, ?4, ?6
        WHERE (SELECT copies FROM items WHERE id = ?1)
            > (SELECT count(*) FROM loans WHERE item_id = ?1 AND returned_on IS NULL)
        RETURNING id`,
     )
-    .bind(values.itemId, values.borrower, values.contact, values.dueOn, values.loanedOn ?? todayUtc())
+    .bind(values.itemId, values.borrower, values.contact, values.dueOn, values.loanedOn ?? todayUtc(), values.edition ?? null)
     .first<{ id: number }>();
   return !!row;
 }
@@ -1627,7 +1651,7 @@ function loansRangeStatement(d1: D1Database, fromId: number, toId: number, libra
   return d1
     .prepare(
       `SELECT l.item_id AS itemId, l.borrower, l.loaned_on AS loanedOn, l.due_on AS dueOn, l.returned_on AS returnedOn,
-              l.contact, l.note
+              l.contact, l.note, l.edition
        FROM loans l
        WHERE l.item_id BETWEEN ?1 AND ?2 ${scoped}
        ORDER BY l.item_id, l.id
@@ -1658,10 +1682,10 @@ function loanInsertStatements(d1: D1Database, loans: LoanDraft[]): D1PreparedSta
   return [
     d1
       .prepare(
-        `INSERT INTO loans (item_id, borrower, loaned_on, due_on, returned_on, contact, note)
+        `INSERT INTO loans (item_id, borrower, loaned_on, due_on, returned_on, contact, note, edition)
          SELECT (SELECT max(id) FROM items), json_extract(value, '$.borrower'), json_extract(value, '$.loanedOn'),
                 json_extract(value, '$.dueOn'), json_extract(value, '$.returnedOn'), json_extract(value, '$.contact'),
-                json_extract(value, '$.note')
+                json_extract(value, '$.note'), json_extract(value, '$.edition')
          FROM json_each(?1) ORDER BY key`,
       )
       .bind(json),
@@ -1770,6 +1794,7 @@ export type SiteSettings = {
   namesToConnections: boolean; // §16 #45 — per-person feed entries and reviews, with display names, to connections
   goalsToConnections: boolean; // §16 #49 — members' reading goals as per-person entries; only while namesToConnections
   currency: string | null; // §16 #61 — the household's ISO 4217 code, what purchase prices are entered in; null until an admin sets it
+  language: string; // §16 #76 — the household's default language, ISO 639-1: what an added item takes unless told otherwise
 };
 /**
  * What a new instance starts with (§16 #49): names on share pages and to connections, and goals to connections, on;
@@ -1784,11 +1809,20 @@ const SITE_DEFAULTS: SiteSettings = {
   namesToConnections: true,
   goalsToConnections: true,
   currency: null,
+  language: DEFAULT_LANGUAGE,
 };
 
 /** One row, id 1. Absent means defaults — only ever on a new instance — so it needs no setup step. */
 export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
   const [row] = await db(d1).select().from(s.siteSettings).where(eq(s.siteSettings.id, 1));
+  return settingsOf(row);
+}
+
+/**
+ * The settings a row holds — the one place that reads the row, so every reader (getSiteSettings, the add path's
+ * getLibraryAndSettings) says the same thing, and a setting added later is mapped once or not at all.
+ */
+function settingsOf(row: typeof s.siteSettings.$inferSelect | undefined): SiteSettings {
   return row
     ? {
         progressOnShares: row.progressOnShares,
@@ -1797,6 +1831,7 @@ export async function getSiteSettings(d1: D1Database): Promise<SiteSettings> {
         namesToConnections: row.namesToConnections,
         goalsToConnections: row.goalsToConnections,
         currency: row.currency,
+        language: isLanguageCode(row.language) ? row.language : DEFAULT_LANGUAGE,
       }
     : { ...SITE_DEFAULTS };
 }
@@ -2005,18 +2040,25 @@ export async function itemPageLog(
   entries: ProgressEntry[];
   reviews: ReviewEntry[];
   want: { wanters: Array<{ id: number; username: string; at: string }>; links: Array<{ id: number; label: string; url: string }> };
+  editions: EditionDraft[]; // "also held as" (§16 #75), in the same call
+  householdLanguage: string; // the household's default (§16 #76), read in the same call, for the language pill
   quotes: QuoteEntry[]; // the household's quotes on it (§16 #77), in the same call
   extra: D1Result[];
 }> {
   const own = [
     ...readingLogStatements(d1, itemId),
     ...wantsAndLinksStatements(d1, itemId),
+    d1.prepare('SELECT language FROM site_settings WHERE id = 1'),
+    d1.prepare('SELECT format, isbn, publisher, year FROM editions WHERE item_id = ?1 ORDER BY id').bind(itemId),
     d1.prepare(`SELECT ${QUOTE_COLUMNS} FROM quotes WHERE item_id = ?1 ORDER BY at, id`).bind(itemId),
   ];
   const results = await d1.batch([...own, ...extra]);
+  const lang = (results[own.length - 3]?.results?.[0] as { language?: string } | undefined)?.language;
   return {
     ...readingLogOf(results),
     want: wantsAndLinksOf(results.slice(3)),
+    householdLanguage: isLanguageCode(lang) ? lang : DEFAULT_LANGUAGE,
+    editions: (results[own.length - 2]?.results ?? []) as EditionDraft[],
     quotes: ((results[own.length - 1]?.results ?? []) as QuoteRow[]).map((q) => ({ ...q, shared: !!q.shared })),
     extra: results.slice(own.length),
   };
@@ -2871,17 +2913,28 @@ export async function catalogMatches(d1: D1Database, candidates: CatalogProbe[])
          OR (media_type IN ('vinyl', 'music') AND (isbn10_upc IN (SELECT value FROM json_each(?2)) OR isbn13 IN (SELECT value FROM json_each(?2))))
          OR (media_type IN ('vinyl', 'music') AND CAST(json_extract(details, '$.discogs_id') AS TEXT) IN (SELECT value FROM json_each(?3)))
          OR (media_type = 'boardgame' AND CAST(json_extract(details, '$.bgg_id') AS TEXT) IN (SELECT value FROM json_each(?4)))
+         OR id IN (SELECT item_id FROM editions WHERE isbn IN (SELECT value FROM json_each(?1)) OR isbn IN (SELECT value FROM json_each(?2)))
        ORDER BY id`,
     )
     .bind(list('isbn'), list('barcode'), list('discogs'), list('bgg'))
     .all<{ id: number; mediaType: MediaType; isbn13: string | null; isbn10Upc: string | null; discogs: string | null; bgg: string | null }>();
+  // another edition's identifier finds the same item (§16 #75): one more call, only when something matched at all
+  const alsoHeld = results.length
+    ? (
+        await d1
+          .prepare(`SELECT item_id AS id, isbn FROM editions WHERE item_id IN (SELECT value FROM json_each(?1)) AND isbn IS NOT NULL`)
+          .bind(JSON.stringify(results.map((r) => r.id)))
+          .all<{ id: number; isbn: string }>()
+      ).results
+    : [];
+  const heldAs = (r: { id: number }, code: string) => alsoHeld.some((e) => e.id === r.id && e.isbn === code);
   const music = (t: MediaType) => t === 'vinyl' || t === 'music';
   return keys.map(
     (k) =>
       results.find(
         (r) =>
-          (k.isbn !== null && r.isbn13 === k.isbn) ||
-          (k.barcode !== null && music(r.mediaType) && (r.isbn10Upc === k.barcode || r.isbn13 === k.barcode)) ||
+          (k.isbn !== null && (r.isbn13 === k.isbn || heldAs(r, k.isbn))) ||
+          (k.barcode !== null && music(r.mediaType) && (r.isbn10Upc === k.barcode || r.isbn13 === k.barcode || heldAs(r, k.barcode))) ||
           (k.discogs !== null && music(r.mediaType) && r.discogs === k.discogs) ||
           (k.bgg !== null && r.mediaType === 'boardgame' && r.bgg === k.bgg),
       )?.id ?? null,
@@ -2898,6 +2951,7 @@ export async function existingForWant(d1: D1Database, c: CatalogProbe): Promise<
          OR (?2 IS NOT NULL AND media_type IN ('vinyl', 'music') AND (isbn10_upc = ?2 OR isbn13 = ?2))
          OR (?3 IS NOT NULL AND media_type IN ('vinyl', 'music') AND CAST(json_extract(details, '$.discogs_id') AS TEXT) = ?3)
          OR (?4 IS NOT NULL AND media_type = 'boardgame' AND CAST(json_extract(details, '$.bgg_id') AS TEXT) = ?4)
+         OR id IN (SELECT item_id FROM editions WHERE (?1 IS NOT NULL AND isbn = ?1) OR (?2 IS NOT NULL AND isbn = ?2))
        ORDER BY id LIMIT 1`,
     )
     .bind(isbn, barcode, discogs, bgg)
@@ -2917,6 +2971,7 @@ export type ExportCells = {
   series: Map<number, Series>; // every series an item in the range belongs to, by id (§16 #52)
   wants: Map<number, Array<{ by: string; at: string }>>; // each want's member by username (§16 #53)
   links: Map<number, LinkDraft[]>;
+  editions: Map<number, EditionDraft[]>; // "also held as" (§16 #75)
   quotes: Map<number, CellQuote[]>; // quotes and highlights by username (§16 #77)
 };
 
@@ -2961,6 +3016,7 @@ export async function exportCellsForIdRange(
        WHERE w.item_id BETWEEN ?1 AND ?2 ${scoped('w.item_id')} ORDER BY w.item_id, w.created_at, u.id`,
     ),
     bind(`SELECT item_id AS itemId, label, url FROM purchase_links WHERE item_id BETWEEN ?1 AND ?2 ${scoped('item_id')} ORDER BY item_id, id`),
+    bind(`SELECT item_id AS itemId, format, isbn, publisher, year FROM editions WHERE item_id BETWEEN ?1 AND ?2 ${scoped('item_id')} ORDER BY item_id, id`),
     bind(
       `SELECT q.item_id AS itemId, u.username AS by, q.text, q.page, q.note, q.shared, q.at, q.source FROM quotes q LEFT JOIN users u ON u.id = q.user_id
        WHERE q.item_id BETWEEN ?1 AND ?2 ${scoped('q.item_id')} ORDER BY q.item_id, q.at, q.id`,
@@ -2984,7 +3040,8 @@ export async function exportCellsForIdRange(
     series: new Map(((results[6]?.results ?? []) as Series[]).map((r) => [r.id, r])),
     wants: group(rowsOf<{ by: string; at: string }>(7), (r) => ({ by: r.by, at: r.at })),
     links: group(rowsOf<LinkDraft>(8), (r) => ({ label: r.label, url: r.url })),
-    quotes: group(rowsOf<{ by: string | null; text: string; page: string | null; note: string | null; shared: number; at: string; source: string | null }>(9), (r) => ({
+    editions: group(rowsOf<EditionDraft>(9), (r) => ({ format: r.format, isbn: r.isbn, publisher: r.publisher, year: r.year })),
+    quotes: group(rowsOf<{ by: string | null; text: string; page: string | null; note: string | null; shared: number; at: string; source: string | null }>(10), (r) => ({
       by: r.by,
       text: r.text,
       page: r.page,
@@ -3692,9 +3749,25 @@ export type ImportRow = {
   links?: LinkDraft[];
   // the pages recorded, each with the read it belonged to — only a restore from the trash brings these (§16 #74)
   progress?: ProgressDraft[];
+  // "also held as" (§16 #75): a Nalanda export's, or the trash's
+  editions?: EditionDraft[];
   // quotes and highlights (§16 #77), each already resolved to a member here, nobody (null) or the importer
   quotes?: PersonQuote[];
 };
+
+
+/** Inserts an item's editions — its id, or 'newest' for one inserted earlier in the batch — at most MAX_EDITIONS_PER_ITEM. */
+function editionInsertStatements(d1: D1Database, item: number | 'newest', editions: EditionDraft[]): D1PreparedStatement[] {
+  if (!editions.length) return [];
+  const itemRef = item === 'newest' ? '(SELECT max(id) FROM items)' : '?2';
+  const json = JSON.stringify(editions.slice(0, MAX_EDITIONS_PER_ITEM));
+  const stmt = d1.prepare(
+    `INSERT INTO editions (item_id, format, isbn, publisher, year)
+     SELECT ${itemRef}, json_extract(value, '$.format'), json_extract(value, '$.isbn'), json_extract(value, '$.publisher'), json_extract(value, '$.year')
+     FROM json_each(?1) ORDER BY key`,
+  );
+  return [item === 'newest' ? stmt.bind(json) : stmt.bind(json, item)];
+}
 
 /**
  * Inserts quotes for an item — its id, or 'newest' for one inserted earlier in the batch — skipping any the same
@@ -3725,6 +3798,13 @@ function quoteInsertStatements(d1: D1Database, item: number | 'newest', quotes: 
      ORDER BY j.key`,
   );
   return [item === 'newest' ? stmt.bind(json) : stmt.bind(json, item)];
+}
+
+/** An item's "also held as" lines, in the order they were entered. */
+export async function editionsOf(d1: D1Database, itemId: number): Promise<EditionDraft[]> {
+  return (
+    await d1.prepare('SELECT format, isbn, publisher, year FROM editions WHERE item_id = ?1 ORDER BY id').bind(itemId).all<EditionDraft>()
+  ).results;
 }
 
 /** A page recorded, as the trash keeps it: its read named by what it was, since ids are new on restore. */
@@ -3787,6 +3867,7 @@ export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1Pr
       ...wantInsertStatements(d1, 'newest', r.wants ?? []),
       ...linkInsertStatements(d1, 'newest', r.links ?? []),
       ...progressInsertStatements(d1, r.progress ?? []),
+      ...editionInsertStatements(d1, 'newest', r.editions ?? []),
       ...quoteInsertStatements(d1, 'newest', r.quotes ?? [], person),
     );
   }
@@ -3820,7 +3901,7 @@ const surname = (creators: string | null) => {
   return tokens[tokens.length - 1]?.toLowerCase() ?? '';
 };
 
-const titleKey = (title: string, creators: string | null) => `${normTitle(title)}|${surname(creators)}`;
+export const titleKey = (title: string, creators: string | null) => `${normTitle(title)}|${surname(creators)}`;
 
 export type MergeImportResult = { inserted: number; merged: number; reads: number };
 
@@ -4079,10 +4160,11 @@ function trashPayloadSql(): string {
     'series', json((SELECT json_object('name', sr.name, 'number', i.series_number, 'total', sr.total) FROM series sr WHERE sr.id = i.series_id)),
     'reads', ${jsonRows("'status', status, 'beganOn', began_on, 'endedOn', ended_on, 'readerId', reader_id", 'reads WHERE item_id = i.id')},
     'reviews', ${jsonRows("'userId', user_id, 'rating', rating, 'review', review, 'reviewedAt', reviewed_at, 'ratedAt', rated_at", 'reviews WHERE item_id = i.id')},
-    'loans', ${jsonRows("'borrower', borrower, 'loanedOn', loaned_on, 'dueOn', due_on, 'returnedOn', returned_on, 'contact', contact, 'note', note", 'loans WHERE item_id = i.id')},
+    'loans', ${jsonRows("'borrower', borrower, 'loanedOn', loaned_on, 'dueOn', due_on, 'returnedOn', returned_on, 'contact', contact, 'note', note, 'edition', edition", 'loans WHERE item_id = i.id')},
     'plays', ${jsonRows("'playedOn', played_on, 'loggedBy', logged_by", 'plays WHERE item_id = i.id')},
     'wants', ${jsonRows("'userId', user_id, 'at', created_at", 'wants WHERE item_id = i.id', 'created_at, user_id')},
     'links', ${jsonRows("'label', label, 'url', url", 'purchase_links WHERE item_id = i.id')},
+    'editions', ${jsonRows("'format', format, 'isbn', isbn, 'publisher', publisher, 'year', year", 'editions WHERE item_id = i.id')},
     'quotes', ${jsonRows("'userId', user_id, 'text', text, 'page', page, 'note', note, 'shared', shared, 'at', at, 'source', source", 'quotes WHERE item_id = i.id', 'at, id')},
     'people', json((SELECT coalesce(json_group_object(id, session_key), '{}') FROM users)),
     'progress', json((SELECT coalesce(json_group_array(json_object(
@@ -4170,6 +4252,7 @@ export type TrashPayload = {
   wants: Array<{ userId: number; at: string | null }>;
   links: LinkDraft[];
   progress: ProgressDraft[];
+  editions?: EditionDraft[];
   quotes?: Array<{ userId: number | null; text: string; page: string | null; note: string | null; shared: number | boolean; at: string | null; source: string | null }>;
   /** every member at the time, id to session key (§16 #56): an id is a person only while it still has that key */
   people: Record<string, string>;
@@ -4208,6 +4291,7 @@ export async function restoreFromTrash(d1: D1Database, trashId: number, members:
     plays: (p.plays ?? []).map((pl) => ({ playedOn: pl.playedOn, loggedBy: who(pl.loggedBy) })),
     wants: (p.wants ?? []).filter((w) => who(w.userId) !== null),
     links: p.links ?? [],
+    editions: p.editions ?? [],
     quotes: (p.quotes ?? []).map((q) => ({ text: q.text, page: q.page, note: q.note, shared: !!q.shared, at: q.at, source: q.source, userId: who(q.userId) })),
     progress: (p.progress ?? []).map((pr) => ({
       page: pr.page,
@@ -4258,3 +4342,45 @@ export async function listMembersWithKeys(d1: D1Database): Promise<Array<{ id: n
 
 /** The members a restore may hand things back to, by id and key. */
 export const memberKeys = (members: Array<{ id: number; sessionKey: string }>): Map<number, string> => new Map(members.map((m) => [m.id, m.sessionKey]));
+
+// ---------- new from authors you've finished (ARCH.md §16 #78) ----------
+
+/**
+ * The authors of the books a member has finished, most finished first: the creators of each book with one of their
+ * completed reads, split into people (splitCreators), each counted once per book. One query, reading only their
+ * finished reads.
+ */
+export async function finishedAuthors(d1: D1Database, userId: number, limit = 20): Promise<Array<{ name: string; books: number }>> {
+  const rows = (
+    await d1
+      .prepare(
+        `SELECT DISTINCT i.id, i.creators FROM reads r JOIN items i ON i.id = r.item_id
+         WHERE r.reader_id = ?1 AND r.status = 'completed' AND i.media_type = 'book' AND i.creators IS NOT NULL`,
+      )
+      .bind(userId)
+      .all<{ id: number; creators: string }>()
+  ).results;
+  const counts = new Map<string, { name: string; books: number }>();
+  for (const r of rows) {
+    for (const name of splitCreators(r.creators)) {
+      const key = nameKey(name);
+      const c = counts.get(key) ?? { name, books: 0 };
+      c.books += 1;
+      counts.set(key, c);
+    }
+  }
+  return [...counts.values()].sort((a, b) => b.books - a.books || a.name.localeCompare(b.name, 'en')).slice(0, limit);
+}
+
+/** The catalog's books that name an author, lightly: id, title, creators and ISBN, for telling a found work from one already here. */
+export async function booksNamed(d1: D1Database, author: string): Promise<Array<{ id: number; title: string; creators: string | null; isbn13: string | null }>> {
+  const key = nameKey(author);
+  if (!key) return [];
+  const last = key.split(' ').at(-1) ?? '';
+  const narrow = /^[\x00-\x7f]+$/.test(last) ? sql`instr(lower(${s.items.creators}), ${last}) > 0` : sql`${s.items.creators} IS NOT NULL`;
+  const rows = await db(d1)
+    .select({ id: s.items.id, title: s.items.title, creators: s.items.creators, isbn13: s.items.isbn13 })
+    .from(s.items)
+    .where(and(eq(s.items.mediaType, 'book'), narrow));
+  return rows.filter((r) => splitCreators(r.creators).some((n) => nameKey(n) === key));
+}

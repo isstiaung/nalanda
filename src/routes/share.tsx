@@ -32,7 +32,8 @@ import {
   type PublicItem,
 } from '../lib/share';
 import { BggCredit, fromBgg } from '../views/attribution';
-import { BuyLinks, DetailsList, LENGTH_UNIT, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, RecordDetails, stars, WantedPill } from '../views/components';
+import { languageName } from '../lib/language';
+import { BuyLinks, DetailsList, FormatPills, LENGTH_UNIT, MEDIA_ICON, MEDIA_LABEL, NotOwnedPill, Pagination, RecordDetails, stars, WantedPill } from '../views/components';
 
 const share = new Hono<AppEnv>();
 
@@ -297,11 +298,20 @@ async function giftItemPage(c: Context<AppEnv>, view: Share & { wantUserId: numb
       <div class="item-detail-body">
         <hgroup>
           <h1>{gift.title}</h1>
+          {gift.originalTitle ? <p class="original-title muted">{gift.originalTitle}</p> : null}
           {gift.creators ? <p>{gift.creators}</p> : null}
         </hgroup>
         <dl class="props">
           <dt>Type</dt>
-          <dd>{MEDIA_LABEL[gift.mediaType]}</dd>
+          <dd>
+            {MEDIA_LABEL[gift.mediaType]} <FormatPills formats={gift.formats} />
+          </dd>
+          {gift.language ? (
+            <>
+              <dt>Language</dt>
+              <dd>{languageName(gift.language)}</dd>
+            </>
+          ) : null}
           {gift.inCollection ? (
             <>
               <dt>Holding</dt>
@@ -458,6 +468,7 @@ share.get('/:token/items/:id', async (c) => {
       <div class="item-detail-body">
         <hgroup>
           <h1>{pub.title}</h1>
+          {pub.originalTitle ? <p class="original-title muted">{pub.originalTitle}</p> : null}
           {pub.creators ? <p>{pub.creators}</p> : null}
         </hgroup>
         {tags.length ? (
@@ -469,7 +480,15 @@ share.get('/:token/items/:id', async (c) => {
         ) : null}
         <dl class="props">
           <dt>Type</dt>
-          <dd>{MEDIA_LABEL[pub.mediaType]}</dd>
+          <dd>
+            {MEDIA_LABEL[pub.mediaType]} <FormatPills formats={pub.formats} />
+          </dd>
+          {pub.language ? (
+            <>
+              <dt>Language</dt>
+              <dd>{languageName(pub.language)}</dd>
+            </>
+          ) : null}
           {pub.series ? (
             <>
               <dt>Series</dt>

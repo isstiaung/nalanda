@@ -6,6 +6,7 @@ import { hashPassword, tempPassword } from '../lib/auth';
 import { currencyCodes, currencyName, isCurrencyCode } from '../lib/money';
 import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
 import { page } from '../views/layout';
+import { isLanguageCode, LANGUAGES, languageName } from '../lib/language';
 import { ledgerDate } from '../lib/dates';
 
 const settings = new Hono<AppEnv>();
@@ -75,6 +76,7 @@ const UsersPage = ({
   error,
   currency,
   currencyError,
+  language,
 }: {
   users: User[];
   self: number;
@@ -82,6 +84,7 @@ const UsersPage = ({
   error?: string;
   currency: string | null;
   currencyError?: string;
+  language: string;
 }) => (
   <>
     <div class="page-head">
@@ -193,15 +196,54 @@ const UsersPage = ({
     </section>
 
     <CurrencySection currency={currency} error={currencyError} />
+    <LanguageSection language={language} />
   </>
 );
 
 settings.get('/settings/users', async (c) => {
   const [users, site] = await Promise.all([listUsers(c.env.DB), getSiteSettings(c.env.DB)]);
-  return page(c, 'Members', <UsersPage users={users} self={c.get('user').id} currency={site.currency} />);
+  return page(c, 'Members', <UsersPage users={users} self={c.get('user').id} currency={site.currency} language={site.language} />);
 });
 
 /** Sets the household's currency (§16 #61). Admins only, like everything under /settings. */
+/**
+ * The household's default language (§16 #76): what every added item takes unless the provider or the file says
+ * otherwise, and what the interface will follow. English until an admin picks another; changing it later changes no
+ * item already added.
+ */
+const LanguageSection = ({ language }: { language: string }) => (
+  <section class="settings-section" id="language" aria-labelledby="language-head">
+    <p class="eyebrow" id="language-head">
+      Household language
+    </p>
+    <form method="post" action="/settings/language" class="switch-form">
+      <div class="switch-field">
+        <label for="household-language">Books, games and records are added in</label>
+        <select id="household-language" name="language" aria-describedby="language-help">
+          {LANGUAGES.map((l) => (
+            <option value={l.code} selected={l.code === language}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <p class="muted" id="language-help">
+        Now <strong>{languageName(language)}</strong>. Every item added takes it unless its source says otherwise, and any
+        item's language can be changed on its form. Changing this later leaves items already added as they are.
+      </p>
+      <button type="submit">Save</button>
+    </form>
+  </section>
+);
+
+settings.post('/settings/language', async (c) => {
+  const body = await c.req.parseBody();
+  const code = typeof body['language'] === 'string' ? body['language'].trim() : '';
+  if (!isLanguageCode(code)) return c.text('Choose a language from the list.', 400);
+  await updateSiteSettings(c.env.DB, { language: code });
+  return c.redirect('/settings/users#language');
+});
+
 settings.post('/settings/currency', async (c) => {
   const body = await c.req.parseBody();
   const code = typeof body['currency'] === 'string' ? body['currency'].trim() : '';
@@ -210,7 +252,7 @@ settings.post('/settings/currency', async (c) => {
     c.status(400);
     // a fixed message: never the value sent, which a crafted form could fill with anything
     return page(c, 'Members', (
-      <UsersPage users={users} self={c.get('user').id} currency={site.currency} currencyError="Choose a currency from the list." />
+      <UsersPage users={users} self={c.get('user').id} currency={site.currency} language={site.language} currencyError="Choose a currency from the list." />
     ));
   }
   await updateSiteSettings(c.env.DB, { currency: code });
@@ -224,7 +266,7 @@ settings.post('/settings/users', async (c) => {
   const render = async (opts: { minted?: { username: string; password: string }; error?: string }) => {
     const [users, site] = await Promise.all([listUsers(c.env.DB), getSiteSettings(c.env.DB)]);
     return page(c, 'Members', (
-      <UsersPage users={users} self={c.get('user').id} minted={opts.minted} error={opts.error} currency={site.currency} />
+      <UsersPage users={users} self={c.get('user').id} minted={opts.minted} error={opts.error} currency={site.currency} language={site.language} />
     ));
   };
 
@@ -251,7 +293,7 @@ settings.post('/settings/users/:id/reset', async (c) => {
   await setPassword(c.env.DB, id, await hashPassword(temp), true);
   const [users, site] = await Promise.all([listUsers(c.env.DB), getSiteSettings(c.env.DB)]);
   return page(c, 'Members', (
-    <UsersPage users={users} self={c.get('user').id} minted={{ username: user.username, password: temp }} currency={site.currency} />
+    <UsersPage users={users} self={c.get('user').id} minted={{ username: user.username, password: temp }} currency={site.currency} language={site.language} />
   ));
 });
 

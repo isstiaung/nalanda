@@ -63,7 +63,7 @@ describe('sections', () => {
     expect(bar.sections.map((s) => [s.id, s.links])).toEqual([
       ['library', ['/tags', '/series', '/creators', '/publishers']],
       ['shelves', [`/libraries/${shelf.id}`]],
-      ['reading', ['/wants', '/quotes', '/goals', '/year-in-review']],
+      ['reading', ['/wants', '/discover', '/quotes', '/goals', '/year-in-review']],
       ['lending', ['/loans', '/borrowed']],
       ['sharing', ['/shares', '/feed', '/notifications', '/recommendations', '/connections']],
       ['settings', ['/import', '/settings/users', '/trash', '/account']],

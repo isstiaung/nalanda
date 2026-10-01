@@ -151,6 +151,7 @@ function navGroups(user: SessionUser, libraries: NavLibrary[], federation: boole
       label: 'Reading',
       links: only(
         { href: '/wants', label: 'Want list' },
+        { href: '/discover', label: 'New from your authors' },
         { href: '/quotes', label: 'Quotes' },
         { href: '/goals', label: 'Reading goals' },
         { href: '/year-in-review', label: 'Year in review' },

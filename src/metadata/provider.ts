@@ -16,6 +16,10 @@ export type Candidate = {
   workKey?: string; // Open Library work record (/works/OL…W) — where its description lives
   // Its series and number (§16 #52) — Open Library's search index knows it for many books, Google Books never names one
   series?: SeriesDraft;
+  // the form it comes in, when the provider says (§16 #75): codes from src/lib/formats.ts
+  formats?: string[];
+  // its language (§16 #76), ISO 639-1, when the provider says
+  language?: string;
   details: Record<string, unknown>;
   provider: string;
 };

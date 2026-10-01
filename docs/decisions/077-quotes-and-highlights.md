@@ -8,7 +8,7 @@ happily share, and one that is a reminder to themselves. **The owner decided** o
 switch rather than one treatment for both, and asked for a Kindle import.
 
 **What was decided:**
-- **A `quotes` table** (migration 0043): item, member (`user_id`, NULL once they are removed —
+- **A `quotes` table** (migration 0046): item, member (`user_id`, NULL once they are removed —
   the quote stays, a former member's, as a review does), the text, an optional page or Kindle
   location, an optional note (the reader's own words beside the author's), `shared`, `source`
   ('kindle' for an import), and `at`. Added from a book's page under "Quotes and highlights",

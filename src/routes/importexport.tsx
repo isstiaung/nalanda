@@ -218,7 +218,7 @@ importexport.post('/api/import', async (c) => {
   const mapped = [];
   let skipped = sent.length - rows.length;
   for (const row of rows) {
-    const m = format === 'nalanda' ? mapNalandaRow(row, settings.currency) : isGoodreads ? mapGoodreadsRow(row) : mapLibibRow(row, opts);
+    const m = format === 'nalanda' ? mapNalandaRow(row, settings.currency, settings.language) : isGoodreads ? mapGoodreadsRow(row) : mapLibibRow(row, opts);
     if (m) mapped.push(m);
     else skipped++;
   }
@@ -448,6 +448,7 @@ async function exportRows(
       item.seriesId !== null ? (cells.series.get(item.seriesId) ?? null) : null,
       cells.wants.get(item.id) ?? [],
       cells.links.get(item.id) ?? [],
+      cells.editions.get(item.id) ?? [],
       cells.quotes.get(item.id) ?? [],
     );
   }

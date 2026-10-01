@@ -31,6 +31,7 @@ import shareAdminRoutes from './routes/shares';
 import seriesRoutes from './routes/series';
 import creatorRoutes from './routes/creators';
 import trashRoutes from './routes/trash';
+import discoverRoutes from './routes/discover';
 import quoteRoutes from './routes/quotes';
 import tagRoutes from './routes/tags';
 import wantRoutes from './routes/wants';
@@ -157,7 +158,8 @@ app.route('/', tagRoutes);
 app.route('/', seriesRoutes);
 app.route('/', creatorRoutes);
 app.route('/', trashRoutes); // admin-only inside; nothing here is public (§16 #74)
-app.route('/', quoteRoutes); // a member's quotes, in the app only (§16 #77) // in the app only: share pages show creators and publishers as text (§16 #72)
+app.route('/', discoverRoutes); // new from your authors, in the app only (§16 #78) // in the app only: share pages show creators and publishers as text (§16 #72)
+app.route('/', quoteRoutes); // a member's quotes, in the app only (§16 #77)
 app.route('/', wantRoutes);
 app.route('/', searchRoutes);
 app.route('/', importExportRoutes);

@@ -19,6 +19,8 @@ import {
   type ReadRow,
 } from './reads';
 import { formatLinksCell, formatWantsCell, parseLinksCell, parseWantsCell, type CellWant, type LinkDraft } from './links';
+import { formatEditionsCell, formatFormatsCell, parseEditionsCell, parseFormatsCell, type EditionDraft } from './formats';
+import { DEFAULT_LANGUAGE, languageFromProvider } from './language';
 import { formatQuotesCell, parseQuotesCell, type CellQuote } from './quotes';
 import { formatLoansCell, parseLoansCell, type LoanDraft } from './loans';
 import { formatPlaysCell, parsePlaysCell, type CellPlay, type PersonPlay } from './plays';
@@ -62,6 +64,10 @@ export const EXPORT_COLUMNS = [
   'progress_history',
   'wanted_by',
   'purchase_links',
+  'formats', // the forms it is held in (§16 #75): codes, comma-joined
+  'editions', // "also held as": the other editions' format, ISBN, publisher, year, as JSON
+  'language', // ISO 639-1 (§16 #76); blank reads as the household's default on import
+  'original_title',
   'quotes', // quotes and highlights (§16 #77): JSON, each with its writer's username
   'details',
 ] as const;
@@ -111,6 +117,7 @@ export function itemToCsvLine(
   series: { name: string; total: number | null } | null = null,
   wants: Array<{ by: string; at: string }> = [],
   links: LinkDraft[] = [],
+  editions: EditionDraft[] = [],
   quotes: CellQuote[] = [],
 ): string {
   const ordered = inDisplayOrder(reads);
@@ -151,6 +158,10 @@ export function itemToCsvLine(
     progressHistoryCell(progress, position),
     formatWantsCell(wants),
     formatLinksCell(links),
+    formatFormatsCell(item.formats ?? ''),
+    formatEditionsCell(editions),
+    item.language,
+    item.originalTitle,
     formatQuotesCell(quotes),
     item.details === '{}' ? '' : item.details,
   ]);
@@ -197,6 +208,8 @@ export type MappedRow = {
   // a Nalanda export's `wanted_by` and `purchase_links` (§16 #53)
   wants?: CellWant[];
   links?: LinkDraft[];
+  // "also held as" (§16 #75), a Nalanda export's `editions` column
+  editions?: EditionDraft[];
   // quotes and highlights (§16 #77), by username as the reviews cell names people
   quotes?: CellQuote[];
   // a Goodreads row's reading, which a merge reconciles with the reads already here
@@ -229,6 +242,12 @@ const KNOWN_COLUMNS = new Set([
   // fall into details, which every share page renders
   'wanted_by',
   'purchase_links',
+  // formats and editions (§16 #75) map to their own places: the editions' ISBNs are as private as the main one
+  'formats',
+  'editions',
+  // its language and original title (§16 #76) map to their columns
+  'language',
+  'original_title',
   // and quotes (§16 #77), each with its writer, private until shared
   'quotes',
   // and what was paid (§16 #61): money is never published. libib's own `price` is mapped below, and stays in details
@@ -390,7 +409,7 @@ const SQL_DATETIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
  * columns. The shelf is the one chosen on the import form — `library` only names where a row came from — and
  * columns this format doesn't define are dropped, not kept in details (reading progress among them).
  */
-export function mapNalandaRow(row: Record<string, string>, household: string | null = null): MappedRow | null {
+export function mapNalandaRow(row: Record<string, string>, household: string | null = null, language: string = DEFAULT_LANGUAGE): MappedRow | null {
   const r: Record<string, string> = {};
   for (const [k, v] of Object.entries(row)) r[k.trim().toLowerCase()] = (v ?? '').trim();
 
@@ -468,6 +487,10 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
       completedOn: state.completedOn,
       ...(SQL_DATETIME.test(r['added_at'] ?? '') ? { addedAt: r['added_at'] } : {}),
       details,
+      formats: parseFormatsCell(mediaType, r['formats']),
+      // its language (§16 #76): the file's code when it is one, else the household's; and the original title as written
+      language: languageFromProvider(r['language']) ?? language,
+      originalTitle: oneLine(r['original_title']),
       ...rowGrades(mediaType, r['media_condition'], r['sleeve_condition']),
       // what was paid, in the currency the file says (§16 #61); one it doesn't say is the household's
       ...rowPrice(r['purchase_price'], r['purchase_currency'], household),
@@ -479,6 +502,7 @@ export function mapNalandaRow(row: Record<string, string>, household: string | n
     ...(plays.length ? { plays } : {}),
     wants: parseWantsCell(r['wanted_by']),
     links: parseLinksCell(r['purchase_links']),
+    editions: parseEditionsCell(mediaType, r['editions']),
     quotes: parseQuotesCell(r['quotes']),
     tags: (r['tags'] ?? '')
       .split(',')
