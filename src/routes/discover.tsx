@@ -18,11 +18,13 @@ const CACHE_MAX = 200;
 /** Per isolate, by author key: a day's worth of answers, so a household looking twice asks Open Library once. */
 const cache = new Map<string, { at: number; works: Candidate[] }>();
 
-async function worksOf(author: string): Promise<Candidate[]> {
+/** An author's works from the cache or Open Library; null when Open Library didn't answer, which is never cached. */
+async function worksOf(author: string): Promise<Candidate[] | null> {
   const key = nameKey(author);
   const hit = cache.get(key);
   if (hit && hit.at > Date.now() - CACHE_TTL_MS) return hit.works;
   const works = await olRecentByAuthor(author);
+  if (works === null) return null;
   if (cache.size >= CACHE_MAX) {
     const oldest = cache.keys().next().value;
     if (oldest !== undefined) cache.delete(oldest);
@@ -42,11 +44,13 @@ const cleanAuthor = (raw: unknown): string | null => {
   return t || null;
 };
 
-async function discoverPage(c: Context<AppEnv>, looked?: { author: string; works: Candidate[]; held: Array<number | null> }) {
-  const user = c.get('user');
-  const [authors, libs, shelfFor] = await Promise.all([finishedAuthors(c.env.DB, user.id), listLibraries(c.env.DB), shelfForType(c.env.DB)]);
-  const fresh = looked ? looked.works.filter((_, i) => looked.held[i] === null) : [];
-  const here = looked ? looked.works.length - fresh.length : 0;
+type Looked = { author: string; works: Candidate[] | null; held: Array<number | null> };
+
+async function discoverPage(c: Context<AppEnv>, authors: Array<{ name: string; books: number }>, looked?: Looked) {
+  const [libs, shelfFor] = await Promise.all([listLibraries(c.env.DB), shelfForType(c.env.DB)]);
+  const works = looked?.works ?? [];
+  const fresh = looked ? works.filter((_, i) => looked.held[i] === null) : [];
+  const here = looked ? works.length - fresh.length : 0;
   return page(
     c,
     'New from your authors',
@@ -68,7 +72,8 @@ async function discoverPage(c: Context<AppEnv>, looked?: { author: string; works
         <ol class="series-list authors-finished">
           {authors.map((a) => (
             <li>
-              <form method="post" action="/discover" class="inline-form">
+              {/* a GET: the look-up has no side effect, so the result can be reloaded, bookmarked and come back to */}
+              <form method="get" action="/discover" class="inline-form">
                 <input type="hidden" name="author" value={a.name} />
                 <a href={`/creators/${encodeURIComponent(a.name)}`} class="series-name">
                   {a.name}
@@ -89,9 +94,14 @@ async function discoverPage(c: Context<AppEnv>, looked?: { author: string; works
       {looked ? (
         <section id="discover-results" class="detail-section" aria-labelledby="discover-head">
           <p class="eyebrow" id="discover-head">
-            {looked.author}: {fresh.length} not on your shelves{here ? ` · ${here} already here` : ''}
+            {looked.author}
+            {looked.works ? `: ${fresh.length} not on your shelves${here ? ` · ${here} already here` : ''}` : ''}
           </p>
-          {looked.works.length ? (
+          {looked.works === null ? (
+            <p class="error" role="alert">
+              Open Library didn’t answer — try again in a moment.
+            </p>
+          ) : looked.works.length ? (
             looked.works.map((candidate, i) => <CandidateCard candidate={candidate} libraries={libs} inCatalog={looked.held[i]} shelfFor={shelfFor} />)
           ) : (
             <p class="muted">Open Library lists nothing for that name right now.</p>
@@ -102,18 +112,24 @@ async function discoverPage(c: Context<AppEnv>, looked?: { author: string; works
   );
 }
 
-discover.get('/discover', (c) => discoverPage(c));
-
-/** Looks one author up — on a click, one request — and shows their works under the list. */
-discover.post('/discover', async (c) => {
-  const author = cleanAuthor((await c.req.parseBody())['author']);
+/**
+ * The page, and — with `?author=` — one author looked up: on a click, one request, and only for an author the member
+ * has finished (the list the page shows), so this is never a general proxy to Open Library. Their works are shown
+ * under the list, those here already marked.
+ */
+discover.get('/discover', async (c) => {
+  const authors = await finishedAuthors(c.env.DB, c.get('user').id);
+  const asked = cleanAuthor(c.req.query('author'));
+  if (!asked) return discoverPage(c, authors);
+  const author = authors.find((a) => nameKey(a.name) === nameKey(asked))?.name;
   if (!author) return c.redirect('/discover');
   const works = await worksOf(author);
+  if (works === null) return discoverPage(c, authors, { author, works: null, held: [] });
   // what is here already: by ISBN as the Add page tells, and by title and author for a work without one
   const [byIsbn, named] = await Promise.all([catalogMatches(c.env.DB, works), booksNamed(c.env.DB, author)]);
   const byTitle = new Map(named.map((b) => [titleKey(b.title, b.creators), b.id]));
   const held = works.map((w, i) => byIsbn[i] ?? byTitle.get(titleKey(w.title, w.creators ?? author)) ?? null);
-  return discoverPage(c, { author, works, held });
+  return discoverPage(c, authors, { author, works, held });
 });
 
 export default discover;

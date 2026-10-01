@@ -63,7 +63,7 @@ describe('looking an author up', () => {
       ['The Lathe of Heaven', 1971, '9781416556961'],
       ['Always Coming Home', 1985],
     ]));
-    const res = await as(ravi, '/discover', { body: { author: 'Ursula K. Le Guin' } });
+    const res = await as(ravi, '/discover?author=Ursula%20K.%20Le%20Guin');
     expect(res.status).toBe(200);
     const text = await res.text();
     expect(text).toContain('Ursula K. Le Guin: 2 not on your shelves · 2 already here');
@@ -74,17 +74,26 @@ describe('looking an author up', () => {
     expect((text.match(/In your catalog/g) ?? []).length).toBe(2);
     // the rest come as Add-page cards, with a shelf, Add, Log and Want
     expect(text).toContain('action="/items"');
+    expect(text).toContain('method="get" action="/discover"');
     expect(text).toContain('Log — not owned');
     // a second look asks nothing: the one interceptor is used up, and an unmatched request would throw
-    const again = await as(ravi, '/discover', { body: { author: 'ursula k. le guin' } });
+    const again = await as(ravi, '/discover?author=ursula%20k.%20le%20guin');
     expect(again.status).toBe(200);
     expect(await again.text()).toContain('The Lathe of Heaven');
   });
 
-  it('says so when Open Library lists nothing, and ignores an empty name', async () => {
-    const { ravi } = await household();
+  it('looks up only an author you have finished, says so when Open Library lists nothing, and never caches a failure', async () => {
+    const { asha, ravi, shelf } = await household();
+    const b = await book(asha, { libraryId: shelf.id, title: 'Nothing Yet', creators: 'Nobody Known' });
+    await finished(b.id, ravi.id);
+    // a name you haven't finished — any string — is not looked up at all: no request, back to the page
+    expect((await as(ravi, '/discover?author=Someone%20Else')).headers.get('location')).toBe('/discover');
+    expect((await as(ravi, '/discover?author=%20%20')).status).toBe(200);
+    // Open Library doesn't answer: said so, and not remembered
+    intercept(OL, (p) => p.startsWith('/search.json?author=Nobody%20Known&'), { status: 503, body: 'busy' });
+    expect(await (await as(ravi, '/discover?author=Nobody%20Known')).text()).toContain('Open Library didn’t answer — try again in a moment.');
+    // the next click asks again and gets the real, empty answer
     intercept(OL, (p) => p.startsWith('/search.json?author=Nobody%20Known&'), json({ docs: [] }));
-    expect(await (await as(ravi, '/discover', { body: { author: 'Nobody Known' } })).text()).toContain('Open Library lists nothing for that name right now.');
-    expect((await as(ravi, '/discover', { body: { author: '   ' } })).headers.get('location')).toBe('/discover');
+    expect(await (await as(ravi, '/discover?author=Nobody%20Known')).text()).toContain('Open Library lists nothing for that name right now.');
   });
 });

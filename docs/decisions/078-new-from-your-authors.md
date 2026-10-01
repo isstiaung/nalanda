@@ -13,8 +13,13 @@ how far to go: this page, and a series' gaps (#79), and no "readers like you".
   page with a **Look up** button.
 - **Looking one up is one request, on a click.** `olRecentByAuthor()` asks Open Library's search
   index by author name, newest first, keyless, twelve works; nothing runs in the background, and
-  the page itself makes no provider call. Answers are kept per isolate for a day
-  (`worksOf()`), two hundred authors at most, so a household looking twice asks once.
+  the page itself makes no provider call. The look-up is a GET (`/discover?author=`): it has no
+  side effect, so the result can be reloaded, bookmarked and come back to. **Only an author the
+  member has finished** can be looked up — the list the page shows — so the route is never a
+  general proxy to Open Library. Answers are kept per isolate for a day (`worksOf()`), two
+  hundred authors at most, so a household looking twice asks once; **no answer is never cached**
+  (a burst block or an outage returns null, the page says so, and the next click asks again),
+  while a genuine empty answer is.
 - **What is already here is marked.** Each work is matched as the Add page matches (#93's
   `catalogMatches()`, by ISBN) and, for a work without one, by title and author
   (`booksNamed()` + `titleKey`), and shows "In your catalog"; the rest are ordinary Add-page
