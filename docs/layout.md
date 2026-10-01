@@ -63,7 +63,8 @@ src/federation/    connections between instances (docs/proposals/connections.md)
                    shelves/requests/Borrowed and the Loans-page section in routes/borrowing — Borrowed
                    is every household's page since ARCH.md §16 #82, its people section first,
                    in-app notifications in routes/notifications (recorded in src/db/federation.ts)
-public/            app.css, scanner.js, import.js, app.js (also shrinks a chosen cover photo before the form
+public/            app.css, scanner.js, import.js, qr.js (each share link's QR code, drawn on the Shared links
+                   page from the vendored qrcode.js — ARCH.md §16 #85), app.js (also shrinks a chosen cover photo before the form
                    sends it, ARCH.md §16 #73), covers.js (swaps a cover that fails to
                    load for its media-icon box; app and share pages) + vendor/ (htmx, zxing, eczar fonts)
                    + the installed app (ARCH.md §16 #48): manifest.webmanifest, icons/, sw.js (keeps
