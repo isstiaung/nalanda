@@ -1525,3 +1525,6 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 /* language (ARCH.md §16 #76) */
 .pill.language { background: var(--surface-2); margin-left: 0.4rem; }
 .original-title { margin: -0.25rem 0 0.35rem; font-style: italic; }
+/* new from your authors (ARCH.md §16 #78) */
+.authors-finished li form { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.75rem; width: 100%; }
+.authors-finished li form .btn { margin-left: auto; }

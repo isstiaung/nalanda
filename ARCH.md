@@ -852,6 +852,7 @@ is a section of this document and "#N" another decision.
 | 74 | 2026-10-01 | [Deleting an item puts it in the trash for 30 days: a snapshot SQLite builds in the delete's own batch, restored through the import's insert, never a soft delete](docs/decisions/074-item-trash.md) |
 | 75 | 2026-10-01 | [Formats are a set on the item, editions are facts about it, and a loan says which copy went out: one item per work](docs/decisions/075-formats-and-editions.md) |
 | 76 | 2026-10-01 | [A household default language, every item's own, and an original title in any script; search matches text as written](docs/decisions/076-language-and-original-title.md) |
+| 78 | 2026-10-01 | [Discovery is one page: the works of authors you have finished, from Open Library, on a click — and nothing more](docs/decisions/078-new-from-your-authors.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
