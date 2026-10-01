@@ -53,3 +53,26 @@ describe('the browser’s cache', () => {
     expect(login.headers.get('cache-control')).toBeNull();
   });
 });
+
+// Static files are served by Cloudflare before the Worker runs, so secureHeaders() never sees them: public/_headers
+// gives them what every Worker answer carries. Read through the tests' ASSETS binding — the same asset server
+// `wrangler dev` uses, which honours the file as the deploy does.
+describe('the static files’ headers', () => {
+  const asset = (path: string) => env.ASSETS.fetch(`http://nalanda.test${path}`, { redirect: 'manual' });
+
+  it('every static file is unframeable and nosniff, as the Worker’s answers are', async () => {
+    for (const path of ['/offline.html', '/app.js', '/app.css', '/sw.js', '/manifest.webmanifest', '/vendor/htmx.min.js', '/icons/icon-192.png', '/robots.txt']) {
+      const res = await asset(path);
+      expect(res.status, path).toBe(200);
+      expect(res.headers.get('x-frame-options'), path).toBe('SAMEORIGIN');
+      expect(res.headers.get('x-content-type-options'), path).toBe('nosniff');
+    }
+  });
+
+  it('keeps the worker and the manifest revalidating, and never serves the headers file itself', async () => {
+    for (const path of ['/sw.js', '/manifest.webmanifest', '/offline.html']) {
+      expect((await asset(path)).headers.get('cache-control'), path).toBe('public, max-age=0, must-revalidate');
+    }
+    expect((await asset('/_headers')).status).toBe(404);
+  });
+});
