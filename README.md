@@ -97,6 +97,8 @@ manuscripts.
 - **Search operators**: `author:`, `title:`, `tag:`, `status:`, `year:`, `lang:` and `type:` beside
   plain words in the search box — `author:"le guin" status:unread year:1960-1979` — and anything
   the box doesn't understand is searched as text.
+- **Feeds for share links**: every share link has an Atom and an RSS feed of its newest additions,
+  the page's whitelist and nothing more.
 - **QR codes for share links**: on Shared links, each address as a branded QR code, drawn in the
   browser, with a PNG to download — for a card on the shelf.
 - **Saved views**: a shelf's filters under a name, the household's, opened from the shelf or the
