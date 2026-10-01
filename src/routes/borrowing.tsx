@@ -20,13 +20,14 @@ import {
   pendingIncoming,
   recentOutgoing,
   requestToBorrow,
+  sentToday,
   setRequestStatus,
 } from '../db/federation';
 import type { BorrowRequestRow, BorrowStatus, Connection, FederationSettings } from '../db/schema';
 import { activeBorrows, borrowHistory, outwardName } from '../db/queries';
 import type { AppEnv } from '../env';
 import { refreshInBackground } from '../federation/background';
-import { MAX_BORROW_NOTE_CHARS, SHELF_CACHE_ENTRIES, SHELF_CACHE_MS } from '../federation/config';
+import { MAX_BORROW_NOTE_CHARS, MAX_SENT_PER_DAY, SHELF_CACHE_ENTRIES, SHELF_CACHE_MS } from '../federation/config';
 import { parseSharedViews } from '../federation/feed';
 import { getSigned } from '../federation/http';
 import { coverUrl, isId, parseItemDetail, parseShelfItem, type ShelfItem } from '../federation/items';
@@ -384,6 +385,11 @@ borrowing.post('/households/:id/requests', async (c) => {
   const itemId = digits(form['itemId']);
   const rawNote = typeof form['note'] === 'string' ? form['note'].replace(/\r\n?/g, '\n').trim() : '';
   if (!viewId || !itemId || !isId(itemId) || rawNote.length > MAX_BORROW_NOTE_CHARS) return c.redirect('/borrowed');
+  // this household's own daily limit of messages to them, kept as comments and recommendations keep it — before
+  // asking them anything, so a request past it is neither sent nor queued
+  if ((await sentToday(c.env.DB, connection.id)) >= MAX_SENT_PER_DAY) {
+    return renderBorrowed(c, ctx, { error: `You’ve sent ${connection.householdName} as many messages as one day allows. Try again tomorrow.` });
+  }
 
   // Their current word, not a cached page: the title kept, and whether a copy is still free.
   const res = await getSigned(ctx.identity, ctx.settings.baseUrl, connection.baseUrl, `/federation/item?view=${viewId}&id=${itemId}`);

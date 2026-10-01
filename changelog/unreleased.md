@@ -21,6 +21,8 @@ for what a host must do; link runbooks as ../runbooks/…); a release commit ren
 
 - **Names from connections are cleaned, every one.** A comment's author, a borrow requester and a household's name from its descriptor or connect request kept control and direction-override characters that a feed entry's name had always had stripped; a crafted requester could reorder the text around it on Loans, in a notification and in the loan's borrower. All three are now cleaned as display names are, and a name that is nothing but such characters is refused.
 
+- **Borrow requests count against the daily limit.** Comments and recommendations stop at a hundred messages to one household a day; asking to borrow didn't, so every request was queued and pushed. The hundred-and-first is now refused on the Borrowed page, neither sent nor queued, before the household is asked anything.
+
 ### Upgrading
 - **One migration, 0051: a new `api_tokens` table, no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. The backup's table order gains `api_tokens`.
 - **One migration, 0052: a new column on `items` (`created_at`, empty until an import re-dates a book), no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. Then, to date a catalogue imported from Goodreads before this version, re-import the same export with the box ticked ([runbook](../runbooks/import-from-goodreads.md#dates-added)).

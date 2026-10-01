@@ -2,12 +2,13 @@
 // with an ordinary loan, return notices, the Borrowed page (docs/proposals/connections.md §7, §10).
 import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createConnectionView, getConnection, getFederationSettings, postComment, requestToBorrow } from '../src/db/federation';
+import { createConnectionView, enqueueOutbox, getConnection, getFederationSettings, postComment, requestToBorrow } from '../src/db/federation';
 import { createItem, createLibrary, createLoan, deleteItem, setDisplayName, setItemTags, updateSiteSettings } from '../src/db/queries';
 import { member, upgradedSwitches } from './member-helpers';
 import type { Item } from '../src/db/schema';
 import type { Bindings } from '../src/env';
 import { receiveBorrowing } from '../src/federation/borrowing';
+import { MAX_SENT_PER_DAY } from '../src/federation/config';
 import { BudgetSpent, budgeted } from '../src/federation/budget';
 import { itemStamp } from '../src/federation/items';
 import { loadIdentity } from '../src/federation/keys';
@@ -476,6 +477,31 @@ describe('borrowing: this household asks', () => {
     expect(html).toContain('the book isn’t available any more');
     expect(await rows('SELECT status FROM borrow_requests')).toEqual([{ status: 'declined' }]);
     expect(await rows('SELECT * FROM outbox')).toHaveLength(0);
+  });
+
+  it('stops at this household’s daily limit of messages to one connection, before asking them anything', async () => {
+    const calls = answerOutbound((req) => {
+      const { pathname } = new URL(req.url);
+      if (pathname === '/federation/item') return json(detailJson(true));
+      return json({ status: 'received' });
+    });
+    const member = await sessionCookie('member');
+    // the day's hundredth message is the last one that goes
+    for (let i = 0; i < MAX_SENT_PER_DAY - 1; i++) {
+      await enqueueOutbox(env.DB, connectionId, { id: `urn:uuid:00000000-0000-4000-8000-${String(i).padStart(12, '0')}` });
+    }
+    expect((await askForFreeOne(member)).status).toBe(302);
+    expect(await rows('SELECT status FROM borrow_requests')).toEqual([{ status: 'pending' }]);
+    expect(calls.map((r) => new URL(r.url).pathname)).toEqual(['/federation/item', '/federation/inbox']);
+    // the hundred-and-first is refused on the Borrowed page: not sent, not queued, and they are never asked
+    calls.length = 0;
+    const res = await a.postForm(`/households/${connectionId}/requests`, { viewId: '7', itemId: '71', note: '' }, member);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('as many messages as one day allows');
+    expect(await rows('SELECT status FROM borrow_requests')).toEqual([{ status: 'pending' }]);
+    expect(await rows('SELECT count(*) AS n FROM outbox')).toEqual([{ n: MAX_SENT_PER_DAY }]);
+    // the Borrowed page still pulls their outbox after its response, as every load does; nothing else goes their way
+    expect(calls.map((r) => new URL(r.url).pathname).filter((path) => path !== '/federation/outbox')).toEqual([]);
   });
 
   it('won’t ask for a book that isn’t free, and can withdraw a request', async () => {
