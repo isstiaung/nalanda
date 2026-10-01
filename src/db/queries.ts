@@ -2036,15 +2036,16 @@ export async function saveView(
 /**
  * The views that name a member in "Read by" — `readBy=<id>` or `now-<id>` — each rewritten without it, for
  * deleteUser()'s batch. The id would otherwise name whoever is given it next (#56); `me`, `not-me` and `anyone`
- * name nobody in particular and stay.
+ * name nobody in particular and stay. Compared as numbers, as the bar reads them: a view saved before readByValue()
+ * wrote the id canonically may still hold `02`, which named member 2 and yet escaped a comparison of strings.
  */
 async function viewsWithoutReader(d1: D1Database, id: number): Promise<D1PreparedStatement[]> {
   const views = (await d1.prepare(SAVED_VIEWS_SQL).all<SavedView>()).results;
   const out: D1PreparedStatement[] = [];
   for (const v of views) {
     const sp = new URLSearchParams(v.params);
-    const r = sp.get('readBy');
-    if (r !== String(id) && r !== `now-${id}`) continue;
+    const m = /^(now-)?0*(\d+)$/.exec(sp.get('readBy') ?? '');
+    if (!m || Number(m[2]) !== id) continue;
     sp.delete('readBy');
     // only the version read: a view re-saved between the read and the batch keeps its newer filters
     out.push(d1.prepare('UPDATE saved_views SET params = ?2 WHERE id = ?1 AND params = ?3').bind(v.id, sp.toString(), v.params));

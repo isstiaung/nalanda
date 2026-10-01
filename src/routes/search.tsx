@@ -4,7 +4,7 @@ import type { AppEnv } from '../env';
 import { ItemTable } from '../views/components';
 import { BulkBar, BulkNotice } from '../views/bulk';
 import { page } from '../views/layout';
-import { parseReadBy, ReadByMenu } from './libraries';
+import { parseReadBy, readByValue, ReadByMenu } from './libraries';
 
 const search = new Hono<AppEnv>();
 
@@ -17,7 +17,7 @@ search.get('/search', async (c) => {
   // "Read by", as on a shelf (§16 #43) — narrowed inside the search itself, so it still finds up to 50
   const people = await listPeople(c.env.DB);
   const reader = parseReadBy(c.req.query('readBy'), user.id, people);
-  const readBy = reader ? (c.req.query('readBy') ?? '') : '';
+  const readBy = reader ? readByValue(c.req.query('readBy')) : ''; // as the menu writes it, so the menu shows it selected
   const items = q ? await searchItems(c.env.DB, q, SEARCH_LIMIT, reader) : [];
   // a full page is the cap, not the count: there may be more, so the heading says "best" and a line says how to narrow it
   const capped = items.length >= SEARCH_LIMIT;
