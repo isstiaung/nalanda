@@ -19,7 +19,9 @@ their decision files in [docs/decisions/](decisions/) show each step done.
 
 ## 2. The schema and its migration
 
-- Add the column to `items` in `src/db/schema.ts`, with a default for the rows that exist.
+- Add the column to `items` in `src/db/schema.ts`, with a default for the rows that exist — and for
+  the rows a restore of an older backup brings back: the backup carries column names, so a restored
+  row takes the new column's default.
 - `npm run db:generate` writes `migrations/NNNN_<name>.sql`. Never hand-edit it; never edit a
   migration that has been applied anywhere. The number must follow the last one on `main` when
   you merge — regenerate if another PR landed first.
@@ -38,23 +40,41 @@ their decision files in [docs/decisions/](decisions/) show each step done.
 
 ## 4. Round trip through the CSV — the column isn't done without this
 
-- `EXPORT_COLUMNS` and `itemToCsvLine()` in `src/lib/csv.ts`: append the column at the **end**, so
-  older files keep their positions.
-- `mapNalandaRow()` reads it back, and the column's name goes in the mapped-columns list so it never
-  falls through into `details` on import.
+- `EXPORT_COLUMNS` and `itemToCsvLine()` in `src/lib/csv.ts`: the column goes **just before
+  `details`**, which stays last — formats, editions, language, original title, quotes and borrowed
+  all went there. The import reads by header name, so position is convention, not compatibility.
+- `mapNalandaRow()` reads the cell by name; a missing or blank cell — an export from before the
+  column — reads as the column's default, so an older file still imports. Its `details` come from
+  the `details` cell alone: nothing in a Nalanda export falls through into them.
 - libib, Goodreads, StoryGraph and LibraryThing mappers: map it when the source has it; otherwise
   make sure their unknown-column fall-through can't put a *private* value into `details`
-  (`KNOWN_*` sets, §16 #87).
+  (`KNOWN_*` sets, §16 #87). On a **match**, `mergeImportItems()` writes only the rating, review,
+  notes and reads — an imported value for a new column lands on new items only.
+- A value a provider can supply arrives through `Candidate`, the Add page's confirm form and what
+  "Refresh from…" may write (`src/lib/pressing.ts`, `src/lib/games.ts`): see
+  [adding-a-provider.md](adding-a-provider.md).
 - `test/csv-roundtrip.spec.ts` has the pattern: create an item with the value, export, import into
   another shelf, compare.
 
-## 5. The trash
+## 5. A filter, if it is one
+
+- A column a shelf can filter by goes through `ItemFilters` and `itemFilterWhere()` in
+  `src/db/queries.ts`, and `parseShelfQuery()` in `src/routes/libraries.tsx`, which reads the bar's
+  URL and a saved view's stored query alike (§16 #81) — so a saved view carries it for free.
+- Share links capture `ItemFilters` (`shareFilters()`), and the public item route checks the same
+  thing item by item (`itemMatchesShare()`): **the twins must agree**, and a test holds every share
+  kind to it. A **private** column is never a filter a share link or a connection view may capture
+  — `q` matches `location`, "Read by" says who read what, the decluttering filters say when things
+  were bought and played — so those live outside `ItemFilters` (`ReaderFilter`, `StaleFilter`),
+  where `shareFilters()` has no room for them. Formats (#75) is the worked example of a public one.
+
+## 6. The trash
 
 The trash snapshot (`trashPayloadSql()` in `src/db/queries.ts`) takes every `items` column from
 the schema, so a new column is carried and restored without a change. Check the restore test
 still passes; if the column has a foreign key, the restore needs the same care `series_id` gets.
 
-## 6. Share pages and connections — only if step 1 said so
+## 7. Share pages and connections — only if step 1 said so
 
 - `toPublicItem()` in `src/lib/share.ts` is the whitelist for share pages, `toConnectionItem()` in
   `src/federation/items.ts` for connections, `toGiftItem()` for gift lists. Add the key only with
@@ -64,7 +84,7 @@ still passes; if the column has a foreign key, the restore needs the same care `
 - A test that a share page's bytes are **unchanged** when the column is private is cheap and
   decisive (`test/share.spec.ts` has several).
 
-## 7. Search, history, feeds
+## 8. Search, history, feeds
 
 - Full-text search indexes `title`, `creators`, `description`, `notes`, `location` and
   `original_title` only. A new text column worth searching needs the FTS5 index rebuilt in a custom
@@ -72,16 +92,16 @@ still passes; if the column has a foreign key, the restore needs the same care `
   (they must not: `q` matches `location`).
 - Item history (§16 #84) records the columns its trigger names (migration 0050). A column worth a
   history line is added in a new custom migration that recreates the trigger with it.
-- A share link's feed (§16 #86) is the whitelist again; nothing to do unless step 6 added a key.
+- A share link's feed (§16 #86) is the whitelist again; nothing to do unless step 7 added a key.
 
-## 8. The budget
+## 9. The budget
 
 A column read on a page the page already loads costs nothing. A column that needs its own query
 costs a D1 call: fold it into an existing batch (`itemPageLog()`'s `extra`, `shelvesWithTotals()`),
 and run the budget tests — several pin a page's call count (`test/purchase-price.spec.ts`,
 `test/read-next.spec.ts`, `test/session-identity.spec.ts`).
 
-## 9. Write it down
+## 10. Write it down
 
 - A decision file `docs/decisions/NNN-<slug>.md` and its row in ARCH.md §16: what was decided,
   what it rules out, which test holds it.
@@ -91,7 +111,7 @@ and run the budget tests — several pin a page's call count (`test/purchase-pri
   is a new kind of private thing.
 - The runbooks, if an operator's step changed (the backup's table list, an import's mapping).
 
-## 10. Before the PR
+## 11. Before the PR
 
 `npm run typecheck`, `npm run lint` (a labelled field, no `hx-*` off forms and buttons), `npm test`.
 CI runs the accessibility audit; a new field on a form joins it by being on the form.

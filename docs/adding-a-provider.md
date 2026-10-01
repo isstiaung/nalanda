@@ -60,7 +60,17 @@ page only sequences them.
   statement). A new source that can refresh follows that shape, and `src/lib/pressing.ts` /
   `src/lib/games.ts` say what a refresh may overwrite.
 
-## 4. Showing it, crediting it
+## 4. The scripts that run it on a laptop
+
+- `npm run backfill:remote` and `npm run record-covers:remote` run `src/metadata` under Node, through
+  `scripts/ts-resolve.mjs` and Node's own type stripping. So a provider must be **erasable
+  TypeScript**: no enums, namespaces or parameter properties, and no `cloudflare:` imports.
+- A source added to `findCover()` or `findDescription()` is used by the backfill without more. The
+  backfill paces hosts at 4 requests a second unless `PACE` in `scripts/backfill-remote.mjs` says
+  otherwise: a source with a lower published limit (MusicBrainz's one a second, the archive's,
+  Discogs', Google Books') must be added there.
+
+## 5. Showing it, crediting it
 
 - The Add page shows a provider's results as cards; "In your catalog" matches by ISBN and by
   title and author (`catalogMatches()`, `booksNamed()`).
@@ -69,7 +79,7 @@ page only sequences them.
   share page's footer and the item page both ask the same question.
 - A missing secret is a `notices` line on the Add page ("Set DISCOGS_TOKEN to…"), not a 500.
 
-## 5. Tests — never a real request
+## 6. Tests — never a real request
 
 - `test/fetch-mock.ts` stubs outbound `fetch`: `activateFetchMock()` in `beforeEach`,
   `intercept(host, pathPredicate, { body, status })` per answer, `assertNoPendingInterceptors()`
@@ -80,7 +90,7 @@ page only sequences them.
 - Test the mapping (fields, formats, language, series), the routing (which barcode goes where),
   the merge, the notice without a secret, and the refresh guard.
 
-## 6. Write it down
+## 7. Write it down
 
 - A decision file in `docs/decisions/` with its ARCH.md §16 row: the source, its terms, what is
   stored, what is credited, what is ruled out.
