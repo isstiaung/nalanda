@@ -24,6 +24,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # pages: read lets configure-pages ask where the site is served (its base path); it can deploy nothing
+    permissions:
+      contents: read
+      pages: read
     steps:
       - uses: actions/checkout@v7
 

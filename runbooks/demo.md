@@ -32,9 +32,12 @@ from the Actions tab ("Demo" → Run workflow). It needs no secret.
 **GitHub Actions**. Without that the deploy job fails with "Get Pages site failed". The first run
 after enabling may take a few minutes to appear at the address above.
 
-**A custom domain** (Settings → Pages → *Custom domain*, e.g. `nalanda-demo.isstiaung.me`): at the
-DNS provider add a `CNAME` record for the subdomain pointing at `<owner>.github.io` — on Cloudflare
-DNS, *DNS only*, not proxied, or GitHub's check and its certificate fail. GitHub re-checks the
+**A custom domain** (Settings → Pages → *Custom domain*, e.g. `nalanda-demo.isstiaung.me`): first
+**verify the domain under your GitHub account** (your profile's Settings → Pages → *Verified
+domains*, a `TXT` record GitHub names) — otherwise, if Pages is ever switched off or the repository
+removed while the DNS record still points at GitHub, anyone's repository could claim the name.
+Then at the DNS provider add a `CNAME` record for the subdomain pointing at `<owner>.github.io` —
+on Cloudflare DNS, *DNS only*, not proxied, or GitHub's check and its certificate fail. GitHub re-checks the
 record itself ("DNS check unsuccessful" means it isn't there yet); once it passes, tick *Enforce
 HTTPS* when the certificate has been issued. Nothing in the repository changes: the workflow asks
 Pages for the site's base path at build time (`actions/configure-pages`), so links are written for
