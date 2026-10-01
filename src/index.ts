@@ -142,11 +142,19 @@ app.use(async (c, next) => {
     sessionKey: user.sessionKey,
     sessionGeneration: user.sessionGeneration,
   });
-  if (user.mustChangePassword && !c.req.path.startsWith('/account')) {
+  // A temporary password reaches the Account page and the password change, and nothing else — not the display name,
+  // not "Sign out other devices", not a token: own-account actions all, but whoever holds the temp password isn't
+  // yet shown to be the member, and a display name set here would go out on share pages with names on.
+  if (user.mustChangePassword && !mustChangeMayReach(c.req.method, c.req.path)) {
     return sendTo(c, '/account', 403, 'Choose a new password first — reload the page.');
   }
   await next();
 });
+
+/** What a session that must still change its temporary password may reach (logout is public, before this middleware). */
+function mustChangeMayReach(method: string, path: string): boolean {
+  return method === 'POST' ? path === '/account/password' : path === '/account';
+}
 
 app.route('/', dashboardRoutes);
 app.route('/', goalRoutes);

@@ -134,6 +134,11 @@ for a surface before changing anything it shows to someone outside the household
   so peers' held copies are withdrawn. Comments, borrow requests and recommendations are
   signed with `outwardName()` — the display name while names go to connections, else "A member",
   never the username. Names other instances send are strings from another instance (below).
+  A session signed in with a temporary password (`must_change_password`) can set no display name
+  — nor sign out other devices, nor make or revoke a token: `mustChangeMayReach()` in
+  `src/index.ts` lets it reach only `GET /account` and `POST /account/password`, since whoever
+  holds the temporary password isn't yet shown to be the member, and a name set there would go
+  out on share pages with names on.
 
 ## Reading goals
 
