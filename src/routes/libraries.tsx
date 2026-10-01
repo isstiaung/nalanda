@@ -16,6 +16,7 @@ import {
   saveView,
   shelvesWithTotals,
   tagsForItems,
+  TRASH_DAYS,
   type ReaderFilter,
   type SavedView,
   type StaleFilter,
@@ -525,20 +526,25 @@ libraries.get('/libraries/:id', async (c) => {
             </small>
           </div>
         ) : null}
-        <hr />
-        <form
-          method="post"
-          action={`/libraries/${id}/delete`}
-          data-confirm={
-            shelfCount
-              ? `Delete “${lib.name}” and ${shelfCount === 1 ? 'the 1 item' : `all ${shelfCount} items`} in it? This cannot be undone.`
-              : `Delete the empty shelf “${lib.name}”?`
-          }
-        >
-          <button type="submit" class="btn-danger">
-            Delete shelf
-          </button>
-        </form>
+        {/* deleting a shelf is an admin's (§16 #74): its items go to the trash, which only an admin can restore from */}
+        {user.role === 'admin' ? (
+          <>
+            <hr />
+            <form
+              method="post"
+              action={`/libraries/${id}/delete`}
+              data-confirm={
+                shelfCount
+                  ? `Delete “${lib.name}” and ${shelfCount === 1 ? 'the 1 item' : `all ${shelfCount} items`} in it? An admin can restore the ${shelfCount === 1 ? 'item' : 'items'} from the trash for ${TRASH_DAYS} days, onto a shelf of this name.`
+                  : `Delete the empty shelf “${lib.name}”?`
+              }
+            >
+              <button type="submit" class="btn-danger">
+                Delete shelf
+              </button>
+            </form>
+          </>
+        ) : null}
       </details>
     </>,
     shelves,
@@ -574,10 +580,13 @@ libraries.post('/libraries/:id', async (c) => {
   return c.redirect(`/libraries/${id}`);
 });
 
+/** Deletes a shelf, its items into the trash (§16 #74): an admin's, as deleting in bulk is (§16 #47) — the one path that took a whole shelf for good was open to every member. */
 libraries.post('/libraries/:id/delete', async (c) => {
+  const user = c.get('user');
+  if (user.role !== 'admin') return c.text('Only an admin can delete a shelf. A member can delete an item from its own page.', 403);
   const id = Number(c.req.param('id'));
-  const coverKeys = await deleteLibrary(c.env.DB, id);
-  c.executionCtx.waitUntil(Promise.all(coverKeys.map((k) => deleteCover(c.env.COVERS, k))));
+  const { expired } = await deleteLibrary(c.env.DB, id, { id: user.id, sessionKey: user.sessionKey });
+  c.executionCtx.waitUntil(Promise.all(expired.map((k) => deleteCover(c.env.COVERS, k)))); // purged rows' covers — the shelf's items keep theirs in the trash
   return c.redirect('/');
 });
 

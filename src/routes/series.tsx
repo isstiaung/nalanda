@@ -11,6 +11,7 @@ import type { AppEnv } from '../env';
 import { cleanSeriesName, countRanges, formatRanges, inRanges, missingNumbers, nextUp, parseSeriesTotal, seriesKey } from '../lib/series';
 import { page } from '../views/layout';
 import { GapsLine, NextUpLine, positionLabel, VolumeLedger } from '../views/series';
+import { writerOf } from './items';
 
 const series = new Hono<AppEnv>();
 
@@ -247,7 +248,7 @@ series.post('/series/:id', async (c) => {
   const total = parseSeriesTotal(sent.total);
   if (!name) return seriesPage(c, id, { error: 'A series needs a name. To take a book out of it, clear the series on the book.', sent });
   if (total === undefined) return seriesPage(c, id, { error: 'The number of volumes is a whole number from 1 to 9999, or blank.', sent });
-  const now = await updateSeries(c.env.DB, id, name, total);
+  const now = await updateSeries(c.env.DB, id, name, total, writerOf(c)); // a merge moves volumes: their history names who (§16 #84)
   return c.redirect(`/series/${now ?? id}`);
 });
 

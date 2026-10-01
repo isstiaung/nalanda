@@ -48,6 +48,16 @@ constraints bullets.
   connection, the notification it records, its replay marker, an item and its tags (ARCH.md §16 #39).
   As separate calls, a failure between them leaves half a change that the path's own idempotency
   check then treats as done. Nothing after the batch may be able to fail the request.
+- A **batch guard** is how a condition checked at write time refuses the whole batch: D1 runs a batch
+  as one transaction and rolls all of it back when any statement fails, and a NULL written into a
+  NOT NULL column is the one way, short of a trigger, to make a guard inside the batch do that. Use
+  one when a write's dependants must not land if its condition fails — the edit form's `copies`
+  against the loans out, a restore's title against its trash row, a removal's `role` against the
+  admins left. The shape is `col = CASE WHEN <cond> THEN <value> ELSE NULL END`, or a subselect
+  that comes back NULL; the route recognises it with `refusedBy(err, 'table.column')` and nothing
+  else, and rethrows any other error. The guarded column must be NOT NULL and must not be able to
+  go NULL for any other reason in that batch, or a real failure reads as a refusal. A WHERE-gated
+  statement plus a check afterwards is not a guard: the rest of the batch has already landed.
   Cookies set `Secure` only on https so local dev login works.
 - Auth model (ARCH.md §8): admin creates member accounts with one-time temp passwords
   (`must_change_password`); roles are just `admin`/`member` — no permission matrix.

@@ -21,6 +21,7 @@ import {
 import { countName, nameKey, sortNames, splitCreators, type NameCount } from '../lib/creators';
 import { MAX_EDITIONS_PER_ITEM, type EditionDraft } from '../lib/formats';
 import { DEFAULT_LANGUAGE, isLanguageCode } from '../lib/language';
+import { MAX_PROGRESS_PER_READ } from '../lib/progress';
 import { MAX_QUOTES_PER_ITEM, type CellQuote, type KindleBook, type PersonQuote, type QuoteDraft } from '../lib/quotes';
 import { ftsMatch, parseSearch } from '../lib/search';
 import { FEWEST_PLAYERS, WEIGHT_BANDS, type GameFilters } from '../lib/games';
@@ -244,7 +245,19 @@ function rekeyMoved(d1: D1Database, moved: { readId: number } | { reviewId: numb
   ];
 }
 
-export async function deleteUser(d1: D1Database, id: number): Promise<void> {
+/**
+ * Removes a member — by `by`, an admin — never the last admin: the batch's first statement re-sets the leaving row's
+ * role to itself only while `by` is still an admin here other than them (so an admin remains); else to NULL, which
+ * the column's NOT NULL refuses, and D1 rolls the whole batch back, so nothing of theirs is cleared either. Two
+ * admins removing each other at once would otherwise leave nobody, and /setup open to the next visitor. Without
+ * `by` — a call from outside the app — an admin still goes only while another remains. False when refused.
+ */
+export async function deleteUser(d1: D1Database, id: number, by?: number): Promise<boolean> {
+  const remains =
+    by === undefined
+      ? `role <> 'admin' OR EXISTS (SELECT 1 FROM users u WHERE u.role = 'admin' AND u.id <> ?1)`
+      : `EXISTS (SELECT 1 FROM users u WHERE u.id = ?2 AND u.role = 'admin' AND u.id <> ?1)`;
+  const guard = d1.prepare(`UPDATE users SET role = CASE WHEN ${remains} THEN role ELSE NULL END WHERE id = ?1`).bind(...(by === undefined ? [id] : [id, by]));
   // Three references to users have no ON DELETE action (migrations 0000, 0012 and 0024, all applied — drizzle-kit
   // drops the clause on ALTER TABLE): items.added_by, reading_progress.added_by and reads.reader_id. Any of them
   // would stop a member being removed, so all are cleared in the same batch, and reviews.user_id too, which its
@@ -254,25 +267,32 @@ export async function deleteUser(d1: D1Database, id: number): Promise<void> {
   // the saved views naming them in "Read by" (§16 #81) lose that filter: ids are reused (#56), so a view saved as
   // "Read by ravi" must not list a newcomer's reads under the old name once ravi is gone
   const views = await viewsWithoutReader(d1, id);
-  await d1.batch([
-    ...views,
-    // first, while their reads still say whose: their named entries get new ids, so connections drop the named copies
-    ...rekeyMemberActivity(d1, id),
-    d1.prepare('UPDATE items SET added_by = NULL WHERE added_by = ?1').bind(id),
-    d1.prepare('UPDATE reading_progress SET added_by = NULL WHERE added_by = ?1').bind(id),
-    d1.prepare('UPDATE reads SET reader_id = NULL WHERE reader_id = ?1').bind(id),
-    d1.prepare('UPDATE reviews SET user_id = NULL WHERE user_id = ?1').bind(id),
-    d1.prepare('UPDATE quotes SET user_id = NULL WHERE user_id = ?1').bind(id), // their quotes stay, a former member's (§16 #77)
-    // their plays are the household's and stay; only who logged them goes (its table would set null on its own too)
-    d1.prepare('UPDATE plays SET logged_by = NULL WHERE logged_by = ?1').bind(id),
-    // Their want list goes with them, and every gift list published of it (§16 #53): a want is a wish for later, not
-    // history, and nobody's wish is nothing to keep — a link to it must not outlive them. shares.want_user_id has no
-    // ON DELETE action (drizzle-kit drops it on ALTER TABLE), so it is cleared here, before the user row; wants would
-    // go with it by cascade, and are cleared here too, so the batch says everything that leaves with them.
-    d1.prepare('DELETE FROM shares WHERE want_user_id = ?1').bind(id),
-    d1.prepare('DELETE FROM wants WHERE user_id = ?1').bind(id),
-    d1.prepare('DELETE FROM users WHERE id = ?1').bind(id),
-  ]);
+  try {
+    await d1.batch([
+      guard,
+      ...views,
+      // first, while their reads still say whose: their named entries get new ids, so connections drop the named copies
+      ...rekeyMemberActivity(d1, id),
+      d1.prepare('UPDATE items SET added_by = NULL WHERE added_by = ?1').bind(id),
+      d1.prepare('UPDATE reading_progress SET added_by = NULL WHERE added_by = ?1').bind(id),
+      d1.prepare('UPDATE reads SET reader_id = NULL WHERE reader_id = ?1').bind(id),
+      d1.prepare('UPDATE reviews SET user_id = NULL WHERE user_id = ?1').bind(id),
+      d1.prepare('UPDATE quotes SET user_id = NULL WHERE user_id = ?1').bind(id), // their quotes stay, a former member's (§16 #77)
+      // their plays are the household's and stay; only who logged them goes (its table would set null on its own too)
+      d1.prepare('UPDATE plays SET logged_by = NULL WHERE logged_by = ?1').bind(id),
+      // Their want list goes with them, and every gift list published of it (§16 #53): a want is a wish for later, not
+      // history, and nobody's wish is nothing to keep — a link to it must not outlive them. shares.want_user_id has no
+      // ON DELETE action (drizzle-kit drops it on ALTER TABLE), so it is cleared here, before the user row; wants would
+      // go with it by cascade, and are cleared here too, so the batch says everything that leaves with them.
+      d1.prepare('DELETE FROM shares WHERE want_user_id = ?1').bind(id),
+      d1.prepare('DELETE FROM wants WHERE user_id = ?1').bind(id),
+      d1.prepare('DELETE FROM users WHERE id = ?1').bind(id),
+    ]);
+  } catch (err) {
+    if (refusedBy(err, 'users.role')) return false;
+    throw err;
+  }
+  return true;
 }
 
 /**
@@ -645,21 +665,24 @@ export async function renameLibrary(d1: D1Database, id: number, name: string): P
   await db(d1).update(s.libraries).set({ name }).where(eq(s.libraries.id, id));
 }
 
-export async function deleteLibrary(d1: D1Database, id: number): Promise<string[]> {
-  const dbi = db(d1);
-  const covers = await dbi
-    .select({ coverKey: s.items.coverKey })
-    .from(s.items)
-    .where(and(eq(s.items.libraryId, id), sql`${s.items.coverKey} IS NOT NULL`));
-  // items cascade, and so may the shelf's connection views: with none left, both activity logs go, as they do when the
-  // last view is removed on the Connections page (deleteConnectionView), so a stale log can't outlive every view
-  await d1.batch([
+/**
+ * Deletes a shelf — an admin's to do (the route checks). Its items go to the trash first (§16 #74), each with its
+ * snapshot, in the same batch as the shelf: the snapshot keeps the shelf's name, so a restore goes onto a shelf made
+ * again under that name. The shelf's connection views cascade with it, and with none left both activity logs go, as
+ * they do when the last view is removed on the Connections page (deleteConnectionView), so a stale log can't outlive
+ * every view. `expired` is the cover keys of trash rows purged on the way, for the caller to delete the objects — the
+ * shelf's own items keep theirs, for a restore.
+ */
+export async function deleteLibrary(d1: D1Database, id: number, deletedBy: Deleter = null): Promise<{ trashed: number; expired: string[] }> {
+  const [old, , inserted] = await d1.batch([
+    ...purgeStatements(d1),
+    ...trashStatements(d1, (table) => `${table}library_id = ?1`, id, deletedBy),
     d1.prepare('DELETE FROM libraries WHERE id = ?1').bind(id),
     d1.prepare('DELETE FROM activity_log WHERE NOT EXISTS (SELECT 1 FROM connection_views)'),
     d1.prepare('DELETE FROM member_activity WHERE NOT EXISTS (SELECT 1 FROM connection_views)'),
     pruneSeries(d1), // a series whose volumes were all on this shelf
   ]);
-  return covers.map((c) => c.coverKey).filter((k): k is string => !!k);
+  return { trashed: inserted?.meta?.changes ?? 0, expired: expiredKeys(old) };
 }
 
 // ---------- share views ----------
@@ -966,11 +989,17 @@ export type Writer = Deleter;
 function asWriter(d1: D1Database, who: Writer | undefined, writes: D1PreparedStatement[]): D1PreparedStatement[] {
   // every item write also lets the history past HISTORY_DAYS go — one indexed delete, so retention holds without a page
   const sweep = d1.prepare(`DELETE FROM item_history WHERE at < datetime('now', '-${HISTORY_DAYS} days')`);
-  if (!who) return [...writes, sweep];
+  // and the trash's snapshots past TRASH_DAYS (§16 #74) — the private part: notes, location, borrowers, everyone's
+  // reads — so that retention holds in a household that deletes nothing for a month and never opens the page. The
+  // line stays, with its cover's key, for the next delete or Trash visit to purge with the object: a statement has no
+  // hand to delete objects with. A restore is refused by the row's date, whatever it holds.
+  const letGo = d1.prepare(`UPDATE trash SET payload = '{}' WHERE deleted_at < datetime('now', '-${TRASH_DAYS} days') AND payload <> '{}'`);
+  if (!who) return [...writes, sweep, letGo];
   return [
     d1.prepare('INSERT OR REPLACE INTO acting (id, user_id, session_key) VALUES (1, ?1, ?2)').bind(who.id, who.sessionKey),
     ...writes,
     sweep,
+    letGo,
     d1.prepare('DELETE FROM acting WHERE id = 1'),
   ];
 }
@@ -1269,15 +1298,16 @@ export async function holdingsByType(d1: D1Database): Promise<Holding[]> {
 
 /**
  * The statement that makes sure `draft`'s series exists — the first spelling of a name stays, since the name is
- * unique by its key — and sets its total when the draft carries one. None without a series.
+ * unique by its key — and sets its total when the draft carries one. None without a series. `totalFrom` 'series'
+ * keeps the total a series already has over the draft's (a trash restore's snapshot is older than a total corrected
+ * since), filling it in only where the series has none; a new series takes the draft's either way.
  */
-function seriesUpsert(d1: D1Database, draft: SeriesDraft | null | undefined): D1PreparedStatement[] {
+function seriesUpsert(d1: D1Database, draft: SeriesDraft | null | undefined, totalFrom: 'draft' | 'series' = 'draft'): D1PreparedStatement[] {
   if (!draft) return [];
+  const total = totalFrom === 'draft' ? 'coalesce(excluded.total, series.total)' : 'coalesce(series.total, excluded.total)';
   return [
     d1
-      .prepare(
-        'INSERT INTO series (name, key, total) VALUES (?1, ?2, ?3) ON CONFLICT (key) DO UPDATE SET total = coalesce(excluded.total, series.total)',
-      )
+      .prepare(`INSERT INTO series (name, key, total) VALUES (?1, ?2, ?3) ON CONFLICT (key) DO UPDATE SET total = ${total}`)
       .bind(draft.name, seriesKey(draft.name), draft.total ?? null),
   ];
 }
@@ -1380,13 +1410,14 @@ export async function seriesForIds(d1: D1Database, ids: Array<number | null>): P
 
 /**
  * Renames a series and sets its total, in one batch. A name another series already has (by key) merges this one
- * into it: its volumes move there, and the total given — else the one there, else this one's — is kept. Returns
- * the id the series has afterwards. The route checks the series exists first.
+ * into it: its volumes move there — an item write, so `who` is named in each volume's history (§16 #84) — and the
+ * total given — else the one there, else this one's — is kept. Returns the id the series has afterwards. The
+ * route checks the series exists first.
  */
-export async function updateSeries(d1: D1Database, id: number, name: string, total: number | null): Promise<number | null> {
+export async function updateSeries(d1: D1Database, id: number, name: string, total: number | null, who?: Writer): Promise<number | null> {
   const key = seriesKey(name);
   const other = 'EXISTS (SELECT 1 FROM series WHERE key = ?2 AND id <> ?1)';
-  const results = await d1.batch([
+  const results = await d1.batch(asWriter(d1, who, [
     d1
       .prepare('UPDATE series SET total = coalesce(?3, total, (SELECT total FROM series WHERE id = ?1)) WHERE key = ?2 AND id <> ?1')
       .bind(id, key, total),
@@ -1394,8 +1425,8 @@ export async function updateSeries(d1: D1Database, id: number, name: string, tot
     d1.prepare(`DELETE FROM series WHERE id = ?1 AND ${other}`).bind(id, key),
     d1.prepare('UPDATE series SET name = ?3, key = ?2, total = ?4 WHERE id = ?1').bind(id, key, name, total),
     d1.prepare('SELECT id FROM series WHERE key = ?1').bind(key),
-  ]);
-  const row = results[4]?.results[0] as { id: number } | undefined;
+  ]));
+  const row = results[(who ? 1 : 0) + 4]?.results[0] as { id: number } | undefined;
   return row?.id ?? null;
 }
 
@@ -1495,6 +1526,11 @@ export type FormReview = { rating: number | null; review: string | null };
  * rating and review are theirs. items.status, rating and their neighbours are then recomputed from everyone's reads
  * and reviews, never written from the form. "Not started" writes no read: the route refuses it for a book with
  * reads. `person` is who is editing: the reads and review are theirs whoever else has any.
+ *
+ * A `copies` given never goes below what is out on loan (§16 #13), and never counts a copy while a borrow is open
+ * (§16 #82) — both checked in the statement: it sets NULL instead, the column's NOT NULL fails the whole batch, and
+ * D1 rolls a batch back, so a refused count saves nothing of the form — tags, reads and review included — rather
+ * than everything but the count. False then: the route reads what refused it and says so.
  */
 export async function updateItemWithTags(
   d1: D1Database,
@@ -1507,7 +1543,7 @@ export async function updateItemWithTags(
   series?: SeriesDraft | null, // undefined leaves the item's series as it is; null takes it out of one (§16 #52)
   editions?: EditionDraft[], // undefined leaves "also held as" as it is; a list replaces it (§16 #75)
   who?: Writer, // who is saving, for the item's history (§16 #84)
-): Promise<void> {
+): Promise<boolean> {
   // reading state and the rating and review come from reads and reviews alone; the series only from `series`
   const {
     status: _s,
@@ -1522,27 +1558,52 @@ export async function updateItemWithTags(
     seriesNumber: _k,
     ...rest
   } = values;
+  const copies = rest.copies;
+  const guarded: Partial<NewItem> =
+    copies === undefined || copies === null
+      ? rest
+      : {
+          ...rest,
+          // an SQL value where the row's shape says a number, as withSeries does for the series' id
+          copies: sql`CASE WHEN ${copies} >= (SELECT count(*) FROM loans WHERE item_id = ${s.items.id} AND returned_on IS NULL)
+                 AND (${copies} = 0 OR NOT EXISTS (SELECT 1 FROM borrows WHERE item_id = ${s.items.id} AND returned_on IS NULL))
+            THEN ${copies} ELSE NULL END` as unknown as number,
+        };
   const q = db(d1)
     .update(s.items)
-    .set({ ...(series === undefined ? rest : withSeries(rest, series)), updatedAt: sql`(datetime('now'))` })
+    .set({ ...(series === undefined ? guarded : withSeries(guarded, series)), updatedAt: sql`(datetime('now'))` })
     .where(eq(s.items.id, id))
     .toSQL();
-  await d1.batch(asWriter(d1, who, [
-    ...seriesUpsert(d1, series),
-    d1.prepare(q.sql).bind(...q.params),
-    // the series it left, if this was that series' last volume
-    ...(series === undefined ? [] : [pruneSeries(d1)]),
-    d1.prepare('DELETE FROM item_tags WHERE item_id = ?1').bind(id),
-    ...tagLinkStatements(d1, id, names),
-    ...(editions ? [d1.prepare('DELETE FROM editions WHERE item_id = ?1').bind(id), ...editionInsertStatements(d1, id, editions)] : []),
-    ...(formRead ? formReadStatements(d1, id, person, formRead) : []),
-    refreshReadState(d1, [id]),
-    // reads first, as everywhere: a rating given with a finish is dated by it inside an import (§16 #40)
-    ...(formReview ? reviewWriteStatements(d1, id, person, formReview, 'replace') : []),
-    refreshReviewState(d1, [id]),
-    redateReviewActivity(d1, [id]),
-  ]));
+  try {
+    await d1.batch(asWriter(d1, who, [
+      ...seriesUpsert(d1, series),
+      d1.prepare(q.sql).bind(...q.params),
+      // the series it left, if this was that series' last volume
+      ...(series === undefined ? [] : [pruneSeries(d1)]),
+      d1.prepare('DELETE FROM item_tags WHERE item_id = ?1').bind(id),
+      ...tagLinkStatements(d1, id, names),
+      ...(editions ? [d1.prepare('DELETE FROM editions WHERE item_id = ?1').bind(id), ...editionInsertStatements(d1, id, editions)] : []),
+      ...(formRead ? formReadStatements(d1, id, person, formRead) : []),
+      refreshReadState(d1, [id]),
+      // reads first, as everywhere: a rating given with a finish is dated by it inside an import (§16 #40)
+      ...(formReview ? reviewWriteStatements(d1, id, person, formReview, 'replace') : []),
+      refreshReviewState(d1, [id]),
+      redateReviewActivity(d1, [id]),
+    ]));
+  } catch (err) {
+    if (refusedBy(err, 'items.copies')) return false;
+    throw err;
+  }
+  return true;
 }
+
+/**
+ * Whether a batch failed on the NOT NULL constraint of `column` — the one way a statement in a batch can refuse the
+ * whole of it: a guard that sets NULL where a value isn't allowed, so nothing in the batch lands (D1 rolls it back).
+ * Anything else that failed is still an error.
+ */
+const refusedBy = (err: unknown, column: string): boolean =>
+  String(err instanceof Error ? err.message : err).includes(`NOT NULL constraint failed: ${column}`);
 
 export async function tagsForItem(d1: D1Database, itemId: number): Promise<string[]> {
   const rows = await db(d1)
@@ -1705,10 +1766,12 @@ export async function bulkMove(d1: D1Database, ids: number[], libraryId: number,
 export async function bulkSetOwned(d1: D1Database, ids: number[], owned: boolean, who?: Writer): Promise<BulkResult> {
   const json = JSON.stringify(ids);
   const [from, to] = owned ? [0, 1] : [1, 0];
-  // an item borrowed from someone (§16 #82) is theirs until marked returned: "Mark owned" skips it, as the toggle refuses
+  // an item borrowed from someone (§16 #82) is theirs until marked returned: "Mark owned" skips it, as the toggle refuses;
+  // a copy out on loan is still ours (§16 #13): "Mark not owned" skips it, as the toggle refuses
   const borrowed = 'EXISTS (SELECT 1 FROM borrows b WHERE b.item_id = items.id AND b.returned_on IS NULL)';
-  const changes = owned ? `copies = ?2 AND NOT ${borrowed}` : 'copies = ?2';
-  const skips = owned ? `copies >= 2 OR (copies = 0 AND ${borrowed})` : 'copies >= 2';
+  const lent = 'EXISTS (SELECT 1 FROM loans l WHERE l.item_id = items.id AND l.returned_on IS NULL)';
+  const changes = owned ? `copies = ?2 AND NOT ${borrowed}` : `copies = ?2 AND NOT ${lent}`;
+  const skips = owned ? `copies >= 2 OR (copies = 0 AND ${borrowed})` : `copies >= 2 OR (copies = 1 AND ${lent})`;
   const results = await d1.batch(asWriter(d1, who, [
     d1.prepare(`SELECT count(*) AS found, sum(${changes}) AS changed, sum(${skips}) AS skipped FROM items WHERE ${SELECTED}`).bind(json, from),
     d1.prepare(`UPDATE items SET copies = ?3, updated_at = datetime('now') WHERE ${SELECTED} AND ${changes}`).bind(json, from, to),
@@ -1960,8 +2023,8 @@ export async function activeLoanItemIds(d1: D1Database, itemIds: number[]): Prom
 const BORROW_COLUMNS = 'id, item_id AS itemId, lender, contact, borrowed_on AS borrowedOn, due_on AS dueOn, returned_on AS returnedOn, note';
 
 /**
- * Records a borrow — only on an item not owned (copies = 0), and only one open at a time, both checked in the
- * statement. True when recorded.
+ * Records a borrow — only on an item not owned (copies = 0), only one open at a time, and never while a copy of it is
+ * out on loan (an item is never lent and borrowed at once), all checked in the statement. True when recorded.
  */
 export async function borrowIfNotOwned(
   d1: D1Database,
@@ -1973,6 +2036,7 @@ export async function borrowIfNotOwned(
        SELECT ?1, ?2, ?3, ?4, ?5, ?6
        WHERE (SELECT copies FROM items WHERE id = ?1) = 0
          AND NOT EXISTS (SELECT 1 FROM borrows WHERE item_id = ?1 AND returned_on IS NULL)
+         AND NOT EXISTS (SELECT 1 FROM loans WHERE item_id = ?1 AND returned_on IS NULL)
        RETURNING id`,
     )
     .bind(values.itemId, values.lender, values.contact, values.borrowedOn, values.dueOn, values.note)
@@ -1994,6 +2058,21 @@ export async function markOwnedUnlessBorrowed(d1: D1Database, id: number, who?: 
   const stmt = d1
     .prepare(
       `UPDATE items SET copies = 1, updated_at = datetime('now') WHERE id = ?1 AND copies = 0 AND NOT EXISTS (SELECT 1 FROM borrows WHERE item_id = ?1 AND returned_on IS NULL)`,
+    )
+    .bind(id);
+  const results = await d1.batch(asWriter(d1, who, [stmt]));
+  return (results[who ? 1 : 0]?.meta.changes ?? 0) > 0;
+}
+
+/**
+ * The Holding toggle's other half: copies 1 → 0, unless the copy is out on loan — a lent copy is still ours, and Not
+ * owned means not lendable (§16 #13) — and only the single copy the toggle knows (§16 #27), both checked in the
+ * statement, so a count saved on the form meanwhile is never zeroed. True when it changed.
+ */
+export async function markNotOwnedUnlessLent(d1: D1Database, id: number, who?: Writer): Promise<boolean> {
+  const stmt = d1
+    .prepare(
+      `UPDATE items SET copies = 0, updated_at = datetime('now') WHERE id = ?1 AND copies = 1 AND NOT EXISTS (SELECT 1 FROM loans WHERE item_id = ?1 AND returned_on IS NULL)`,
     )
     .bind(id);
   const results = await d1.batch(asWriter(d1, who, [stmt]));
@@ -2545,10 +2624,19 @@ export type QuoteEntry = { id: number; itemId: number; userId: number | null; te
 type QuoteRow = Omit<QuoteEntry, 'shared'> & { shared: number };
 const QUOTE_COLUMNS = 'id, item_id AS itemId, user_id AS userId, text, page, note, shared, source, at';
 
-/** Adds a member's quote to an item, dated now unless the draft says. True when added; false when the item is gone or they have that text on it already. */
+/**
+ * Adds a member's quote to an item, dated now unless the draft says. True when added; false when the item is gone,
+ * they have that text on it already, or the item holds MAX_QUOTES_PER_ITEM (checked in the statement).
+ */
 export async function addQuote(d1: D1Database, itemId: number, userId: number, draft: QuoteDraft): Promise<boolean> {
   const [res] = await d1.batch(quoteInsertStatements(d1, itemId, [{ ...draft, userId }], userId));
   return (res?.meta?.changes ?? 0) > 0;
+}
+
+/** How many quotes an item holds — what tells a refused quote at the cap from one already there. */
+export async function quoteCount(d1: D1Database, itemId: number): Promise<number> {
+  const row = await d1.prepare('SELECT count(*) AS n FROM quotes WHERE item_id = ?1').bind(itemId).first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 export async function getQuote(d1: D1Database, itemId: number, quoteId: number): Promise<QuoteEntry | null> {
@@ -3584,16 +3672,31 @@ export async function addProgress(
       )
       .bind(itemId, reader, today),
     adoptOrphanPages(d1, itemId, reader),
+    // at most MAX_PROGRESS_PER_READ pages on the read, checked in the statement
     d1
       .prepare(
         `INSERT INTO reading_progress (item_id, page, added_by, read_id)
-         SELECT ?1, ?3, ?2, id FROM reads WHERE item_id = ?1 AND reader_id IS ?2 AND status = 'in_progress' LIMIT 1`,
+         SELECT ?1, ?3, ?2, id FROM reads WHERE item_id = ?1 AND reader_id IS ?2 AND status = 'in_progress'
+           AND (SELECT count(*) FROM reading_progress p WHERE p.read_id = reads.id) < ${MAX_PROGRESS_PER_READ}
+         LIMIT 1`,
       )
       .bind(itemId, reader, page),
     // updated_at is deliberately untouched: connections see it, and a page is its own entry, not an edit of the book
     refreshReadState(d1, [itemId]),
   ]);
   return (results[3]?.meta.changes ?? 0) > 0;
+}
+
+/** How many pages `reader`'s open read of an item has recorded — what tells a refused page apart from no read open. */
+export async function openReadPages(d1: D1Database, itemId: number, reader: number | null): Promise<number> {
+  const row = await d1
+    .prepare(
+      `SELECT count(*) AS n FROM reading_progress p JOIN reads r ON r.id = p.read_id
+       WHERE r.item_id = ?1 AND r.reader_id IS ?2 AND r.status = 'in_progress'`,
+    )
+    .bind(itemId, reader)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 /** A page's person: its read's reader, or — for a page from before reads — whoever recorded it. */
@@ -4176,26 +4279,6 @@ export async function nextBackfillable(d1: D1Database, afterId: number, limit: n
 
 // ---------- bulk import ----------
 
-/** Ensure tags exist and link them to items — additive, existing links kept. */
-async function linkTags(dbi: ReturnType<typeof db>, pairs: Array<{ itemId: number; tag: string }>): Promise<void> {
-  if (!pairs.length) return;
-  const names = [...new Set(pairs.map((p) => p.tag))];
-  await dbi.batch(
-    names.map((name) => dbi.insert(s.tags).values({ name }).onConflictDoNothing()) as [never, ...never[]],
-  );
-  // one JSON parameter however many names: an import batch can carry more distinct tags than D1's
-  // 100 bound parameters, and the items were already committed when this used to throw
-  const tagRows = await dbi.select().from(s.tags).where(sql`${s.tags.name} IN (SELECT value FROM json_each(${JSON.stringify(names)}))`);
-  const idByName = new Map(tagRows.map((t) => [t.name, t.id]));
-  const links = pairs
-    .map((p) => ({ itemId: p.itemId, tagId: idByName.get(p.tag) }))
-    .filter((l): l is { itemId: number; tagId: number } => !!l.tagId);
-  for (let i = 0; i < links.length; i += 40) {
-    const chunk = links.slice(i, i + 40); // stay well under D1's bound-parameter limit
-    await dbi.insert(s.itemTags).values(chunk).onConflictDoNothing();
-  }
-}
-
 /**
  * An import's writes, between the statements that set and clear the marker the activity triggers look for
  * (migration 0021): an imported read is dated by its completed_on, or left out of the feed, rather than reaching
@@ -4228,6 +4311,8 @@ export type ImportRow = {
   plays?: PersonPlay[];
   goodreads?: GoodreadsReading;
   series?: SeriesDraft | null; // its series, and the series' total when the file gives one (§16 #52)
+  // a trash restore's (§16 #74): the series' own total stays over the snapshot's, which may be older than a correction
+  keepSeriesTotal?: boolean;
   // a Nalanda export's want lists and purchase links (§16 #53), each want already resolved to a member here
   wants?: PersonWant[];
   links?: LinkDraft[];
@@ -4256,7 +4341,8 @@ function editionInsertStatements(d1: D1Database, item: number | 'newest', editio
 /**
  * Inserts quotes for an item — its id, or 'newest' for one inserted earlier in the batch — skipping any the same
  * person already has of the same text on it (a Kindle file imported twice brings nothing twice), at most
- * MAX_QUOTES_PER_ITEM. `person` is whose a quote with no `userId` is.
+ * MAX_QUOTES_PER_ITEM on the item, counted in the statement with what it holds already. `person` is whose a quote
+ * with no `userId` is.
  */
 function quoteInsertStatements(d1: D1Database, item: number | 'newest', quotes: PersonQuote[], person: number | null): D1PreparedStatement[] {
   if (!quotes.length) return [];
@@ -4279,6 +4365,7 @@ function quoteInsertStatements(d1: D1Database, item: number | 'newest', quotes: 
             coalesce(json_extract(j.value, '$.at'), datetime('now'))
      FROM json_each(?1) AS j
      WHERE NOT EXISTS (SELECT 1 FROM quotes q WHERE q.item_id = ${itemRef} AND q.user_id IS json_extract(j.value, '$.userId') AND q.text = json_extract(j.value, '$.text'))
+       AND (SELECT count(*) FROM quotes q WHERE q.item_id = ${itemRef}) + j.key < ${MAX_QUOTES_PER_ITEM}
      ORDER BY j.key`,
   );
   return [item === 'newest' ? stmt.bind(json) : stmt.bind(json, item)];
@@ -4321,12 +4408,14 @@ const MAX_PROGRESS_ROWS = 5_000;
 /**
  * Batched insert used by /api/import. One network round trip per batch of rows: each item goes in with the
  * reading state its reads decide and the rating and review its reviews decide, so the insert trigger dates it
- * right, then its reads and reviews, then the refreshes that fill in what only they know, then its loans and its
- * plays, which nothing on the item depends on (§16 #54). Loans go only onto the item their row makes, never onto one
- * already here.
+ * right, then its tags, its reads and reviews, then the refreshes that fill in what only they know, then its loans
+ * and its plays, which nothing on the item depends on (§16 #54). Loans go only onto the item their row makes, never
+ * onto one already here. One batch, the tags inside it (§16 #39): linked after it, as they once were, a failure
+ * there left the items committed without them — and a restore's trash row gone. The ids the rows were given, in
+ * their order, from the batch's own results.
  */
-export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1PreparedStatement[] = []): Promise<number> {
-  if (!rows.length) return 0;
+export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1PreparedStatement[] = []): Promise<number[]> {
+  if (!rows.length) return [];
   const writes: D1PreparedStatement[] = [];
   const itemAt: number[] = []; // each row's item insert, as an index into the batch's results
   for (const r of rows) {
@@ -4342,10 +4431,11 @@ export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1Pr
       .values(r.item.addedAt && r.item.createdAt == null ? { ...values, createdAt: sql`(datetime('now'))` } : values)
       .returning({ id: s.items.id })
       .toSQL();
-    writes.push(...seriesUpsert(d1, r.series));
+    writes.push(...seriesUpsert(d1, r.series, r.keepSeriesTotal ? 'series' : 'draft'));
     itemAt.push(writes.length + 1); // +1: the marker leads the batch
     writes.push(
       d1.prepare(q.sql).bind(...q.params),
+      ...tagLinkStatements(d1, 'newest', r.tags),
       ...readInsertStatements(d1, 'newest', reads, person),
       refreshReadState(d1, 'newest'),
       ...reviewInsertStatements(d1, 'newest', reviews, person),
@@ -4361,15 +4451,7 @@ export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1Pr
     );
   }
   const results = await d1.batch(asImport(d1, [...writes, ...extra]));
-
-  const pairs: Array<{ itemId: number; tag: string }> = [];
-  rows.forEach((r, i) => {
-    const id = (results[itemAt[i]!]?.results[0] as { id: number } | undefined)?.id;
-    if (!id) return;
-    for (const tag of normalizeTags(r.tags)) pairs.push({ itemId: id, tag });
-  });
-  await linkTags(db(d1), pairs);
-  return rows.length;
+  return rows.map((_, i) => (results[itemAt[i]!]?.results[0] as { id: number }).id);
 }
 
 // ---------- Goodreads match-and-merge import ----------
@@ -4624,11 +4706,10 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
               .bind(JSON.stringify([...redate].map(([id, at]) => ({ id, at })))),
           ]
         : [];
+      // the file's tags onto the books it matched, additive, in the same batch (§16 #39)
+      const tags = merges.flatMap((m) => tagLinkStatements(d1, m.id, m.tags));
       // reads and their refresh first, so a rating merged in the same batch is dated by the finish it arrived with
-      await d1.batch(asImport(d1, asWriter(d1, who, [...writes, ...refreshes, ...reviews, ...notes, ...redates, refreshReviewState(d1, ids)])));
-      const pairs: Array<{ itemId: number; tag: string }> = [];
-      for (const m of merges) for (const tag of normalizeTags(m.tags)) pairs.push({ itemId: m.id, tag });
-      await linkTags(dbi, pairs);
+      await d1.batch(asImport(d1, asWriter(d1, who, [...writes, ...refreshes, ...reviews, ...notes, ...redates, refreshReviewState(d1, ids), ...tags])));
     }
     await importItems(d1, inserts);
   }
@@ -4824,21 +4905,31 @@ export type Deleter = { id: number; sessionKey: string } | null;
  */
 export async function trashItems(d1: D1Database, ids: number[], deletedBy: Deleter): Promise<{ trashed: number; expired: string[] }> {
   if (!ids.length) return { trashed: 0, expired: [] };
-  const json = JSON.stringify(ids);
   const [old, , inserted] = await d1.batch([
     ...purgeStatements(d1),
+    ...trashStatements(d1, (table) => `${table}${SELECTED}`, JSON.stringify(ids), deletedBy),
+    pruneSeries(d1),
+  ]);
+  return { trashed: inserted?.meta?.changes ?? 0, expired: expiredKeys(old) };
+}
+
+/**
+ * The two statements that move the items `where` selects into the trash — the snapshot of each, then the delete —
+ * for a batch that leads with the purge. `where` is given the table prefix to write its column under ('i.' for the
+ * snapshot's select, '' for the delete); `bind` is its ?1.
+ */
+function trashStatements(d1: D1Database, where: (table: string) => string, bind: unknown, deletedBy: Deleter): [D1PreparedStatement, D1PreparedStatement] {
+  return [
     d1
       .prepare(
         `INSERT INTO trash (item_id, library_id, library_name, media_type, title, creators, cover_key, payload, deleted_by, deleted_by_key)
          SELECT i.id, i.library_id, (SELECT l.name FROM libraries l WHERE l.id = i.library_id), i.media_type, i.title, i.creators, i.cover_key,
                 ${trashPayloadSql()}, ?2, ?3
-         FROM items i WHERE i.${SELECTED} ORDER BY i.id`,
+         FROM items i WHERE ${where('i.')} ORDER BY i.id`,
       )
-      .bind(json, deletedBy?.id ?? null, deletedBy?.sessionKey ?? null),
-    d1.prepare(`DELETE FROM items WHERE ${SELECTED}`).bind(json),
-    pruneSeries(d1),
-  ]);
-  return { trashed: inserted?.meta?.changes ?? 0, expired: expiredKeys(old) };
+      .bind(bind, deletedBy?.id ?? null, deletedBy?.sessionKey ?? null),
+    d1.prepare(`DELETE FROM items WHERE ${where('')}`).bind(bind),
+  ];
 }
 
 const purgeStatements = (d1: D1Database): [D1PreparedStatement, D1PreparedStatement] => {
@@ -4872,8 +4963,13 @@ export async function listTrash(d1: D1Database): Promise<TrashRow[]> {
   return (await d1.prepare(`SELECT ${TRASH_COLUMNS} FROM trash ORDER BY deleted_at DESC, id DESC`).all<TrashRow>()).results;
 }
 
-export async function getTrash(d1: D1Database, id: number): Promise<(TrashRow & { payload: string }) | null> {
-  return (await d1.prepare(`SELECT ${TRASH_COLUMNS}, payload FROM trash WHERE id = ?1`).bind(id).first<TrashRow & { payload: string }>()) ?? null;
+/** One trash row with its snapshot, and whether it is past TRASH_DAYS — then it is only waiting for the purge. */
+export async function getTrash(d1: D1Database, id: number): Promise<(TrashRow & { payload: string; expired: boolean }) | null> {
+  const row = await d1
+    .prepare(`SELECT ${TRASH_COLUMNS}, payload, (deleted_at < datetime('now', ?2)) AS expired FROM trash WHERE id = ?1`)
+    .bind(id, `-${TRASH_DAYS} days`)
+    .first<TrashRow & { payload: string; expired: number }>();
+  return row ? { ...row, expired: !!row.expired } : null;
 }
 
 /** The snapshot, as the trash row holds it. */
@@ -4895,20 +4991,29 @@ export type TrashPayload = {
   people: Record<string, string>;
 };
 
-/** Why a restore couldn't happen: the row is gone, or its shelf is — by id and name, or by name alone — and must be made first. */
-export type RestoreRefusal = { refused: 'gone' } | { refused: 'no-shelf'; shelf: string | null };
+/**
+ * Why a restore couldn't happen: the row is gone (restored or let go already), past its TRASH_DAYS, or its shelf is
+ * gone — by id and name, or by name alone — and must be made first.
+ */
+export type RestoreRefusal = { refused: 'gone' } | { refused: 'expired' } | { refused: 'no-shelf'; shelf: string | null };
 
 /**
  * Restores a trashed item: its snapshot goes back through the import's insert — the item under a new id, its series,
- * tags, reads, reviews, pages, plays, wants, links and loans — and the trash row goes in the same batch, so a restore
- * can't happen twice. A member removed since is nobody on their reads, reviews, plays and pages, and their wants are
- * dropped: `members` is who exists now. Bracketed as an import, so old reads aren't news to connections (§16 #40).
- * The new item's id, or null when the row is gone.
+ * tags, reads, reviews, pages, plays, wants, links and loans — and the trash row goes in the same batch. The insert
+ * takes the item's title through the trash row itself, while the row is still within its days: a row restored or
+ * purged meanwhile — a Restore clicked twice — has none, the column's NOT NULL fails the whole batch, and D1 rolls it
+ * back, so the restore can't happen twice and nothing of a second one lands (the insert alone gated would leave the
+ * statements after it, which find the item as the newest, writing the snapshot's reads onto whatever is newest).
+ * A member removed since is nobody on their reads, reviews, plays and pages, and their wants are dropped:
+ * `members` is who exists now. Bracketed as an import, so old reads aren't news to connections (§16 #40). The new
+ * item's id, from the insert's own RETURNING, or why not.
  */
 export async function restoreFromTrash(d1: D1Database, trashId: number, members: Map<number, string>): Promise<{ id: number } | RestoreRefusal> {
   const row = await getTrash(d1, trashId);
   if (!row) return { refused: 'gone' };
+  if (row.expired) return { refused: 'expired' };
   const p = JSON.parse(row.payload) as TrashPayload;
+  if (!p.item) return { refused: 'expired' }; // a snapshot the sweep has let go of
   // a person only while the id still has the key it had (§16 #56): a member given the id since gets nothing of theirs
   const people = p.people ?? {};
   const who = (id: number | null | undefined): number | null =>
@@ -4916,18 +5021,23 @@ export async function restoreFromTrash(d1: D1Database, trashId: number, members:
   // its shelf: the one it was on, if still so named (shelf ids are reused too); else a shelf of that name; else none
   const shelf = await shelfForRestore(d1, row.libraryId, row.libraryName);
   if (shelf === null) return { refused: 'no-shelf', shelf: row.libraryName };
-  const { seriesId: _series, ...rest } = p.item as Record<string, unknown> & { seriesId?: unknown };
-  // the time its stamp to connections was taken from (§16 #90), so a book back under its own id is still that book
+  const { seriesId: _series, title: _title, ...rest } = p.item as Record<string, unknown> & { seriesId?: unknown; title?: unknown };
+  // the time its stamp to connections was taken from (§16 #90): kept only when the book comes back under its own id,
+  // which the insert decides for itself — under any other id it would be the stamp of whatever book had that id at
+  // that second — else the insert's own time, as a file-dated row takes
+  const stampedAt = (rest['createdAt'] as string | null | undefined) ?? (rest['addedAt'] as string);
   const item = {
     ...rest,
+    title: sql`(SELECT title FROM trash WHERE id = ${trashId} AND deleted_at >= datetime('now', ${`-${TRASH_DAYS} days`}))` as unknown as string,
     libraryId: shelf,
     addedBy: who(rest['addedBy'] as number | null),
-    createdAt: (rest['createdAt'] as string | null | undefined) ?? (rest['addedAt'] as string),
+    createdAt: sql`CASE WHEN (SELECT coalesce(max(id), 0) + 1 FROM items) = ${row.itemId} THEN ${stampedAt} ELSE datetime('now') END` as unknown as string,
   } as NewItem;
   const importRow: ImportRow = {
     item,
     tags: p.tags ?? [],
     series: p.series ? { name: p.series.name, number: p.series.number, total: p.series.total } : null,
+    keepSeriesTotal: true, // the series' total as it is now, if the series is still here: the snapshot's may be older
     reads: (p.reads ?? []).map((r) => ({ status: r.status, beganOn: r.beganOn, endedOn: r.endedOn, readerId: who(r.readerId) })),
     reviews: (p.reviews ?? []).map((r) => ({ rating: r.rating, review: r.review, reviewedAt: r.reviewedAt, ratedAt: r.ratedAt, userId: who(r.userId) })),
     loans: p.loans ?? [],
@@ -4944,16 +5054,19 @@ export async function restoreFromTrash(d1: D1Database, trashId: number, members:
       read: pr.read ? { ...pr.read, readerId: who(pr.read.readerId) } : null,
     })),
   };
-  const before = (await d1.prepare('SELECT max(id) AS id FROM items').first<{ id: number | null }>())?.id ?? 0;
   // the latest page reached is the item's own column (progress_page), which an insert derives from its reads alone —
   // the pages are inserted after it, so it is written back from the snapshot once they are
   const latestPage = typeof rest['progressPage'] === 'number' ? rest['progressPage'] : null;
-  await importItems(d1, [importRow], [
-    ...(latestPage === null ? [] : [d1.prepare('UPDATE items SET progress_page = ?1 WHERE id = (SELECT max(id) FROM items)').bind(latestPage)]),
-    d1.prepare('DELETE FROM trash WHERE id = ?1').bind(trashId),
-  ]);
-  const after = (await d1.prepare('SELECT max(id) AS id FROM items').first<{ id: number | null }>())?.id ?? 0;
-  return after > before ? { id: after } : { refused: 'gone' };
+  try {
+    const [id] = await importItems(d1, [importRow], [
+      ...(latestPage === null ? [] : [d1.prepare('UPDATE items SET progress_page = ?1 WHERE id = (SELECT max(id) FROM items)').bind(latestPage)]),
+      d1.prepare('DELETE FROM trash WHERE id = ?1').bind(trashId),
+    ]);
+    return id === undefined ? { refused: 'gone' } : { id };
+  } catch (err) {
+    if (refusedBy(err, 'items.title')) return { refused: 'gone' }; // restored or purged since it was read
+    throw err;
+  }
 }
 
 /** The shelf a restore goes to: the id it had while that shelf is still so named, else a shelf so named, else null. */

@@ -13,12 +13,17 @@ import {
   createShare,
   exportCellsForIdRange,
   getItem,
+  lendIfFree,
   listMembersWithKeys,
   listTrash,
+  markNotOwnedUnlessLent,
   memberKeys,
   restoreFromTrash,
   returnBorrow,
+  returnLoan,
+  tagsForItem,
   trashItems,
+  updateItemWithTags,
 } from '../src/db/queries';
 import type { NewItem } from '../src/db/schema';
 import { formatLoansCell, parseLoansCell } from '../src/lib/loans';
@@ -214,6 +219,89 @@ describe('theirs until returned', () => {
     // the session's member and the sidebar's shelves, then what is borrowed from people and what was returned —
     // the connections' three reads (borrowed items, requests, connections) would make it seven
     expect(1000 - budget.left).toBe(4);
+  });
+});
+
+describe('a lent copy is still ours', () => {
+  const lend = (itemId: number, borrower = 'Priya') => lendIfFree(env.DB, { itemId, borrower, loanedOn: '2026-09-01', contact: null, dueOn: null });
+  const openLoans = (itemId: number) => rows<{ id: number }>('SELECT id FROM loans WHERE item_id = ?1 AND returned_on IS NULL ORDER BY id', itemId);
+
+  it('the Holding toggle refuses to zero a copy out on loan — in the statement — and says why', async () => {
+    const { item } = await shelf();
+    const ravi = await member('ravi');
+    const book = await item({ title: 'Lent book', copies: 1 });
+    expect(await lend(book.id)).toBe(true);
+    const res = await as(ravi, `/items/${book.id}/mark-not-owned`, { body: {}, htmx: true });
+    expect(res.status).toBe(200);
+    const swap = await res.text();
+    expect(swap).toContain('Out on loan to Priya — mark it returned first.');
+    expect(swap).toContain('mark-not-owned'); // the same button again, not the Not owned one
+    expect((await getItem(env.DB, book.id))!.copies).toBe(1);
+    expect(await rows('SELECT id FROM item_history WHERE item_id = ?1', book.id)).toEqual([]); // nothing changed, nothing recorded
+    // the statement alone: a count of 2 or more is never the toggle's to zero either (§16 #27)
+    const two = await item({ title: 'Two copies', copies: 2 });
+    expect(await markNotOwnedUnlessLent(env.DB, two.id)).toBe(false);
+    expect((await getItem(env.DB, two.id))!.copies).toBe(2);
+    // returned: the toggle takes it
+    await returnLoan(env.DB, (await openLoans(book.id))[0]!.id, '2026-10-01');
+    expect(await (await as(ravi, `/items/${book.id}/mark-not-owned`, { body: {}, htmx: true })).text()).toContain('mark-owned');
+    expect((await getItem(env.DB, book.id))!.copies).toBe(0);
+  });
+
+  it('is never lent and borrowed at once: a borrow is refused in its statement while a loan is open, with the reason', async () => {
+    const { item } = await shelf();
+    const ravi = await member('ravi');
+    const book = await item({ title: 'Lent book', copies: 1 });
+    await lend(book.id);
+    await as(ravi, `/items/${book.id}/mark-not-owned`, { body: {}, htmx: true }); // refused: still our copy
+    expect((await as(ravi, `/items/${book.id}/borrow`, { body: { lender: 'Asha' } })).status).toBe(400);
+    // a Not owned item with an open loan, as the toggle once left it: the borrow is still refused
+    await env.DB.prepare('UPDATE items SET copies = 0 WHERE id = ?1').bind(book.id).run();
+    expect(await borrowIfNotOwned(env.DB, { itemId: book.id, lender: 'Asha', borrowedOn: '2026-10-01', contact: null, dueOn: null, note: null })).toBe(false);
+    const again = await as(ravi, `/items/${book.id}/borrow`, { body: { lender: 'Asha' } });
+    expect(again.status).toBe(409);
+    expect(await again.text()).toContain('out on loan — mark it returned first');
+    expect(await borrowed(book.id)).toEqual([]);
+  });
+
+  it('bulk edit’s "Mark not owned" skips an item out on loan, and counts it as skipped', async () => {
+    const { item } = await shelf();
+    const lent = await item({ title: 'Lent', copies: 1 });
+    const plain = await item({ title: 'Plain', copies: 1 });
+    await lend(lent.id);
+    expect(await bulkSetOwned(env.DB, [lent.id, plain.id], false)).toMatchObject({ found: 2, changed: 1, skipped: 1 });
+    expect((await getItem(env.DB, lent.id))!.copies).toBe(1);
+    expect((await getItem(env.DB, plain.id))!.copies).toBe(0);
+  });
+
+  it('the edit form refuses copies below what is out on loan — in the statement, saving nothing else of the form', async () => {
+    const { lib, item } = await shelf();
+    const ravi = await member('ravi');
+    const book = await item({ title: 'Lent book', copies: 2 });
+    await lend(book.id, 'Priya');
+    await lend(book.id, 'Mira');
+    const form = (copies: string) =>
+      as(ravi, `/items/${book.id}`, { body: { title: 'Lent book', libraryId: String(lib.id), mediaType: 'book', copies, tags: 'new-tag', notes: 'typed' } });
+    const zero = await form('0');
+    expect(zero.status).toBe(400);
+    expect(await zero.text()).toContain('2 copies are out on loan — mark them returned before counting fewer.');
+    expect((await getItem(env.DB, book.id))!).toMatchObject({ copies: 2, notes: null });
+    expect(await tagsForItem(env.DB, book.id)).toEqual([]); // the batch failed whole: no tag, no note landed
+    expect((await form('1')).status).toBe(400);
+    // the count out, or more: saved, with the rest of the form
+    expect((await form('2')).status).toBe(302);
+    expect((await getItem(env.DB, book.id))!).toMatchObject({ copies: 2, notes: 'typed' });
+    expect(await tagsForItem(env.DB, book.id)).toEqual(['new-tag']);
+    expect((await form('3')).status).toBe(302);
+    expect((await getItem(env.DB, book.id))!.copies).toBe(3);
+    // the borrow check too is the statement's, not only the route's: a borrow open, no copy counted as yours
+    const lentToUs = await item({ title: 'Lent to us', copies: 0 });
+    await borrowIfNotOwned(env.DB, { itemId: lentToUs.id, lender: 'Priya', borrowedOn: '2026-09-01', contact: null, dueOn: null, note: null });
+    expect(await updateItemWithTags(env.DB, lentToUs.id, { copies: 1, notes: 'typed' }, ['tagged'])).toBe(false);
+    expect((await getItem(env.DB, lentToUs.id))!).toMatchObject({ copies: 0, notes: null });
+    expect(await tagsForItem(env.DB, lentToUs.id)).toEqual([]);
+    expect(await updateItemWithTags(env.DB, lentToUs.id, { copies: 0, notes: 'typed' }, ['tagged'])).toBe(true);
+    expect(await tagsForItem(env.DB, lentToUs.id)).toEqual(['tagged']);
   });
 });
 

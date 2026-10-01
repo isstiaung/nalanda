@@ -321,7 +321,7 @@ importexport.post('/api/import', async (c) => {
     const { inserted, merged, reads, dated } = await mergeImportItems(c.env.DB, withOwners, false, writerOf(c), dates);
     return c.json({ inserted, merged, reads, skipped, dated: dates ? dated : 0, format });
   }
-  const inserted = await importItems(c.env.DB, withOwners);
+  const inserted = (await importItems(c.env.DB, withOwners)).length;
   return c.json({ inserted, merged: 0, skipped, format });
 });
 
