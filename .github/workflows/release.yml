@@ -1,6 +1,6 @@
 name: Release
 
-# Publishes a GitHub Release when a version tag is pushed, with that version's section of CHANGELOG.md as
+# Publishes a GitHub Release when a version tag is pushed, with that version's file, changelog/vX.Y.Z.md, as
 # its notes. GitHub runs this file as it is in the tagged commit, so it only fires for tags on commits that
 # carry it: v1.0.0, tagged after the fact on a commit from before it existed, was published by hand. It never deploys: deploys happen elsewhere (runbooks/deploy.md), and nothing here should ever
 # be given a deploy token. The only credential is the job's own GITHUB_TOKEN, allowed to write releases.
@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0 # the notes come from main's CHANGELOG.md, which covers every release
+          fetch-depth: 0 # the notes come from main's changelog/, which holds a file for every release
           persist-credentials: false # gh takes its token from GH_TOKEN; nothing else needs it
 
       # A release is a commit on main. A version tag pushed anywhere else would otherwise publish main's notes
@@ -41,14 +41,28 @@ jobs:
             exit 1
           fi
 
-      - name: Take this version's notes from CHANGELOG.md
+      # A release commit renames changelog/unreleased.md to changelog/vX.Y.Z.md, headed "## [X.Y.Z] - date".
+      # The notes are that file without its heading line and without link definitions ("[1.3.0]: https://…").
+      - name: Take this version's notes from changelog/
         run: |
           version="${GITHUB_REF_NAME#v}"
-          git show origin/main:CHANGELOG.md \
-            | awk -v heading="## [$version]" 'index($0, "## [") == 1 { if (found) exit; found = (index($0, heading) == 1); next } found && !/^\[[0-9]+\.[0-9]+\.[0-9]+\]: /' \
-            > notes.md
-          if [ ! -s notes.md ]; then
-            echo "::error::CHANGELOG.md on main has no section for $version"
+          file="changelog/v$version.md"
+          if ! git cat-file -e "origin/main:$file" 2>/dev/null; then
+            echo "::error::main has no $file (a release commit renames changelog/unreleased.md to it)"
+            exit 1
+          fi
+          git show "origin/main:$file" > release.md
+          heading="$(head -n 1 release.md)"
+          case "$heading" in
+            "## [$version] - "*) ;;
+            *)
+              echo "::error::$file must start with \"## [$version] - <date>\", not \"$heading\""
+              exit 1
+              ;;
+          esac
+          awk 'NR > 1 && !/^\[[0-9]+\.[0-9]+\.[0-9]+\]: /' release.md > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then
+            echo "::error::$file on main has a heading but no notes"
             exit 1
           fi
 
