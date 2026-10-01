@@ -331,6 +331,29 @@ export const itemHistory = sqliteTable(
   (t) => [index('idx_item_history_item').on(t.itemId, t.id), index('idx_item_history_at').on(t.at)], // `at`: the sweep past HISTORY_DAYS on every item write
 );
 
+/**
+ * A member's read-only API tokens (ARCH.md §16 #88): made on the Account page, shown once, kept only as a SHA-256 hash.
+ * Bound to the account as a session is — its id, its key (#56) and the generation it was made in (#70) — so a removed
+ * member's token signs in nobody, and "Sign out other devices", a new password or a reset take every token down.
+ */
+export const apiTokens = sqliteTable(
+  'api_tokens',
+  {
+    // AUTOINCREMENT: a token's id is in its revoke route, so it never names another token
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    sessionKey: text('session_key').notNull(),
+    generation: integer('generation').notNull(),
+    name: text('name').notNull(),
+    tokenHash: text('token_hash').notNull().unique(), // SHA-256 of the secret, hex; the secret itself is never stored
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (t) => [index('idx_api_tokens_user').on(t.userId)],
+);
+export type ApiToken = typeof apiTokens.$inferSelect;
+
 export const loginAttempts = sqliteTable('login_attempts', {
   ip: text('ip').notNull(),
   attemptedAt: text('attempted_at').notNull().default(now),

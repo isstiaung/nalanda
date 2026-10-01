@@ -286,13 +286,18 @@ export async function setPassword(
   passwordHash: string,
   mustChangePassword: boolean,
 ): Promise<{ id: number; sessionKey: string; sessionGeneration: number } | null> {
-  const row = await d1
-    .prepare(
-      `UPDATE users SET password_hash = ?2, must_change_password = ?3, session_generation = session_generation + 1
-       WHERE id = ?1 RETURNING id, session_key AS sessionKey, session_generation AS sessionGeneration`,
-    )
-    .bind(id, passwordHash, mustChangePassword ? 1 : 0)
-    .first<{ id: number; sessionKey: string; sessionGeneration: number }>();
+  // their API tokens go too (§16 #88), as with "Sign out other devices": the generation would refuse them anyway, and
+  // a dead token must not sit in the list or count towards the cap — one batch, both or neither
+  const [moved] = await d1.batch([
+    d1
+      .prepare(
+        `UPDATE users SET password_hash = ?2, must_change_password = ?3, session_generation = session_generation + 1
+         WHERE id = ?1 RETURNING id, session_key AS sessionKey, session_generation AS sessionGeneration`,
+      )
+      .bind(id, passwordHash, mustChangePassword ? 1 : 0),
+    d1.prepare('DELETE FROM api_tokens WHERE user_id = ?1').bind(id),
+  ]);
+  const row = moved?.results?.[0] as { id: number; sessionKey: string; sessionGeneration: number } | undefined;
   return row ?? null;
 }
 
@@ -305,14 +310,103 @@ export async function signOutOtherDevices(
   d1: D1Database,
   id: number,
 ): Promise<{ id: number; sessionKey: string; sessionGeneration: number } | null> {
+  // their API tokens go with the other devices (§16 #88): the generation check would refuse them anyway, this keeps
+  // the Account page's list honest — one batch, both or neither
+  const [moved] = await d1.batch([
+    d1
+      .prepare(
+        `UPDATE users SET session_generation = session_generation + 1
+         WHERE id = ?1 RETURNING id, session_key AS sessionKey, session_generation AS sessionGeneration`,
+      )
+      .bind(id),
+    d1.prepare('DELETE FROM api_tokens WHERE user_id = ?1').bind(id),
+  ]);
+  const row = moved?.results?.[0] as { id: number; sessionKey: string; sessionGeneration: number } | undefined;
+  return row ?? null;
+}
+
+// ---------- read-only API tokens (ARCH.md §16 #88) ----------
+
+export const MAX_API_TOKENS = 10;
+export const MAX_TOKEN_NAME = 60;
+/** The API's page: items a request, by id, as the export pages (§16 #38). */
+export const API_PAGE = 250;
+
+/** Keeps a new token's hash for the account as it is now — its key and generation — at most MAX_API_TOKENS a member. The id, or null when the member has as many as allowed. */
+export async function createApiToken(d1: D1Database, user: { id: number; sessionKey: string; sessionGeneration: number }, name: string, tokenHash: string): Promise<number | null> {
   const row = await d1
     .prepare(
-      `UPDATE users SET session_generation = session_generation + 1
-       WHERE id = ?1 RETURNING id, session_key AS sessionKey, session_generation AS sessionGeneration`,
+      `INSERT INTO api_tokens (user_id, session_key, generation, name, token_hash)
+       SELECT ?1, ?2, ?3, ?4, ?5 WHERE (SELECT count(*) FROM api_tokens WHERE user_id = ?1) < ?6 RETURNING id`,
     )
-    .bind(id)
-    .first<{ id: number; sessionKey: string; sessionGeneration: number }>();
-  return row ?? null;
+    .bind(user.id, user.sessionKey, user.sessionGeneration, name, tokenHash, MAX_API_TOKENS)
+    .first<{ id: number }>();
+  return row?.id ?? null;
+}
+
+/** A member's tokens, oldest first. Every path that moves the account's generation on deletes them, so each listed one works. */
+export async function listApiTokens(d1: D1Database, userId: number): Promise<Array<{ id: number; name: string; createdAt: string }>> {
+  return (await d1.prepare('SELECT id, name, created_at AS createdAt FROM api_tokens WHERE user_id = ?1 ORDER BY id').bind(userId).all<{ id: number; name: string; createdAt: string }>()).results;
+}
+
+/**
+ * What the Account page shows of the member beside their tokens (§16 #88): the display name, and every token, in one
+ * call — the two statements as one batch, as getUserById was one. Columns are aliased to their names in code: a raw
+ * row keeps SQL's names (display_name), which the page would read past.
+ */
+export async function userWithTokens(d1: D1Database, userId: number): Promise<{ displayName: string | null; tokens: Array<{ id: number; name: string; createdAt: string }> }> {
+  const [u, t] = await d1.batch([
+    d1.prepare('SELECT display_name AS displayName FROM users WHERE id = ?1').bind(userId),
+    d1.prepare('SELECT id, name, created_at AS createdAt FROM api_tokens WHERE user_id = ?1 ORDER BY id').bind(userId),
+  ]);
+  return {
+    displayName: ((u?.results ?? [])[0] as { displayName: string | null } | undefined)?.displayName ?? null,
+    tokens: (t?.results ?? []) as Array<{ id: number; name: string; createdAt: string }>,
+  };
+}
+
+/** Revokes one of the member's own tokens. */
+export async function revokeApiToken(d1: D1Database, userId: number, id: number): Promise<boolean> {
+  const res = await d1.prepare('DELETE FROM api_tokens WHERE id = ?1 AND user_id = ?2').bind(id, userId).run();
+  return res.meta.changes > 0;
+}
+
+/**
+ * The account a token signs in, or null: the token's hash, then the user row it names — still the same key and the
+ * same generation, as a session must be (sessionMatches) — in one call.
+ */
+export type TokenUser = Pick<User, 'id' | 'username' | 'role' | 'mustChangePassword' | 'sessionKey' | 'sessionGeneration'>;
+export async function apiTokenUser(d1: D1Database, tokenHash: string): Promise<TokenUser | null> {
+  const row = await d1
+    .prepare(
+      `SELECT u.id, u.username, u.role, u.must_change_password AS mustChangePassword, u.session_key AS sessionKey,
+              u.session_generation AS sessionGeneration
+       FROM api_tokens t JOIN users u ON u.id = t.user_id
+       WHERE t.token_hash = ?1 AND u.session_key = t.session_key AND u.session_generation = t.generation`,
+    )
+    .bind(tokenHash)
+    .first<Omit<TokenUser, 'mustChangePassword'> & { mustChangePassword: number }>();
+  return row ? { ...row, mustChangePassword: !!row.mustChangePassword } : null;
+}
+
+/**
+ * The API's items (§16 #88): the shelf's filters — a token sees what its member sees, "Read by" and the decluttering
+ * filters included — paged by id after `afterId`, API_PAGE + 1 rows so the caller knows whether a page follows.
+ */
+export async function apiItems(
+  d1: D1Database,
+  libraryId: number | null,
+  f: ItemFilters,
+  reader: ReaderFilter | undefined,
+  stale: StaleFilter | undefined,
+  afterId: number,
+): Promise<Item[]> {
+  return db(d1)
+    .select()
+    .from(s.items)
+    .where(and(itemFilterWhere(libraryId, f, reader, stale), gt(s.items.id, afterId)))
+    .orderBy(asc(s.items.id))
+    .limit(API_PAGE + 1);
 }
 
 // ---------- login throttling ----------

@@ -26,7 +26,7 @@ page, since it moves them on every shelf.
 - **The row's own time is kept.** A connection names a book by `itemStamp()`, a hash of the id and
   the row's time, because ids are reused (#56); re-dating would have broken every feed entry,
   comment thread and borrow request a connection holds for the book. So `items.created_at` (nullable,
-  migration 0051) takes the `added_at` being replaced, the first time only — the one statement
+  migration 0052) takes the `added_at` being replaced, the first time only — the one statement
   `SET created_at = coalesce(created_at, added_at), added_at = …` — and the stamp is taken from
   `created_at ?? added_at`. Every existing stamp is unchanged, a row never re-dated has no
   `created_at`, and a book re-dated twice keeps the time it was first made here. A row a file

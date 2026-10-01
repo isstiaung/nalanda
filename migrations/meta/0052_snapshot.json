@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ed273d4a-a9c9-4933-9083-a9ea4874f9b0",
-  "prevId": "c51737a1-94ce-4907-b869-b1aae81d5ef7",
+  "id": "4865aef7-1220-4fb6-a0f4-6dcd2c53bf0e",
+  "prevId": "ed273d4a-a9c9-4933-9083-a9ea4874f9b0",
   "tables": {
     "acting": {
       "name": "acting",
@@ -1831,6 +1831,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(datetime('now'))"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "series_id": {
           "name": "series_id",
