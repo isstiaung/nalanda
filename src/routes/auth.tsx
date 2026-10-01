@@ -4,13 +4,15 @@ import {
   countUsers,
   createFirstAdmin,
   ensureSessionKey,
+  forgetLoginAttempt,
   getUserByUsername,
-  recentLoginAttempts,
+  LOGIN_ATTEMPT_WINDOW_MINUTES,
   recordLoginAttempt,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import {
   createSessionToken,
+  DUMMY_HASH,
   hasSessionSecret,
   hashPassword,
   isSessionKey,
@@ -112,22 +114,32 @@ auth.get('/login', async (c) => {
   return page(c, 'Log in', <LoginForm note={note} />);
 });
 
+/** The lockout, as the login page and Account both answer it: the sentence, and 429 so a script can tell it from a wrong guess. */
+export const TOO_MANY_ATTEMPTS = `Too many attempts — try again in ${LOGIN_ATTEMPT_WINDOW_MINUTES} minutes.`;
+
+/** Where a request comes from, for throttling: Cloudflare's header, or "local" under `wrangler dev`. */
+export const clientIp = (c: Context<AppEnv>): string => c.req.header('cf-connecting-ip') ?? 'local';
+
 auth.post('/auth/login', async (c) => {
   const secret = c.env.SESSION_SECRET;
   if (!hasSessionSecret(secret)) return noSessionSecret(c);
-  const ip = c.req.header('cf-connecting-ip') ?? 'local';
-  if ((await recentLoginAttempts(c.env.DB, ip)) >= 10) {
-    return page(c, 'Log in', <LoginForm error="Too many attempts — try again in 10 minutes." fieldsWrong={false} />);
-  }
   const body = await c.req.parseBody();
   const username = String(body['username'] ?? '').trim();
   const password = String(body['password'] ?? '');
-  const user = username ? await getUserByUsername(c.env.DB, username) : null;
-  const ok = user ? await verifyPassword(password, user.passwordHash) : false;
-  if (!user || !ok) {
-    await recordLoginAttempt(c.env.DB, ip);
-    return page(c, 'Log in', <LoginForm error="Wrong username or password." />);
+  // Counted before the password is checked, in the statement that counts (ARCH.md §8): ten failures in ten minutes
+  // from this address, or at this account from anywhere, and the guess isn't checked at all — the right password
+  // included, until they age out.
+  const attempt = await recordLoginAttempt(c.env.DB, clientIp(c), username);
+  if (!attempt) {
+    c.status(429);
+    return page(c, 'Log in', <LoginForm error={TOO_MANY_ATTEMPTS} fieldsWrong={false} />);
   }
+  const user = username ? await getUserByUsername(c.env.DB, username) : null;
+  // a name nobody has is checked against a fixed hash: the answer takes as long either way, and says nothing about
+  // which usernames exist
+  const ok = (await verifyPassword(password, user?.passwordHash ?? DUMMY_HASH)) && user !== null;
+  if (!user || !ok) return page(c, 'Log in', <LoginForm error="Wrong username or password." />);
+  await forgetLoginAttempt(c.env.DB, attempt); // no failure: a login counts towards nobody's ten
   // an account restored from an older backup, or added by hand, has no key yet: it gets one now
   const account = isSessionKey(user.sessionKey) ? user : await ensureSessionKey(c.env.DB, user.id);
   if (!account) return page(c, 'Log in', <LoginForm error="Wrong username or password." />);
@@ -137,6 +149,9 @@ auth.post('/auth/login', async (c) => {
 
 auth.post('/auth/logout', (c) => {
   deleteCookie(c, SESSION_COOKIE, { path: '/' });
+  // the browser's cache of this origin goes with the session (signed-in pages are no-store, this is for whatever a
+  // browser kept anyway); app.js empties the device's scan queue on the same click (§16 #48)
+  c.header('Clear-Site-Data', '"cache"');
   return c.redirect('/login');
 });
 

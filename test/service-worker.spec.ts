@@ -55,14 +55,16 @@ describe('the service worker, as served', () => {
     expect(res.headers.get('x-content-type-options')).toBe('nosniff'); // still hardened
   });
 
-  it('leaves the caching headers of signed-in pages as they were: none', async () => {
+  // the worker never stores a page; since 2026-10-01 (§16 #48 amended) the page says the same to the browser's own
+  // cache — test/browser-cache.spec.ts has the rest
+  it('signed-in pages tell the browser to keep nothing either', async () => {
     const admin = await member('ravi', 'admin');
     for (const path of ['/', '/add', '/loans', '/search?q=x']) {
       const ctx = createExecutionContext();
       const res = await app.fetch(new Request(`${ORIGIN}${path}`, { headers: { cookie: admin.cookie } }), env, ctx);
       await waitOnExecutionContext(ctx);
       expect(res.status, path).toBe(200);
-      expect(res.headers.get('cache-control'), path).toBeNull();
+      expect(res.headers.get('cache-control'), path).toBe('no-store');
     }
   });
 

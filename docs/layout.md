@@ -76,6 +76,10 @@ public/            app.css, scanner.js, import.js, qr.js (each share link's QR c
                    + bgg/ (BGG's "Powered by BGG" logos, committed unmodified — its API terms
                    require them beside its data; src/views/attribution.tsx, ARCH.md §16 #44 —
                    Discogs' credit, text only, lives there too, §16 #63)
+                   + _headers (Cloudflare serves these files before the Worker runs, so
+                   secureHeaders() never sees them: X-Frame-Options and nosniff for every one,
+                   Cache-Control left at the asset server's revalidate-always default; never served
+                   itself; honoured by wrangler dev and the tests' ASSETS binding alike)
 migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
 test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;
                    apply-migrations.ts resets + re-migrates D1 before EVERY test and fails

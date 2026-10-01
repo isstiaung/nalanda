@@ -1,0 +1,9 @@
+# Headers for the static files in this folder. Cloudflare serves them before the Worker runs (wrangler.jsonc's
+# assets, with no run_worker_first), so secureHeaders() in src/index.ts never sees them: what every Worker answer
+# carries, these carry here. Honoured by `wrangler dev`, the tests' ASSETS binding and the deploy alike; this file
+# itself is never served. Cache-Control is left at the asset server's default (revalidate every time, by ETag):
+# nothing here is content-addressed, so a longer life would keep a browser on an old htmx or font after a bump,
+# and sw.js and the manifest must be re-read on every load. (docs/layout.md)
+/*
+  X-Frame-Options: SAMEORIGIN
+  X-Content-Type-Options: nosniff

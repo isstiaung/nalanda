@@ -47,8 +47,10 @@ const cleanAuthor = (raw: unknown): string | null => {
 type Looked = { author: string; works: Candidate[] | null; held: Array<number | null> };
 
 async function discoverPage(c: Context<AppEnv>, authors: Array<{ name: string; books: number }>, looked?: Looked) {
-  const [libs, shelfFor] = await Promise.all([listLibraries(c.env.DB), shelfForType(c.env.DB)]);
   const works = looked?.works ?? [];
+  // the cards' shelves and the shelf each type starts on: read only when there are cards, and the list handed to page()
+  // for the sidebar rather than read a second time (§16 #68) — a bare page reads neither
+  const [libs, shelfFor] = works.length ? await Promise.all([listLibraries(c.env.DB), shelfForType(c.env.DB)]) : [undefined, {}];
   const fresh = looked ? works.filter((_, i) => looked.held[i] === null) : [];
   const here = looked ? works.length - fresh.length : 0;
   return page(
@@ -102,13 +104,14 @@ async function discoverPage(c: Context<AppEnv>, authors: Array<{ name: string; b
               Open Library didn’t answer — try again in a moment.
             </p>
           ) : looked.works.length ? (
-            looked.works.map((candidate, i) => <CandidateCard candidate={candidate} libraries={libs} inCatalog={looked.held[i]} shelfFor={shelfFor} />)
+            looked.works.map((candidate, i) => <CandidateCard candidate={candidate} libraries={libs ?? []} inCatalog={looked.held[i]} shelfFor={shelfFor} />)
           ) : (
             <p class="muted">Open Library lists nothing for that name right now.</p>
           )}
         </section>
       ) : null}
     </>,
+    libs,
   );
 }
 
