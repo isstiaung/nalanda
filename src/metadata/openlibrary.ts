@@ -50,13 +50,15 @@ export function seriesOf(doc: Pick<OlDoc, 'series_name' | 'series_position'>): {
   return { series: { name, number: aligned ? (parseSeriesNumber(doc.series_position?.[0]) ?? null) : null } };
 }
 
-function toCandidate(doc: OlDoc, isbn13?: string): Candidate | null {
+/** A doc as a candidate, with the ISBN it was found by — an ISBN-13, or an ISBN-10, which is never passed off as one. */
+function toCandidate(doc: OlDoc, isbn13?: string, isbn10?: string): Candidate | null {
   if (!doc.title) return null;
-  // ?default=false makes OL 404 instead of serving a 1px placeholder for unknown ISBNs
+  // ?default=false makes OL 404 instead of serving a 1px placeholder for unknown ISBNs; either ISBN names the edition
+  const isbn = isbn10 ?? isbn13;
   const coverUrl = doc.cover_i
     ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`
-    : isbn13
-      ? `https://covers.openlibrary.org/b/isbn/${isbn13}-L.jpg?default=false`
+    : isbn
+      ? `https://covers.openlibrary.org/b/isbn/${isbn}-L.jpg?default=false`
       : undefined;
   return {
     mediaType: 'book',
@@ -66,6 +68,7 @@ function toCandidate(doc: OlDoc, isbn13?: string): Candidate | null {
     published: doc.first_publish_year?.toString(),
     length: doc.number_of_pages_median ?? undefined,
     isbn13,
+    isbn10Upc: isbn10,
     coverUrl,
     workKey: doc.key?.startsWith('/works/') ? doc.key : undefined,
     ...seriesOf(doc),
@@ -101,8 +104,10 @@ export const openLibrary: MetadataProvider = {
   async lookupByBarcode(code: string): Promise<Candidate | null> {
     // Lean: the ISBN recorded is the one that was scanned, so the doc's edition list is never read —
     // and Open Library sends the whole thing (70 KB for a much-reprinted work) even at limit 1.
+    // An ISBN-10 is recorded as one; the ISBN-13 it stands for is the router's to add (lookupByBarcode in index.ts).
     const { docs } = await searchOl(`isbn:${code}`, 1, LEAN_FIELDS);
-    return docs[0] ? toCandidate(docs[0], code) : null;
+    if (!docs[0]) return null;
+    return code.length === 13 ? toCandidate(docs[0], code) : toCandidate(docs[0], undefined, code);
   },
 
   async search(query: string): Promise<Candidate[]> {

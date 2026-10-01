@@ -219,8 +219,10 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   reaches only `GET /account` and `POST /account/password` (`mustChangeMayReach()`).
 - Never hand-edit drizzle-generated migrations (hand-written SQL goes in `--custom` ones); never
   edit a migration that has been applied anywhere.
-- Barcode routing (`src/metadata/index.ts`): EAN-13 `978`/`979` → book providers (merged); any
-  other EAN/UPC → Discogs. Tags are normalized lowercase at write time; uniqueness by exact string.
+- Barcode routing (`src/metadata/index.ts`): EAN-13 `978`/`979` → book providers (merged); an
+  ISBN-10 (nine digits and a check digit, `X` allowed) likewise, kept as `isbn10Upc` with its ISBN-13
+  derived (`isbn13Of()`) unless Google Books names one; any other EAN/UPC → Discogs. Tags are
+  normalized lowercase at write time; uniqueness by exact string.
 - Reads (`reads`, one row per read, each with its reader) and reviews (`reviews`, one per member
   per item) are per member. The `items` summary columns (`status`, `began_on`, `completed_on`,
   `read_count`, `rereading`, `progress_page`, `rating`, `review`) are written only by

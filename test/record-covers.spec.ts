@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createItem, createLibrary, getItem } from '../src/db/queries';
 import type { Bindings } from '../src/env';
 import { scanQueueOwner } from '../src/lib/auth';
-import { fetchCover } from '../src/lib/covers';
+import { fetchCover, isDiscogsUrl } from '../src/lib/covers';
 import { findCover } from '../src/metadata';
 import { pickRelease, recordCover, releaseByBarcode, resetMusicBrainzPacing, type MbRelease } from '../src/metadata/musicbrainz';
 import { CandidateCard } from '../src/views/components';
@@ -195,7 +195,8 @@ describe('a cover URL typed by hand', () => {
     const asha = await member('asha', 'admin');
     const shelf = await createLibrary(env.DB, 'Records');
     const urls = requested();
-    for (const url of [DISCOGS_IMAGE, 'https://img.discogs.com/abc=/fit-in/600x600/R-1.jpeg', 'https://discogs.com/x.jpg']) {
+    // the fully qualified spelling, with its trailing dot, names the same host — DNS reads it so, and so does the check
+    for (const url of [DISCOGS_IMAGE, 'https://img.discogs.com/abc=/fit-in/600x600/R-1.jpeg', 'https://discogs.com/x.jpg', 'https://i.discogs.com./cover/R-7700123.jpeg', 'https://I.DISCOGS.COM./x.jpg']) {
       const res = await as(asha, '/items', { body: { libraryId: String(shelf.id), mediaType: 'vinyl', title: 'Typed', coverUrl: url } });
       expect(res.status, url).toBe(400);
       const page = await res.text();
@@ -212,10 +213,19 @@ describe('a cover URL typed by hand', () => {
 
   it('is never fetched from a Discogs host, whatever path asks', async () => {
     const urls = requested();
-    for (const url of [DISCOGS_IMAGE, 'https://api-img.discogs.com/x/R-1.jpg', 'http://www.discogs.com/image.jpg']) {
+    for (const url of [DISCOGS_IMAGE, 'https://api-img.discogs.com/x/R-1.jpg', 'http://www.discogs.com/image.jpg', 'https://i.discogs.com./x.jpg']) {
       expect(await fetchCover(url), url).toBeNull();
     }
     expect(urls).toEqual([]);
+  });
+
+  it('knows a Discogs host by its name as DNS reads it: case and a trailing dot aside, and never by a look-alike', () => {
+    for (const url of ['https://i.discogs.com/abc.jpg', 'https://i.discogs.com./abc.jpg', 'https://I.Discogs.COM./abc.jpg', 'https://discogs.com./x', 'HTTP://DISCOGS.COM/x']) {
+      expect(isDiscogsUrl(url), url).toBe(true);
+    }
+    for (const url of ['https://discogs.com.example/x.jpg', 'https://notdiscogs.com/x.jpg', 'https://example.com/i.discogs.com./x.jpg', 'not a url', '', null, undefined]) {
+      expect(isDiscogsUrl(url), String(url)).toBe(false);
+    }
   });
 });
 
