@@ -81,7 +81,8 @@ export const EXPORT_COLUMNS = [
  * A text cell that a spreadsheet would read as a formula — one starting with `=`, `+`, `-`, `@`, a tab or a carriage
  * return — goes out with a `'` in front, the spreadsheets' own text marker (ARCH.md §16 #91): a title a connection sent
  * is the one place untrusted text reaches the export without passing a form. So that the round trip stays exact, a
- * cell that starts with `'` is guarded the same way, and mapNalandaRow strips exactly one leading `'` from every cell.
+ * cell that starts with `'` is guarded the same way, and mapNalandaRow strips one leading `'` only where it guards such a
+ * character — an export from before the guard never wrote one, so a title that really begins with an apostrophe keeps it.
  * Numbers are never guarded: nothing a number says is a formula.
  */
 const FORMULA_LEAD = /^[=+\-@\t\r']/;
@@ -533,8 +534,9 @@ function isSqlDatetime(v: string | undefined): v is string {
  */
 export function mapNalandaRow(row: Record<string, string>, household: string | null = null, language: string = DEFAULT_LANGUAGE): MappedRow | null {
   const r: Record<string, string> = {};
-  // exactly one leading `'` off every cell: the export's formula guard (§16 #91), also on a cell that began with one
-  for (const [k, v] of Object.entries(row)) r[k.trim().toLowerCase()] = (v ?? '').replace(/^'/, '').trim();
+  // the export's formula guard off (§16 #91): one leading `'` only where it stands before a character the guard covers,
+  // so an export from before the guard — which never wrote one — keeps a title that begins with an apostrophe
+  for (const [k, v] of Object.entries(row)) r[k.trim().toLowerCase()] = (v ?? '').replace(/^'(?=[=+\-@\t\r'])/, '').trim();
 
   const title = r['title'];
   if (!title) return null;

