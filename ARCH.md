@@ -857,6 +857,7 @@ is a section of this document and "#N" another decision.
 | 79 | 2026-10-01 | [A series' missing volumes can be found on Open Library, on a click; the household's series data always wins](docs/decisions/079-series-gaps-from-open-library.md) |
 | 80 | 2026-10-01 | [Search operators: seven prefixes on the search box, applied inside the one id query; anything else is text](docs/decisions/080-search-operators.md) |
 | 81 | 2026-10-01 | [Saved views are the household's: a shelf's filter bar under a name, two decluttering presets, in the app only](docs/decisions/081-saved-views.md) |
+| 87 | 2026-10-01 | [StoryGraph and LibraryThing exports import as Goodreads' does: matched and merged, the importer's own reads and reviews](docs/decisions/087-storygraph-librarything.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

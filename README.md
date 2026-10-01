@@ -19,6 +19,8 @@ manuscripts.
   become reads; the rest arrive as reading-log entries. Everything it brings is the importing
   member's own. Re-runs merge instead of duplicating, and never remove a read. libib CSV
   import too.
+- **StoryGraph and LibraryThing imports**: their exports too, matched and merged the same way — your
+  reads, rating and review onto the books already here, the rest as reading-log entries.
 - **Public share links, per view**: publish any filtered slice of a shelf ("my reviews",
   "owned sci-fi"), or everything carrying a tag, at its own unguessable URL — rotate or remove each link independently.
   Private notes, where things are kept, loans, copy counts, what you paid and a record's
@@ -239,6 +241,8 @@ lists them for you to add to a shelf or drop. Logging out clears anything still 
 | [accounts-and-access.md](runbooks/accounts-and-access.md) | Family accounts, lost passwords, admin lockout, share links |
 | [connections.md](runbooks/connections.md) | Connecting with another household's Nalanda: keys, feed, comments, borrowing, disconnecting |
 | [import-from-goodreads.md](runbooks/import-from-goodreads.md) | Bringing your Goodreads history over (and leaving) |
+| [import-from-storygraph.md](runbooks/import-from-storygraph.md) | Bringing your StoryGraph library over |
+| [import-from-librarything.md](runbooks/import-from-librarything.md) | Bringing your LibraryThing catalog over |
 | [import-from-libib.md](runbooks/import-from-libib.md) | Migrating your libib collection |
 | [metadata-backfill.md](runbooks/metadata-backfill.md) | Filling in covers and descriptions for a large catalog, from your machine |
 | [record-covers.md](runbooks/record-covers.md) | Replacing record covers stored from Discogs with the Cover Art Archive's (a one-off) |
