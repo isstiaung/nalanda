@@ -136,8 +136,9 @@ app.use(async (c, next) => {
   // The row check is instant revocation, and its key is who the cookie was made for: an id can be reused, a key
   // can't (§16 #56), so a removed member's cookie signs in nobody — not whoever is given their id next. Its generation
   // is whether this session still counts (§16 #70): "Sign out other devices", a new password or a reset moves it on.
-  // The same call brings what the page renders in (§16 #93): the household's language, and its own translation for
-  // the locale this member resolves to — one batch, so a translated page costs no call more than an English one.
+  // The same call brings what the page renders in (§16 #93): the household's language, and its own translation and
+  // display font (§16 #96) for the locale this member resolves to — one batch, so a translated page costs no call more
+  // than an English one.
   const account = session ? await sessionAccount(c.env.DB, session.userId) : null;
   const row = account?.user ?? null;
   const user = row && sessionMatches(session, row) ? row : null;
@@ -154,7 +155,7 @@ app.use(async (c, next) => {
     sessionGeneration: user.sessionGeneration,
     locale: user.locale,
   });
-  c.set('i18n', translator(resolveLocale(user, { language: account.language }), account.translation));
+  c.set('i18n', translator(resolveLocale(user, { language: account.language }), account.translation, account.font));
   c.set('householdLanguage', account.language);
   // A temporary password reaches the Account page and the password change, and nothing else — not the display name,
   // not "Sign out other devices", not a token: own-account actions all, but whoever holds the temp password isn't

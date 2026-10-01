@@ -80,6 +80,8 @@
   /* type */
   --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  /* the display stack — kept equal to SERIF_STACK in src/views/layout.tsx, which puts a household's own display font
+     in front of it on the pages in that font's language (§16 #96); test/display-font.spec.ts holds the two equal */
   --serif: 'Eczar', 'Tiro Tamil', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, ui-serif, serif;
 
   --radius: 7px;

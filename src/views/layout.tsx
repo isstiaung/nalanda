@@ -8,10 +8,39 @@ import type { AppEnv, SessionUser } from '../env';
 import { unreadCounts } from '../db/federation';
 import { loadIdentity } from '../federation/keys';
 import { scanQueueOwner } from '../lib/auth';
+import { CSS_FORMATS, displayFaceOf, type DisplayFace } from '../lib/fonts';
 import { resolveLocale, translator, type StringKey, type Translator } from '../i18n';
 import { I18n, useI18n } from './i18n';
 
 type NavLibrary = Library & { itemCount: number };
+
+/**
+ * The display stack: `--serif` in public/app.css, written out here once more for the one place that needs it in code —
+ * a household's display font goes in front of it (§16 #96). test/display-font.spec.ts holds the two equal; change
+ * them together.
+ */
+export const SERIF_STACK = "'Eczar', 'Tiro Tamil', 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, ui-serif, serif";
+
+/**
+ * The rules a household's display font adds (§16 #96): the face, from /fonts/<key>, and `--serif` with it in front —
+ * so titles and the brand take it, and any letter it lacks falls through to Eczar and Tiro Tamil as before. Only the
+ * key, after its UUID check, and the format's fixed name reach the CSS: nothing the household typed. Declared across
+ * every weight, so a single-weight face is drawn as it is rather than thickened into a faux bold for a 600 title.
+ */
+export function displayFaceCss(face: DisplayFace | null): string | null {
+  const checked = displayFaceOf(face);
+  if (!checked) return null;
+  return (
+    `@font-face { font-family: 'Household'; src: url('/fonts/${checked.key}') format('${CSS_FORMATS[checked.format]}'); ` +
+    `font-weight: 100 900; font-display: swap; } :root { --serif: 'Household', ${SERIF_STACK}; }`
+  );
+}
+
+/** The request's display font as a <style>, for a page's head after app.css — nothing at all when it has none. */
+export const HouseholdFace: FC = () => {
+  const css = displayFaceCss(useI18n().font);
+  return css ? <style dangerouslySetInnerHTML={{ __html: css }} /> : null;
+};
 
 const Head: FC<{ title: string }> = ({ title }) => (
   <head>
@@ -28,6 +57,8 @@ const Head: FC<{ title: string }> = ({ title }) => (
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Nalanda" />
     <link rel="stylesheet" href="/app.css" />
+    {/* the household's display font for this page's language (§16 #96), after app.css so its --serif wins */}
+    <HouseholdFace />
     {/* Before paint, not in app.js (which is deferred): a deferred script would let
         the full table render first and then visibly drop columns. Until someone picks columns on this device,
         a window under 1400px wide starts without Tags, so the table fits beside the sidebar; Columns shows it
@@ -122,14 +153,15 @@ export const todayOf = (c: Context<AppEnv>): string => todayFor(getCookie(c, TZ_
 
 /**
  * What this request renders in (ARCH.md §16 #93). Behind the session middleware it is already set, from the call
- * that read the account. A page with no session — log in, setup, a share page — resolves the household's language
- * and its translation here, one call, and keeps it on the context so the page's other renders cost nothing more.
+ * that read the account. A page with no session — log in, setup, a share page — resolves the household's language,
+ * its translation and its display font (§16 #96) here, one call, and keeps it on the context so the page's other
+ * renders cost nothing more.
  */
 export async function i18nOf(c: Context<AppEnv>): Promise<Translator> {
   const set = c.get('i18n') as Translator | undefined;
   if (set) return set;
-  const { language, translation } = await householdLocale(c.env.DB);
-  const i18n = translator(resolveLocale(null, { language }), translation);
+  const { language, translation, font } = await householdLocale(c.env.DB);
+  const i18n = translator(resolveLocale(null, { language }), translation, font);
   c.set('i18n', i18n);
   return i18n;
 }

@@ -46,6 +46,7 @@ describe('where an address lands', () => {
   it('tells an asset from a page', () => {
     for (const a of ['/app.css', '/app.js', '/logo.svg', '/vendor/htmx.min.js', '/covers/abc', '/icons/icon-192.png', '/bgg/powered-by-bgg.svg', '/share/t/feed.rss']) expect(isAsset(a), a).toBe(true);
     for (const p of ['/', '/libraries/3', '/items/12', '/search', '/share/t', '/account']) expect(isAsset(p), p).toBe(false);
+    expect(isAsset('/fonts/0b1e6f0e-1c2d-4e5f-8a9b-0c1d2e3f4a5b')).toBe(true); // a household's display font (§16 #96), a file like a cover
   });
 });
 

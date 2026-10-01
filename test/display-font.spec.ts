@@ -4,9 +4,15 @@
 // D1 call each page already made for its language, so it costs none.
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
+import { createLibrary, createShare, updateSiteSettings } from '../src/db/queries';
+import type { Bindings } from '../src/env';
+import { budgeted } from '../src/federation/budget';
 import { cleanFontName, displayFaceOf, FONT_MAX_BYTES, serveFont, sniffFontType, storeFont } from '../src/lib/fonts';
+import { newShareToken } from '../src/lib/share';
 import app from '../src/index';
-import { as, html, member, rows, type Member } from './member-helpers';
+import { clearSharePageCache } from '../src/routes/share';
+import { SERIF_STACK } from '../src/views/layout';
+import { as, book, html, member, rows, type Member } from './member-helpers';
 
 const ORIGIN = 'http://nalanda.test';
 
@@ -207,3 +213,117 @@ describe('POST /settings/display-fonts', () => {
     expect((await fontRows()).map((r) => r.locale)).toEqual(['ta']);
   });
 });
+
+/** The face a page's head sets for a key, as the layout writes it. */
+const faceFor = (key: string, format: string) =>
+  `<style>@font-face { font-family: 'Household'; src: url('/fonts/${key}') format('${format}'); font-weight: 100 900; font-display: swap; } ` +
+  `:root { --serif: 'Household', ${SERIF_STACK}; }</style>`;
+const keyOf = async (locale: string) => (await fontRows()).find((r) => r.locale === locale)!.key;
+const sharePage = async (token: string) => {
+  clearSharePageCache();
+  return (await as(null, `/share/${token}`)).text();
+};
+
+describe('the display font on the pages', () => {
+  it('keeps SERIF_STACK equal to app.css’s --serif, which it is put in front of', async () => {
+    const css = await (await env.ASSETS.fetch('http://nalanda.test/app.css')).text();
+    expect(css).toContain(`--serif: ${SERIF_STACK};`);
+  });
+
+  it('is set only on the pages of the locale that has one, its key alone — the app, the login page and share pages', async () => {
+    const asha = await member('asha', 'admin');
+    const ravi = await member('ravi');
+    const shelf = await createLibrary(env.DB, 'Books');
+    const b = await book(asha, { libraryId: shelf.id });
+    const share = await createShare(env.DB, { token: newShareToken(), name: 'Ours', libraryId: shelf.id });
+
+    await upload(asha, { bytes: woff2() }, 'hi');
+    const hiKey = await keyOf('hi');
+    // the household is in English: no page sets a face, the hi font's key is nowhere
+    for (const page of [await html(asha, '/'), await html(ravi, '/'), await (await as(null, '/login')).text(), await sharePage(share.token)]) {
+      expect(page).not.toContain("font-family: 'Household'");
+      expect(page).not.toContain('/fonts/');
+    }
+    // asha reads the app in Hindi: her pages set it, after app.css
+    await as(asha, '/account/locale', { body: { locale: 'hi' } });
+    const mine = await html(asha, '/');
+    expect(mine).toContain(faceFor(hiKey, 'woff2'));
+    expect(mine.indexOf('href="/app.css"')).toBeLessThan(mine.indexOf(faceFor(hiKey, 'woff2')));
+    expect(mine.indexOf(faceFor(hiKey, 'woff2'))).toBeLessThan(mine.indexOf('</head>'));
+    expect(await html(asha, '/account')).toContain(faceFor(hiKey, 'woff2'));
+    // ravi follows the household, and a share page is the household's: neither takes asha's language's face
+    expect(await html(ravi, '/')).not.toContain('/fonts/');
+    expect(await sharePage(share.token)).not.toContain('/fonts/');
+
+    // the household goes Tamil, with a Tamil face of its own
+    await upload(asha, { bytes: bytes([0x00, 0x01, 0x00, 0x00], 5_000), name: 'Catamaran.ttf' }, 'ta');
+    const taKey = await keyOf('ta');
+    await updateSiteSettings(env.DB, { language: 'ta' });
+    const his = await html(ravi, '/');
+    expect(his).toContain(faceFor(taKey, 'truetype'));
+    expect(his).not.toContain(hiKey);
+    expect(await html(asha, '/')).not.toContain(taKey); // her own choice, Hindi, keeps hers
+    expect(await (await as(null, '/login')).text()).toContain(faceFor(taKey, 'truetype'));
+    const shared = await sharePage(share.token);
+    expect(shared).toContain(faceFor(taKey, 'truetype'));
+    expect(shared).not.toContain(hiKey);
+    expect(await (await as(null, `/share/${share.token}/items/${b.id}`)).text()).toContain(faceFor(taKey, 'truetype'));
+    // nothing else from the row reaches a page: not its name, not its size
+    expect(shared).not.toContain('Catamaran');
+    expect(his).not.toContain('Catamaran');
+
+    // Remove: the Tamil pages are back to the shipped faces
+    await as(asha, '/settings/display-fonts/ta/delete', { body: {} });
+    expect(await html(ravi, '/')).not.toContain('/fonts/');
+    expect(await sharePage(share.token)).not.toContain('/fonts/');
+    expect(await (await as(null, '/login')).text()).not.toContain('/fonts/');
+    expect(await html(asha, '/')).toContain(faceFor(hiKey, 'woff2')); // another locale's untouched
+  });
+
+  it('sets no face from a row whose key or format isn’t one the upload makes', async () => {
+    const asha = await member('asha', 'admin');
+    await updateSiteSettings(env.DB, { language: 'hi' });
+    await env.DB.prepare("INSERT INTO display_fonts (locale, key, format, name, bytes) VALUES ('hi', ?1, 'woff2', 'x', 1)")
+      .bind("x'); } body { background: url('//evil.example/x") // a key no upload makes, written by hand
+      .run();
+    let page = await html(asha, '/');
+    expect(page).not.toContain("font-family: 'Household'");
+    expect(page).not.toContain('evil.example');
+    await env.DB.prepare("UPDATE display_fonts SET key = ?1, format = 'svg'").bind(crypto.randomUUID()).run();
+    page = await html(asha, '/');
+    expect(page).not.toContain("font-family: 'Household'");
+  });
+
+  it('costs no D1 call: the Overview, Account and a share page make the calls they made without one', async () => {
+    const asha = await member('asha', 'admin');
+    const shelf = await createLibrary(env.DB, 'Books');
+    await book(asha, { libraryId: shelf.id });
+    const share = await createShare(env.DB, { token: newShareToken(), name: 'Ours', libraryId: shelf.id });
+    await updateSiteSettings(env.DB, { language: 'hi' });
+    const before = { overview: await calls(asha, '/'), account: await calls(asha, '/account'), share: await calls(null, `/share/${share.token}`), login: await calls(null, '/login') };
+    expect(before.account).toBe(3); // the session, the sidebar's shelves, the row with its tokens (test/i18n.spec.ts)
+    await upload(asha, { bytes: woff2() }, 'hi');
+    expect(await calls(asha, '/')).toBe(before.overview);
+    expect(await calls(asha, '/account')).toBe(before.account);
+    expect(await calls(null, `/share/${share.token}`)).toBe(before.share);
+    expect(await calls(null, '/login')).toBe(before.login);
+    expect(await html(asha, '/')).toContain(faceFor(await keyOf('hi'), 'woff2')); // and the font did apply
+    // the Members page reads the fonts beside its settings: no call more than it made before there were any
+    const members = await calls(asha, '/settings/users');
+    await as(asha, '/settings/display-fonts/hi/delete', { body: {} });
+    expect(await calls(asha, '/settings/users')).toBe(members);
+  });
+});
+
+/** The D1 calls one request makes, signed in as `who` or not; a share page's isolate cache is emptied first. */
+async function calls(who: Member | null, path: string): Promise<number> {
+  clearSharePageCache();
+  const budget = { left: 1000 };
+  const ctx = createExecutionContext();
+  const headers: Record<string, string> = who ? { cookie: who.cookie } : {};
+  const res = await app.fetch(new Request(`${ORIGIN}${path}`, { headers }), { ...env, DB: budgeted(env.DB, budget) } as Bindings, ctx);
+  await waitOnExecutionContext(ctx);
+  expect(res.status, path).toBe(200);
+  await res.text();
+  return 1000 - budget.left;
+}

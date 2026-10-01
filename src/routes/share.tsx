@@ -36,7 +36,7 @@ import { BggCredit, fromBgg } from '../views/attribution';
 import { languageName } from '../lib/language';
 import { BuyLinks, CustomProps, DetailsList, FormatPills, MEDIA_ICON, NotOwnedPill, Pagination, RecordDetails, stars, WantedPill } from '../views/components';
 import { I18n, lengthUnit, mediaLabel, useI18n } from '../views/i18n';
-import { i18nOf } from '../views/layout';
+import { HouseholdFace, i18nOf } from '../views/layout';
 import { resolveLocale, translator, type Translator } from '../i18n';
 
 const share = new Hono<AppEnv>();
@@ -70,12 +70,13 @@ const pageOf = (c: Context<AppEnv>) => Number.parseInt(c.req.query('page') ?? '1
 const LISTING = /^\/share\/[^/]+\/?$/;
 
 /**
- * The link's row, and the page's language with it (§16 #93): the household's, with its own translation, read in the
- * same call as the token and kept on the context, so renderShare() and the feed pay nothing more for it.
+ * The link's row, and the page's language with it (§16 #93): the household's, with its own translation and display
+ * font (§16 #96), read in the same call as the token and kept on the context, so renderShare() and the feed pay
+ * nothing more for it.
  */
 async function shareFor(c: Context<AppEnv>, token: string): Promise<Share | null> {
-  const { share, language, translation } = await shareWithLocale(c.env.DB, token);
-  c.set('i18n', translator(resolveLocale(null, { language }), translation));
+  const { share, language, translation, font } = await shareWithLocale(c.env.DB, token);
+  c.set('i18n', translator(resolveLocale(null, { language }), translation, font));
   return share;
 }
 
@@ -159,6 +160,8 @@ const ShareLayout: FC<PropsWithChildren<{ title: string; shelf: string; bgg?: bo
         </>
       ) : null}
       <link rel="stylesheet" href="/app.css" />
+      {/* the household's display font for its language (§16 #96), after app.css so its --serif wins */}
+      <HouseholdFace />
       {/* a cover that fails to load falls back to its media icon */}
       <script src="/covers.js" defer></script>
     </head>
