@@ -55,7 +55,8 @@ run and merge instead of duplicating.
 
 The same as Goodreads': a row is matched by **ISBN-13 → ISBN-10 → normalized title +
 first-author surname** (the turned-round author matches the usual order); on a match
-LibraryThing wins for *your* rating, review and notes, and your reads are **added and never
+LibraryThing wins for *your* rating and review, the book's notes keep what they had with the
+comments added after, and your reads are **added and never
 removed** — importing the same file again adds nothing. See the
 [Goodreads runbook](import-from-goodreads.md#matching-and-merge-rules) for the rules read by
 read.

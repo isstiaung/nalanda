@@ -243,6 +243,14 @@ describe('through the Import page', () => {
     expect(review).toEqual([{ rating: 10, review: 'Stunning.', user_id: ravi.id }]);
     const fresh = await rows<{ title: string; copies: number; status: string }>("SELECT title, copies, status FROM items WHERE title = 'A Closed and Common Orbit'");
     expect(fresh).toEqual([{ title: 'A Closed and Common Orbit', copies: 0, status: 'not_started' }]);
+    // the household's notes on a matched book are kept, with the file's impressions added after them
+    const noted = await createItem(env.DB, { libraryId: lib.id, mediaType: 'book', title: 'The Long Way to a Small, Angry Planet', creators: 'Becky Chambers', isbn13: '9781473619814', details: '{}', notes: 'Signed at the launch.' });
+    const moody = [storygraph({ 'Title': 'The Long Way to a Small, Angry Planet', 'Authors': 'Becky Chambers', 'ISBN/UID': '9781473619814', 'Read Status': 'read', 'Moods': 'hopeful', 'Pace': 'medium', 'Owned?': 'Yes' })];
+    await call(ravi.cookie, { libraryId: lib.id, rows: moody });
+    const notesAfter = (await rows<{ notes: string }>('SELECT notes FROM items WHERE id = ?1', noted.id))[0]!.notes;
+    expect(notesAfter).toBe('Signed at the launch.\n\nStoryGraph — moods: hopeful; pace: medium');
+    await call(ravi.cookie, { libraryId: lib.id, rows: moody });
+    expect((await rows<{ notes: string }>('SELECT notes FROM items WHERE id = ?1', noted.id))[0]!.notes).toBe(notesAfter); // byte for byte
     // the same file again changes nothing
     const again = await call(ravi.cookie, { libraryId: lib.id, rows: sgRows });
     expect(again.json).toMatchObject({ inserted: 0, merged: 2 });

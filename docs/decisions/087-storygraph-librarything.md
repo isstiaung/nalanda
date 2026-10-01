@@ -17,7 +17,11 @@ member's own reads and reviews, a runbook and a fixture each.
   ISBN-10, then title and first-author surname (#14), reconciles the reads already here by the
   rules of #41 (`reconcileGoodreads()`, added and never removed), lets the file win for the
   importer's own rating and review (#43), and inserts the rest; a re-import adds nothing. The
-  Import page's preview and messages name the source.
+  Import page's preview and messages name the source. **A matched book keeps the household's
+  notes** and gets the file's added after a blank line — never replaced, and a re-import leaves
+  them byte for byte (review on #127; the same rule now holds for a Goodreads row's private notes).
+  The older Goodreads export's columns about the copy — purchase date and place, condition,
+  recommended by — are kept out of details too.
 - **StoryGraph** (`mapStoryGraphRow()`): every dated range in "Dates Read" is a read of its own
   — the file's one gift over Goodreads', which has only the last — with an open range while
   currently reading as the open read; Read Status to the four statuses; Star Rating in halves

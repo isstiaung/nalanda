@@ -615,6 +615,15 @@ const KNOWN_GOODREADS = new Set([
   'my_review',
   'private_notes',
   'owned_copies',
+  // the older export's columns about the household's copy — when and where it was bought, its condition, who it was
+  // recommended by — are as private as the copy (§16 #55, #61): never into details (review on #127)
+  'original_purchase_date',
+  'original_purchase_location',
+  'condition',
+  'condition_description',
+  'bcid',
+  'recommended_for',
+  'recommended_by',
   // reading: read_count and date_started become reads (ARCH.md §16 #41), so they no longer land in details
   'read_count',
   'date_started',
