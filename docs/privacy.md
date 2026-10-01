@@ -95,6 +95,16 @@ for a surface before changing anything it shows to someone outside the household
 - **Item history** (ARCH.md §16 #84) is admin-only and inside the app: `item_history` holds before and
   after values of an item's own fields — notes and location among them — and who changed them; no
   whitelist has a key for it, and a share page's bytes are unchanged by it.
+- **The interface language** (ARCH.md §16 #93) changes a share page only in its own few strings —
+  the mark, the footer, the badges, "Not owned", "Read N times", the labels, the feed's titles —
+  rendered in the **household's** language (`site_settings.language` where a translation is
+  shipped, else English), never a member's choice (`users.locale` is for the signed-in app alone):
+  a visitor can't tell from a share page what language anyone reads the app in. Item data, display
+  names and everything else on the page are untouched. A household's own translation (the
+  `translations` table) is imported by an admin alone, kept to the table's keys, and rendered
+  escaped like any string — on share pages too, where it stands in for the shipped words of those
+  same keys and nothing else; never inside an inline handler (the item page's delete confirmation
+  moved to `data-confirm` for it).
 - **The read-only API** (ARCH.md §16 #88, `/api/v1/…`) is a member's own view, behind their token:
   it returns what that member's pages show — private notes, locations, prices included — to the
   holder of the token and nobody else. It is not a share: no route is public, a cookie never signs

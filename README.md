@@ -90,6 +90,11 @@ manuscripts.
 - **Language and original title**: a household language that every added book takes unless its
   source says otherwise, changeable per item; a pill when a book's differs; and the title a work
   was first published under, in any script, searchable as written.
+- **The interface in your language**: the sidebar, the Overview, shelves, item pages, Add, Account,
+  Members, the Trash and the share pages follow the household language — हिन्दी and தமிழ் shipped as
+  machine drafts, marked so until a native reader checks them — and each member can pick another on
+  Account. Download the strings, correct them, and import them for your household or send a pull
+  request; the rest of the app is translated page by page.
 - **New from your authors**: the authors you've finished, and on a click their works from Open
   Library, newest first, with what you already have marked — the extent of discovery here: no
   recommendation engine, nothing about your reading sent anywhere.
