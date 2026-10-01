@@ -17,7 +17,7 @@ import { RECOMMEND_ID_KEYS, recommendId, type RecommendedItem, type RecommendIds
  * times it has been finished (§16 #41) — the count only, never the reads or their dates. A household on an older
  * version ignores the field.
  */
-export type ConnectionItem = PublicItem & { completedOn: string | null; updatedAt: string; readCount: number };
+export type ConnectionItem = Omit<PublicItem, 'custom'> & { completedOn: string | null; updatedAt: string; readCount: number };
 
 /**
  * `wanted` (§16 #53): someone in the household wants it and it isn't owned — `wanted: true`, and absent otherwise, so an
@@ -25,8 +25,11 @@ export type ConnectionItem = PublicItem & { completedOn: string | null; updatedA
  * knows, drops it.
  */
 export function toConnectionItem(item: Item, opts: { wanted?: boolean } = {}): ConnectionItem {
-  // No play count: plays stay home (§16 #54), so toPublicItem is given none and leaves `playCount` out
-  return { ...toPublicItem(item, { wanted: opts.wanted }), completedOn: item.completedOn, updatedAt: item.updatedAt, readCount: item.readCount };
+  // No play count: plays stay home (§16 #54), so toPublicItem is given none and leaves `playCount` out. No custom
+  // fields either (§16 #95): a field's share switch is about share pages, and nothing of the household's own fields
+  // — names or values — goes to a connection, so toPublicItem is given no fields and the key is taken off the type.
+  const { custom: _custom, ...pub } = toPublicItem(item, { wanted: opts.wanted });
+  return { ...pub, completedOn: item.completedOn, updatedAt: item.updatedAt, readCount: item.readCount };
 }
 
 /** A connection's `wanted`: absent, null or false is none; `true` is the badge; anything else is malformed (undefined). */
