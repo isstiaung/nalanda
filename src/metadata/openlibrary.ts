@@ -1,4 +1,5 @@
 import { fetchWithTimeout, USER_AGENT } from '../env';
+import { seriesKey } from '../lib/series';
 import { cleanSeriesName, parseSeriesNumber, type SeriesDraft } from '../lib/series';
 import { cleanDescription, PAGE_SIZE, type Candidate, type MetadataProvider, type SearchPage } from './provider';
 
@@ -121,6 +122,35 @@ export async function olWorkDescription(workKey: string): Promise<string | null>
 }
 
 /** Cover and description lookups: fewer results, and none of the ISBN bulk the backfill never reads. */
+/**
+ * The works Open Library's index places in a series of this name (ARCH.md §16 #79): one keyless search for the
+ * name, kept to the docs whose series matches it (seriesKey: case and spacing aside), each as a candidate with its
+ * position and its first ISBN-13. Only some works carry series records (checked 2026-09-30: The Expanse and Discworld
+ * do, Earthsea doesn't), so an empty answer says nothing about the series.
+ */
+export async function olSeriesWorks(name: string, limit = 40): Promise<Array<{ candidate: Candidate; position: number | null }> | null> {
+  const key = seriesKey(name);
+  try {
+    const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(name)}&fields=${FIELDS}&limit=${limit}`;
+    const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } });
+    if (!res.ok) return null; // no answer is not an empty answer, and is never cached
+    const docs = ((await res.json()) as { docs?: OlDoc[] }).docs ?? [];
+    return docs
+      .filter((d) => (d.series_name ?? []).some((n) => seriesKey(n) === key))
+      .map((d) => {
+        const c = toCandidate(d, d.isbn?.find((i) => /^\d{13}$/.test(i)));
+        if (!c) return null;
+        const at = (d.series_name ?? []).findIndex((n) => seriesKey(n) === key);
+        const position = parseSeriesNumber(d.series_position?.[at]) ?? null;
+        return { candidate: c, position };
+      })
+      .filter((x): x is { candidate: Candidate; position: number | null } => x !== null)
+      .sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity));
+  } catch {
+    return null;
+  }
+}
+
 export async function olSearchLean(query: string, limit = 5): Promise<Candidate[]> {
   const { docs } = await searchOl(query, limit, LEAN_FIELDS);
   return docs.map((d) => toCandidate(d)).filter((c): c is Candidate => !!c);
