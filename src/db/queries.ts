@@ -22,6 +22,7 @@ import { countName, nameKey, sortNames, splitCreators, type NameCount } from '..
 import { MAX_EDITIONS_PER_ITEM, type EditionDraft } from '../lib/formats';
 import { DEFAULT_LANGUAGE, isLanguageCode } from '../lib/language';
 import { MAX_QUOTES_PER_ITEM, type CellQuote, type KindleBook, type PersonQuote, type QuoteDraft } from '../lib/quotes';
+import { ftsMatch, parseSearch } from '../lib/search';
 import { FEWEST_PLAYERS, WEIGHT_BANDS, type GameFilters } from '../lib/games';
 import { MAX_LINKS_PER_ITEM, type LinkDraft } from '../lib/links';
 import { MAX_LOANS_PER_CELL, type LoanDraft } from '../lib/loans';
@@ -1709,24 +1710,64 @@ export async function activeLoanItemIds(d1: D1Database, itemIds: number[]): Prom
 
 // ---------- full-text search ----------
 
-/** FTS5 lives outside Drizzle's DSL; ids come from a raw query, rows from Drizzle. */
+/**
+ * The year an item's `published` names, in SQL: the four digits it starts with ("2019", "2019-05-01") or ends with
+ * ("May 2019", "c. 1999"), else NULL. The page's yearOf() reads the first four digits anywhere; SQLite has no regex,
+ * and these two shapes are what providers and files write.
+ */
+const PUBLISHED_YEAR_SQL = `CASE WHEN published GLOB '[0-9][0-9][0-9][0-9]*' THEN CAST(substr(published, 1, 4) AS INTEGER)
+       WHEN published GLOB '*[0-9][0-9][0-9][0-9]' THEN CAST(substr(published, -4) AS INTEGER) END`;
+
+/**
+ * FTS5 lives outside Drizzle's DSL; ids come from a raw query, rows from Drizzle. The query's operators (§16 #80,
+ * src/lib/search.ts) are applied inside that one id query: title: and author: as FTS5 column filters, tag:, status:,
+ * year:, lang: and type: as a subquery on `items` — so a narrowed search still finds up to `limit` items, and the
+ * page makes the same two calls whatever was typed. A query of operators alone lists by title instead of by rank.
+ */
 export async function searchItems(d1: D1Database, query: string, limit = 50, reader?: ReaderFilter): Promise<Item[]> {
-  const match = query
-    .replace(/["'*^]/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((t) => `"${t}"*`)
-    .join(' ');
-  if (!match) return [];
-  // "Read by" narrows the match inside the FTS query, so a filtered search still finds up to `limit` items
-  const status = reader?.mode === 'reading' ? 'in_progress' : 'completed';
-  const readerSql = !reader
-    ? ''
-    : `AND rowid ${reader.mode === 'unfinished' ? 'NOT IN' : 'IN'} (SELECT item_id FROM reads WHERE status = '${status}'${
-        reader.readerId === null ? '' : ' AND reader_id = ?3'
-      })`;
-  const stmt = d1.prepare(`SELECT rowid AS id FROM items_fts WHERE items_fts MATCH ?1 ${readerSql} ORDER BY rank LIMIT ?2`);
-  const idRows = await (reader && reader.readerId !== null ? stmt.bind(match, limit, reader.readerId) : stmt.bind(match, limit)).all<{ id: number }>();
+  const parsed = parseSearch(query);
+  const match = ftsMatch(parsed);
+  const params: unknown[] = [];
+  const p = (v: unknown) => {
+    params.push(v);
+    return `?${params.length}`;
+  };
+  const conds: string[] = [];
+  for (const tag of parsed.tags) {
+    conds.push(`id IN (SELECT item_id FROM item_tags INNER JOIN tags ON tags.id = item_tags.tag_id WHERE tags.name = ${p(tag)})`);
+  }
+  if (parsed.statuses.length) {
+    // the twin of statusWhere(): In progress holds a re-read (§16 #64)
+    const list = parsed.statuses.map(p).join(', ');
+    conds.push(parsed.statuses.includes('in_progress') ? `(status IN (${list}) OR rereading = 1)` : `status IN (${list})`);
+  }
+  if (parsed.years.length) {
+    conds.push(`(${parsed.years.map((y) => `${PUBLISHED_YEAR_SQL} BETWEEN ${p(y.from)} AND ${p(y.to)}`).join(' OR ')})`);
+  }
+  if (parsed.languages.length) {
+    // an item with no language of its own is in the household's (§16 #76), as its pill says
+    conds.push(
+      `coalesce(language, (SELECT language FROM site_settings WHERE id = 1), ${p(DEFAULT_LANGUAGE)}) IN (${parsed.languages.map(p).join(', ')})`,
+    );
+  }
+  if (parsed.types.length) conds.push(`media_type IN (${parsed.types.map(p).join(', ')})`);
+  if (!match && !conds.length) return [];
+  // "Read by" narrows the match inside the query too, so a filtered search still finds up to `limit` items
+  const readerSql = (idCol: string) => {
+    if (!reader) return '';
+    const status = reader.mode === 'reading' ? 'in_progress' : 'completed';
+    const who = reader.readerId === null ? '' : ` AND reader_id = ${p(reader.readerId)}`;
+    return `AND ${idCol} ${reader.mode === 'unfinished' ? 'NOT IN' : 'IN'} (SELECT item_id FROM reads WHERE status = ${p(status)}${who})`;
+  };
+  const idSql = match
+    ? `SELECT rowid AS id FROM items_fts WHERE items_fts MATCH ${p(match)} ${
+        conds.length ? `AND rowid IN (SELECT id FROM items WHERE ${conds.join(' AND ')})` : ''
+      } ${readerSql('rowid')} ORDER BY rank LIMIT ${p(limit)}`
+    : `SELECT id FROM items WHERE ${conds.join(' AND ')} ${readerSql('id')} ORDER BY title COLLATE NOCASE, id LIMIT ${p(limit)}`;
+  const idRows = await d1
+    .prepare(idSql)
+    .bind(...params)
+    .all<{ id: number }>();
   const ids = idRows.results.map((r) => r.id);
   if (!ids.length) return [];
   const rows = await db(d1).select().from(s.items).where(inArray(s.items.id, ids));

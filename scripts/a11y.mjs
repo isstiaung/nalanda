@@ -557,6 +557,7 @@ function pageList(ids) {
     ['Search: empty', '/search'],
     ['Search: results', '/search?q=le+guin'],
     ['Search: no results', '/search?q=zzzzqqq'],
+    ['Search: operators', '/search?q=author%3Ale+guin+status%3Aunread'],
     ['Tags', '/tags'],
     ['Tag', '/tags/favourites'],
     ['Loans', '/loans'],
