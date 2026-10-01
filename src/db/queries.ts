@@ -1216,15 +1216,16 @@ export async function holdingsByType(d1: D1Database): Promise<Holding[]> {
 
 /**
  * The statement that makes sure `draft`'s series exists — the first spelling of a name stays, since the name is
- * unique by its key — and sets its total when the draft carries one. None without a series.
+ * unique by its key — and sets its total when the draft carries one. None without a series. `totalFrom` 'series'
+ * keeps the total a series already has over the draft's (a trash restore's snapshot is older than a total corrected
+ * since), filling it in only where the series has none; a new series takes the draft's either way.
  */
-function seriesUpsert(d1: D1Database, draft: SeriesDraft | null | undefined): D1PreparedStatement[] {
+function seriesUpsert(d1: D1Database, draft: SeriesDraft | null | undefined, totalFrom: 'draft' | 'series' = 'draft'): D1PreparedStatement[] {
   if (!draft) return [];
+  const total = totalFrom === 'draft' ? 'coalesce(excluded.total, series.total)' : 'coalesce(series.total, excluded.total)';
   return [
     d1
-      .prepare(
-        'INSERT INTO series (name, key, total) VALUES (?1, ?2, ?3) ON CONFLICT (key) DO UPDATE SET total = coalesce(excluded.total, series.total)',
-      )
+      .prepare(`INSERT INTO series (name, key, total) VALUES (?1, ?2, ?3) ON CONFLICT (key) DO UPDATE SET total = ${total}`)
       .bind(draft.name, seriesKey(draft.name), draft.total ?? null),
   ];
 }
@@ -4167,26 +4168,6 @@ export async function nextBackfillable(d1: D1Database, afterId: number, limit: n
 
 // ---------- bulk import ----------
 
-/** Ensure tags exist and link them to items — additive, existing links kept. */
-async function linkTags(dbi: ReturnType<typeof db>, pairs: Array<{ itemId: number; tag: string }>): Promise<void> {
-  if (!pairs.length) return;
-  const names = [...new Set(pairs.map((p) => p.tag))];
-  await dbi.batch(
-    names.map((name) => dbi.insert(s.tags).values({ name }).onConflictDoNothing()) as [never, ...never[]],
-  );
-  // one JSON parameter however many names: an import batch can carry more distinct tags than D1's
-  // 100 bound parameters, and the items were already committed when this used to throw
-  const tagRows = await dbi.select().from(s.tags).where(sql`${s.tags.name} IN (SELECT value FROM json_each(${JSON.stringify(names)}))`);
-  const idByName = new Map(tagRows.map((t) => [t.name, t.id]));
-  const links = pairs
-    .map((p) => ({ itemId: p.itemId, tagId: idByName.get(p.tag) }))
-    .filter((l): l is { itemId: number; tagId: number } => !!l.tagId);
-  for (let i = 0; i < links.length; i += 40) {
-    const chunk = links.slice(i, i + 40); // stay well under D1's bound-parameter limit
-    await dbi.insert(s.itemTags).values(chunk).onConflictDoNothing();
-  }
-}
-
 /**
  * An import's writes, between the statements that set and clear the marker the activity triggers look for
  * (migration 0021): an imported read is dated by its completed_on, or left out of the feed, rather than reaching
@@ -4219,6 +4200,8 @@ export type ImportRow = {
   plays?: PersonPlay[];
   goodreads?: GoodreadsReading;
   series?: SeriesDraft | null; // its series, and the series' total when the file gives one (§16 #52)
+  // a trash restore's (§16 #74): the series' own total stays over the snapshot's, which may be older than a correction
+  keepSeriesTotal?: boolean;
   // a Nalanda export's want lists and purchase links (§16 #53), each want already resolved to a member here
   wants?: PersonWant[];
   links?: LinkDraft[];
@@ -4312,12 +4295,14 @@ const MAX_PROGRESS_ROWS = 5_000;
 /**
  * Batched insert used by /api/import. One network round trip per batch of rows: each item goes in with the
  * reading state its reads decide and the rating and review its reviews decide, so the insert trigger dates it
- * right, then its reads and reviews, then the refreshes that fill in what only they know, then its loans and its
- * plays, which nothing on the item depends on (§16 #54). Loans go only onto the item their row makes, never onto one
- * already here.
+ * right, then its tags, its reads and reviews, then the refreshes that fill in what only they know, then its loans
+ * and its plays, which nothing on the item depends on (§16 #54). Loans go only onto the item their row makes, never
+ * onto one already here. One batch, the tags inside it (§16 #39): linked after it, as they once were, a failure
+ * there left the items committed without them — and a restore's trash row gone. The ids the rows were given, in
+ * their order, from the batch's own results.
  */
-export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1PreparedStatement[] = []): Promise<number> {
-  if (!rows.length) return 0;
+export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1PreparedStatement[] = []): Promise<number[]> {
+  if (!rows.length) return [];
   const writes: D1PreparedStatement[] = [];
   const itemAt: number[] = []; // each row's item insert, as an index into the batch's results
   for (const r of rows) {
@@ -4333,10 +4318,11 @@ export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1Pr
       .values(r.item.addedAt && r.item.createdAt == null ? { ...values, createdAt: sql`(datetime('now'))` } : values)
       .returning({ id: s.items.id })
       .toSQL();
-    writes.push(...seriesUpsert(d1, r.series));
+    writes.push(...seriesUpsert(d1, r.series, r.keepSeriesTotal ? 'series' : 'draft'));
     itemAt.push(writes.length + 1); // +1: the marker leads the batch
     writes.push(
       d1.prepare(q.sql).bind(...q.params),
+      ...tagLinkStatements(d1, 'newest', r.tags),
       ...readInsertStatements(d1, 'newest', reads, person),
       refreshReadState(d1, 'newest'),
       ...reviewInsertStatements(d1, 'newest', reviews, person),
@@ -4352,15 +4338,7 @@ export async function importItems(d1: D1Database, rows: ImportRow[], extra: D1Pr
     );
   }
   const results = await d1.batch(asImport(d1, [...writes, ...extra]));
-
-  const pairs: Array<{ itemId: number; tag: string }> = [];
-  rows.forEach((r, i) => {
-    const id = (results[itemAt[i]!]?.results[0] as { id: number } | undefined)?.id;
-    if (!id) return;
-    for (const tag of normalizeTags(r.tags)) pairs.push({ itemId: id, tag });
-  });
-  await linkTags(db(d1), pairs);
-  return rows.length;
+  return rows.map((_, i) => (results[itemAt[i]!]?.results[0] as { id: number }).id);
 }
 
 // ---------- Goodreads match-and-merge import ----------
@@ -4546,11 +4524,10 @@ export async function mergeImportItems(d1: D1Database, rows: ImportRow[], dryRun
               .bind(JSON.stringify([...redate].map(([id, at]) => ({ id, at })))),
           ]
         : [];
+      // the file's tags onto the books it matched, additive, in the same batch (§16 #39)
+      const tags = merges.flatMap((m) => tagLinkStatements(d1, m.id, m.tags));
       // reads and their refresh first, so a rating merged in the same batch is dated by the finish it arrived with
-      await d1.batch(asImport(d1, asWriter(d1, who, [...writes, ...refreshes, ...reviews, ...notes, ...redates, refreshReviewState(d1, ids)])));
-      const pairs: Array<{ itemId: number; tag: string }> = [];
-      for (const m of merges) for (const tag of normalizeTags(m.tags)) pairs.push({ itemId: m.id, tag });
-      await linkTags(dbi, pairs);
+      await d1.batch(asImport(d1, asWriter(d1, who, [...writes, ...refreshes, ...reviews, ...notes, ...redates, refreshReviewState(d1, ids), ...tags])));
     }
     await importItems(d1, inserts);
   }
@@ -4804,8 +4781,13 @@ export async function listTrash(d1: D1Database): Promise<TrashRow[]> {
   return (await d1.prepare(`SELECT ${TRASH_COLUMNS} FROM trash ORDER BY deleted_at DESC, id DESC`).all<TrashRow>()).results;
 }
 
-export async function getTrash(d1: D1Database, id: number): Promise<(TrashRow & { payload: string }) | null> {
-  return (await d1.prepare(`SELECT ${TRASH_COLUMNS}, payload FROM trash WHERE id = ?1`).bind(id).first<TrashRow & { payload: string }>()) ?? null;
+/** One trash row with its snapshot, and whether it is past TRASH_DAYS — then it is only waiting for the purge. */
+export async function getTrash(d1: D1Database, id: number): Promise<(TrashRow & { payload: string; expired: boolean }) | null> {
+  const row = await d1
+    .prepare(`SELECT ${TRASH_COLUMNS}, payload, (deleted_at < datetime('now', ?2)) AS expired FROM trash WHERE id = ?1`)
+    .bind(id, `-${TRASH_DAYS} days`)
+    .first<TrashRow & { payload: string; expired: number }>();
+  return row ? { ...row, expired: !!row.expired } : null;
 }
 
 /** The snapshot, as the trash row holds it. */
@@ -4827,20 +4809,29 @@ export type TrashPayload = {
   people: Record<string, string>;
 };
 
-/** Why a restore couldn't happen: the row is gone, or its shelf is — by id and name, or by name alone — and must be made first. */
-export type RestoreRefusal = { refused: 'gone' } | { refused: 'no-shelf'; shelf: string | null };
+/**
+ * Why a restore couldn't happen: the row is gone (restored or let go already), past its TRASH_DAYS, or its shelf is
+ * gone — by id and name, or by name alone — and must be made first.
+ */
+export type RestoreRefusal = { refused: 'gone' } | { refused: 'expired' } | { refused: 'no-shelf'; shelf: string | null };
 
 /**
  * Restores a trashed item: its snapshot goes back through the import's insert — the item under a new id, its series,
- * tags, reads, reviews, pages, plays, wants, links and loans — and the trash row goes in the same batch, so a restore
- * can't happen twice. A member removed since is nobody on their reads, reviews, plays and pages, and their wants are
- * dropped: `members` is who exists now. Bracketed as an import, so old reads aren't news to connections (§16 #40).
- * The new item's id, or null when the row is gone.
+ * tags, reads, reviews, pages, plays, wants, links and loans — and the trash row goes in the same batch. The insert
+ * takes the item's title through the trash row itself, while the row is still within its days: a row restored or
+ * purged meanwhile — a Restore clicked twice — has none, the column's NOT NULL fails the whole batch, and D1 rolls it
+ * back, so the restore can't happen twice and nothing of a second one lands (the insert alone gated would leave the
+ * statements after it, which find the item as the newest, writing the snapshot's reads onto whatever is newest).
+ * A member removed since is nobody on their reads, reviews, plays and pages, and their wants are dropped:
+ * `members` is who exists now. Bracketed as an import, so old reads aren't news to connections (§16 #40). The new
+ * item's id, from the insert's own RETURNING, or why not.
  */
 export async function restoreFromTrash(d1: D1Database, trashId: number, members: Map<number, string>): Promise<{ id: number } | RestoreRefusal> {
   const row = await getTrash(d1, trashId);
   if (!row) return { refused: 'gone' };
+  if (row.expired) return { refused: 'expired' };
   const p = JSON.parse(row.payload) as TrashPayload;
+  if (!p.item) return { refused: 'expired' }; // a snapshot the sweep has let go of
   // a person only while the id still has the key it had (§16 #56): a member given the id since gets nothing of theirs
   const people = p.people ?? {};
   const who = (id: number | null | undefined): number | null =>
@@ -4848,18 +4839,23 @@ export async function restoreFromTrash(d1: D1Database, trashId: number, members:
   // its shelf: the one it was on, if still so named (shelf ids are reused too); else a shelf of that name; else none
   const shelf = await shelfForRestore(d1, row.libraryId, row.libraryName);
   if (shelf === null) return { refused: 'no-shelf', shelf: row.libraryName };
-  const { seriesId: _series, ...rest } = p.item as Record<string, unknown> & { seriesId?: unknown };
-  // the time its stamp to connections was taken from (§16 #90), so a book back under its own id is still that book
+  const { seriesId: _series, title: _title, ...rest } = p.item as Record<string, unknown> & { seriesId?: unknown; title?: unknown };
+  // the time its stamp to connections was taken from (§16 #90): kept only when the book comes back under its own id,
+  // which the insert decides for itself — under any other id it would be the stamp of whatever book had that id at
+  // that second — else the insert's own time, as a file-dated row takes
+  const stampedAt = (rest['createdAt'] as string | null | undefined) ?? (rest['addedAt'] as string);
   const item = {
     ...rest,
+    title: sql`(SELECT title FROM trash WHERE id = ${trashId} AND deleted_at >= datetime('now', ${`-${TRASH_DAYS} days`}))` as unknown as string,
     libraryId: shelf,
     addedBy: who(rest['addedBy'] as number | null),
-    createdAt: (rest['createdAt'] as string | null | undefined) ?? (rest['addedAt'] as string),
+    createdAt: sql`CASE WHEN (SELECT coalesce(max(id), 0) + 1 FROM items) = ${row.itemId} THEN ${stampedAt} ELSE datetime('now') END` as unknown as string,
   } as NewItem;
   const importRow: ImportRow = {
     item,
     tags: p.tags ?? [],
     series: p.series ? { name: p.series.name, number: p.series.number, total: p.series.total } : null,
+    keepSeriesTotal: true, // the series' total as it is now, if the series is still here: the snapshot's may be older
     reads: (p.reads ?? []).map((r) => ({ status: r.status, beganOn: r.beganOn, endedOn: r.endedOn, readerId: who(r.readerId) })),
     reviews: (p.reviews ?? []).map((r) => ({ rating: r.rating, review: r.review, reviewedAt: r.reviewedAt, ratedAt: r.ratedAt, userId: who(r.userId) })),
     loans: p.loans ?? [],
@@ -4876,16 +4872,19 @@ export async function restoreFromTrash(d1: D1Database, trashId: number, members:
       read: pr.read ? { ...pr.read, readerId: who(pr.read.readerId) } : null,
     })),
   };
-  const before = (await d1.prepare('SELECT max(id) AS id FROM items').first<{ id: number | null }>())?.id ?? 0;
   // the latest page reached is the item's own column (progress_page), which an insert derives from its reads alone —
   // the pages are inserted after it, so it is written back from the snapshot once they are
   const latestPage = typeof rest['progressPage'] === 'number' ? rest['progressPage'] : null;
-  await importItems(d1, [importRow], [
-    ...(latestPage === null ? [] : [d1.prepare('UPDATE items SET progress_page = ?1 WHERE id = (SELECT max(id) FROM items)').bind(latestPage)]),
-    d1.prepare('DELETE FROM trash WHERE id = ?1').bind(trashId),
-  ]);
-  const after = (await d1.prepare('SELECT max(id) AS id FROM items').first<{ id: number | null }>())?.id ?? 0;
-  return after > before ? { id: after } : { refused: 'gone' };
+  try {
+    const [id] = await importItems(d1, [importRow], [
+      ...(latestPage === null ? [] : [d1.prepare('UPDATE items SET progress_page = ?1 WHERE id = (SELECT max(id) FROM items)').bind(latestPage)]),
+      d1.prepare('DELETE FROM trash WHERE id = ?1').bind(trashId),
+    ]);
+    return id === undefined ? { refused: 'gone' } : { id };
+  } catch (err) {
+    if (refusedBy(err, 'items.title')) return { refused: 'gone' }; // restored or purged since it was read
+    throw err;
+  }
 }
 
 /** The shelf a restore goes to: the id it had while that shelf is still so named, else a shelf so named, else null. */

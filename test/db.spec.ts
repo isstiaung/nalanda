@@ -27,6 +27,7 @@ import {
   updateItem,
   deleteItem,
 } from '../src/db/queries';
+import { budgeted } from '../src/federation/budget';
 import { itemStamp } from '../src/federation/items';
 
 async function seedLibrary() {
@@ -241,11 +242,24 @@ describe('bulk import', () => {
         tags: i % 2 ? ['odd', 'imported'] : ['imported'],
       })),
     );
-    expect(n).toBe(25);
+    expect(n).toHaveLength(25);
     const { total } = await listItems(env.DB, lib.id, {});
     expect(total).toBe(25);
     const found = await searchItems(env.DB, 'imported 7');
     expect(found.length).toBeGreaterThan(0);
+  });
+
+  it('links the tags inside the one batch, however many: one D1 call, and a failure there inserts nothing (§16 #39)', async () => {
+    const lib = await seedLibrary();
+    const budget = { left: 100 };
+    const many = Array.from({ length: 300 }, (_, i) => `tag-${i}`);
+    const ids = await importItems(budgeted(env.DB, budget), [{ item: { libraryId: lib.id, mediaType: 'book', title: 'Tagged', details: '{}' }, tags: many }]);
+    expect(100 - budget.left).toBe(1);
+    expect(await tagsForItem(env.DB, ids[0]!)).toHaveLength(300);
+    await env.DB.prepare("CREATE TRIGGER fail_tags BEFORE INSERT ON item_tags BEGIN SELECT RAISE(ABORT, 'no tags today'); END").run();
+    await expect(importItems(env.DB, [{ item: { libraryId: lib.id, mediaType: 'book', title: 'Lost', details: '{}' }, tags: ['x'] }])).rejects.toThrow();
+    expect((await env.DB.prepare("SELECT id FROM items WHERE title = 'Lost'").all()).results).toEqual([]);
+    await env.DB.prepare('DROP TRIGGER fail_tags').run();
   });
 });
 

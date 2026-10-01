@@ -26,6 +26,7 @@ import {
   startRead,
   trashItems,
   updateItemWithTags,
+  updateSeries,
   type TrashPayload,
   createItem,
   mergeImportItems,
@@ -330,6 +331,112 @@ describe('restoring', () => {
     expect(page).toContain('Former member');
     expect(page).not.toContain('<span class="reviewer">newcomer</span>');
     expect(page).toMatch(/newcomer<\/span><\/p><p class="reading-summary muted">Not started\./);
+  });
+
+  it('happens once: two restores of one row at once make one item, the second refused whole', async () => {
+    const asha = await member('asha', 'admin');
+    const shelf = await createLibrary(env.DB, 'Fiction');
+    const b = await book(asha, { libraryId: shelf.id, title: 'Once only' });
+    await addPastRead(env.DB, b.id, { status: 'completed', beganOn: '2024-01-01', endedOn: '2024-01-20' }, asha.id);
+    await setItemTags(env.DB, b.id, ['keep']);
+    await deleteItem(env.DB, b.id, deleter(asha));
+    const [row] = await listTrash(env.DB);
+    const keys = await members();
+    const outcomes = await Promise.all([restoreFromTrash(env.DB, row!.id, keys), restoreFromTrash(env.DB, row!.id, keys)]);
+    expect(outcomes.filter((o) => 'id' in o)).toHaveLength(1);
+    expect(outcomes.filter((o) => 'refused' in o)).toEqual([{ refused: 'gone' }]);
+    expect(await rows("SELECT id FROM items WHERE title = 'Once only'")).toHaveLength(1);
+    expect(await rows("SELECT r.id FROM reads r JOIN items i ON i.id = r.item_id WHERE i.title = 'Once only'")).toHaveLength(1);
+    expect(await rows('SELECT it.item_id FROM item_tags it')).toHaveLength(1);
+    expect(await listTrash(env.DB)).toEqual([]);
+    // and through the page, a Restore clicked twice: one restores, the other finds nothing
+    const twice = await book(asha, { libraryId: shelf.id, title: 'Twice' });
+    await deleteItem(env.DB, twice.id, deleter(asha));
+    const [row2] = await listTrash(env.DB);
+    const [r1, r2] = await Promise.all([as(asha, `/trash/${row2!.id}/restore`, { body: {} }), as(asha, `/trash/${row2!.id}/restore`, { body: {} })]);
+    expect([r1.status, r2.status].sort()).toEqual([302, 404]);
+    expect(await rows("SELECT id FROM items WHERE title = 'Twice'")).toHaveLength(1);
+  });
+
+  it('is one batch, its tags inside: a failure linking them leaves the item in the trash, never back without them', async () => {
+    const asha = await member('asha', 'admin');
+    const shelf = await createLibrary(env.DB, 'Fiction');
+    const b = await book(asha, { libraryId: shelf.id, title: 'Tagged' });
+    await setItemTags(env.DB, b.id, ['keep']);
+    await deleteItem(env.DB, b.id, deleter(asha));
+    const [row] = await listTrash(env.DB);
+    await env.DB.prepare("CREATE TRIGGER fail_tags BEFORE INSERT ON item_tags BEGIN SELECT RAISE(ABORT, 'no tags today'); END").run();
+    await expect(restoreFromTrash(env.DB, row!.id, await members())).rejects.toThrow();
+    expect(await rows('SELECT id FROM items')).toEqual([]);
+    expect((await listTrash(env.DB)).map((r) => r.title)).toEqual(['Tagged']); // still there, to try again
+    await env.DB.prepare('DROP TRIGGER fail_tags').run();
+    const id = await restored(row!.id);
+    expect(await rows('SELECT t.name FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = ?1', id)).toEqual([{ name: 'keep' }]);
+  });
+
+  it('keeps the stamp connections hold only under its own id: under another book’s old id it is a new book to them (§16 #90)', async () => {
+    const asha = await member('asha', 'admin');
+    const shelf = await createLibrary(env.DB, 'Fiction');
+    const middlemarch = await book(asha, { libraryId: shelf.id, title: 'Middlemarch' });
+    const piranesi = await book(asha, { libraryId: shelf.id, title: 'Piranesi' });
+    // two books from one import batch share their second
+    await env.DB.prepare("UPDATE items SET added_at = '2026-09-01 10:00:00', created_at = NULL").run();
+    const was = { middlemarch: await itemStamp((await getItem(env.DB, middlemarch.id))!), piranesi: await itemStamp((await getItem(env.DB, piranesi.id))!) };
+    await deleteItem(env.DB, middlemarch.id, deleter(asha));
+    await deleteItem(env.DB, piranesi.id, deleter(asha));
+    const trashed = await listTrash(env.DB);
+    const rowOf = (title: string) => trashed.find((r) => r.title === title)!.id;
+    // Piranesi restored first comes back under Middlemarch's old id, and must not carry Middlemarch's stamp
+    const p = await restored(rowOf('Piranesi'));
+    expect(p).toBe(middlemarch.id);
+    const stamp = await itemStamp((await getItem(env.DB, p))!);
+    expect(stamp).not.toBe(was.middlemarch);
+    expect(stamp).not.toBe(was.piranesi);
+    // Middlemarch then lands under Piranesi's old id: likewise a new book to a connection, its date added still its own
+    const m = await restored(rowOf('Middlemarch'));
+    expect(m).toBe(piranesi.id);
+    expect(await itemStamp((await getItem(env.DB, m))!)).not.toBe(was.piranesi);
+    expect((await getItem(env.DB, m))!.addedAt).toBe('2026-09-01 10:00:00');
+  });
+
+  it('leaves a series’ total as it is now — corrected since the snapshot — and fills one in only where there is none (§16 #52)', async () => {
+    const asha = await member('asha', 'admin');
+    const shelf = await createLibrary(env.DB, 'Fiction');
+    const one = await book(asha, { libraryId: shelf.id, title: 'Leviathan Wakes' });
+    const two = await book(asha, { libraryId: shelf.id, title: 'Caliban’s War' });
+    await updateItemWithTags(env.DB, one.id, {}, [], undefined, asha.id, undefined, { name: 'The Expanse', number: 1, total: 4 });
+    await updateItemWithTags(env.DB, two.id, {}, [], undefined, asha.id, undefined, { name: 'The Expanse', number: 2, total: null });
+    await deleteItem(env.DB, two.id, deleter(asha)); // the snapshot says 4
+    const sid = (await rows<{ id: number }>("SELECT id FROM series WHERE name = 'The Expanse'"))[0]!.id;
+    await updateSeries(env.DB, sid, 'The Expanse', 9); // corrected since
+    const [row] = await listTrash(env.DB);
+    const back = await restored(row!.id);
+    expect((await getItem(env.DB, back))!.seriesId).toBe(sid);
+    expect(await rows('SELECT total FROM series WHERE id = ?1', sid)).toEqual([{ total: 9 }]);
+    // a total cleared since takes the snapshot's, which is better than none
+    await deleteItem(env.DB, back, deleter(asha)); // the snapshot says 9
+    await updateSeries(env.DB, sid, 'The Expanse', null);
+    const [row2] = await listTrash(env.DB);
+    await restored(row2!.id);
+    expect(await rows('SELECT total FROM series WHERE id = ?1', sid)).toEqual([{ total: 9 }]);
+  });
+
+  it('reports the id the insert was given, not whatever is newest once it is done', async () => {
+    const asha = await member('asha', 'admin');
+    const shelf = await createLibrary(env.DB, 'Fiction');
+    const b = await book(asha, { libraryId: shelf.id, title: 'Mine' });
+    await deleteItem(env.DB, b.id, deleter(asha));
+    const [row] = await listTrash(env.DB);
+    // another item added the moment it is restored — by a trigger, so it lands inside the restore's own batch
+    await env.DB.prepare(
+      `CREATE TRIGGER decoy AFTER INSERT ON items WHEN NEW.title <> 'Decoy' BEGIN
+         INSERT INTO items (library_id, media_type, title, details) VALUES (NEW.library_id, 'book', 'Decoy', '{}');
+       END`,
+    ).run();
+    const id = await restored(row!.id);
+    await env.DB.prepare('DROP TRIGGER decoy').run();
+    expect((await getItem(env.DB, id))!.title).toBe('Mine');
+    expect((await rows<{ id: number }>("SELECT id FROM items WHERE title = 'Decoy'"))[0]!.id).toBeGreaterThan(id);
   });
 
   it('goes to the shelf it was on while that shelf is still so named, else to a shelf of that name, else is refused and stays', async () => {

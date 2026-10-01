@@ -49,6 +49,11 @@ trash.get('/trash', async (c) => {
         </p>
       ) : null}
       {gone ? <p class="notice">Deleted for good.</p> : null}
+      {c.req.query('expired') === '1' ? (
+        <p class="error" role="alert">
+          That item was past its {TRASH_DAYS} days, and has gone for good.
+        </p>
+      ) : null}
       {refused ? (
         <p class="error" role="alert">
           “{refused.title}” can’t be restored yet: its shelf{refused.libraryName ? ` “${refused.libraryName}”` : ''} is no longer here. Make a
@@ -119,7 +124,10 @@ trash.post('/trash/:id/restore', async (c) => {
   const id = idOf(c.req.param('id'));
   if (id === null) return c.notFound();
   const outcome = await restoreFromTrash(c.env.DB, id, memberKeys(await listMembersWithKeys(c.env.DB)));
-  if ('refused' in outcome) return outcome.refused === 'gone' ? c.notFound() : c.redirect(`/trash?noshelf=${id}`);
+  if ('refused' in outcome) {
+    if (outcome.refused === 'gone') return c.notFound();
+    return c.redirect(outcome.refused === 'expired' ? '/trash?expired=1' : `/trash?noshelf=${id}`);
+  }
   return c.redirect(`/trash?restored=${outcome.id}`);
 });
 

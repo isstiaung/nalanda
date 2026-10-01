@@ -1,6 +1,6 @@
 # §16 #90 — An import dates a book by the file's "date added"; a re-import re-dates the books already here only when the box is ticked, and the row's own time is kept for the stamp connections hold
 
-**Decided:** 2026-10-01. Cited as `ARCH.md §16 #90`; "§N" is a section of [ARCH.md](../../ARCH.md), "#N" another decision here.
+**Decided:** 2026-10-01. **Amended 2026-10-01:** a trash restore keeps the snapshot's time only under its own id. Cited as `ARCH.md §16 #90`; "§N" is a section of [ARCH.md](../../ARCH.md), "#N" another decision here.
 
 "Unread for years" (#81) found nothing on a catalogue imported from Goodreads: every book carried
 the day of the import as its date added, and Goodreads' own `Date Added` sat in `details`, where
@@ -33,9 +33,12 @@ page, since it moves them on every shelf.
   dates on insert takes its insert time in `created_at` there and then (review on #130): the newest
   id is reused after a delete, and a reading site's export has many books added on one day, so a
   stamp of the id and the file's day alone could name the deleted book's successor. A row that brings
-  its own time keeps it: a trash restore (#74) passes the snapshot's `created_at ?? added_at`, so a
-  book back under its own id is still that book to a connection. Internal, like `session_key`: not a
-  user-visible field, so not in the export.
+  its own time keeps it **only under its own id** (amended 2026-10-01): a trash restore (#74) passes
+  the snapshot's `created_at ?? added_at` inside a `CASE` the insert decides — the id it will be given
+  equals the one the snapshot had, or not — so a book back under its own id is still that book to a
+  connection, and one back under another book's old id (two books from one import batch share a
+  second; the other was trashed first) takes the insert's own time rather than the other's stamp.
+  Internal, like `session_key`: not a user-visible field, so not in the export.
 - **Nothing else moves.** `updated_at` stays — nothing a connection sees has changed — and the item
   history trigger (#84) lists neither column, so a re-import of hundreds of books writes no history.
   Where the date shows — a shelf's newest-first order, "Unread for years", the item page's Added
