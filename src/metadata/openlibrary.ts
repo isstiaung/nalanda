@@ -1,5 +1,6 @@
 import { fetchWithTimeout, USER_AGENT } from '../env';
 import { formatFromPhysical } from '../lib/formats';
+import { languageFromProvider } from '../lib/language';
 import { seriesKey } from '../lib/series';
 import { cleanSeriesName, parseSeriesNumber, type SeriesDraft } from '../lib/series';
 import { cleanDescription, PAGE_SIZE, type Candidate, type MetadataProvider, type SearchPage } from './provider';
@@ -19,13 +20,14 @@ type OlDoc = {
   // position can be "0.5", or an omnibus's "1-3".
   series_name?: string[];
   series_position?: string[];
+  language?: string[]; // ISO 639-2/B codes, 'eng'
 };
 
-const FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,isbn,series_name,series_position,format';
+const FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,isbn,series_name,series_position,format,language';
 // The backfill never reads the isbn list, and it dwarfs the rest: a search for a work with many
 // editions answers in 78 KB with it and 17 KB without. A Worker parses that inside a 10 ms CPU
 // budget, several times per item — so cover/detail lookups ask for the lean set.
-const LEAN_FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,series_name,series_position,format';
+const LEAN_FIELDS = 'key,title,author_name,publisher,first_publish_year,number_of_pages_median,cover_i,series_name,series_position,format,language';
 
 async function searchOl(q: string, limit: number, fields: string = FIELDS, page = 1): Promise<{ docs: OlDoc[]; found: number }> {
   const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&fields=${fields}&limit=${limit}${page > 1 ? `&page=${page}` : ''}`;
@@ -69,6 +71,8 @@ function toCandidate(doc: OlDoc, isbn13?: string): Candidate | null {
     ...seriesOf(doc),
     // the edition's physical form, when the index names one clearly (§16 #75)
     ...(formatFromPhysical(doc.format?.find((f) => formatFromPhysical(f))) ? { formats: [formatFromPhysical(doc.format!.find((f) => formatFromPhysical(f)))!] } : {}),
+    // the edition's language, when the index names one (§16 #76): the first of the work's, which is usually the only one
+    ...(languageFromProvider(doc.language?.[0]) ? { language: languageFromProvider(doc.language?.[0])! } : {}),
     details: {},
     provider: 'openlibrary',
   };

@@ -309,6 +309,20 @@
       "when": 1790844658391,
       "tag": "0043_formats-and-editions",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "6",
+      "when": 1790848990299,
+      "tag": "0044_language-and-original-title",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "6",
+      "when": 1790848990931,
+      "tag": "0045_original-title-fts",
+      "breakpoints": true
     }
   ]
 }

@@ -45,6 +45,8 @@ const item: Item = {
   purchasePrice: 49900,
   purchaseCurrency: 'INR',
   formats: '',
+  language: null,
+  originalTitle: null,
 };
 
 describe('share whitelist', () => {
@@ -71,6 +73,8 @@ describe('share whitelist', () => {
       review: 'A favorite.',
       inCollection: true,
       formats: [],
+      language: null,
+      originalTitle: null,
       details: { series: 'Earthsea' },
     });
   });
