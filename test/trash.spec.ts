@@ -27,7 +27,10 @@ import {
   trashItems,
   updateItemWithTags,
   type TrashPayload,
+  createItem,
+  mergeImportItems,
 } from '../src/db/queries';
+import { itemStamp } from '../src/federation/items';
 import { newShareToken } from '../src/lib/share';
 import { clearSharePageCache } from '../src/routes/share';
 import { as, book, html, member, rows, type Member } from './member-helpers';
@@ -213,6 +216,28 @@ describe('restoring', () => {
     expect(await html(asha, '/search?q=piranesi')).toContain('Piranesi');
     // and a second restore of the same row is nothing
     expect(await restoreFromTrash(env.DB, row!.id, await members())).toEqual({ refused: 'gone' });
+  });
+
+  it('brings the newest book back under its own id with the stamp connections hold — re-dated by an import or not (§16 #90)', async () => {
+    const asha = await member('u-asha-login', 'admin');
+    const shelf = await createLibrary(env.DB, 'Stamps');
+    const b = await createItem(env.DB, { libraryId: shelf.id, mediaType: 'book', title: 'Piranesi', creators: 'Susanna Clarke', isbn13: '9781635575637', details: '{}' });
+    const stamp = await itemStamp((await getItem(env.DB, b.id))!);
+    const newestTrash = async () => (await rows<{ id: number }>('SELECT id FROM trash ORDER BY id DESC'))[0]!.id;
+
+    await deleteItem(env.DB, b.id, deleter(asha));
+    expect(await restored(await newestTrash())).toBe(b.id); // the newest id, handed out again
+    expect(await itemStamp((await getItem(env.DB, b.id))!)).toBe(stamp); // and the same book to a connection
+
+    // re-dated by an import since: the time it was first made here comes back with it
+    const row = { item: { libraryId: shelf.id, mediaType: 'book' as const, title: 'Piranesi', creators: 'Susanna Clarke', isbn13: '9781635575637', status: 'not_started' as const, copies: 0, details: '{}', addedAt: '2019-03-12 00:00:00' }, tags: [] };
+    expect(await mergeImportItems(env.DB, [row], false, undefined, true)).toMatchObject({ merged: 1, dated: 1 });
+    expect(await itemStamp((await getItem(env.DB, b.id))!)).toBe(stamp);
+    await deleteItem(env.DB, b.id, deleter(asha));
+    expect(await restored(await newestTrash())).toBe(b.id);
+    const back = (await getItem(env.DB, b.id))!;
+    expect(back.addedAt).toBe('2019-03-12 00:00:00');
+    expect(await itemStamp(back)).toBe(stamp);
   });
 
   it('brings a game back with its plays, and a record with its grades', async () => {

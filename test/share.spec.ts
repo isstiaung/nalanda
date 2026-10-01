@@ -38,6 +38,7 @@ const item: Item = {
   sleeveCondition: null,
   addedBy: 3,
   addedAt: '2026-01-01 10:00:00',
+  createdAt: null,
   updatedAt: '2026-01-10 10:00:00',
   seriesId: 4,
   seriesNumber: 1,
@@ -87,7 +88,7 @@ describe('share whitelist', () => {
 
   it('never leaks private fields, even as keys', () => {
     const pub = toPublicItem(item) as unknown as Record<string, unknown>;
-    for (const forbidden of ['notes', 'location', 'copies', 'addedBy', 'addedAt', 'isbn13', 'status', 'libraryId', 'beganOn', 'completedOn', 'rereading']) {
+    for (const forbidden of ['notes', 'location', 'copies', 'addedBy', 'addedAt', 'createdAt', 'isbn13', 'status', 'libraryId', 'beganOn', 'completedOn', 'rereading']) {
       expect(pub).not.toHaveProperty(forbidden);
     }
     expect(JSON.stringify(pub)).not.toContain('SECRET');

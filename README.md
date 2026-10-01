@@ -17,7 +17,7 @@ manuscripts.
 - **Goodreads import**: drop in a Goodreads export CSV — rows matching your shelves merge
   their ratings/reviews onto existing books, and their shelves, read dates and read counts
   become reads; the rest arrive as reading-log entries. Everything it brings is the importing
-  member's own. Re-runs merge instead of duplicating, and never remove a read. libib CSV
+  member's own. Re-runs merge instead of duplicating, never remove a read, and can date each book by Goodreads' Date Added. libib CSV
   import too.
 - **StoryGraph and LibraryThing imports**: their exports too, matched and merged the same way — your
   reads, rating and review onto the books already here, the rest as reading-log entries.

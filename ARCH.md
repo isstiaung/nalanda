@@ -864,6 +864,7 @@ is a section of this document and "#N" another decision.
 | 86 | 2026-10-01 | [A share link has an Atom and an RSS feed of its newest additions — the page's whitelist, dated by the addition, never by a read](docs/decisions/086-share-feeds.md) |
 | 87 | 2026-10-01 | [StoryGraph and LibraryThing exports import as Goodreads' does: matched and merged, the importer's own reads and reviews](docs/decisions/087-storygraph-librarything.md) |
 | 88 | 2026-10-01 | [A read-only API behind per-member tokens: made on the Account page, shown once, bound to the account as a session is; a token sees what its member sees and changes nothing](docs/decisions/088-token-api.md) |
+| 90 | 2026-10-01 | [An import dates a book by the file's "date added"; a re-import re-dates the books already here only when asked, the row's own time kept for the stamp connections hold](docs/decisions/090-import-date-added.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
