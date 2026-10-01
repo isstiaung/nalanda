@@ -9,6 +9,10 @@ import { fetchWithTimeout, USER_AGENT } from '../env';
  */
 const COVER_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif']);
 
+/** What a fetched cover may weigh: 500 bytes to 5 MB. Covers are ~30-100 KB; the cap is for a URL that isn't one. */
+const COVER_MAX_BYTES = 5 * 1024 * 1024;
+const COVER_MIN_BYTES = 500;
+
 /**
  * A host name as DNS reads it, for every host check here: lower case, and without the trailing dot of a fully
  * qualified name — `i.discogs.com.` is `i.discogs.com`, and a check that compared the spelling let it through.
@@ -96,14 +100,45 @@ export async function fetchCover(
     if (!declared && opts.followRedirects === false) return null;
     const contentType = (declared ?? 'image/jpeg').split(';')[0]!.trim().toLowerCase();
     if (!COVER_TYPES.has(contentType)) return null;
-    // Buffer instead of streaming: R2 put() needs a known length, covers are ~30-100 KB.
-    const body = await res.arrayBuffer();
+    // Sized before it is read: a length the host declares over the cap is refused unread, and the body is pulled a
+    // chunk at a time and dropped the moment it passes the cap — never buffered whole and then measured, which let
+    // a typed URL to a large file take as much of the Worker's memory as the file had.
+    if (Number(res.headers.get('content-length')) > COVER_MAX_BYTES) return null;
+    const body = await readUpTo(res.body, COVER_MAX_BYTES);
     // < 500 bytes is a tracking pixel or provider placeholder, not cover art
-    if (body.byteLength < 500 || body.byteLength > 5 * 1024 * 1024) return null;
+    if (!body || body.byteLength < COVER_MIN_BYTES) return null;
     return { body, contentType };
   } catch {
     return null;
   }
+}
+
+/**
+ * A body read into one buffer — R2's put() wants a known length — or null once it passes `max`: the stream is
+ * cancelled there, so a file of any size costs at most `max` bytes and is never buffered whole.
+ */
+async function readUpTo(body: ReadableStream<Uint8Array> | null, max: number): Promise<ArrayBuffer | null> {
+  if (!body) return null;
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return out.buffer;
 }
 
 export async function storeCover(

@@ -16,6 +16,7 @@ for what a host must do; link runbooks as ../runbooks/…); a release commit ren
 
 ### Fixed
 - **A Discogs image typed with a trailing dot.** A cover URL typed as `https://i.discogs.com./…` — the fully qualified spelling of the same host — was fetched and stored. Every host check now reads a name as DNS does, case and trailing dot aside, so it is refused like any other Discogs image (ARCH.md §16 #67). A typed cover URL whose host is an IP address is refused too, with the reason on the form.
+- **A cover over 5 MB is refused before it is read.** A cover URL pointing at a large file was downloaded whole and only then measured against the 5 MB cap, taking as much of the Worker's memory as the file had. The length the host declares is checked first, and the body is read a piece at a time and dropped the moment it passes the cap — in the app and in the laptop scripts alike.
 
 ### Upgrading
 - **One migration, 0051: a new `api_tokens` table, no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. The backup's table order gains `api_tokens`.
