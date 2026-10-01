@@ -18,9 +18,13 @@ long as it says it isn't security.
   the demo is the app as released, on each release.
 - **Plain files, links intact.** A page lands at `<path>/index.html`, a filtered one at
   `<path>/q/<query>.html`, a file the app serves (stylesheet, scripts, fonts, covers from the
-  scratch R2, a feed) at its own path; every same-origin link, form action, image and script in a
-  page is pointed at its file under the site's base (`/<repo>/` on GitHub Pages), the
-  stylesheet's font references too (`scripts/demo-static.mjs`, the pure part, tested). What the
+  scratch R2, a feed) at its own path; every same-origin link, form action, image (`srcset` too)
+  and script in a page is pointed at its file under the site's base (`/<repo>/` on GitHub Pages),
+  the stylesheet's font references too (`scripts/demo-static.mjs`, the pure part, tested). A
+  path's segments are decoded for the name on disk and encoded again in links, since Pages
+  decodes a request before looking the file up (`/creators/Ursula%20K.%20Le%20Guin` is the
+  directory `Ursula K. Le Guin`); `/` inside a segment, `.`, `..` and control characters are
+  never a name, so no address can write outside its directory (review on #131). What the
   crawl never follows: anything that writes or signs out, the export, the APIs, connections, the
   service worker's files, the token page, and pages past the first of a long shelf.
 - **Every form is intercepted** by the demo's own script, injected into each page: a POST gets a
@@ -38,7 +42,9 @@ long as it says it isn't security.
   — a gate for the look of the thing, as the owner asked, and nothing more.
 - **Published on release**, by `.github/workflows/demo.yml`: on a `v*.*.*` tag (and by hand), the
   build runs on the runner and `actions/deploy-pages` publishes `demo/` — no secret, no
-  Cloudflare, the job's own token allowed to write Pages. Pages has to be switched to "GitHub
+  Cloudflare; the build job holds a read of the repository and nothing else, and only the deploy
+  job's own token may write Pages. The app's service worker is not registered in the demo
+  (`window.NALANDA_DEMO`). Pages has to be switched to "GitHub
   Actions" as its source once ([runbooks/demo.md](../../runbooks/demo.md)). `demo/` is
   gitignored.
 

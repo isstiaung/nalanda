@@ -50,29 +50,60 @@ export function isAsset(path) {
 }
 
 /**
+ * A path's segments as names on disk: percent-encoding undone, since Pages (and any static server) decodes a request
+ * before looking the file up — `/creators/Ursula%20K.%20Le%20Guin` is the directory `Ursula K. Le Guin`. A `/` inside
+ * a segment (`%2F`), a control character, `.` and `..` are never a name: each becomes `_`, so no address can name a
+ * file outside its own directory.
+ */
+function segmentsOf(path) {
+  return path
+    .split('/')
+    .filter(Boolean)
+    .map((segment) => {
+      let plain = segment;
+      try {
+        plain = decodeURIComponent(segment);
+      } catch {
+        /* not percent-encoding: as written */
+      }
+      plain = plain.replace(/[/\x00-\x1f\x7f]/g, '_');
+      return plain === '.' || plain === '..' ? '_' : plain;
+    });
+}
+
+/** Where a crawled address lives: its directory's segments, and the file in it ('' for a file the app serves as it is). */
+function placeOf(pathWithQuery) {
+  const [path, query = ''] = pathWithQuery.split('?');
+  if (isAsset(path)) return { segments: segmentsOf(path), file: '' };
+  return { segments: path === '/' ? ['home'] : segmentsOf(path), file: query ? `q/${safeQuery(query)}.html` : 'index.html' };
+}
+
+/**
  * The file a crawled address is written to, under the output directory. The app's home (`/`) is `home/index.html`
  * — the site's own root is the login page. A page is `<path>/index.html`; with a query, `<path>/q/<query>.html`,
  * so one shelf's filtered views sit beside it. A file the app serves as it is keeps its path.
  */
 export function fileFor(pathWithQuery) {
-  const [path, query = ''] = pathWithQuery.split('?');
-  if (isAsset(path)) return path.slice(1);
-  const dir = path === '/' ? 'home' : path.replace(/^\/|\/$/g, '');
-  return query ? `${dir}/q/${safeQuery(query)}.html` : `${dir}/index.html`;
+  const { segments, file } = placeOf(pathWithQuery);
+  return [...segments, ...(file ? [file] : [])].join('/');
 }
 
-/** The address a page's link to a crawled address becomes: under `base` (the site's path on its host), a directory for a page. */
+/**
+ * The address a page's link to a crawled address becomes: under `base` (the site's path on its host), a directory for
+ * a page, each segment percent-encoded again so the server decodes it to the name on disk. A query's file name is
+ * already plain (safeQuery), and stays as it is.
+ */
 export function hrefFor(pathWithQuery, base = '') {
-  const file = fileFor(pathWithQuery);
-  const link = file.endsWith('/index.html') ? file.slice(0, -'index.html'.length) : file;
-  return `${base}/${link}`;
+  const { segments, file } = placeOf(pathWithQuery);
+  const dir = segments.map(encodeURIComponent).join('/');
+  return `${base}/${dir}${file === 'index.html' ? '/' : file ? `/${file}` : ''}`;
 }
 
-/** Every same-origin address a page refers to — links, forms, images, scripts, stylesheets — as `/path?query`, in order of appearance, once each. */
+/** Every same-origin address a page refers to — links, forms, images (`srcset` too), scripts, stylesheets — as `/path?query`, in order of appearance, once each. */
 export function addressesIn(html) {
   const out = [];
   const seen = new Set();
-  for (const m of html.matchAll(/\b(?:href|action|src)="([^"]*)"/g)) {
+  for (const m of html.matchAll(/\b(?:href|action|src|srcset)="([^"]*)"/g)) {
     const raw = m[1].replace(/&amp;/g, '&');
     if (!raw.startsWith('/') || raw.startsWith('//')) continue;
     const address = raw.split('#')[0];
@@ -89,7 +120,7 @@ export function addressesIn(html) {
  * canned search lands on its file and the demo's script can tell a missing one from a present one.
  */
 export function rewriteLinks(html, base = '') {
-  return html.replace(/\b(href|action|src)="(\/[^"]*)"/g, (whole, attr, raw) => {
+  return html.replace(/\b(href|action|src|srcset)="(\/[^"]*)"/g, (whole, attr, raw) => {
     if (raw.startsWith('//')) return whole;
     const [address, hash] = raw.replace(/&amp;/g, '&').split('#');
     if (!address) return whole;

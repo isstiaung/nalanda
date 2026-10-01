@@ -11,10 +11,10 @@ on:
     tags: ['v*.*.*']
   workflow_dispatch:
 
+# the build job — npm ci, wrangler, the seed — holds nothing but a read of the repository; only the deploy job may
+# write Pages (as actions/deploy-pages' own example has it)
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: demo
@@ -47,6 +47,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

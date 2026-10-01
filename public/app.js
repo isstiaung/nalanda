@@ -68,7 +68,8 @@
 
   // The service worker keeps the offline page and the scanner, never a page or an API answer (public/sw.js).
   // updateViaCache 'none': the browser checks sw.js itself on every visit, so a deploy's worker is never missed.
-  if ('serviceWorker' in navigator) {
+  // not in the static demo (ARCH.md §16 #89): nothing there to install or keep
+  if ('serviceWorker' in navigator && !window.NALANDA_DEMO) {
     navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' }).catch(() => {
       // no worker (private mode, an old browser): everything works, just not offline
     });

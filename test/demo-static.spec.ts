@@ -25,6 +25,24 @@ describe('where an address lands', () => {
     expect(hrefFor('/items/12')).toBe('/items/12/');
   });
 
+  it('names a page by its decoded segments, encodes them again in links, and lets no segment leave its directory', () => {
+    // Pages decodes a request before looking the file up, so the name on disk is the decoded one (review on #131)
+    expect(fileFor('/creators/Ursula%20K.%20Le%20Guin')).toBe('creators/Ursula K. Le Guin/index.html');
+    expect(hrefFor('/creators/Ursula%20K.%20Le%20Guin', '/nalanda')).toBe('/nalanda/creators/Ursula%20K.%20Le%20Guin/');
+    expect(fileFor('/publishers/Faber%20%26%20Faber')).toBe('publishers/Faber & Faber/index.html');
+    expect(hrefFor('/publishers/Faber%20%26%20Faber')).toBe('/publishers/Faber%20%26%20Faber/');
+    expect(fileFor('/tags/r%C3%A9cit')).toBe('tags/récit/index.html');
+    expect(hrefFor('/tags/r%C3%A9cit')).toBe('/tags/r%C3%A9cit/');
+    expect(fileFor('/tags/a%2Fb')).toBe('tags/a_b/index.html'); // never a directory of its own
+    expect(hrefFor('/tags/a%2Fb')).toBe('/tags/a_b/');
+    expect(fileFor('/creators/..')).toBe('creators/_/index.html'); // never the parent, never the root's login page
+    expect(fileFor('/creators/.')).toBe('creators/_/index.html');
+    expect(fileFor('/tags/a%00b')).toBe('tags/a_b/index.html');
+    expect(fileFor('/tags/100%')).toBe('tags/100%/index.html'); // not percent-encoding: as written
+    expect(hrefFor('/tags/100%')).toBe('/tags/100%25/');
+    expect(hrefFor('/search?q=le+guin', '/nalanda')).toBe('/nalanda/search/q/q=le+guin.html'); // a query's file name is already plain
+  });
+
   it('tells an asset from a page', () => {
     for (const a of ['/app.css', '/app.js', '/logo.svg', '/vendor/htmx.min.js', '/covers/abc', '/icons/icon-192.png', '/bgg/powered-by-bgg.svg', '/share/t/feed.rss']) expect(isAsset(a), a).toBe(true);
     for (const p of ['/', '/libraries/3', '/items/12', '/search', '/share/t', '/account']) expect(isAsset(p), p).toBe(false);
@@ -40,16 +58,16 @@ describe('what the crawl follows', () => {
   });
 
   it('reads every same-origin address a page refers to, once, in order, without fragments', () => {
-    const html = '<a href="/libraries/3">a</a><form action="/libraries/3?sort=title&amp;view=grid"></form><img src="/covers/k"><a href="/items/1#reads">b</a><a href="/items/1">c</a><a href="https://x.example/">no</a><script src="/app.js"></script><a href="//x.example/no">no</a>';
-    expect(addressesIn(html)).toEqual(['/libraries/3', '/libraries/3?sort=title&view=grid', '/covers/k', '/items/1', '/app.js']);
+    const html = '<a href="/libraries/3">a</a><form action="/libraries/3?sort=title&amp;view=grid"></form><img src="/covers/k"><a href="/items/1#reads">b</a><a href="/items/1">c</a><a href="https://x.example/">no</a><script src="/app.js"></script><a href="//x.example/no">no</a><source srcset="/bgg/powered-by-bgg-reversed-rgb.svg" media="(prefers-color-scheme: dark)">';
+    expect(addressesIn(html)).toEqual(['/libraries/3', '/libraries/3?sort=title&view=grid', '/covers/k', '/items/1', '/app.js', '/bgg/powered-by-bgg-reversed-rgb.svg']);
   });
 });
 
 describe('what a page becomes', () => {
   it('points every link, form, image and script at its file under the base, keeping fragments and leaving other origins alone', () => {
-    const html = '<a href="/">home</a> <a href="/libraries/3?sort=title&amp;view=grid#top">shelf</a> <form action="/search"><input name="q"></form> <img src="/covers/k"> <script src="/app.js"></script> <a href="https://x.example/p">x</a> <a href="//cdn.example/y">y</a>';
+    const html = '<a href="/">home</a> <a href="/libraries/3?sort=title&amp;view=grid#top">shelf</a> <form action="/search"><input name="q"></form> <img src="/covers/k"> <script src="/app.js"></script> <a href="https://x.example/p">x</a> <a href="//cdn.example/y">y</a> <source srcset="/bgg/x.svg"> <a href="/creators/Ursula%20K.%20Le%20Guin">u</a>';
     expect(rewriteLinks(html, '/nalanda')).toBe(
-      '<a href="/nalanda/home/">home</a> <a href="/nalanda/libraries/3/q/sort=title&amp;view=grid.html#top">shelf</a> <form action="/nalanda/search/"><input name="q"></form> <img src="/nalanda/covers/k"> <script src="/nalanda/app.js"></script> <a href="https://x.example/p">x</a> <a href="//cdn.example/y">y</a>',
+      '<a href="/nalanda/home/">home</a> <a href="/nalanda/libraries/3/q/sort=title&amp;view=grid.html#top">shelf</a> <form action="/nalanda/search/"><input name="q"></form> <img src="/nalanda/covers/k"> <script src="/nalanda/app.js"></script> <a href="https://x.example/p">x</a> <a href="//cdn.example/y">y</a> <source srcset="/nalanda/bgg/x.svg"> <a href="/nalanda/creators/Ursula%20K.%20Le%20Guin/">u</a>',
     );
   });
 
