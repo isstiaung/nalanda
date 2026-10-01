@@ -70,6 +70,11 @@ for a surface before changing anything it shows to someone outside the household
   `readBy` and the decluttering filters (`addedYears`, `unplayedMonths` — `StaleFilter`, outside
   `ItemFilters` like `ReaderFilter`): never a share's source, never a key the publish form carries,
   never sent to connections.
+- **Borrows** (ARCH.md §16 #82) — what is borrowed from someone not on Nalanda, the mirror of a loan —
+  are as private as loans: the lender, dates and note reach no share page and no connection
+  (`toPublicItem()` and `toConnectionItem()` have no key for them), the Borrowed pill is inside the
+  app, and the Holding filter's Borrowed choice rides in `StaleFilter`, outside `ItemFilters`, so no
+  share link can capture it.
 
 ## Gift lists, want lists and purchase links
 
