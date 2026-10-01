@@ -16,3 +16,6 @@ options/
 
 # agents' git worktrees
 .claude/worktrees/
+
+# the owner's local planning notes — never committed
+PROPOSED_UPGRADES.md
