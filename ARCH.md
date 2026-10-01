@@ -1671,7 +1671,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     subrequest and CPU budget — which renders the entry server-side (`ReviewEntry`), testable in
     workerd, rather than building cards from `/api/lookup`'s JSON in the browser. Adding posts
     the entry's form to `POST /items` with `HX-Request`, which answers htmx with the added entry
-    (one handler, two renders); a row leaves the queue only after that 200. Drop is the device's
+    (one handler, two renders); a row leaves the queue only after that 200. Want does the same
+    with `want=1`, as a search result's does (§16 #53): onto the adder's want list, as Not owned
+    or on the copy the catalog already has — answered with the entry too, never a redirect, and
+    refused like Add when `scanOwner` isn't the signed-in account's. Drop is the device's
     alone: it deletes the row, and no server route exists for it.
 
     *Whose queue:* the device's and the signed-in account's. Every signed-in page carries an
