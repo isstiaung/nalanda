@@ -418,6 +418,7 @@ items.post('/items', async (c) => {
           money={priceField(c, currency, price)}
         />
       </>,
+      libs, // nothing was written: the sidebar's list too (§16 #68)
     );
   }
 
@@ -1009,6 +1010,7 @@ items.get('/items/:id/edit', async (c) => {
         money={priceField(c, settings.currency)}
       />
     </>,
+    libs, // the sidebar's list too (§16 #68)
   );
 });
 
@@ -1604,6 +1606,7 @@ items.post('/items/:id', async (c) => {
           money={priceField(c, settings.currency, price)}
         />
       </>,
+      libs, // nothing was written: the sidebar's list too (§16 #68)
     );
   }
 

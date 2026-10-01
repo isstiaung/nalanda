@@ -454,14 +454,17 @@ describe('what the filter costs', () => {
     return 1000 - counter.left;
   };
 
-  it('costs a shelf page no D1 call: In progress counts as Completed does, and as no filter', async () => {
+  it('costs a shelf page no D1 call: In progress counts as Completed does, and as any other filter', async () => {
     const { asha, shelf } = await household();
     const none = await calls(asha, `/libraries/${shelf.id}`);
+    // A filtered view counts what it holds: one call an unfiltered shelf doesn't make, since its count is the shelf's,
+    // read with the sidebar's (§16 #68). Every status costs that, In progress — a re-read too — no more.
+    const filtered = none + 1;
+    expect(await calls(asha, `/libraries/${shelf.id}?owned=1`)).toBe(filtered);
     const byStatus = new Map<ItemStatus, number>();
     for (const status of ITEM_STATUSES) byStatus.set(status, await calls(asha, `/libraries/${shelf.id}?status=${status}`));
-    expect(byStatus.get('in_progress')).toBe(none);
-    expect(byStatus.get('completed')).toBe(none);
-    expect(await calls(asha, `/libraries/${shelf.id}?status=in_progress&status=completed`)).toBe(none);
+    for (const status of ITEM_STATUSES) expect(byStatus.get(status), status).toBe(filtered);
+    expect(await calls(asha, `/libraries/${shelf.id}?status=in_progress&status=completed`)).toBe(filtered);
   });
 
   it('costs a feed pull and a removal check what a Completed view’s do', async () => {

@@ -281,6 +281,13 @@
       "when": 1790762221237,
       "tag": "0039_purchase-price",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1790828675548,
+      "tag": "0040_query-indexes",
+      "breakpoints": true
     }
   ]
 }

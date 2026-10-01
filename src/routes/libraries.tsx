@@ -6,13 +6,11 @@ import {
   shelfFlags,
   createLibrary,
   deleteLibrary,
-  getLibrary,
   listItems,
-  listLibraries,
   listPeople,
   listShares,
   renameLibrary,
-  shelfTotals,
+  shelvesWithTotals,
   tagsForItems,
   type ReaderFilter,
 } from '../db/queries';
@@ -111,7 +109,12 @@ libraries.post('/libraries', async (c) => {
 
 libraries.get('/libraries/:id', async (c) => {
   const id = Number(c.req.param('id'));
-  const lib = await getLibrary(c.env.DB, id);
+  // Every shelf with its count, and every shelf's totals — what the household paid (§16 #61) and the types it holds —
+  // in one call, one pass over the items (§16 #68): this shelf, bulk edit's "Move to shelf" and the shelf a move's
+  // notice links to (§16 #47), the sidebar's list (handed to page()), and — on an unfiltered view — the count the
+  // pages are worked out from, so the shelf's items aren't counted a second time.
+  const { shelves, totals } = await shelvesWithTotals(c.env.DB);
+  const lib = shelves.find((l) => l.id === id);
   if (!lib) return c.notFound();
 
   // Filters are any-of checkbox groups, so params repeat: ?type=book&type=vinyl.
@@ -149,15 +152,12 @@ libraries.get('/libraries/:id', async (c) => {
       page: pageNum,
     },
     reader,
+    filtered ? undefined : lib.itemCount,
   );
   const ids = items.map((i) => i.id);
-  const [{ onLoan: onLoanIds, wanted: wantedIds }, tagsMap, shelves, totals] = await Promise.all([
+  const [{ onLoan: onLoanIds, wanted: wantedIds }, tagsMap] = await Promise.all([
     shelfFlags(c.env.DB, ids), // loans and the "Wanted" badge (§16 #53), one call
     view === 'table' ? tagsForItems(c.env.DB, ids) : Promise.resolve(undefined),
-    // bulk edit's "Move to shelf", and the shelf a move's notice links to (§16 #47)
-    listLibraries(c.env.DB),
-    // what the household paid for the whole shelf (§16 #61), summed in SQL, and its currency — one call
-    shelfTotals(c.env.DB, id),
   ]);
   const shelfTotal = totals.shelves.get(id);
   // Status is reading status: a shelf — or a view of it — holding only games and records (they take plays) leaves the
@@ -165,7 +165,7 @@ libraries.get('/libraries/:id', async (c) => {
   const typesHere = (shelfTotal?.byType ?? []).filter((t) => t.count > 0).map((t) => t.mediaType);
   const showStatus = statuses.length > 0 || (mediaTypes.length ? mediaTypes : typesHere).some((t) => !isPlayable(t));
   // everything on the shelf, whatever the filters: what deleting it takes with it
-  const shelfCount = shelves.find((l) => l.id === id)?.itemCount ?? total;
+  const shelfCount = lib.itemCount;
 
   const makeHref = (p: number, v = view) => {
     const params = new URLSearchParams();
@@ -375,6 +375,7 @@ libraries.get('/libraries/:id', async (c) => {
         </form>
       </details>
     </>,
+    shelves,
   );
 });
 

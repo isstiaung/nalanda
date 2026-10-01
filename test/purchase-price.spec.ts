@@ -515,7 +515,10 @@ describe('purchase price: totals per shelf', () => {
       .run();
     const after = await calls(asha, `/libraries/${shelf.id}`);
     expect(after).toBe(before);
-    expect(after).toBe(13); // 12 before §16 #61 (measured with the totals left out): the totals' batch is one more
+    // 12 before §16 #61 (measured with the totals left out): the totals' batch is one more. Then 7 since §16 #68: the
+    // shelves, their counts and every shelf's totals are one batch, read once for the page and its sidebar, and they
+    // name this shelf and count its unfiltered items too
+    expect(after).toBe(7);
   });
 });
 

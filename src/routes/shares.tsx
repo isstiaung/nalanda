@@ -186,6 +186,7 @@ shares.get('/shares', async (c) => {
         </form>
       </section>
     </>,
+    libraries, // the sidebar's list too (§16 #68)
   );
 });
 

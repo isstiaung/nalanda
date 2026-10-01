@@ -551,6 +551,7 @@ async function render(c: Context<AppEnv>, flash: Flash = {}) {
       goalsToConnections={site.goalsToConnections}
       {...flash}
     />,
+    libraries, // read after any write this request made: the sidebar's list too (§16 #68)
   );
 }
 

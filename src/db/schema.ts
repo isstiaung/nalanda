@@ -133,6 +133,18 @@ export const items = sqliteTable(
     index('idx_items_library').on(t.libraryId),
     index('idx_items_isbn13').on(t.isbn13),
     index('idx_items_series').on(t.seriesId),
+    // Rows read are what the free plan rations (5M a day), and D1 counts every row a sort passes through as read
+    // again — even under LIMIT (§16 #68). These hand rows over already in the order a page asks for, so a shelf's
+    // page of 60, newest first or by title, reads 60 rows instead of the whole shelf twice; the Overview's recent
+    // items 12 instead of the catalogue twice; and the totals by type group without a sort.
+    index('idx_items_library_added').on(t.libraryId, t.addedAt),
+    index('idx_items_library_title').on(t.libraryId, t.title),
+    index('idx_items_added').on(t.addedAt),
+    index('idx_items_library_type').on(t.libraryId, t.mediaType),
+    // only the priced items (§16 #61): the shelf's paid totals read those, not every item to find them
+    index('idx_items_paid')
+      .on(t.libraryId, t.purchaseCurrency, t.purchasePrice)
+      .where(sql`${t.purchasePrice} IS NOT NULL`),
   ],
 );
 
@@ -151,7 +163,11 @@ export const itemTags = sqliteTable(
       .notNull()
       .references(() => tags.id, { onDelete: 'cascade' }),
   },
-  (t) => [primaryKey({ columns: [t.itemId, t.tagId] })],
+  (t) => [
+    primaryKey({ columns: [t.itemId, t.tagId] }),
+    // a tag's items, from the tag: its page, a share link that captured it, and the Tags page's counts (§16 #68)
+    index('idx_item_tags_tag').on(t.tagId),
+  ],
 );
 
 export const loans = sqliteTable(
@@ -344,6 +360,8 @@ export const reads = sqliteTable(
     // people can read a book at once. NULLs are distinct in a unique index, so unattributed open reads aren't held
     // to one here; the app never opens one, and treats them as one reader when it checks (sameReader in queries.ts).
     uniqueIndex('reads_one_open_per_reader').on(t.itemId, t.readerId).where(sql`${t.status} = 'in_progress'`),
+    // a year's finishes as a range (Year in review, §16 #59, #68), and the reads being read now ("Read by", §16 #43)
+    index('idx_reads_status_ended').on(t.status, t.endedOn),
   ],
 );
 

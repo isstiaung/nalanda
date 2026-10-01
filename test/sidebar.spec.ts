@@ -339,9 +339,10 @@ describe('the D1 budget', () => {
 
 /**
  * Measured with the layout before this change (origin/main at 1.5.0) on this test's household: five calls, the same
- * as now. The sections are drawn from the shelves and unread counts the layout already loads.
+ * as now. The sections are drawn from the shelves and unread counts the layout already loads. Four since the shelves
+ * and their counts became one statement (§16 #68).
  */
-const TAGS_PAGE_CALLS = 5;
+const TAGS_PAGE_CALLS = 4;
 
 async function unreadForAdmin(me: { id: number }) {
   const peer = await makePeer('Riverbank library');

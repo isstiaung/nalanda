@@ -424,6 +424,7 @@ recommendations.get('/recommendations', async (c) => {
         </p>
       ) : null}
     </>,
+    shelves, // the sidebar's list too (§16 #68)
   );
 });
 

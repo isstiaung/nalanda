@@ -215,8 +215,11 @@ describe('the cost of a signed-in request', () => {
       expect(res.status, path).toBe(200);
       measured[path] = 1000 - budget.left;
     }
-    // '/': read next, the reading goal and the shelves' paid totals (§16 #46, #49, #61); '/settings/users': the household currency (§16 #61)
-    expect(measured).toEqual({ '/account': 4, '/': 12, '/loans': 5, '/settings/users': 5, '/tags': 4 });
+    // '/': read next, the reading goal and the shelves' paid totals (§16 #46, #49, #61); '/settings/users': the household
+    // currency (§16 #61). One fewer on every page since the sidebar's shelves and their counts became one statement, and
+    // five fewer on '/', which reads its shelves, totals and holdings in one batch and hands the shelves to the sidebar
+    // (§16 #68).
+    expect(measured).toEqual({ '/account': 3, '/': 7, '/loans': 4, '/settings/users': 4, '/tags': 3 });
   });
 });
 

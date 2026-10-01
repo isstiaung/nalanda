@@ -272,8 +272,10 @@ describe('D1 calls', () => {
     // the session's user, then the pick — nothing else
     expect(small.card).toBe(2);
     // the Overview made 9 calls before this card (measured with the pick left out): the pick is one more, the
-    // signed-in member's reading goal (§16 #49) one more again, and the shelves' paid totals (§16 #61) one more
-    expect(small.page).toBe(12);
+    // signed-in member's reading goal (§16 #49) one more again, and the shelves' paid totals (§16 #61) one more — 12,
+    // until the shelves, their counts, their totals and the holdings by type became one batch, read once for the page
+    // and its sidebar (§16 #68): 7
+    expect(small.page).toBe(7);
 
     // about 2,000 books, a third finished by asha and a third read by ravi, and some records
     await env.DB.prepare(

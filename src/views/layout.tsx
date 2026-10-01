@@ -310,11 +310,15 @@ export function navPath(path: string): string {
   return path;
 }
 
-/** Renders a full page (doctype + app shell). Partials use c.html(<Fragment/>) directly. */
-export async function page(c: Context<AppEnv>, title: string, body: Child) {
+/**
+ * Renders a full page (doctype + app shell). Partials use c.html(<Fragment/>) directly. A page that listed the shelves
+ * itself passes that list as `shelves`, and the sidebar shows it rather than counting every item again (§16 #68) — only
+ * a list read in this request after any write it made, so it is exactly what the sidebar would have read.
+ */
+export async function page(c: Context<AppEnv>, title: string, body: Child, shelves?: Awaited<ReturnType<typeof listLibraries>>) {
   const user = (c.get('user') as SessionUser | undefined) ?? null;
   const path = navPath(new URL(c.req.url).pathname);
-  const libraries = user ? await listLibraries(c.env.DB) : [];
+  const libraries = user ? (shelves ?? (await listLibraries(c.env.DB))) : [];
   // Feed and Connections exist only on an instance with a federation key; only admins manage connections.
   const federation = !!user && !!(await loadIdentity(c.env.FEDERATION_PRIVATE_KEY));
   // One query, and only on an instance with connections: everything notified is about a connection.

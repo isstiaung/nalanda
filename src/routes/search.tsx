@@ -21,10 +21,11 @@ search.get('/search', async (c) => {
   const items = q ? await searchItems(c.env.DB, q, SEARCH_LIMIT, reader) : [];
   // a full page is the cap, not the count: there may be more, so the heading says "best" and a line says how to narrow it
   const capped = items.length >= SEARCH_LIMIT;
+  // the Shelf column, and bulk edit's "Move to shelf" and its notice (§16 #47) — and then the sidebar's list too (§16 #68)
+  const listed = items.length > 0 || !!c.req.query('bulk');
   const [{ onLoan: onLoanIds, wanted: wantedIds }, libs] = await Promise.all([
     shelfFlags(c.env.DB, items.map((i) => i.id)), // loans and the "Wanted" badge (§16 #53), one call
-    // the Shelf column, and bulk edit's "Move to shelf" and its notice (§16 #47)
-    items.length || c.req.query('bulk') ? listLibraries(c.env.DB) : Promise.resolve([]),
+    listed ? listLibraries(c.env.DB) : Promise.resolve([]),
   ]);
   const libraryNames = new Map(libs.map((l) => [l.id, l.name]));
   // where a bulk action comes back to: this search, as it was asked
@@ -78,6 +79,7 @@ search.get('/search', async (c) => {
         )
       ) : null}
     </>,
+    listed ? libs : undefined,
   );
 });
 
