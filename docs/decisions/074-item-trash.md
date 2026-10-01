@@ -1,6 +1,6 @@
 # §16 #74 — Deleting an item puts it in the trash for 30 days: a snapshot SQLite builds in the delete's own batch, restored through the import's insert, never a soft delete
 
-**Decided:** 2026-10-01 (where it is now). **Amended 2026-10-01:** deleting a shelf trashes its items, and is an admin's. Cited as `ARCH.md §16 #74`; "§N" is a section of [ARCH.md](../../ARCH.md), "#N" another decision here.
+**Decided:** 2026-10-01 (where it is now). **Amended 2026-10-01:** deleting a shelf trashes its items, and is an admin's; the 30 days are let go of on every item write, and a restore past them is refused. Cited as `ARCH.md §16 #74`; "§N" is a section of [ARCH.md](../../ARCH.md), "#N" another decision here.
 
 A delete was a delete: an item, its reads, reviews, pages, plays, loans, wants, links and
 tags, and its cover's object, gone at once, with a confirm dialog the only guard. A family
@@ -56,12 +56,19 @@ a soft delete.
 - **The cover's object stays in R2** until the row is purged, so a restore has its cover with
   no fetch. Both delete paths — an item's page (any member) and the bulk delete (an admin's,
   #47) — now leave the object alone; `discardTrash()` and `purgeTrash()` delete it.
-- **30 days, swept on every delete and every visit.** The free tier has no cron (#36's
-  reasoning), so the purge rides along: `trashItems()`'s batch first deletes rows past
-  `TRASH_DAYS` and hands back their cover keys for the route to delete the objects, and the
-  Trash page does the same when opened — as the login-attempt table prunes itself. So the
-  retention holds whether or not an admin ever opens the page: private notes, locations,
-  borrowers and covers are not kept past it.
+- **30 days, swept on every delete and every visit — and let go of on every item write.** The
+  free tier has no cron (#36's reasoning), so the purge rides along: `trashItems()`'s batch
+  first deletes rows past `TRASH_DAYS` and hands back their cover keys for the route to delete
+  the objects, and the Trash page does the same when opened — as the login-attempt table
+  prunes itself. That alone held only while someone kept deleting (amended 2026-10-01: a
+  45-day-old row survived a month of ordinary edits, and could still be restored), so every
+  item write's sweep (`asWriter`, beside the history sweep of #84) also empties the snapshot
+  of every row past its days — the private part: notes, location, borrowers, everyone's reads
+  — leaving the line and its cover key for the next delete or visit to purge with the
+  object, since a statement has no hand to delete objects with; and a restore is refused by
+  the row's date, in `restoreFromTrash()` and in the insert's own gate. So the retention holds
+  whether or not an admin ever opens the page: private notes, locations, borrowers and
+  reads are not kept past it, and nothing past it comes back.
 - **A trashed item's cover stays reachable** at `/covers/:key` for the 30 days, where before
   the object went at once: anyone who held the key — a connected household's page that
   showed it — can still load it. Keys are random UUIDs (#19), so nothing can find one, and

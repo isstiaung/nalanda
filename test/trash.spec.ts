@@ -489,6 +489,38 @@ describe('restoring', () => {
   });
 });
 
+describe('the 30 days', () => {
+  it('hold on every item write: a snapshot past its days is let go of, and never restored', async () => {
+    const asha = await member('asha', 'admin');
+    const shelf = await createLibrary(env.DB, 'Fiction');
+    await env.COVERS.put('old-secret', 'x');
+    const b = await book(asha, { libraryId: shelf.id, title: 'Old secret', notes: 'private note', location: 'Safe', coverKey: 'old-secret' });
+    const other = await book(asha, { libraryId: shelf.id, title: 'Other' });
+    await env.DB.prepare("INSERT INTO loans (item_id, borrower, loaned_on) VALUES (?1, 'Priya', '2026-03-01')").bind(b.id).run();
+    await deleteItem(env.DB, b.id, deleter(asha));
+    await env.DB.prepare("UPDATE trash SET deleted_at = datetime('now', '-45 days')").run();
+    const [row] = await listTrash(env.DB);
+    expect((await getTrash(env.DB, row!.id))!.payload).toContain('private note');
+    // past its days, a restore is refused whatever the row still holds — by the function, and through the page
+    expect(await restoreFromTrash(env.DB, row!.id, await members())).toEqual({ refused: 'expired' });
+    expect((await as(asha, `/trash/${row!.id}/restore`, { body: {} })).headers.get('location')).toBe('/trash?expired=1');
+    expect(await rows("SELECT id FROM items WHERE title = 'Old secret'")).toEqual([]);
+    // an ordinary edit of any item lets the snapshot go: the notes, the location, the borrower
+    await updateItemWithTags(env.DB, other.id, { title: 'Other 2' }, [], undefined, asha.id, undefined, undefined, undefined, deleter(asha));
+    const stub = (await getTrash(env.DB, row!.id))!;
+    expect(stub.payload).toBe('{}');
+    expect(stub.coverKey).toBe('old-secret'); // the line waits, with its cover's key, for the purge that deletes the object
+    expect(await env.COVERS.get('old-secret')).not.toBeNull();
+    expect(await restoreFromTrash(env.DB, row!.id, await members())).toEqual({ refused: 'expired' });
+    // the next delete — or the page — takes the line and the object
+    const last = await book(asha, { libraryId: shelf.id, title: 'Last' });
+    await as(asha, `/items/${last.id}/delete`, { body: {} });
+    expect(await getTrash(env.DB, row!.id)).toBeNull();
+    expect(await env.COVERS.get('old-secret')).toBeNull();
+    expect(await html(asha, '/trash?expired=1')).toContain('past its 30 days');
+  });
+});
+
 describe('the Trash page', () => {
   it('is an admin’s: lists what was deleted, restores, deletes for good, and purges what is past its time', async () => {
     const { asha, ravi, b } = await furnished();

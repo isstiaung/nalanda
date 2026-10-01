@@ -913,11 +913,17 @@ export type Writer = Deleter;
 function asWriter(d1: D1Database, who: Writer | undefined, writes: D1PreparedStatement[]): D1PreparedStatement[] {
   // every item write also lets the history past HISTORY_DAYS go — one indexed delete, so retention holds without a page
   const sweep = d1.prepare(`DELETE FROM item_history WHERE at < datetime('now', '-${HISTORY_DAYS} days')`);
-  if (!who) return [...writes, sweep];
+  // and the trash's snapshots past TRASH_DAYS (§16 #74) — the private part: notes, location, borrowers, everyone's
+  // reads — so that retention holds in a household that deletes nothing for a month and never opens the page. The
+  // line stays, with its cover's key, for the next delete or Trash visit to purge with the object: a statement has no
+  // hand to delete objects with. A restore is refused by the row's date, whatever it holds.
+  const letGo = d1.prepare(`UPDATE trash SET payload = '{}' WHERE deleted_at < datetime('now', '-${TRASH_DAYS} days') AND payload <> '{}'`);
+  if (!who) return [...writes, sweep, letGo];
   return [
     d1.prepare('INSERT OR REPLACE INTO acting (id, user_id, session_key) VALUES (1, ?1, ?2)').bind(who.id, who.sessionKey),
     ...writes,
     sweep,
+    letGo,
     d1.prepare('DELETE FROM acting WHERE id = 1'),
   ];
 }
