@@ -1,4 +1,5 @@
-// The only code that touches the R2 binding (ARCH.md §13 exit strategy).
+// The R2 code for covers (ARCH.md §13 exit strategy) — with src/lib/fonts.ts, a household's display fonts (§16 #96)
+// in the same bucket, the only code that touches the R2 binding.
 // Covers are stored as-fetched — no resizing, ever (10 ms CPU budget).
 import { fetchWithTimeout, USER_AGENT } from '../env';
 
@@ -213,6 +214,11 @@ export async function deleteCover(covers: R2Bucket, key: string | null | undefin
 export async function serveCover(covers: R2Bucket, key: string): Promise<Response> {
   const object = await covers.get(key);
   if (!object) return new Response('Not found', { status: 404 });
+  // the bucket holds the household's display fonts too (§16 #96): those are served at /fonts/, never as a cover
+  if (object.httpMetadata?.contentType?.startsWith('font/')) {
+    await object.body.cancel();
+    return new Response('Not found', { status: 404 });
+  }
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   headers.set('etag', object.httpEtag);

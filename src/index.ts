@@ -7,6 +7,7 @@ import { resolveLocale, translator } from './i18n';
 import federationRoutes from './federation/routes';
 import { SESSION_COOKIE, sessionMatches, verifySessionToken } from './lib/auth';
 import { serveCover } from './lib/covers';
+import { serveFont } from './lib/fonts';
 import accountRoutes from './routes/account';
 import apiRoutes from './routes/api';
 import addRoutes from './routes/add';
@@ -85,10 +86,12 @@ app.use(async (c, next) => {
   if (mutation && c.res.status < 400) clearSharePageCache();
 });
 
-// ---- public: setup/login/logout, share links, cover images ----
+// ---- public: setup/login/logout, share links, cover images, the household's display fonts ----
 app.route('/', authRoutes);
 app.route('/share', shareRoutes);
 app.get('/covers/:key', (c) => serveCover(c.env.COVERS, c.req.param('key')));
+// a random key like a cover's, and public like one (§16 #96): the login page and share pages set their titles in it
+app.get('/fonts/:key', (c) => serveFont(c.env.COVERS, c.req.param('key')));
 
 // ---- public: connections between instances — signature-authenticated, 404 unless enabled ----
 // (docs/proposals/connections.md). Peers never hold a session, so this sits before the session middleware.
