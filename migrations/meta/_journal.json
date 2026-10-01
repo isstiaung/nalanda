@@ -372,6 +372,13 @@
       "when": 1790860736249,
       "tag": "0052_import-date-added",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "6",
+      "when": 1790868830008,
+      "tag": "0053_fts-update-columns",
+      "breakpoints": true
     }
   ]
 }
