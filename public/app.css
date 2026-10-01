@@ -1552,3 +1552,8 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .views .inline-form { margin-left: auto; }
 .views .inline-form input { flex: 0 1 14rem; min-width: 0; }
 .shelf-views { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
+
+/* borrowed from someone not on Nalanda (ARCH.md §16 #82): circulation, so the stamp colour, like Lent */
+.pill.borrowed { border-color: var(--stamp); color: var(--stamp); }
+.borrowed-from { display: grid; gap: 0.5rem; }
+.borrow-history { margin: 0; padding-left: 1.1rem; font-size: 13px; }

@@ -224,6 +224,30 @@ export const loans = sqliteTable(
 );
 
 /**
+ * Borrowed from someone not on Nalanda (ARCH.md §16 #82): the mirror of a loan. The item is in the catalog as Not
+ * owned (copies = 0) and carries its reads and review as any item does; this row says whose it is and until when.
+ * Private like loans: never on share pages, never to connections. A book borrowed from a connected household is a
+ * `borrowed_items` row; this is the plain one, typed in. One open borrow per item.
+ */
+export const borrows = sqliteTable(
+  'borrows',
+  {
+    // AUTOINCREMENT: a borrow's id is in its return route, so it never names another borrow
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    itemId: integer('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    lender: text('lender').notNull(),
+    contact: text('contact'),
+    borrowedOn: text('borrowed_on').notNull(), // YYYY-MM-DD, the device's day (§16 #69)
+    dueOn: text('due_on'),
+    returnedOn: text('returned_on'),
+    note: text('note'),
+  },
+  (t) => [index('idx_borrows_item').on(t.itemId)],
+);
+
+/**
  * Public share links, one per published VIEW (ARCH.md §16 #18): a token plus the
  * captured filters it exposes. A whole-shelf link is just a share with no filters.
  * libraryId is nullable for future all-shelves views; the UI currently always sets it.
@@ -986,6 +1010,7 @@ export type Series = typeof series.$inferSelect;
 export type Item = typeof items.$inferSelect;
 export type NewItem = typeof items.$inferInsert;
 export type Loan = typeof loans.$inferSelect;
+export type Borrow = typeof borrows.$inferSelect;
 export type Tag = typeof tags.$inferSelect;
 export type FederationSettings = typeof federationSettings.$inferSelect;
 export type ConnectionInvite = typeof connectionInvites.$inferSelect;

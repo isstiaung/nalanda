@@ -474,6 +474,8 @@ async function furnish(admin, member) {
   if (bulk.status() >= 400) throw new Error(`furnishing: bulk not-owned → ${bulk.status()}`);
   for (const id of fillers) await post(admin, `/items/${id}/want`, { want: '1' });
   const wanted = Number(fillers[0]);
+  // borrowed from someone not on Nalanda (ARCH.md §16 #82): a Not owned filler, due back next week
+  await post(admin, `/items/${wanted}/borrow`, { lender: 'Priya', dueOn: daysAgo(-7), note: 'Hardback' });
   await post(admin, `/items/${wanted}/links`, { label: 'Bookshop', url: 'https://example.org/ledger-volume' }, { htmx: true });
   const stamp = (await html(admin, '/wants')).match(/name="wantStamp" value="([^"]+)"/)?.[1];
   if (!stamp) throw new Error('furnishing: /wants offers no gift-list publish form');
@@ -535,6 +537,7 @@ function pageList(ids) {
     ['Shelf: a saved view', `/libraries/${s.books}?saved=${ids.viewId}`],
     ['Shelf: unread for years', `/libraries/${s.books}?owned=1&status=not_started&addedYears=3`],
     ['Shelf: not played lately', `/libraries/${s.games}?owned=1&unplayedMonths=12`],
+    ['Shelf: borrowed from someone', `/libraries/${s.books}?owned=b`],
     ['Shelf: by author', `/libraries/${s.books}?sort=author`],
     ['Shelf: empty', `/libraries/${ids.wishlist}`],
     ['Shelf: books, second page', `/libraries/${s.books}?page=2`],

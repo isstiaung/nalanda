@@ -1,6 +1,6 @@
 import type { FC } from 'hono/jsx';
 import type { PastLoan } from '../db/queries';
-import type { Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
+import type { Borrow, Item, ItemStatus, Library, MediaType, Share } from '../db/schema';
 import { ITEM_STATUSES, MEDIA_GRADES, MEDIA_TYPES, SLEEVE_GRADES } from '../db/schema';
 import { GRADE_NAME, isRecord } from '../lib/condition';
 import { releaseIdOf, splitPressing, trackCount, type Track } from '../lib/pressing';
@@ -116,6 +116,64 @@ export const StatusPill: FC<{ status: ItemStatus }> = ({ status }) => (
 
 /** copies = 0: in the ledger, not on the shelf — a reading-log entry. */
 export const NotOwnedPill: FC = () => <span class="pill ghost">Not owned</span>;
+/** Borrowed from someone not on Nalanda (§16 #82), beside "Not owned" — in the app only. */
+export const BorrowedPill: FC = () => <span class="pill borrowed">Borrowed</span>;
+
+/**
+ * Borrowed from someone not on Nalanda (§16 #82), on a Not owned item's page: the open borrow with its return, the
+ * past ones, and — while none is open — the form to record one. The mirror of the lend form.
+ */
+export const BorrowedFrom: FC<{ itemId: number; borrows: Borrow[]; today: string }> = ({ itemId, borrows, today }) => {
+  const open = borrows.filter((b) => !b.returnedOn);
+  const past = borrows.filter((b) => b.returnedOn);
+  return (
+    <div class="borrowed-from">
+      {open.map((b) => {
+        const overdue = !!(b.dueOn && b.dueOn < today);
+        return (
+          <form method="post" action={`/borrows/${b.id}/return`} class="inline-form">
+            <span class={overdue ? 'error' : undefined}>
+              Borrowed from <strong>{b.lender}</strong> on <span class="mono">{b.borrowedOn}</span>
+              {b.dueOn ? (
+                <>
+                  , due back <span class="mono">{b.dueOn}</span>
+                </>
+              ) : null}
+              {/* said in words, not by the vermilion alone */}
+              {overdue ? <strong> — overdue</strong> : null}
+              {b.contact ? <small class="muted"> · {b.contact}</small> : null}
+              {b.note ? <small class="muted"> · {b.note}</small> : null}
+            </span>
+            <button type="submit" class="btn">
+              Mark returned
+            </button>
+          </form>
+        );
+      })}
+      {past.length ? (
+        <ul class="borrow-history muted">
+          {past.map((b) => (
+            <li>
+              Borrowed from {b.lender}, <span class="mono">{b.borrowedOn}</span> to <span class="mono">{b.returnedOn}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {open.length ? null : (
+        <form method="post" action={`/items/${itemId}/borrow`} class="inline-form lend-form">
+          <input name="lender" placeholder="Borrowed from" aria-label="Borrowed from" required />
+          <input name="contact" placeholder="Contact (optional)" aria-label="Contact (optional)" />
+          <label>
+            <span class="muted">Due back</span>
+            <input type="date" name="dueOn" aria-label="Due back" />
+          </label>
+          <input name="note" placeholder="Note (optional)" aria-label="Note (optional)" />
+          <button type="submit">Record borrow</button>
+        </form>
+      )}
+    </div>
+  );
+};
 
 /** Someone in the household wants it, and it isn't owned (§16 #53): beside "Not owned", never saying whose want. */
 export const WantedPill: FC = () => <span class="pill wanted">Wanted</span>;
@@ -877,7 +935,7 @@ export const Cover: FC<{ coverKey: string | null; title: string; mediaType: Medi
     </div>
   );
 
-export const ItemCard: FC<{ item: Item; onLoan?: boolean; href?: string; wanted?: boolean }> = ({ item, onLoan, href, wanted }) => (
+export const ItemCard: FC<{ item: Item; onLoan?: boolean; href?: string; wanted?: boolean; borrowed?: boolean }> = ({ item, onLoan, href, wanted, borrowed }) => (
   <a href={href ?? `/items/${item.id}`} class="item-card">
     <div class="item-cover">
       <Cover coverKey={item.coverKey} title={item.title} mediaType={item.mediaType} />
@@ -891,6 +949,7 @@ export const ItemCard: FC<{ item: Item; onLoan?: boolean; href?: string; wanted?
         {item.rereading ? <RereadingPill /> : null}
         {item.copies === 0 ? <NotOwnedPill /> : null}
         {item.copies === 0 && wanted ? <WantedPill /> : null}
+        {item.copies === 0 && borrowed ? <BorrowedPill /> : null}
         {onLoan ? <span class="pill lent">Lent</span> : null}
       </span>
     </div>
@@ -949,10 +1008,11 @@ export const ReadNextCard: FC<{ pick: (Pick<Item, 'id' | 'title' | 'creators' | 
  * The covers view. `selectable` gives each card a checkbox for bulk edit (§16 #47), beside the card's link rather than
  * inside it — an input inside an <a> is invalid HTML — and a "select all on this page" line above the grid.
  */
-export const ItemGrid: FC<{ items: Item[]; onLoanIds?: Set<number>; wantedIds?: Set<number>; selectable?: boolean }> = ({
+export const ItemGrid: FC<{ items: Item[]; onLoanIds?: Set<number>; wantedIds?: Set<number>; borrowedIds?: Set<number>; selectable?: boolean }> = ({
   items,
   onLoanIds,
   wantedIds,
+  borrowedIds,
   selectable,
 }) =>
   selectable ? (
@@ -961,7 +1021,7 @@ export const ItemGrid: FC<{ items: Item[]; onLoanIds?: Set<number>; wantedIds?: 
       <div class="item-grid">
         {items.map((item) => (
           <div class="pick-cell">
-            <ItemCard item={item} onLoan={onLoanIds?.has(item.id)} wanted={wantedIds?.has(item.id)} />
+            <ItemCard item={item} onLoan={onLoanIds?.has(item.id)} wanted={wantedIds?.has(item.id)} borrowed={borrowedIds?.has(item.id)} />
             {/* the label is the bigger tap target; its words are the ones the box is named by */}
             <label class="pick">
               <PickBox id={item.id} title={item.title} />
@@ -974,7 +1034,7 @@ export const ItemGrid: FC<{ items: Item[]; onLoanIds?: Set<number>; wantedIds?: 
   ) : (
     <div class="item-grid">
       {items.map((item) => (
-        <ItemCard item={item} onLoan={onLoanIds?.has(item.id)} wanted={wantedIds?.has(item.id)} />
+        <ItemCard item={item} onLoan={onLoanIds?.has(item.id)} wanted={wantedIds?.has(item.id)} borrowed={borrowedIds?.has(item.id)} />
       ))}
     </div>
   );
@@ -1044,11 +1104,12 @@ export const ItemTable: FC<{
   items: Item[];
   onLoanIds?: Set<number>;
   wantedIds?: Set<number>;
+  borrowedIds?: Set<number>; // borrowed from someone (§16 #82)
   tagsMap?: Map<number, string[]>;
   libraryNames?: Map<number, string>;
   /** A checkbox per row, and select-all in the header, for bulk edit (§16 #47). */
   selectable?: boolean;
-}> = ({ items, onLoanIds, wantedIds, tagsMap, libraryNames, selectable }) => (
+}> = ({ items, onLoanIds, wantedIds, borrowedIds, tagsMap, libraryNames, selectable }) => (
   <div class="data-table">
     <table>
       <thead>
@@ -1117,6 +1178,12 @@ export const ItemTable: FC<{
                 <>
                   {' '}
                   <WantedPill />
+                </>
+              ) : null}
+              {item.copies === 0 && borrowedIds?.has(item.id) ? (
+                <>
+                  {' '}
+                  <BorrowedPill />
                 </>
               ) : null}
             </td>

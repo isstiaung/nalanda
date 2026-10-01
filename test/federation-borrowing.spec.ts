@@ -526,14 +526,22 @@ describe('borrowing: this household asks', () => {
 });
 
 describe('without a federation key', () => {
-  it('leaves Loans as it was and has no borrowing pages', async () => {
+  it('leaves Loans as it was, and Borrowed is the people-only page — the connections sections and pages are gone', async () => {
     await ask(lendable);
     const member = await sessionCookie('member');
     expect(await (await disabled.get('/loans', member)).text()).not.toContain('Requests from connections');
-    expect((await disabled.get('/borrowed', member)).status).toBe(404);
+    // Borrowed is every household's since ARCH.md §16 #82: what is borrowed from people, and nothing of connections
+    const borrowed = await disabled.get('/borrowed', member);
+    expect(borrowed.status).toBe(200);
+    const page = await borrowed.text();
+    expect(page).toContain('From people');
+    expect(page).not.toContain('FROM CONNECTIONS');
+    expect(page).not.toContain('From connections');
+    expect(page).not.toContain('Browse connected households');
+    expect(page).not.toContain('/federation/export.json');
     expect((await disabled.get(`/households/${connectionId}`, member)).status).toBe(404);
     expect((await disabled.get('/federation/export.json', await sessionCookie('admin'))).status).toBe(404);
-    expect(await (await disabled.get('/', member)).text()).not.toContain('href="/borrowed"');
+    expect(await (await disabled.get('/', member)).text()).toContain('href="/borrowed"');
   });
 });
 
