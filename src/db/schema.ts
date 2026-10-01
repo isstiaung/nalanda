@@ -550,14 +550,18 @@ export const trash = sqliteTable(
   {
     id: integer('id').primaryKey({ autoIncrement: true }),
     itemId: integer('item_id').notNull(), // the id it had — for the record; a restore gets a new one
+    // its shelf, by id and by name: shelf ids may be reused, so a restore goes only to the shelf still so named
     libraryId: integer('library_id'),
+    libraryName: text('library_name'),
     mediaType: text('media_type').notNull(),
     title: text('title').notNull(),
     creators: text('creators'),
     coverKey: text('cover_key'),
     payload: text('payload').notNull(), // JSON: { item, tags, series, reads, reviews, loans, plays, wants, links, progress }
     deletedAt: text('deleted_at').notNull().default(now),
+    // who deleted it: the id and the account's key (§16 #56), so a member given the id later is never named
     deletedBy: integer('deleted_by'),
+    deletedByKey: text('deleted_by_key'),
   },
   (t) => [index('idx_trash_deleted').on(t.deletedAt)],
 );

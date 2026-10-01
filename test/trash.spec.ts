@@ -15,8 +15,10 @@ import {
   deleteUser,
   getItem,
   getTrash,
+  listMembersWithKeys,
   listTrash,
   logPlay,
+  memberKeys,
   purgeTrash,
   restoreFromTrash,
   setItemTags,
@@ -66,6 +68,13 @@ async function furnished() {
 }
 
 const payloadOf = async (trashId: number) => JSON.parse((await getTrash(env.DB, trashId))!.payload) as TrashPayload;
+const deleter = (m: Member) => ({ id: m.id, sessionKey: m.sessionKey });
+const members = async () => memberKeys(await listMembersWithKeys(env.DB));
+const restored = async (trashId: number) => {
+  const outcome = await restoreFromTrash(env.DB, trashId, await members());
+  if ('refused' in outcome) throw new Error(`refused: ${outcome.refused}`);
+  return outcome.id;
+};
 
 describe('deleting an item', () => {
   it('removes it from every surface as before, keeps its cover, and leaves one trash row holding what it was', async () => {
@@ -90,12 +99,14 @@ describe('deleting an item', () => {
         id: expect.any(Number),
         itemId: b.id,
         libraryId: shelf.id,
+        libraryName: 'Fiction',
         mediaType: 'book',
         title: 'Piranesi',
         creators: 'Susanna Clarke',
         coverKey: 'cover-piranesi',
         deletedAt: expect.any(String),
         deletedBy: asha.id,
+        deletedByKey: asha.sessionKey,
       },
     ]);
     const p = await payloadOf(list[0]!.id);
@@ -117,6 +128,7 @@ describe('deleting an item', () => {
     expect(p.plays).toEqual([]);
     expect(p.wants).toEqual([{ userId: ravi.id, at: expect.any(String) }]);
     expect(p.links).toEqual([{ label: 'Bookshop', url: 'https://bookshop.example/piranesi' }]);
+    expect(p.people).toEqual({ [asha.id]: asha.sessionKey, [ravi.id]: ravi.sessionKey }); // who each id was, then
     expect(p.progress).toEqual([
       { page: 120, at: expect.any(String), addedBy: ravi.id, read: { status: 'in_progress', beganOn: '2026-09-01', endedOn: null, readerId: ravi.id } },
       { page: 180, at: expect.any(String), addedBy: ravi.id, read: { status: 'in_progress', beganOn: '2026-09-01', endedOn: null, readerId: ravi.id } },
@@ -129,14 +141,14 @@ describe('deleting an item', () => {
     const one = await book(asha, { libraryId: shelf.id, title: 'One', coverKey: 'c1' });
     const two = await book(asha, { libraryId: shelf.id, title: 'Two' });
     await updateItemWithTags(env.DB, one.id, {}, [], undefined, asha.id, undefined, { name: 'Lonely', number: 1 });
-    const result = await bulkDelete(env.DB, [one.id, two.id, 999_999], asha.id);
+    const result = await bulkDelete(env.DB, [one.id, two.id, 999_999], deleter(asha));
     expect(result).toEqual({ found: 2, changed: 2, same: 0, skipped: 0, covers: [] });
     expect((await listTrash(env.DB)).map((r) => r.title)).toEqual(['Two', 'One']);
     expect(await rows("SELECT 1 FROM series WHERE name = 'Lonely'")).toEqual([]);
   });
 
   it('trashes nothing that is not there, and leaves no row for it', async () => {
-    expect(await trashItems(env.DB, [42], null)).toEqual({ trashed: 0 });
+    expect(await trashItems(env.DB, [42], null)).toEqual({ trashed: 0, expired: [] });
     expect(await listTrash(env.DB)).toEqual([]);
   });
 });
@@ -144,14 +156,12 @@ describe('deleting an item', () => {
 describe('restoring', () => {
   it('brings the item back under a new id with everything it had, and the trash row goes', async () => {
     const { asha, ravi, shelf, b } = await furnished();
-    await deleteItem(env.DB, b.id, asha.id);
+    await deleteItem(env.DB, b.id, deleter(asha));
     const [row] = await listTrash(env.DB);
-    const members = new Set([asha.id, ravi.id]);
-    const newId = await restoreFromTrash(env.DB, row!.id, members);
-    expect(newId).not.toBeNull(); // a new id — which may happen to be the old one again, as SQLite hands out max(id)+1
+    const newId = await restored(row!.id); // a new id — which may happen to be the old one again, as SQLite hands out max(id)+1
     expect(await listTrash(env.DB)).toEqual([]);
 
-    const item = (await getItem(env.DB, newId!))!;
+    const item = (await getItem(env.DB, newId))!;
     expect(item).toMatchObject({
       libraryId: shelf.id,
       title: 'Piranesi',
@@ -202,7 +212,7 @@ describe('restoring', () => {
     expect(await html(asha, `/items/${newId}`)).toContain('src="/covers/cover-piranesi"');
     expect(await html(asha, '/search?q=piranesi')).toContain('Piranesi');
     // and a second restore of the same row is nothing
-    expect(await restoreFromTrash(env.DB, row!.id, members)).toBeNull();
+    expect(await restoreFromTrash(env.DB, row!.id, await members())).toEqual({ refused: 'gone' });
   });
 
   it('brings a game back with its plays, and a record with its grades', async () => {
@@ -213,9 +223,8 @@ describe('restoring', () => {
     await logPlay(env.DB, game.id, '2026-05-05', asha.id);
     await env.DB.prepare("INSERT INTO plays (item_id, played_on, logged_by) VALUES (?1, '2026-06-06', NULL)").bind(game.id).run(); // a member removed since
     const record = await createItem(env.DB, { libraryId: shelf.id, mediaType: 'vinyl', title: 'Kind of Blue', details: '{}', mediaCondition: 'VG+', sleeveCondition: 'VG' });
-    await bulkDelete(env.DB, [game.id, record.id], asha.id);
-    const members = new Set([asha.id]);
-    for (const row of await listTrash(env.DB)) expect(await restoreFromTrash(env.DB, row.id, members)).not.toBeNull();
+    await bulkDelete(env.DB, [game.id, record.id], deleter(asha));
+    for (const row of await listTrash(env.DB)) await restored(row.id);
     const [g] = await rows<{ id: number }>("SELECT id FROM items WHERE title = 'Azul'");
     expect(await rows('SELECT played_on AS playedOn, logged_by AS loggedBy FROM plays WHERE item_id = ?1 ORDER BY id', g!.id)).toEqual([
       { playedOn: '2026-05-05', loggedBy: asha.id },
@@ -227,26 +236,88 @@ describe('restoring', () => {
 
   it('makes a member removed since nobody on what was theirs, and drops their want', async () => {
     const { asha, ravi, b } = await furnished();
-    await deleteItem(env.DB, b.id, asha.id);
+    await deleteItem(env.DB, b.id, deleter(asha));
     await deleteUser(env.DB, ravi.id);
     const [row] = await listTrash(env.DB);
-    const newId = await restoreFromTrash(env.DB, row!.id, new Set([asha.id]));
-    expect(newId).not.toBeNull();
+    const newId = await restored(row!.id);
     expect(await rows('SELECT reader_id AS readerId FROM reads WHERE item_id = ?1 ORDER BY id', newId)).toEqual([{ readerId: asha.id }, { readerId: null }]);
     expect(await rows('SELECT user_id AS userId FROM reviews WHERE item_id = ?1 ORDER BY id', newId)).toEqual([{ userId: asha.id }, { userId: null }]);
     expect(await rows('SELECT added_by AS addedBy FROM reading_progress WHERE item_id = ?1', newId)).toEqual([{ addedBy: null }, { addedBy: null }]);
     expect(await rows('SELECT 1 FROM wants WHERE item_id = ?1', newId)).toEqual([]);
   });
 
-  it('restores an item whose shelf is gone onto no shelf — refused, so nothing half-restores', async () => {
+  it('gives a member given a removed member’s id since nothing of theirs — reads, review, pages, want (§16 #56)', async () => {
+    const { asha, ravi, b } = await furnished();
+    await deleteItem(env.DB, b.id, deleter(ravi)); // ravi deleted it, too
+    await deleteUser(env.DB, ravi.id);
+    const newcomer = await member('newcomer'); // ids are reused: the newest member's id is free again
+    expect(newcomer.id).toBe(ravi.id);
+    expect(newcomer.sessionKey).not.toBe(ravi.sessionKey);
+    // the page names nobody as the deleter
+    const text = await html(asha, '/trash');
+    expect(text).toContain('Piranesi');
+    expect(text).not.toContain('by newcomer');
+    expect(text).not.toContain('by ravi');
+    const [row] = await listTrash(env.DB);
+    const newId = await restored(row!.id);
+    expect(await rows('SELECT reader_id AS readerId FROM reads WHERE item_id = ?1 ORDER BY id', newId)).toEqual([{ readerId: asha.id }, { readerId: null }]);
+    expect(await rows('SELECT user_id AS userId FROM reviews WHERE item_id = ?1 ORDER BY id', newId)).toEqual([{ userId: asha.id }, { userId: null }]);
+    expect(await rows('SELECT added_by AS addedBy FROM reading_progress WHERE item_id = ?1', newId)).toEqual([{ addedBy: null }, { addedBy: null }]);
+    expect(await rows('SELECT 1 FROM wants WHERE item_id = ?1', newId)).toEqual([]);
+    // on the page, the old member's read and rating are a former member's, and the newcomer has none
+    const page = await html(newcomer, `/items/${newId}`);
+    expect(page).toContain('Former member');
+    expect(page).not.toContain('<span class="reviewer">newcomer</span>');
+    expect(page).toMatch(/newcomer<\/span><\/p><p class="reading-summary muted">Not started\./);
+  });
+
+  it('goes to the shelf it was on while that shelf is still so named, else to a shelf of that name, else is refused and stays', async () => {
     const asha = await member('asha', 'admin');
     const shelf = await createLibrary(env.DB, 'Doomed shelf');
     const b = await book(asha, { libraryId: shelf.id, title: 'Orphan' });
-    await deleteItem(env.DB, b.id, asha.id);
+    await deleteItem(env.DB, b.id, deleter(asha));
+    // the shelf gone, and its id given to another shelf: not that one
     await env.DB.prepare('DELETE FROM libraries WHERE id = ?1').bind(shelf.id).run();
+    const other = await createLibrary(env.DB, 'Someone else’s shelf');
+    expect(other.id).toBe(shelf.id);
     const [row] = await listTrash(env.DB);
-    await expect(restoreFromTrash(env.DB, row!.id, new Set([asha.id]))).rejects.toThrow();
-    expect(await listTrash(env.DB)).toHaveLength(1); // still there to restore once a shelf exists… or to let go
+    expect(await restoreFromTrash(env.DB, row!.id, await members())).toEqual({ refused: 'no-shelf', shelf: 'Doomed shelf' });
+    expect(await listTrash(env.DB)).toHaveLength(1); // still there, to restore once the shelf is back, or to let go
+    const res = await as(asha, `/trash/${row!.id}/restore`, { body: {} });
+    expect(res.headers.get('location')).toBe(`/trash?noshelf=${row!.id}`);
+    expect(await html(asha, `/trash?noshelf=${row!.id}`)).toContain('its shelf “Doomed shelf” is no longer here');
+    // a shelf of that name again, under any id: there
+    const again = await createLibrary(env.DB, 'doomed shelf');
+    const newId = await restored(row!.id);
+    expect((await getItem(env.DB, newId))!.libraryId).toBe(again.id);
+    // a shelf merely renamed keeps its items' restores: same id, the name the snapshot has is checked only when it differs
+    const shelf2 = await createLibrary(env.DB, 'Before');
+    const c2 = await book(asha, { libraryId: shelf2.id, title: 'Renamed shelf item' });
+    await deleteItem(env.DB, c2.id, deleter(asha));
+    await env.DB.prepare("UPDATE libraries SET name = 'After' WHERE id = ?1").bind(shelf2.id).run();
+    const [row2] = await listTrash(env.DB);
+    expect(await restoreFromTrash(env.DB, row2!.id, await members())).toEqual({ refused: 'no-shelf', shelf: 'Before' });
+  });
+
+  it('purges what is past its time on every delete, so the 30 days hold without anyone opening the page', async () => {
+    const asha = await member('asha', 'admin');
+    const shelf = await createLibrary(env.DB, 'Fiction');
+    await env.COVERS.put('old-cover', 'x');
+    const old = await book(asha, { libraryId: shelf.id, title: 'Old', coverKey: 'old-cover' });
+    await deleteItem(env.DB, old.id, deleter(asha));
+    await env.DB.prepare("UPDATE trash SET deleted_at = datetime('now', '-31 days')").run();
+    const next = await book(asha, { libraryId: shelf.id, title: 'Next' });
+    expect(await trashItems(env.DB, [next.id], deleter(asha))).toEqual({ trashed: 1, expired: ['old-cover'] });
+    expect((await listTrash(env.DB)).map((r) => r.title)).toEqual(['Next']);
+    // through the item page's delete, the purged row's cover object goes too
+    await env.COVERS.put('old-cover-2', 'x');
+    const aging = await book(asha, { libraryId: shelf.id, title: 'Aging', coverKey: 'old-cover-2' });
+    await deleteItem(env.DB, aging.id, deleter(asha));
+    await env.DB.prepare("UPDATE trash SET deleted_at = datetime('now', '-31 days')").run();
+    const last = await book(asha, { libraryId: shelf.id, title: 'Last' });
+    await as(asha, `/items/${last.id}/delete`, { body: {} });
+    expect((await listTrash(env.DB)).map((r) => r.title)).toEqual(['Last']);
+    expect(await env.COVERS.get('old-cover-2')).toBeNull();
   });
 });
 
@@ -287,15 +358,15 @@ describe('the Trash page', () => {
     await env.COVERS.put('old-cover', 'x');
     const old = await book(asha, { libraryId: shelf.id, title: 'Old', coverKey: 'old-cover' });
     const fresh = await book(asha, { libraryId: shelf.id, title: 'Fresh' });
-    await deleteItem(env.DB, old.id, asha.id);
-    await deleteItem(env.DB, fresh.id, asha.id);
+    await deleteItem(env.DB, old.id, deleter(asha));
+    await deleteItem(env.DB, fresh.id, deleter(asha));
     await env.DB.prepare("UPDATE trash SET deleted_at = datetime('now', '-31 days') WHERE title = 'Old'").run();
     expect(await purgeTrash(env.DB)).toEqual(['old-cover']);
     expect((await listTrash(env.DB)).map((r) => r.title)).toEqual(['Fresh']);
     // the page does the same sweep and deletes the objects
     await env.COVERS.put('old-cover-2', 'x');
     const older = await book(asha, { libraryId: shelf.id, title: 'Older', coverKey: 'old-cover-2' });
-    await deleteItem(env.DB, older.id, asha.id);
+    await deleteItem(env.DB, older.id, deleter(asha));
     await env.DB.prepare("UPDATE trash SET deleted_at = datetime('now', '-31 days') WHERE title = 'Older'").run();
     const text = await html(asha, '/trash');
     expect(text).not.toContain('Older');

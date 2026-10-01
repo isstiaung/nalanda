@@ -1695,7 +1695,9 @@ items.post('/items/:id/delete', async (c) => {
   const id = Number(c.req.param('id'));
   const item = await getItem(c.env.DB, id);
   if (!item) return c.notFound();
-  await deleteItem(c.env.DB, id, c.get('user').id);
+  const user = c.get('user');
+  const expired = await deleteItem(c.env.DB, id, { id: user.id, sessionKey: user.sessionKey });
+  c.executionCtx.waitUntil(Promise.all(expired.map((k) => deleteCover(c.env.COVERS, k)))); // purged rows' covers, not this one's
   return c.redirect(`/libraries/${item.libraryId}`);
 });
 

@@ -31,16 +31,31 @@ a soft delete.
   (`ImportRow.progress`, each page pointed back at its read by the read's reader, status and
   dates), and with the trash row's `DELETE` in the same batch, so a restore can't happen
   twice. The item gets a **new id** (ids are reused, #56, so the old one may be anyone's);
-  `added_at` and the cover key are its own again. A member removed since is nobody on what
-  was theirs, and their want is dropped. It is bracketed as an import, so old reads aren't
-  news to connections (#40), which see it as newly added. A restore onto a shelf removed
-  since fails whole, and the row stays.
+  `added_at` and the cover key are its own again. **People are matched by id and key, never
+  the id alone** (#56): the snapshot holds every member's id and `session_key` as they were
+  (`people`), and a restore hands a read, review, page, play or want back to an id only while
+  that id still has that key — a member removed since is nobody on what was theirs and their
+  want is dropped, and so is a member given the removed one's id in the meantime, who would
+  otherwise inherit a stranger's reading. The trash row names its deleter the same way
+  (`deleted_by` with `deleted_by_key`). **Shelves likewise**: shelf ids are reused, so the row
+  keeps the shelf's name, and a restore goes to the shelf it was on only while it is still so
+  named, else to a shelf of that name, else is refused with the reason and the row stays —
+  never silently onto whatever shelf has the id now, which might be a shared one. It is
+  bracketed as an import, so old reads aren't news to connections (#40), which see it as
+  newly added.
 - **The cover's object stays in R2** until the row is purged, so a restore has its cover with
   no fetch. Both delete paths — an item's page (any member) and the bulk delete (an admin's,
   #47) — now leave the object alone; `discardTrash()` and `purgeTrash()` delete it.
-- **30 days, swept on the way in.** The free tier has no cron (#36's reasoning), so
-  `purgeTrash()` runs when the Trash page is opened: rows past `TRASH_DAYS` and their covers
-  go, as the login-attempt table prunes itself.
+- **30 days, swept on every delete and every visit.** The free tier has no cron (#36's
+  reasoning), so the purge rides along: `trashItems()`'s batch first deletes rows past
+  `TRASH_DAYS` and hands back their cover keys for the route to delete the objects, and the
+  Trash page does the same when opened — as the login-attempt table prunes itself. So the
+  retention holds whether or not an admin ever opens the page: private notes, locations,
+  borrowers and covers are not kept past it.
+- **A trashed item's cover stays reachable** at `/covers/:key` for the 30 days, where before
+  the object went at once: anyone who held the key — a connected household's page that
+  showed it — can still load it. Keys are random UUIDs (#19), so nothing can find one, and
+  the cover was public while the item was shared; accepted.
 - **The Trash page is an admin's** (`/trash`, in the sidebar's Settings), like deleting in
   bulk and the other pages that undo what members did: it lists what was deleted, by whom
   and when, with **Restore** and **Delete for good**. The item page's confirm and the bulk

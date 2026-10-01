@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "d7d6f6fc-0d3e-4564-9d20-2a3d08289505",
+  "id": "40aeef8d-f1fd-4d6a-8110-3c841a326e01",
   "prevId": "afc3394d-d727-4a1d-badc-f6fa075d4852",
   "tables": {
     "activity_log": {
@@ -3357,6 +3357,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "library_name": {
+          "name": "library_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "media_type": {
           "name": "media_type",
           "type": "text",
@@ -3403,6 +3410,13 @@
         "deleted_by": {
           "name": "deleted_by",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "deleted_by_key": {
+          "name": "deleted_by_key",
+          "type": "text",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false
