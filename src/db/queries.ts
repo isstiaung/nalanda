@@ -5379,16 +5379,6 @@ export async function listCustomFields(d1: D1Database): Promise<CustomField[]> {
   return customFieldsOf(await customFieldsStatement(d1).all());
 }
 
-/** The household's settings and its custom fields in one call, for the Members page, which shows both. */
-export async function getSiteSettingsAndCustomFields(d1: D1Database): Promise<{ settings: SiteSettings; customFields: CustomField[] }> {
-  const dbi = db(d1);
-  const [rows, fields] = await dbi.batch([
-    dbi.select().from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
-    dbi.select().from(s.customFields).orderBy(asc(s.customFields.position), asc(s.customFields.id)),
-  ]);
-  return { settings: settingsOf(rows[0]), customFields: fields };
-}
-
 /**
  * Adds a field, after the others. The cap (CUSTOM_FIELD_LIMIT) and the name's uniqueness, case aside, are checked in
  * the statement itself, so two admins adding at once can't make an eleventh or two of one name; refused, it says
