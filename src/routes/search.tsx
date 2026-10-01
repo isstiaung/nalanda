@@ -54,7 +54,7 @@ search.get('/search', async (c) => {
       <BulkNotice query={c.req.query()} libraries={libs} />
       <form method="get" action="/search" role="search" class={people.length > 1 ? 'search-by-reader' : undefined}>
         {/* eslint-disable-next-line no-restricted-syntax -- this page is a search box: typing is why you came */}
-        <input type="search" name="q" value={q} placeholder="Search the catalog…" aria-label="Search the catalog" autofocus />
+        <input type="search" name="q" value={q} placeholder="Search the catalog…" aria-label="Search the catalog" aria-describedby="search-help" autofocus />
         {people.length > 1 || reader ? (
           <>
             <ReadByMenu value={readBy} me={user.id} people={people} />
@@ -63,6 +63,11 @@ search.get('/search', async (c) => {
           </>
         ) : null}
       </form>
+      <p class="muted form-note search-help" id="search-help">
+        Narrow with <code>author:</code>, <code>title:</code>, <code>tag:</code>, <code>status:</code> (unread, reading, read, abandoned),{' '}
+        <code>year:</code> (2019, or 2010-2019), <code>lang:</code> (a code or a name) and <code>type:</code> (book, game, record). Quote a phrase:{' '}
+        <code>author:"le guin"</code>. Operators can stand alone — <code>tag:fantasy status:unread</code> lists by title.
+      </p>
       {q ? (
         items.length ? (
           <>
@@ -75,7 +80,7 @@ search.get('/search', async (c) => {
             <BulkBar back={back} admin={user.role === 'admin'} libraries={libs} />
           </>
         ) : (
-          <p class="muted">Nothing found for “{q}”. Search covers titles, creators, descriptions, notes, and locations.</p>
+          <p class="muted">Nothing found for “{q}”. Search covers titles, creators, descriptions, notes, and locations — and the operators above.</p>
         )
       ) : null}
     </>,
