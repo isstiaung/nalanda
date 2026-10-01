@@ -250,7 +250,11 @@ export async function deleteUser(d1: D1Database, id: number): Promise<void> {
   // table would set null on its own. Their items, reads, pages and reviews stay, unattributed (§16 #43): the
   // household's summary on each item — status, read count, average rating — is everyone's, theirs included, so it
   // doesn't change.
+  // the saved views naming them in "Read by" (§16 #81) lose that filter: ids are reused (#56), so a view saved as
+  // "Read by ravi" must not list a newcomer's reads under the old name once ravi is gone
+  const views = await viewsWithoutReader(d1, id);
   await d1.batch([
+    ...views,
     // first, while their reads still say whose: their named entries get new ids, so connections drop the named copies
     ...rekeyMemberActivity(d1, id),
     d1.prepare('UPDATE items SET added_by = NULL WHERE added_by = ?1').bind(id),
@@ -1765,6 +1769,24 @@ export async function saveView(
     .bind(v.libraryId, v.name, v.params, v.createdBy, MAX_SAVED_VIEWS_PER_SHELF)
     .first<{ id: number }>();
   return row?.id ?? null;
+}
+
+/**
+ * The views that name a member in "Read by" — `readBy=<id>` or `now-<id>` — each rewritten without it, for
+ * deleteUser()'s batch. The id would otherwise name whoever is given it next (#56); `me`, `not-me` and `anyone`
+ * name nobody in particular and stay.
+ */
+async function viewsWithoutReader(d1: D1Database, id: number): Promise<D1PreparedStatement[]> {
+  const views = (await d1.prepare(SAVED_VIEWS_SQL).all<SavedView>()).results;
+  const out: D1PreparedStatement[] = [];
+  for (const v of views) {
+    const sp = new URLSearchParams(v.params);
+    const r = sp.get('readBy');
+    if (r !== String(id) && r !== `now-${id}`) continue;
+    sp.delete('readBy');
+    out.push(d1.prepare('UPDATE saved_views SET params = ?2 WHERE id = ?1').bind(v.id, sp.toString()));
+  }
+  return out;
 }
 
 /** Removes a view — any member's to remove. */

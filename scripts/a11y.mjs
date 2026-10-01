@@ -515,8 +515,8 @@ async function furnish(admin, member) {
   if (!giftToken) throw new Error('furnishing: the gift list was not published');
   await expect(`/libraries/${shelves.books}`, 'the Wanted badge', /pill wanted/);
   await expect('/wants', 'the want list and its purchase link', /want-card[\s\S]*Bookshop/);
-  // a saved view (ARCH.md §16 #81), a member's, on the books shelf
-  const viewId = Number((await post(member, `/libraries/${shelves.books}/views`, { name: 'Unread audit', params: 'status=not_started&sort=title' })).headers().location?.match(/saved=(\d+)/)?.[1]);
+  // a saved view (ARCH.md §16 #81) on the books shelf — the admin's context is the one signed in at this point
+  const viewId = Number((await post(admin, `/libraries/${shelves.books}/views`, { name: 'Unread audit', params: 'status=not_started&sort=title' })).headers().location?.match(/saved=(\d+)/)?.[1]);
   if (!viewId) throw new Error('Could not save a view on the books shelf');
   return { shelves, wishlist, seriesId, creator, publisher, book, game, record, reading, reread, overdue, temp, shares, giftToken, wanted, raviId, member, viewId };
 }

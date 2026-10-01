@@ -3,7 +3,7 @@
 // in the app only.
 import { env } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
-import { createItem, createLibrary, deleteSavedView, listItems, listSavedViews, logPlay, MAX_SAVED_VIEWS_PER_SHELF, saveView } from '../src/db/queries';
+import { addPastRead, createItem, createLibrary, deleteSavedView, deleteUser, listItems, listSavedViews, logPlay, MAX_SAVED_VIEWS_PER_SHELF, saveView } from '../src/db/queries';
 import type { NewItem } from '../src/db/schema';
 import { parseShelfQuery, shelfQueryString } from '../src/routes/libraries';
 import { as, html, member, rows } from './member-helpers';
@@ -163,6 +163,33 @@ describe('saved views', () => {
     const gamesPage = await html(ravi, `/libraries/${games.id}`);
     expect(gamesPage).toContain(`href="/libraries/${games.id}?owned=1&amp;unplayedMonths=12"`);
     expect(await html(ravi, `/libraries/${games.id}?owned=1&unplayedMonths=12`)).toContain('Catan');
+  });
+
+  it('drops a removed member from "Read by" in every view naming them, so a newcomer given their id inherits nothing', async () => {
+    const { lib, item } = await shelf();
+    const asha = await member('asha', 'admin');
+    const ravi = await member('ravi');
+    const read = await item({ title: 'Read by Ravi' });
+    const other = await item({ title: 'Nobody read this' });
+    await addPastRead(env.DB, read.id, { status: 'completed', beganOn: null, endedOn: '2026-01-10' }, ravi.id);
+    const finished = await saveView(env.DB, { libraryId: lib.id, name: "Ravi's finished", params: `status=completed&readBy=${ravi.id}`, createdBy: asha.id });
+    const reading = await saveView(env.DB, { libraryId: lib.id, name: 'Ravi reading', params: `readBy=now-${ravi.id}&sort=title`, createdBy: asha.id });
+    const mine = await saveView(env.DB, { libraryId: lib.id, name: 'Mine', params: 'readBy=me', createdBy: asha.id });
+    expect(await html(asha, `/libraries/${lib.id}?saved=${finished}`)).not.toContain('Nobody read this');
+    await deleteUser(env.DB, ravi.id);
+    const newcomer = await member('newcomer');
+    expect(newcomer.id).toBe(ravi.id); // ids are reused (#56)
+    await addPastRead(env.DB, other.id, { status: 'completed', beganOn: null, endedOn: '2026-02-10' }, newcomer.id);
+    const views = new Map((await listSavedViews(env.DB, lib.id)).map((v) => [v.id, v.params]));
+    expect(views.get(finished!)).toBe('status=completed');
+    expect(views.get(reading!)).toBe('sort=title');
+    expect(views.get(mine!)).toBe('readBy=me');
+    // the view is now "completed by anyone": both finished books, and nothing attributed to the newcomer by name
+    const page = await html(asha, `/libraries/${lib.id}?saved=${finished}`);
+    expect(page).toContain('Read by Ravi');
+    expect(page).toContain('Nobody read this');
+    expect(page).not.toContain(`value="${newcomer.id}" selected`);
+    expect(page).not.toContain(`value="now-${newcomer.id}" selected`);
   });
 
   it('never reaches a share: the publish form carries none of a view\'s keys, and the backup lists the table', async () => {

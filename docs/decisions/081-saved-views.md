@@ -20,7 +20,10 @@ household's, not per member, with the two decluttering views shipped as presets,
   by saving under the same name, or deletes one (`saveView()`, `deleteSavedView()`); the Actor
   guards of reads and reviews don't apply — a view is a shelf's, like its name. At most 20 a
   shelf, checked in the insert. A saved "Read by me" is each member's own when they open it
-  (`parseReadBy()` resolves `me` for whoever is looking); a member removed since is no filter.
+  (`parseReadBy()` resolves `me` for whoever is looking). A view naming a member by id — "Read by
+  ravi" — loses that filter in `deleteUser()`'s batch (`viewsWithoutReader()`): ids are reused (#56),
+  and a saved view is persistent and shared where a URL was transient, so a newcomer given the id
+  must inherit nothing (review on #120).
 - **Where they show, at no extra call.** Every shelf's views come back in `shelvesWithTotals()`'s
   batch (#68), which the shelf page and the Overview already read, so neither page's D1 count moves
   (the budget tests still pin 7). Under the shelf's filter bar, a row of pills — the presets, then the
