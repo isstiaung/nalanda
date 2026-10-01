@@ -29,6 +29,8 @@ src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist),
                    CSV cells; what a provider's format words map to — ARCH.md §16 #75),
                    language.ts (every ISO 639-1 language by name, the household default, what a provider's
                    or a file's code means — ARCH.md §16 #76),
+                   search.ts (the search box's operators — author:, title:, tag:, status:, year:, lang:, type: — parsed
+                   once and the FTS5 expression; searchItems in db/queries.ts applies them, ARCH.md §16 #80),
                    creators.ts (the people in a creators string — the twin of YEAR_CREATORS in queries.ts — and
                    what each kind calls them; its pages are routes/creators.tsx, the item page's links
                    views/creators.tsx, ARCH.md §16 #72),
