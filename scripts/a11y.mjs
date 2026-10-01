@@ -3,7 +3,7 @@
 // walk. The static half is `npm run lint` (eslint-plugin-jsx-a11y).
 //
 //   npm run a11y                  # the whole audit; exits 1 on any violation
-//   npm run a11y -- --only=shelf  # just the pages whose name contains "shelf"
+//   npm run a11y -- --only=shelf  # just the pages and htmx steps whose name contains "shelf" (--only=htmx: every step)
 //   npm run a11y -- --keep        # leave the server running afterwards, to look around
 //   A11Y_VARIANT='dark 390' npm run a11y   # one theme and width only (CI runs the four in parallel)
 //
@@ -13,9 +13,9 @@
 // provider tokens never used), seed data from scripts/seed-demo.mjs (offline, --no-covers), and cover images from
 // a tiny server on :8818 that the Worker fetches like any cover URL. Wrangler runs --local, with no Cloudflare
 // credentials in its environment and its config home (where a stored login lives) pointed into the scratch
-// state: a local run is as offline as CI's. The one step that needs the internet is looking up a book on the Add
-// page (Open Library, keyless): when that finds nothing, the report says which states went unaudited (a warning
-// annotation on GitHub Actions), and A11Y_REQUIRE_LOOKUP=1 turns that into a failure.
+// state: a local run is as offline as CI's. The steps that need the internet look up books on the Add page (Open
+// Library, keyless: a typed ISBN, a search and its More results): when one finds nothing, the report says which
+// states went unaudited (a warning annotation on GitHub Actions), and A11Y_REQUIRE_LOOKUP=1 turns that into a failure.
 // The Refresh from Discogs / BGG buttons render only with a provider token, so they get a second scratch server of
 // their own on :8819 (A11Y_PORT + 2), with a placeholder token and one record and one game, whose refreshes the
 // browser answers itself — nothing reaches Discogs or BGG (refreshInPlace(), below).
@@ -762,8 +762,10 @@ async function keyboard(page, where, variant) {
 
 async function interactions(context, ids, variant) {
   const where = (s) => `htmx: ${s}`;
-  // each step on its own: one that can't be done is a failure in the report, and the rest still run
+  // each step on its own: one that can't be done is a failure in the report, and the rest still run. --only=htmx runs
+  // them all; any other --only runs the steps whose name has it (--only="More results")
   const step = async (name, fn) => {
+    if (ONLY && !'htmx'.includes(ONLY.toLowerCase()) && !name.toLowerCase().includes(ONLY.toLowerCase())) return;
     try {
       await fn();
     } catch (err) {
@@ -853,6 +855,42 @@ async function interactions(context, ids, variant) {
       if (found) await axe(page, where('Add → search results'), variant.name);
       await page.getByRole('button', { name: /manual/i }).click();
       await axe(page, where('Add → Manual tab'), variant.name);
+    });
+
+    // More results (§16 #66): the next page of a name search swaps in where the button was, under the button's own
+    // id, and focus lands on it (app.js), so Tab carries on into the new results. A common word, so there is a next
+    // page. Both pages come from Open Library, which can refuse a burst: one more try from the top, a moment later,
+    // then the state is reported as not audited.
+    await step('Add → Search → More results', async () => {
+      let id = null;
+      for (let attempt = 1; attempt <= 2 && !id; attempt++) {
+        if (attempt > 1) await page.waitForTimeout(2000);
+        await open(page, '/add');
+        await page.getByRole('button', { name: /search/i }).first().click();
+        const q = page.locator('#tab-search input[name="q"]');
+        const found = await lookup(page, async () => {
+          await q.fill('history');
+          await q.press('Enter');
+        }, '#search-results', 'Add → Search → More results, the first page');
+        if (!found) return;
+        const more = page.locator('#search-results .results-more').last();
+        if (!(await more.count())) {
+          if (attempt === 2) unaudited.push(`Add → Search → More results [${variant.name}]: the first page offered no More results`);
+          continue;
+        }
+        const next = await more.getAttribute('id');
+        await htmxDone(page, `#${next}`, () => more.getByRole('button', { name: 'More results' }).press('Enter'), 25_000);
+        if (await page.locator(`#${next} .candidate`).count()) id = next;
+        else if (attempt === 2) {
+          const notice = (await page.locator(`#${next} .notice`).allTextContents()).join(' ').trim();
+          unaudited.push(`Add → Search → More results [${variant.name}]: the next page said "${notice.slice(0, 120) || 'nothing'}"`);
+        }
+      }
+      if (!id) return;
+      await axe(page, where('Add → Search → More results, the next page'), variant.name);
+      await focusKept(page, where('Add → Search → More results'));
+      const focused = await page.evaluate(() => document.activeElement?.id ?? '');
+      if (focused !== id) failures.push(`keyboard · ${where('Add → Search → More results')} [${variant.name}]: focus is on ${focused ? `#${focused}` : 'an element with no id'}, not the next page's #${id}`);
     });
 
     // The reading section: every form in it swaps the section. Driven from the keyboard (Enter on the field or
@@ -1496,7 +1534,8 @@ async function main() {
         if (variant.scheme === 'light') await keyboard(page, name, variant.name);
       }
     });
-    if (chosen('htmx')) await interactions(admin, ids, variant);
+    // every step checks --only itself: --only=htmx runs them all, another word the steps whose name has it
+    await interactions(admin, ids, variant);
   }
   if (chosen('Refresh')) {
     try {

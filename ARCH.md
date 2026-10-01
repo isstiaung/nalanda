@@ -3278,7 +3278,10 @@ kind. (Pairwise connections between two self-hosted instances are in scope — �
     type, so the picker used to start on the first shelf for every result. `shelfForType()` — one query, the shelf
     holding most items of each type, ties to the shelf listed first — sets it for search results and held scans;
     a type the catalog doesn't hold yet starts on the first shelf, as before. The results page costs one more D1
-    call than before (three, whatever the results). Not in `scripts/a11y.mjs`: its searches need a provider.
+    call than before (three, whatever the results). `scripts/a11y.mjs` presses More results from the keyboard after
+    a book search for a common word — Open Library is keyless, so it needs only the internet, as the audit's other
+    Add-page lookup does, and when Open Library can't be reached the state is reported as not audited — then runs
+    axe on the next page and checks focus landed on its wrapper. (It was left out at first, as needing a provider.)
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
