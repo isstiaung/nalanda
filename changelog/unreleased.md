@@ -27,6 +27,8 @@ for what a host must do; link runbooks as ../runbooks/…); a release commit ren
 
 - **A member's feed entry carries no finish date.** With names on for connections, a per-person "finished" entry carried the book's `completedOn` — that member's own end date, beside their name — against the rule that the dates of anyone's reads never leave the instance. A member's entry now carries none; the household's own "finished" entry still says when the book was last finished, as before. Connected households never showed the field.
 
+- **A disconnected household loses read access at once.** Each isolate kept a connection's key for a minute, and trusted the cached row for the connection's state too, so a household disconnected on one isolate could still read shared views, feeds and shelves from the others for up to a minute. The cache now serves the key alone; whether the connection still stands is read on every request.
+
 ### Upgrading
 - **One migration, 0051: a new `api_tokens` table, no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. The backup's table order gains `api_tokens`.
 - **One migration, 0052: a new column on `items` (`created_at`, empty until an import re-dates a book), no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. Then, to date a catalogue imported from Goodreads before this version, re-import the same export with the box ticked ([runbook](../runbooks/import-from-goodreads.md#dates-added)).

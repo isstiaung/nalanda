@@ -15,6 +15,7 @@ import {
   countPush,
   describeViews,
   findRedeemableInvite,
+  connectionStatus,
   getConnectionByBaseUrl,
   getConnectionView,
   getFederationSettings,
@@ -194,17 +195,24 @@ function withinReadRate(keyid: string): boolean {
 /**
  * A request signed by an active connection — or the response turning it away. Unsigned requests are
  * refused before the database is touched, and a connection still waiting for confirmation reads nothing.
+ * The key cache is trusted for the key alone: whether the connection still stands is read on every
+ * request, one indexed read once the signature has verified, so a disconnect handled on another isolate
+ * takes effect here at once rather than after the cache's minute.
  */
 async function fromActiveConnection(c: Context<AppEnv>, maxBodyBytes: number): Promise<FromConnection | Response> {
   const sig = parseSignature(c.req.raw.headers);
   if (!sig) return c.json({ error: 'unsigned request' }, 401);
   const peer = await peerByKeyid(c.env.DB, sig.keyid);
-  if (!peer || peer.connection.status !== 'active') return c.json({ error: 'unknown sender' }, 401);
+  if (!peer || (!peer.fromCache && peer.connection.status !== 'active')) return c.json({ error: 'unknown sender' }, 401);
   const body = c.req.method === 'POST' ? await readLimited(c.req.raw, maxBodyBytes) : new Uint8Array();
   if (!body) return c.json({ error: 'request too large' }, 413);
   const verdict = await verifyRequest({ method: c.req.method, url: c.req.url, headers: c.req.raw.headers, body }, sig, peer.key);
   if (!verdict.ok) return c.json({ error: 'signature rejected' }, 401);
   rememberPeer(peer);
+  if (peer.fromCache && (await connectionStatus(c.env.DB, peer.connection.baseUrl)) !== 'active') {
+    forgetPeer(peer.connection.baseUrl); // gone, or back to waiting: the next request reads the row afresh
+    return c.json({ error: 'unknown sender' }, 401);
+  }
   if (!withinReadRate(peer.connection.baseUrl)) return c.json({ error: 'too many requests' }, 429);
   return { connection: peer.connection, body };
 }
