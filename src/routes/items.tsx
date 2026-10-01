@@ -1106,7 +1106,7 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
         </div>
 
         <LendingHistory loans={lent.loans} total={lent.total} />
-        {changes ? <ItemHistory entries={changes} /> : null}
+        {changes ? <ItemHistory entries={changes} fields={log.customFields} /> : null}
 
         {recommending}
 

@@ -175,3 +175,31 @@ export function parseCustomCell(cell: string | undefined, fields: CustomField[])
   }
   return { custom: JSON.stringify(out), kept: Object.keys(out).length, dropped, unfit };
 }
+
+/**
+ * A `custom` history row's value (§16 #84) as an admin reads it: the row holds the column's JSON by id, cut to 200
+ * characters, and ids mean nothing to a person — so it is shown through the household's fields as the item page shows
+ * values, `Signed: yes · Gifted by: Ravi`, in the fields' order, a key whose field is gone since as "a field since
+ * deleted". Null for none (the page shows a dash); a value the cut left unreadable is shown as stored.
+ */
+export function describeCustomHistory(stored: string | null, fields: CustomField[]): string | null {
+  if (!stored) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stored);
+  } catch {
+    return stored;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return stored;
+  const values = parsed as Record<string, unknown>;
+  const show = (v: unknown) => (v === true ? 'yes' : typeof v === 'string' ? v : JSON.stringify(v));
+  const known = new Set(fields.map((f) => String(f.id)));
+  const parts = [
+    ...fields.filter((f) => values[String(f.id)] !== undefined).map((f) => `${f.name}: ${show(values[String(f.id)])}`),
+    ...Object.entries(values)
+      .filter(([k]) => !known.has(k))
+      .map(([, v]) => `a field since deleted: ${show(v)}`),
+  ];
+  return parts.length ? parts.join(' · ') : null;
+}
+

@@ -13,7 +13,7 @@ import { isPlayable } from '../lib/plays';
 import { latestReadDate, ordinal, summarizeReads, type ReadDraft, type ReadRow } from '../lib/reads';
 import { formatSeriesNumber } from '../lib/series';
 import { parseDetails } from '../lib/share';
-import { CUSTOM_FORM_MARKER, customInputName, MAX_CUSTOM_TEXT, type CustomValue, type CustomValues } from '../lib/custom';
+import { CUSTOM_FORM_MARKER, customInputName, describeCustomHistory, MAX_CUSTOM_TEXT, type CustomValue, type CustomValues } from '../lib/custom';
 import type { Candidate } from '../metadata';
 import { DiscogsAttribution, DiscogsCredit, discogsLink, discogsUrl } from './attribution';
 import { ledgerDate, ledgerDateTime } from '../lib/dates';
@@ -151,7 +151,10 @@ const HISTORY_FIELD: Record<string, string> = {
  * The item's history (§16 #84), for admins: each change to one of its own fields, newest first — when, who, the field,
  * before and after. Reads, reviews and plays aren't here: they show who did them already.
  */
-export const ItemHistory: FC<{ entries: HistoryEntry[] }> = ({ entries }) => (
+export const ItemHistory: FC<{ entries: HistoryEntry[]; fields?: CustomField[] }> = ({ entries, fields }) => {
+  // a custom row holds the column's JSON by id (§16 #95): shown through the fields' names, as the item page shows values
+  const shown = (e: HistoryEntry, value: string | null) => (e.field === 'custom' ? describeCustomHistory(value, fields ?? []) : value);
+  return (
   <details class="item-history">
     <summary>
       History <small class="muted">· admins only · {entries.length ? `${entries.length} ${entries.length === 1 ? 'change' : 'changes'}` : 'no changes'} in the last {HISTORY_DAYS} days</small>
@@ -174,8 +177,8 @@ export const ItemHistory: FC<{ entries: HistoryEntry[] }> = ({ entries }) => (
                 <td class="date">{ledgerDateTime(e.at)}</td>
                 <td>{e.by ?? <span class="muted">—</span>}</td>
                 <td>{HISTORY_FIELD[e.field] ?? e.field}</td>
-                <td class="history-value">{e.before ?? <span class="muted">—</span>}</td>
-                <td class="history-value">{e.after ?? <span class="muted">—</span>}</td>
+                <td class="history-value">{shown(e, e.before) ?? <span class="muted">—</span>}</td>
+                <td class="history-value">{shown(e, e.after) ?? <span class="muted">—</span>}</td>
               </tr>
             ))}
           </tbody>
@@ -185,7 +188,8 @@ export const ItemHistory: FC<{ entries: HistoryEntry[] }> = ({ entries }) => (
       <p class="muted">Nothing changed on this item in the last {HISTORY_DAYS} days.</p>
     )}
   </details>
-);
+  );
+};
 
 /** Borrowed from someone not on Nalanda (§16 #82), beside "Not owned" — in the app only. */
 export const BorrowedPill: FC = () => <span class="pill borrowed">Borrowed</span>;

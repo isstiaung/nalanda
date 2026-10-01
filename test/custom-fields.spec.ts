@@ -27,7 +27,7 @@ import { budgeted } from '../src/federation/budget';
 import { toConnectionItem, toItemDetail, toRecommendedItem } from '../src/federation/items';
 import { clearSharedViewsCache } from '../src/federation/routes';
 import { EXPORT_COLUMNS, mapGoodreadsRow, mapLibibRow, mapLibraryThingRow, mapNalandaRow, mapStoryGraphRow, PRIVATE_COLUMNS } from '../src/lib/csv';
-import { checkCustomValue, cleanCustomName, CUSTOM_FIELD_LIMIT, customFromForm, formatCustomCell, parseCustomCell, publicCustom } from '../src/lib/custom';
+import { checkCustomValue, cleanCustomName, CUSTOM_FIELD_LIMIT, customFromForm, describeCustomHistory, formatCustomCell, parseCustomCell, publicCustom } from '../src/lib/custom';
 import { newShareToken, toGiftItem, toPublicItem } from '../src/lib/share';
 import app from '../src/index';
 import { clearSharePageCache } from '../src/routes/share';
@@ -539,6 +539,32 @@ describe('history', () => {
     await updateItem(env.DB, b.id, { custom: JSON.stringify({ [gifted.id]: long }) });
     expect(await rows("SELECT id FROM item_history WHERE item_id = ?1 AND field = 'custom'", b.id)).toHaveLength(2);
     expect(await html(asha, `/items/${b.id}`)).toContain('<td>Fields</td>');
+  });
+
+  it('shows a custom change by the fields’ names, and a deleted field’s old value with the fallback — the row itself stays raw', async () => {
+    const asha = await member('asha', 'admin');
+    const { gifted, signed } = await threeFields();
+    const b = await book(asha, { title: 'Piranesi' });
+    const custom = JSON.stringify({ [gifted.id]: 'Ravi', [signed.id]: true });
+    await updateItem(env.DB, b.id, { custom }, { id: asha.id, sessionKey: asha.sessionKey });
+    let page = await html(asha, `/items/${b.id}`);
+    expect(page).toContain('<td class="history-value">Gifted by: Ravi · Signed: yes</td>');
+    expect(page).toContain('<td class="history-value"><span class="muted">—</span></td>'); // the before: nothing set
+    expect(page).not.toContain(`&quot;${gifted.id}&quot;`); // never the ids
+    expect(await rows("SELECT after FROM item_history WHERE item_id = ?1 AND field = 'custom'", b.id)).toEqual([{ after: custom }]); // stored as it was
+
+    // the field deleted since: the old row's value under it reads as a deleted field's; the delete's own row shows what is left
+    await deleteCustomField(env.DB, gifted.id, { id: asha.id, sessionKey: asha.sessionKey });
+    page = await html(asha, `/items/${b.id}`);
+    expect(page).toContain('<td class="history-value">Signed: yes · a field since deleted: Ravi</td>');
+    expect(page).toContain('<td class="history-value">Signed: yes</td>');
+    expect(page).not.toContain('Gifted by: Ravi');
+
+    // a value the 200-character cut left unreadable is shown as stored; nothing reads as a dash
+    const fields = await listCustomFields(env.DB);
+    expect(describeCustomHistory('{"' + signed.id + '":true,"9', fields)).toBe('{"' + signed.id + '":true,"9');
+    expect(describeCustomHistory('{}', fields)).toBeNull();
+    expect(describeCustomHistory(null, fields)).toBeNull();
   });
 });
 
