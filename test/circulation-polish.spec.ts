@@ -72,6 +72,45 @@ describe('an overdue loan keeps its due date', () => {
   });
 });
 
+describe('the loan counts past the 200 the Loans page lists', () => {
+  it('count every open loan and every overdue one in SQL, on the Overview and on Loans, where the table stays capped', async () => {
+    const admin = await member('asha', 'admin');
+    const item = await book(admin, { title: 'Lent everywhere', copies: 1 });
+    // 205 open loans long overdue, made first — the oldest, which a list of the newest 200 drops — and one due later
+    const late = Array.from({ length: 205 }, (_, i) => `(${item.id}, 'Borrower ${i}', '2026-01-01', '2000-01-01')`).join(', ');
+    await env.DB.prepare(`INSERT INTO loans (item_id, borrower, loaned_on, due_on) VALUES ${late}`).run();
+    await env.DB.prepare(`INSERT INTO loans (item_id, borrower, loaned_on, due_on) VALUES (?1, 'On time', '2026-01-01', ?2)`).bind(item.id, dayOffset(30)).run();
+    const overview = squash(await (await as(admin, '/')).text());
+    expect(overview).toMatch(/<div class="stat-n">206<\/div>\s*<div class="stat-label">On loan<\/div>/);
+    expect(overview).toMatch(/<div class="stat-n warn">205<\/div>\s*<div class="stat-label">Overdue<\/div>/);
+    expect(overview).toContain('206 items out · <span class="error">205 overdue</span>');
+    const loans = squash(await (await as(admin, '/loans')).text());
+    expect(loans).toContain('206 OUT · 0 RETURNED');
+    expect(loans).toContain('<p class="eyebrow">Out now · newest 200</p>');
+    expect(loans.match(/Mark returned/g)).toHaveLength(200);
+    // a return moves both counts
+    const [oldest] = await rows<{ id: number }>('SELECT id FROM loans WHERE returned_on IS NULL ORDER BY id LIMIT 1');
+    expect((await as(admin, `/loans/${oldest!.id}/return`, { body: {} })).status).toBe(302);
+    const after = squash(await (await as(admin, '/loans')).text());
+    expect(after).toContain('205 OUT · 1 RETURNED');
+    expect(after).toContain('<p class="eyebrow">Out now · newest 200</p>');
+    expect(await (await as(admin, '/')).text()).toMatch(/<div class="stat-n warn">204<\/div>\s*<div class="stat-label">Overdue<\/div>/);
+  });
+
+  it('say nothing of a cap while the table lists everything', async () => {
+    const admin = await member('asha', 'admin');
+    const item = await book(admin, { title: 'Lent once', copies: 1 });
+    await env.DB.prepare("INSERT INTO loans (item_id, borrower, loaned_on, due_on) VALUES (?1, 'Priya', '2026-01-01', ?2)").bind(item.id, dayOffset(-1)).run();
+    const loans = squash(await (await as(admin, '/loans')).text());
+    expect(loans).toContain('1 OUT · 0 RETURNED');
+    expect(loans).toContain('<p class="eyebrow">Out now</p>');
+    const overview = squash(await (await as(admin, '/')).text());
+    expect(overview).toMatch(/<div class="stat-n">1<\/div>\s*<div class="stat-label">On loan<\/div>/);
+    expect(overview).toMatch(/<div class="stat-n warn">1<\/div>\s*<div class="stat-label">Overdue<\/div>/);
+    expect(overview).toContain('1 item out · <span class="error">1 overdue</span>');
+  });
+});
+
 describe('Loans says when its history is capped', () => {
   async function returned(n: number) {
     const admin = await member('asha', 'admin');
