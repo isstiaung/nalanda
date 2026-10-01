@@ -846,6 +846,7 @@ is a section of this document and "#N" another decision.
 | 68 | 2026-10-01 | [Rows read are budgeted like calls: pages read in index order, count once, and filter from the small side](docs/decisions/068-rows-read-budgeted-like-calls.md) |
 | 69 | 2026-10-01 | [Today is the device's day: a `tz` cookie names its zone, and every date a page offers or a handler fills in is today there](docs/decisions/069-today-is-the-devices-day.md) |
 | 70 | 2026-10-01 | [Sign out other devices: a session generation beside the identity key, named by the cookie and moved on by a sign-out, a new password or a reset](docs/decisions/070-sign-out-other-devices.md) |
+| 71 | 2026-10-01 | [A share link previews where it's pasted: Open Graph tags carrying only what the page shows, and the page stays noindex](docs/decisions/071-share-page-link-previews.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

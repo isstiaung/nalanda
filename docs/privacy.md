@@ -27,6 +27,11 @@ for a surface before changing anything it shows to someone outside the household
   being read now — in progress, or finished and being read again (`rereading`) — as the
   latest page anyone reading it recorded; `toPublicItem(item, { progress })` omits the key
   otherwise. Share pages get `noindex`.
+- **Link previews** (ARCH.md §16 #71): every share page's Open Graph tags are a `LinkPreview` its
+  route builds from `toPublicItem()`/`toGiftItem()` values and the page's own name and count —
+  never a field the whitelist keeps back, never a display name while `names_on_shares` is off, and
+  none at all on the 404 page. `og:url` is the page's own URL; `og:image` a `/covers/` key the page
+  shows. `noindex` stays.
 - Share tokens are random 128-bit, **one per published view** (`shares` table — filters, or a
   tag, captured at publish time; `itemMatchesShare()` guards the public item route, and its
   query-side twin `shareFilters()` must stay in step with it; a captured In progress holds a
