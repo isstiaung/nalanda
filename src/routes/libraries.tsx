@@ -332,6 +332,8 @@ libraries.get('/libraries/:id', async (c) => {
 
       {total === 0 && !filtered ? null : (
         <>
+          {/* above the filter bar, so the bar and the table keep the spacing the open menus were tuned to (target size) */}
+          <ViewsBar libraryId={id} views={savedViews} active={active} query={query} playable={typesHere.some(isPlayable)} />
           <form method="get" action={`/libraries/${id}`} class="toolbar">
           {view !== 'table' ? <input type="hidden" name="view" value={view} /> : null}
           <input
@@ -399,7 +401,6 @@ libraries.get('/libraries/:id', async (c) => {
             </span>
           </span>
           </form>
-          <ViewsBar libraryId={id} views={savedViews} active={active} query={query} playable={typesHere.some(isPlayable)} />
         </>
       )}
 
