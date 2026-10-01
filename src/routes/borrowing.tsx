@@ -23,7 +23,7 @@ import {
   setRequestStatus,
 } from '../db/federation';
 import type { BorrowRequestRow, BorrowStatus, Connection, FederationSettings } from '../db/schema';
-import { outwardName } from '../db/queries';
+import { activeBorrows, borrowHistory, outwardName } from '../db/queries';
 import type { AppEnv } from '../env';
 import { refreshInBackground } from '../federation/background';
 import { MAX_BORROW_NOTE_CHARS, SHELF_CACHE_ENTRIES, SHELF_CACHE_MS } from '../federation/config';
@@ -494,13 +494,19 @@ const STATUS_PILL: Record<BorrowStatus, [string, string]> = {
   withdrawn: ['pill ghost', 'Withdrawn'],
 };
 
-async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?: string } = {}) {
-  const [borrowed, requests, connections] = await Promise.all([
-    listBorrowed(c.env.DB),
-    recentOutgoing(c.env.DB, 30),
-    listConnections(c.env.DB),
+/**
+ * The Borrowed page (ARCH.md §16 #82): what is borrowed from people not on Nalanda — for every household — and, where
+ * connections are enabled (`ctx`), what is borrowed from connected households, the requests and their shelves.
+ */
+async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled | null, flash: { error?: string } = {}) {
+  const [plain, plainPast, borrowed, requests, connections] = await Promise.all([
+    activeBorrows(c.env.DB),
+    borrowHistory(c.env.DB, 100),
+    ctx ? listBorrowed(c.env.DB) : Promise.resolve([] as Awaited<ReturnType<typeof listBorrowed>>),
+    ctx ? recentOutgoing(c.env.DB, 30) : Promise.resolve([] as Awaited<ReturnType<typeof recentOutgoing>>),
+    ctx ? listConnections(c.env.DB) : Promise.resolve([] as Awaited<ReturnType<typeof listConnections>>),
   ]);
-  refreshAfterResponse(c, ctx);
+  if (ctx) refreshAfterResponse(c, ctx);
   const now = borrowed.filter((b) => !b.returnedOn);
   const returned = borrowed.filter((b) => b.returnedOn);
   const households = connections.filter((row) => row.status === 'active');
@@ -515,14 +521,110 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
         <div>
           <h1>Borrowed</h1>
           <span class="sub">
-            {now.length} FROM CONNECTIONS · {waiting} WAITING
+            {plain.length} FROM PEOPLE
+            {ctx ? (
+              <>
+                {' '}
+                · {now.length} FROM CONNECTIONS · {waiting} WAITING
+              </>
+            ) : null}
           </span>
         </div>
       </div>
       {flash.error ? <p class="error" role="alert">{flash.error}</p> : null}
 
       <section>
-        <p class="eyebrow">Borrowed now</p>
+        <p class="eyebrow">From people</p>
+        {plain.length ? (
+          <div class="data-table cards">
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>From</th>
+                  <th class="hide-sm">Since</th>
+                  <th>Due back</th>
+                  <th class="actions-cell"><span class="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {plain.map((b) => {
+                  const overdue = !!(b.dueOn && b.dueOn < todayStr);
+                  return (
+                    <tr>
+                      <td>
+                        <a href={`/items/${b.itemId}`}>
+                          <strong>{b.itemTitle}</strong>
+                        </a>
+                      </td>
+                      <td data-label="From">
+                        {b.lender}
+                        {b.contact ? <small class="muted"> · {b.contact}</small> : null}
+                      </td>
+                      <td class="date hide-sm" data-label="Since">
+                        {b.borrowedOn}
+                      </td>
+                      <td class="date due-cell" data-label="Due back">
+                        <span>{b.dueOn ?? '—'}</span>
+                        {overdue ? (
+                          <>
+                            {' '}
+                            <span class="pill overdue">Overdue</span>
+                          </>
+                        ) : null}
+                      </td>
+                      <td class="actions-cell">
+                        <form method="post" action={`/borrows/${b.id}/return`}>
+                          <button type="submit" class="btn">
+                            Mark returned
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p class="muted">Nothing borrowed from anyone. Record a borrow on a book’s page once it is in the catalog as Not owned.</p>
+        )}
+      </section>
+
+      {plainPast.length ? (
+        <section>
+          <p class="eyebrow">Returned to people</p>
+          <div class="data-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th>From</th>
+                  <th class="hide-sm">Borrowed</th>
+                  <th>Returned</th>
+                </tr>
+              </thead>
+              <tbody>
+                {plainPast.map((b) => (
+                  <tr>
+                    <td>
+                      <a href={`/items/${b.itemId}`}>{b.itemTitle}</a>
+                    </td>
+                    <td>{b.lender}</td>
+                    <td class="date hide-sm">{b.borrowedOn}</td>
+                    <td class="date">{b.returnedOn}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {ctx ? (
+        <>
+      <section>
+        <p class="eyebrow">From connections</p>
         {now.length ? (
           <div class="data-table">
             <table>
@@ -677,14 +779,14 @@ async function renderBorrowed(c: Context<AppEnv>, ctx: Enabled, flash: { error?:
           <a href="/federation/export.json">Export connections data (JSON)</a>
         </p>
       ) : null}
+        </>
+      ) : null}
     </>,
   );
 }
 
-borrowing.get('/borrowed', async (c) => {
-  const ctx = await enabled(c);
-  return ctx ? renderBorrowed(c, ctx) : c.notFound();
-});
+// for every household (§16 #82): without connections, the page is what is borrowed from people
+borrowing.get('/borrowed', async (c) => renderBorrowed(c, await enabled(c)));
 
 borrowing.post('/borrowed/:id/remove', async (c) => {
   if (!(await enabled(c))) return c.notFound();

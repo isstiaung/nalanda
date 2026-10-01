@@ -160,7 +160,8 @@ function navGroups(user: SessionUser, libraries: NavLibrary[], federation: boole
     {
       id: 'lending',
       label: 'Lending',
-      links: only({ href: '/loans', label: 'Loans' }, federation && { href: '/borrowed', label: 'Borrowed' }),
+      // Borrowed is for every household (§16 #82): what is borrowed from people, and from connections where there are any
+      links: only({ href: '/loans', label: 'Loans' }, { href: '/borrowed', label: 'Borrowed' }),
     },
     {
       id: 'sharing',
