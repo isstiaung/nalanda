@@ -499,12 +499,16 @@ async function furnish(admin, member) {
   await expect('/', 'the goal and a book to read next', /Reading goal[\s\S]*Read next/);
   const seriesId = Number((await html(admin, '/series')).match(/href="\/series\/(\d+)"/)?.[1]);
   if (!seriesId) throw new Error('furnishing: /series lists no series');
+  const creator = (await html(admin, '/creators')).match(/href="\/creators\/([^"]+)"/)?.[1];
+  if (!creator) throw new Error('furnishing: /creators lists nobody');
+  const publisher = (await html(admin, '/publishers')).match(/href="\/publishers\/([^"]+)"/)?.[1];
+  if (!publisher) throw new Error('furnishing: /publishers lists nobody');
   if (shares.length < 5 || !wishlist) throw new Error(`furnishing: ${shares.length} share links and wishlist ${wishlist}`);
   const giftToken = shares.find((t) => !before.has(t));
   if (!giftToken) throw new Error('furnishing: the gift list was not published');
   await expect(`/libraries/${shelves.books}`, 'the Wanted badge', /pill wanted/);
   await expect('/wants', 'the want list and its purchase link', /want-card[\s\S]*Bookshop/);
-  return { shelves, wishlist, seriesId, book, game, record, reading, reread, overdue, temp, shares, giftToken, wanted, raviId, member };
+  return { shelves, wishlist, seriesId, creator, publisher, book, game, record, reading, reread, overdue, temp, shares, giftToken, wanted, raviId, member };
 }
 
 // ── pages ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -532,6 +536,11 @@ function pageList(ids) {
     ['Plays: every play of a game', `/items/${ids.game}/plays`],
     ['Series', '/series'],
     ['Series: one series', `/series/${ids.seriesId}`],
+    ['Creators', '/creators'],
+    ['Creators: narrowed', '/creators?q=le'],
+    ['Creator: one author', `/creators/${ids.creator}`],
+    ['Publishers', '/publishers'],
+    ['Publisher: one publisher', `/publishers/${ids.publisher}`],
     ['Reading goals', '/goals'],
     ['Want list: yours', '/wants'],
     ['Want list: a member\'s', `/wants?member=${ids.raviId}`],

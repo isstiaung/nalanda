@@ -134,7 +134,12 @@ function navGroups(user: SessionUser, libraries: NavLibrary[], federation: boole
     {
       id: 'library',
       label: 'Library',
-      links: only({ href: '/tags', label: 'Tags' }, { href: '/series', label: 'Series' }),
+      links: only(
+        { href: '/tags', label: 'Tags' },
+        { href: '/series', label: 'Series' },
+        { href: '/creators', label: 'Creators' },
+        { href: '/publishers', label: 'Publishers' },
+      ),
     },
     {
       id: 'shelves',
