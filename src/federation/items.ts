@@ -65,6 +65,11 @@ export type FeedPerson = { by: string | null; rating: number | null; review: str
  * A feed entry's item, carrying only what its kind shows: the review only on a `reviewed` entry, the
  * rating only on a `rated` one, the page only on a `progress` one — that entry's own page, not wherever
  * the book has got to since. Withdrawing a review then leaves no copy of it in the entries that remain.
+ *
+ * A per-person entry (§16 #45) carries no `completedOn`: the household's own `finished` entry says when the
+ * book was last finished (docs/proposals/connections.md §7), but on an entry about one member that date is
+ * their read's end — a read's date, attributed, which never leaves the instance. The entry is dated by when it
+ * was recorded, and that is all a connection learns of when.
  */
 export function toFeedItem(
   item: Item,
@@ -92,7 +97,8 @@ export function toFeedItem(
       review: long ? c.review!.slice(0, MAX_FEED_REVIEW_CHARS) : c.review,
       reviewTruncated: long,
       inCollection: c.inCollection,
-      completedOn: c.completedOn?.slice(0, MAX_SHORT_TEXT) ?? null,
+      // the household's last finish on its own entries; never on a member's (named or not), where it would be their read's date
+      completedOn: person ? null : (c.completedOn?.slice(0, MAX_SHORT_TEXT) ?? null),
       stamp,
       progress: progressPage ? { page: progressPage, percent: progressPercent(progressPage, item.length) } : null,
       // a page: the finished reads before its own read; anything else: all of them
@@ -105,10 +111,14 @@ export function toFeedItem(
   );
 }
 
-/** Blanks what an entry's kind doesn't show. The receiver applies it again before storing: it's the owner's rule to keep. */
+/**
+ * Blanks what an entry's kind doesn't show. The receiver applies it again before storing: it's the owner's rule to keep.
+ * A named entry — one with `by` — keeps no `completedOn` either: that would be a member's read's date.
+ */
 export function keepForKind(item: FeedItem, kind: ActivityKind): FeedItem {
   return {
     ...item,
+    completedOn: item.by ? null : item.completedOn,
     review: kind === 'reviewed' ? item.review : null,
     reviewTruncated: kind === 'reviewed' && item.reviewTruncated,
     rating: kind === 'rated' ? item.rating : null,

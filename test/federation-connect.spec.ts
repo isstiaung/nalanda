@@ -21,7 +21,7 @@ import { createUser } from '../src/db/queries';
 import type { ConnectionStatus } from '../src/db/schema';
 import type { Bindings } from '../src/env';
 import { importPublicKey, type PublicJwk } from '../src/federation/keys';
-import { connectRequest, inboxMessage } from '../src/federation/messages';
+import { connectRequest, inboxMessage, parseConnectRequest } from '../src/federation/messages';
 import { parseSignature, signRequest, verifyRequest } from '../src/federation/signatures';
 import { hashToken, newInviteToken } from '../src/federation/tokens';
 import { createSessionToken, SESSION_COOKIE } from '../src/lib/auth';
@@ -285,6 +285,26 @@ describe('an invitation redeemed at /federation/connect', () => {
       inviteId,
     });
     expect(await inviteUsed()).not.toBeNull();
+  });
+
+  it('keeps a household’s name cleaned of direction overrides, from the descriptor and the request alike', async () => {
+    const RLO = '\u202E';
+    serveDescriptor(descriptorOf(peer, { name: `River${RLO}bank library` }));
+    const request = connectRequest(peer.url, `what${RLO}ever`, peer.publicJwk, token);
+    expect(parseConnectRequest(request)?.name).toBe('what ever');
+    expect((await signedPost('/federation/connect', peer, request)).status).toBe(202);
+    expect((await getConnectionByBaseUrl(env.DB, peer.url))?.householdName).toBe('River bank library');
+    const html = await (await get('/connections', await sessionCookie('admin'))).text();
+    expect(html).toContain('River bank library');
+    expect(html).not.toContain(RLO);
+  });
+
+  it('records nothing for a descriptor whose name is nothing but overrides', async () => {
+    serveDescriptor(descriptorOf(peer, { name: '\u202E\u200B' }));
+    const res = await signedPost('/federation/connect', peer, connectRequest(peer.url, peer.name, peer.publicJwk, token));
+    expect(res.status).toBe(422);
+    expect(await getConnectionByBaseUrl(env.DB, peer.url)).toBeNull();
+    expect(await inviteUsed()).toBeNull();
   });
 
   it('turns away a second use of the same invitation', async () => {

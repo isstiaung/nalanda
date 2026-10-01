@@ -16,7 +16,9 @@ for a surface before changing anything it shows to someone outside the household
   app — and nothing per member unless names are switched on (next bullet). (The derived boolean
   `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge. So is
   `readCount`, the household's finishes, only from two on — "Read N times", ARCH.md §16 #41 —
-  and, on a shared game's or record's page, `playCount`, the household's plays, never a play's
+  and only of an item the household owns: **a Not owned item never claims a read** (§16 #13),
+  so `toPublicItem()` adds neither `readCount` nor `progress` while `copies` is 0, whatever the
+  household read of it — and, on a shared game's or record's page, `playCount`, the household's plays, never a play's
   date or who logged it, §16 #54. And a shared item's page shows its series name and number —
   public catalogue data, like the publisher — only through `toPublicItem(item, { series })`,
   ARCH.md §16 #52: never the numbers missing from a series or anyone's "next up", and not on
@@ -103,7 +105,7 @@ for a surface before changing anything it shows to someone outside the household
   (shelf cards, item pages, feed entries) the same way — absent otherwise, so every other item's
   bytes are unchanged, and older peers drop the unknown key. Never whose want, never a count. It
   shows wherever "Not owned" does; a peer's `wanted` renders as our own fixed text. A Not owned
-  item's share page never claims it was read (share pages have no status to say so).
+  item never claims a read: no status, no read count and no progress reach its share page (above).
 - **Purchase links** are pasted, never generated, the item's (any member adds or removes one),
   and **public only on gift lists** — never on a shelf's share page or to connections
   (`toConnectionItem()` has no field for them). `checkPurchaseLink()` (`src/lib/links.ts`) takes
@@ -129,7 +131,11 @@ for a surface before changing anything it shows to someone outside the household
   names. Named feed entries go out with ids past `MEMBER_ACTIVITY_BASE`; one stream is valid at a
   time, so named ids fail the removal check once names are off and household ids while they're on.
   A per-person start or finish is recorded only as it happens, dated then — never by a read's dates,
-  never backfilled. A rename or removal re-keys that member's entries in its batch
+  never backfilled. A per-person entry also carries no `completedOn`: on an entry about one member that
+  column is their read's end date, so `toFeedItem()` blanks it whenever the entry is a member's (named or
+  not) and `keepForKind()` again on a named one; the household's own `finished` entry still carries the
+  item's `completed_on`, as docs/proposals/connections.md §7 describes, so a connection learns when the
+  household last finished a book and never when a person did. A rename or removal re-keys that member's entries in its batch
   (`rekeyMemberActivity()`), and a move of a read or review re-keys that one's (`rekeyMoved()`),
   so peers' held copies are withdrawn. Comments, borrow requests and recommendations are
   signed with `outwardName()` — the display name while names go to connections, else "A member",
@@ -173,7 +179,11 @@ for a surface before changing anything it shows to someone outside the household
   (migration 0021, ARCH.md §16 #40).
 - Strings from another instance — household names, view names, feed entries, members' names (`by`, `reviews`), comments,
   recommendations (title, creators, the name it's signed with, the note) —
-  render only as escaped text. A comment thread is only ever shown to the two households in it. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:
+  render only as escaped text. Every *name* among them — a feed entry's `by`, a review's, a recommender's, a
+  comment's author, a borrow requester's, a household's from its descriptor or connect request — is also cleaned
+  on the way in as a display name typed here is (`parsePeerName()`, `cleanHouseholdName()`): control and format
+  characters out, so a bidi override can't reorder the text around it on the Loans page, in a notification or in a
+  loan's borrower, and a name that is nothing but them rejects what carried it. A comment thread is only ever shown to the two households in it. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:
   the browser decodes HTML escapes back into quotes before it runs the script.
 
 ## Recommendations

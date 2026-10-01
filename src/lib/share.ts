@@ -149,6 +149,10 @@ export function parseDetails(json: string | null | undefined): Record<string, un
  * I'm reading now", and a re-read keeps its Completed status). A finished book's last page is noise, and an
  * unstarted one has none. The key is left out entirely otherwise, so nothing downstream can render an empty or
  * stale value.
+ *
+ * A Not owned item never claims a read (§16 #13): neither `readCount` nor `progress` is added while `copies` is 0.
+ * A reading-log entry — a Goodreads import, a library book — is in the catalogue and not on the shelves, and what
+ * the household read of it is its own; "Not owned" is all the page says.
  */
 export function toPublicItem(
   item: Item,
@@ -163,8 +167,9 @@ export function toPublicItem(
     quotes?: Array<{ by: string | null; text: string; page: string | null }>;
   } = {},
 ): PublicItem {
+  const owned = item.copies > 0;
   const readingNow = matchesStatus(item, 'in_progress');
-  const showProgress = opts.progress === true && item.mediaType === 'book' && readingNow && !!item.progressPage;
+  const showProgress = owned && opts.progress === true && item.mediaType === 'book' && readingNow && !!item.progressPage;
   return {
     id: item.id,
     mediaType: item.mediaType,
@@ -177,14 +182,15 @@ export function toPublicItem(
     coverKey: item.coverKey,
     rating: item.rating,
     review: item.review,
-    inCollection: item.copies > 0,
+    inCollection: owned,
     formats: formatsOf(item),
     language: item.language,
     originalTitle: item.originalTitle,
     ...(opts.wanted === true && item.copies === 0 ? { wanted: true as const } : {}),
     // never money (§16 #61): a libib file's `price` lands in details, and details are otherwise published whole
     details: withoutMoney(parseDetails(item.details)),
-    ...(item.readCount >= 2 ? { readCount: item.readCount } : {}),
+    // how often the household finished it, from twice on (§16 #41) — and never of an item it doesn't own
+    ...(owned && item.readCount >= 2 ? { readCount: item.readCount } : {}),
     // a game's or record's plays, counted; the key only when there are some, and never on a book, which has reads
     ...(opts.plays !== undefined && opts.plays > 0 && isPlayable(item.mediaType) ? { playCount: opts.plays } : {}),
     ...(showProgress

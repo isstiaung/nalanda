@@ -9,6 +9,9 @@ export type Bindings = {
   HOME_SHARE_TOKEN?: string; // front door: anonymous "/" redirects to /share/<this token>
   // Ed25519 private JWK (JSON). Unset — or invalid — means connections are disabled entirely.
   FEDERATION_PRIVATE_KEY?: string;
+  // A plain variable, not a secret (ARCH.md §16 #92): set to anything but blank/0/false/no/off, this instance contacts no
+  // connected household — for a restored copy of a production database. Production leaves it unset.
+  FEDERATION_OFFLINE?: string;
 };
 
 export type SessionUser = {

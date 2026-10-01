@@ -4,7 +4,7 @@
 import { MEDIA_TYPES, type MediaType } from '../db/schema';
 import { parsePeerName } from '../lib/names';
 import { MAX_AUTHOR_NAME, MAX_BORROW_NOTE_CHARS, MAX_COMMENT_CHARS, MAX_FEED_TEXT_CHARS, MAX_RECOMMEND_NOTE_CHARS } from './config';
-import { isHouseholdName, normaliseBaseUrl } from './http';
+import { cleanHouseholdName, isHouseholdName, normaliseBaseUrl } from './http';
 import { isCoverKey, isId, isSqlDatetime, isStamp } from './items';
 import { isPublicJwk, type PublicJwk } from './keys';
 
@@ -211,7 +211,8 @@ export function parseConnectRequest(value: unknown): ConnectRequest | null {
   const { name, publicKey, token } = value;
   if (!isHouseholdName(name) || !isPublicJwk(publicKey)) return null;
   if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null;
-  return { '@context': AS2_CONTEXT, type: 'ConnectRequest', id: value.id, actor: value.actor, name, publicKey, token };
+  // the name cleaned like every name a connection sends: isHouseholdName has already found something in it
+  return { '@context': AS2_CONTEXT, type: 'ConnectRequest', id: value.id, actor: value.actor, name: cleanHouseholdName(name)!, publicKey, token };
 }
 
 export function parseInboxMessage(value: unknown): InboxMessage | null {
@@ -221,10 +222,12 @@ export function parseInboxMessage(value: unknown): InboxMessage | null {
 
   if (value.type === 'CommentCreate') {
     const reply = value.inReplyTo as Record<string, unknown> | null | undefined;
-    const { author, content, published } = value;
+    const { content, published } = value;
+    // a name, cleaned as any name a connection sends is (bidi overrides and control characters out); required
+    const author = parsePeerName(value.author);
     if (!reply || typeof reply !== 'object' || typeof reply.owner !== 'string') return null;
     if (normaliseBaseUrl(reply.owner) !== reply.owner || !isId(reply.item) || !isStamp(reply.stamp)) return null;
-    if (typeof author !== 'string' || !author.trim() || author.length > MAX_AUTHOR_NAME) return null;
+    if (typeof author !== 'string' || [...author].length > MAX_AUTHOR_NAME) return null;
     if (typeof content !== 'string' || !content.trim() || content.length > MAX_COMMENT_CHARS) return null;
     if (!isSqlDatetime(published)) return null;
     return {
@@ -242,8 +245,10 @@ export function parseInboxMessage(value: unknown): InboxMessage | null {
 
   switch (value.type) {
     case 'BorrowRequest': {
-      const { item, stamp, requester, note } = value;
-      if (!isId(item) || !isStamp(stamp) || typeof requester !== 'string' || !requester.trim() || requester.length > MAX_AUTHOR_NAME) return null;
+      const { item, stamp, note } = value;
+      // a name, cleaned as any name a connection sends is: it reaches the Loans page, a notification and a loan's borrower
+      const requester = parsePeerName(value.requester);
+      if (!isId(item) || !isStamp(stamp) || typeof requester !== 'string' || [...requester].length > MAX_AUTHOR_NAME) return null;
       if (!(note === null || (typeof note === 'string' && note.length <= MAX_BORROW_NOTE_CHARS))) return null;
       return { ...base, type: 'BorrowRequest', item, stamp, requester, note };
     }

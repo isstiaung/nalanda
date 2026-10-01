@@ -477,6 +477,8 @@ portable, and makes share routes trivially public. CF Access remains available l
   a derived boolean `inCollection` (`copies > 0`) so reading-log entries (`copies = 0`)
   carry a "Not owned" badge (§16 #13), and `readCount` — how many times the household
   finished it, only from twice on ("Read N times"), never the reads or their dates (§16 #41),
+  and only of an item it owns: a Not owned item never claims a read, so neither `readCount` nor
+  reading progress is added while `copies` is 0 (§16 #13) —
   and, on a shared board game's or record's own page, `playCount` — how many times the
   household played it, from the first play on ("Played N times"), never a play's date or who
   logged it (§16 #54). Listing cards don't carry it. And, on a shared item's page, its series name and number,
@@ -870,6 +872,7 @@ is a section of this document and "#N" another decision.
 | 87 | 2026-10-01 | [StoryGraph and LibraryThing exports import as Goodreads' does: matched and merged, the importer's own reads and reviews](docs/decisions/087-storygraph-librarything.md) |
 | 88 | 2026-10-01 | [A read-only API behind per-member tokens: made on the Account page, shown once, bound to the account as a session is; a token sees what its member sees and changes nothing](docs/decisions/088-token-api.md) |
 | 90 | 2026-10-01 | [An import dates a book by the file's "date added"; a re-import re-dates the books already here only when asked, the row's own time kept for the stamp connections hold](docs/decisions/090-import-date-added.md) |
+| 92 | 2026-10-01 | [`FEDERATION_OFFLINE`: a plain runtime variable under which an instance contacts no connected household, for a copy of the database restored anywhere but production](docs/decisions/092-federation-offline.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
