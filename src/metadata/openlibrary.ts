@@ -129,6 +129,26 @@ export async function olWorkDescription(workKey: string): Promise<string | null>
 
 /** Cover and description lookups: fewer results, and none of the ISBN bulk the backfill never reads. */
 /**
+ * An author's works, newest first (ARCH.md §16 #78): one keyless request to the search index by author name, sorted
+ * by first publication, so "new from authors you've finished" is one call per author, made on a click. Each doc
+ * becomes a candidate with its first ISBN-13 (for "In your catalog") and its cover.
+ */
+export async function olRecentByAuthor(author: string, limit = 12): Promise<Candidate[] | null> {
+  const url = `https://openlibrary.org/search.json?author=${encodeURIComponent(author)}&sort=new&fields=${FIELDS}&limit=${limit}`;
+  try {
+    const res = await fetchWithTimeout(url, { headers: { 'User-Agent': USER_AGENT } });
+    if (!res.ok) return null; // no answer — a burst block, an outage — is not an empty answer, and is never cached
+    const data = (await res.json()) as { docs?: OlDoc[] };
+    return (data.docs ?? [])
+      .map((d) => toCandidate(d, d.isbn?.find((i) => /^\d{13}$/.test(i))))
+      .filter((c): c is Candidate => !!c)
+      .sort((a, b) => Number(b.published ?? 0) - Number(a.published ?? 0));
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The works Open Library's index places in a series of this name (ARCH.md §16 #79): one keyless search for the
  * name, kept to the docs whose series matches it (seriesKey: case and spacing aside), each as a candidate with its
  * position and its first ISBN-13. Only some works carry series records (checked 2026-09-30: The Expanse and Discworld

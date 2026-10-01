@@ -851,6 +851,7 @@ is a section of this document and "#N" another decision.
 | 73 | 2026-10-01 | [A cover from the camera: the browser shrinks the picture, the Worker sniffs and stores it, under the rules every cover keeps](docs/decisions/073-cover-from-the-camera.md) |
 | 74 | 2026-10-01 | [Deleting an item puts it in the trash for 30 days: a snapshot SQLite builds in the delete's own batch, restored through the import's insert, never a soft delete](docs/decisions/074-item-trash.md) |
 | 75 | 2026-10-01 | [Formats are a set on the item, editions are facts about it, and a loan says which copy went out: one item per work](docs/decisions/075-formats-and-editions.md) |
+| 78 | 2026-10-01 | [Discovery is one page: the works of authors you have finished, from Open Library, on a click — and nothing more](docs/decisions/078-new-from-your-authors.md) |
 | 79 | 2026-10-01 | [A series' missing volumes can be found on Open Library, on a click; the household's series data always wins](docs/decisions/079-series-gaps-from-open-library.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React

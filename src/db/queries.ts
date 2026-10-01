@@ -3704,7 +3704,7 @@ const surname = (creators: string | null) => {
   return tokens[tokens.length - 1]?.toLowerCase() ?? '';
 };
 
-const titleKey = (title: string, creators: string | null) => `${normTitle(title)}|${surname(creators)}`;
+export const titleKey = (title: string, creators: string | null) => `${normTitle(title)}|${surname(creators)}`;
 
 export type MergeImportResult = { inserted: number; merged: number; reads: number };
 
@@ -4142,3 +4142,45 @@ export async function listMembersWithKeys(d1: D1Database): Promise<Array<{ id: n
 
 /** The members a restore may hand things back to, by id and key. */
 export const memberKeys = (members: Array<{ id: number; sessionKey: string }>): Map<number, string> => new Map(members.map((m) => [m.id, m.sessionKey]));
+
+// ---------- new from authors you've finished (ARCH.md §16 #78) ----------
+
+/**
+ * The authors of the books a member has finished, most finished first: the creators of each book with one of their
+ * completed reads, split into people (splitCreators), each counted once per book. One query, reading only their
+ * finished reads.
+ */
+export async function finishedAuthors(d1: D1Database, userId: number, limit = 20): Promise<Array<{ name: string; books: number }>> {
+  const rows = (
+    await d1
+      .prepare(
+        `SELECT DISTINCT i.id, i.creators FROM reads r JOIN items i ON i.id = r.item_id
+         WHERE r.reader_id = ?1 AND r.status = 'completed' AND i.media_type = 'book' AND i.creators IS NOT NULL`,
+      )
+      .bind(userId)
+      .all<{ id: number; creators: string }>()
+  ).results;
+  const counts = new Map<string, { name: string; books: number }>();
+  for (const r of rows) {
+    for (const name of splitCreators(r.creators)) {
+      const key = nameKey(name);
+      const c = counts.get(key) ?? { name, books: 0 };
+      c.books += 1;
+      counts.set(key, c);
+    }
+  }
+  return [...counts.values()].sort((a, b) => b.books - a.books || a.name.localeCompare(b.name, 'en')).slice(0, limit);
+}
+
+/** The catalog's books that name an author, lightly: id, title, creators and ISBN, for telling a found work from one already here. */
+export async function booksNamed(d1: D1Database, author: string): Promise<Array<{ id: number; title: string; creators: string | null; isbn13: string | null }>> {
+  const key = nameKey(author);
+  if (!key) return [];
+  const last = key.split(' ').at(-1) ?? '';
+  const narrow = /^[\x00-\x7f]+$/.test(last) ? sql`instr(lower(${s.items.creators}), ${last}) > 0` : sql`${s.items.creators} IS NOT NULL`;
+  const rows = await db(d1)
+    .select({ id: s.items.id, title: s.items.title, creators: s.items.creators, isbn13: s.items.isbn13 })
+    .from(s.items)
+    .where(and(eq(s.items.mediaType, 'book'), narrow));
+  return rows.filter((r) => splitCreators(r.creators).some((n) => nameKey(n) === key));
+}

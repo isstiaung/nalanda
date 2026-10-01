@@ -548,6 +548,7 @@ function pageList(ids) {
     ['Publisher: one publisher', `/publishers/${ids.publisher}`],
     ['Reading goals', '/goals'],
     ['Want list: yours', '/wants'],
+    ['New from your authors', '/discover'],
     ['Want list: a member\'s', `/wants?member=${ids.raviId}`],
     ['Add items', '/add'],
     ['Search: empty', '/search'],
