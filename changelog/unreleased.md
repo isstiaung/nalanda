@@ -31,7 +31,7 @@ for what a host must do; link runbooks as ../runbooks/…); a release commit ren
 - The accessibility audit now presses the Add page's **More results**, and `npm run a11y -- --only=<word>` also picks out single htmx steps.
 
 ### Upgrading
-- **Two migrations, 0049 and 0050: two new tables (`item_history`, and the `acting` marker, empty between writes) and one trigger on `items`, no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. History starts at the upgrade; nothing is backfilled. The backup's table order gains both tables.
+- **Two migrations, 0049 and 0050: two new tables (`item_history`, and the `acting` marker, empty between writes) and one trigger on `items`, no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. History starts at the upgrade; nothing is backfilled, and every item write sweeps what is older than 90 days. The backup's table order gains both tables.
 - **One migration, 0048: a new `borrows` table, no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. The backup's table order gains `borrows`.
 - **One migration, 0047: a new `saved_views` table, no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. The backup's table order gains `saved_views`.
 - **One migration, 0043: a new `editions` table and two columns with defaults, no data changed.** [Back up](../runbooks/backup-and-restore.md) first as before any migration, then deploy as usual. Connections on older versions drop the new `formats` key and are otherwise unaffected.
