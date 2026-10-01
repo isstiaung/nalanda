@@ -9,6 +9,10 @@ export default defineConfig(async () => {
   // relative to project root, where vitest runs
   const migrations = await readD1Migrations('./migrations');
   return {
+    // public/ is the Worker's static files, bound below as ASSETS for tests to fetch as served; Vite's own notion of a
+    // publicDir would refuse to import a module from it, and test/quotes.spec.ts imports public/kindle.js, the browser's
+    // Kindle parser, to run the very code the browser runs (ARCH.md §16 #77).
+    publicDir: false as const,
     plugins: [
       cloudflareTest({
         wrangler: { configPath: './wrangler.jsonc' },

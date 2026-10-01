@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { cleanKindleBook, MAX_KINDLE_BOOKS_PER_REQUEST, MAX_KINDLE_HIGHLIGHTS_PER_REQUEST, type KindleBook } from '../lib/quotes';
 import type { MediaType, NewItem } from '../db/schema';
 import { MEDIA_TYPES } from '../db/schema';
 import {
@@ -14,6 +15,7 @@ import {
   pageItems,
   exportCellsForIdRange,
   updateItem,
+  importKindle,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { storeCover } from '../lib/covers';
@@ -105,6 +107,39 @@ importexport.get('/import', async (c) => {
         </div>
       </form>
       <div id="import-status" class="prewrap muted mono" aria-live="polite"></div>
+
+      <section style="margin-top:2rem" id="kindle">
+        <p class="eyebrow">Kindle highlights</p>
+        <p class="muted">
+          Drop <span class="mono">My Clippings.txt</span> from a Kindle, or the notebook a Kindle app emails you (HTML). Each
+          highlight becomes a quote of yours on the book it is from — matched by title and author, or added as a “Not
+          owned” reading-log entry when it isn’t here — dated when Kindle recorded it, private until you share it. A note
+          Kindle attached to a highlight becomes the quote’s note. Importing the same file again adds nothing twice.
+        </p>
+        <form id="kindle-form" onsubmit="return false" class="panel form-card">
+          <label>
+            Kindle file
+            <input type="file" id="kindle-file" accept=".txt,.html,.htm,text/plain,text/html" required />
+          </label>
+          <label>
+            New books go on shelf
+            <select id="kindle-library">
+              {libs.map((l) => (
+                <option value={String(l.id)}>{l.name}</option>
+              ))}
+            </select>
+          </label>
+          <div class="inline-form">
+            <button type="button" id="kindle-preview" class="btn">
+              Preview (dry run)
+            </button>
+            <button type="button" id="kindle-run" class="btn-primary">
+              Import highlights
+            </button>
+          </div>
+        </form>
+        <div id="kindle-status" class="prewrap muted mono" aria-live="polite"></div>
+      </section>
 
       <section style="margin-top:2rem">
         <p class="eyebrow">Cover backfill</p>
@@ -255,6 +290,31 @@ importexport.post('/api/import', async (c) => {
 });
 
 /**
+ * The Kindle import (§16 #77): books with their highlights, parsed in the browser (public/kindle.js) and posted in
+ * batches of at most MAX_KINDLE_BOOKS_PER_REQUEST books. Each becomes the signed-in member's quotes, on the matching
+ * book or a new Not owned one on the shelf chosen. `dryRun` matches without writing.
+ */
+importexport.post('/api/import/kindle', async (c) => {
+  let body: { libraryId?: unknown; dryRun?: unknown; books?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body.' }, 400);
+  }
+  const sent = Array.isArray(body.books) ? body.books : [];
+  if (sent.length > MAX_KINDLE_BOOKS_PER_REQUEST) return c.json({ error: `Send at most ${MAX_KINDLE_BOOKS_PER_REQUEST} books per request.` }, 400);
+  const books = sent.map(cleanKindleBook).filter((b): b is KindleBook => b !== null);
+  if (books.reduce((n, b) => n + b.highlights.length, 0) > MAX_KINDLE_HIGHLIGHTS_PER_REQUEST) {
+    return c.json({ error: `Send at most ${MAX_KINDLE_HIGHLIGHTS_PER_REQUEST} highlights per request.` }, 400);
+  }
+  const libraryId = Number(body.libraryId);
+  if (!Number.isInteger(libraryId)) return c.json({ error: 'libraryId required.' }, 400);
+  if (!(await getLibrary(c.env.DB, libraryId))) return c.json({ error: 'No such shelf.' }, 400);
+  const result = await importKindle(c.env.DB, books, { libraryId, userId: c.get('user').id }, body.dryRun === true);
+  return c.json({ ...result, skipped: sent.length - books.length });
+});
+
+/**
  * Cover backfill, one small batch per request — the browser loops (like /api/import).
  * The batch stays small to respect the free plan's 50-subrequest budget: a full-chain
  * miss costs up to ~9 outbound fetches per item (see findCover).
@@ -389,6 +449,7 @@ async function exportRows(
       cells.wants.get(item.id) ?? [],
       cells.links.get(item.id) ?? [],
       cells.editions.get(item.id) ?? [],
+      cells.quotes.get(item.id) ?? [],
     );
   }
   return { csv, count: items.length, lastId: items.at(-1)!.id, more };
