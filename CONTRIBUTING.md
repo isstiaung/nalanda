@@ -88,7 +88,9 @@ of work per commit, and no batching of unrelated changes. A change someone runni
 notice adds its entry to [changelog/unreleased.md](changelog/unreleased.md), under **Added**,
 **Changed** or **Fixed**, with an **Upgrading** line for anything a host has to do (a migration,
 a new secret, an effect on connected households on older versions); the release commit turns
-that file into the version's notes. Keep PRs focused enough to review in one sitting; CI runs typecheck, the accessibility lint, the test suite and the accessibility
+that file into the version's notes. A feature someone would look for is described on its page in
+[docs/features/](docs/features/README.md) — the README only points there — so a new behaviour
+updates that page in the same PR. Keep PRs focused enough to review in one sitting; CI runs typecheck, the accessibility lint, the test suite and the accessibility
 audit on every one. A new page or htmx interaction joins the audit's list in
 `scripts/a11y.mjs` (ARCH.md §18).
 

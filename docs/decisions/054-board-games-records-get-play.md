@@ -1,6 +1,6 @@
 # §16 #54 — Board games and records get a play log: each play a dated row, the household's, beside — not inside — their reads
 
-**Decided:** 2026-09-30 (the play log). Cited as `ARCH.md §16 #54`; "§N" is a section of [ARCH.md](../../ARCH.md), "#N" another decision here.
+**Decided:** 2026-09-30 (the play log). **Amended 2026-10-02:** the day a play defaults to is the device's, not the server's UTC day, since #69 — the "chosen without asking" line below predates it. Cited as `ARCH.md §16 #54`; "§N" is a section of [ARCH.md](../../ARCH.md), "#N" another decision here.
 
 A game's shelf life is how often it comes out; a record's, how often
 it goes on. A read (#41) says someone started and finished something, which fits a book and

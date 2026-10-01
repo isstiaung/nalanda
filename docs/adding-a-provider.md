@@ -96,6 +96,7 @@ page only sequences them.
 
 - A decision file in `docs/decisions/` with its ARCH.md §16 row: the source, its terms, what is
   stored, what is credited, what is ruled out.
-- THIRD-PARTY.md (*Data sources*), README's provider line, CLAUDE.md's stack bullet, the deploy
-  runbook's secrets table if a token is needed, `.dev.vars.example`.
+- THIRD-PARTY.md (*Data sources*), the providers table in [docs/features/cataloguing.md](features/cataloguing.md#providers)
+  and the README's *Data sources* paragraph, CLAUDE.md's stack bullet, the deploy runbook's secrets
+  table if a token is needed, `.dev.vars.example`.
 - `changelog/unreleased.md` — and an **Upgrading** bullet when a secret must be set.

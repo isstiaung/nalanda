@@ -56,7 +56,7 @@ importexport.get('/import', async (c) => {
       <div class="page-head">
         <div>
           <h1>Import / export</h1>
-          <span class="sub">LIBIB · GOODREADS CSV IN · FULL CSV OUT</span>
+          <span class="sub">LIBIB · GOODREADS · STORYGRAPH · LIBRARYTHING CSV IN · FULL CSV OUT</span>
         </div>
         <div class="page-actions">
           <a href="/export.csv" class="btn" data-export>

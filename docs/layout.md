@@ -7,13 +7,12 @@ architectural view.
 ```
 src/index.ts       Hono app entry; route order matters: public (share, covers, auth) first,
                    then requireAuth, then protected routes. Origin-check CSRF on mutations.
-src/routes/        pages + htmx partials + /api/lookup, /api/import + discover.tsx (new from your
-                   api.tsx is the read-only token API (/api/v1/…, ARCH.md §16 #88), mounted before the session
-                   middleware — a token, never a cookie;
-                   authors, ARCH.md §16 #78) + share.tsx (public
-                   share pages) and shares.tsx (admin share management — don't confuse)
-                   + trash.tsx (what was deleted in the last 30 days, admin-only; the snapshot
-                   and restore are trashItems()/restoreFromTrash() in db/queries.ts, ARCH.md §16 #74)
+src/routes/        pages + htmx partials + /api/lookup, /api/import; share.tsx (public share pages)
+                   and shares.tsx (admin share management — don't confuse); api.tsx (the read-only
+                   token API, /api/v1/…, ARCH.md §16 #88, mounted before the session middleware — a
+                   token, never a cookie); discover.tsx (new from your authors, ARCH.md §16 #78);
+                   trash.tsx (what was deleted in the last 30 days, admin-only; the snapshot and
+                   restore are trashItems()/restoreFromTrash() in db/queries.ts, ARCH.md §16 #74)
 src/views/         hono/jsx layout + components (page() helper wraps Layout + doctype)
 src/db/            schema.ts (Drizzle) + queries.ts — the ONLY code touching D1
 src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googlebooks, bgg,
@@ -90,15 +89,17 @@ test/              auth, csv/libib mapping, barcode routing, share whitelist, FT
                    any test that logs an error it didn't capture and check (console.ts),
                    and fetch-mock.ts stubs outbound fetch (see §16 #25); public/ is bound
                    as ASSETS for tests only, to read static files as served (§16 #48)
-scripts/           vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp config),
+scripts/           demo-build.mjs + demo-static.mjs (+ its .d.mts, for the test under tsc) (the static demo: a seeded scratch instance crawled into
+                   demo/ for GitHub Pages — ARCH.md §16 #89; the pure parts tested), vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp config),
                    backup.mjs + backup-dir.mjs (a same-day backup never overwrites),
                    wrangler-remote.mjs + remote-config.mjs (real db id → temp config),
                    seed-demo.mjs, hash-password.mjs, federation-keygen.mjs,
                    backfill-remote.mjs + ts-resolve.mjs (runs src/metadata under Node),
                    a11y.mjs (the runtime accessibility audit; eslint.config.mjs is the static one)
 runbooks/          operational guides: deploy, updating (for self-hosters), backup/restore, accounts,
-                   connections, libib import, goodreads import, kindle import, metadata backfill, troubleshooting —
-                   update when ops procedures change
+                   connections, the read-only API, the libib, Goodreads, StoryGraph, LibraryThing and Kindle
+                   imports, metadata backfill, record covers (a one-off), troubleshooting — update when ops
+                   procedures change
 .github/           CI (typecheck + lint + test, and the a11y audit as its own job; no secrets,
                    never pull_request_target), release (on a vX.Y.Z tag: publishes
                    changelog/vX.Y.Z.md; never deploys),
@@ -106,7 +107,13 @@ runbooks/          operational guides: deploy, updating (for self-hosters), back
 CHANGELOG.md       the release index: one line per release, newest first (ARCH.md §16 #42)
 changelog/         vX.Y.Z.md per release, each with an Upgrading section; unreleased.md for PRs
 docs/              privacy.md, conventions.md, layout.md: the detail behind CLAUDE.md; proposals/;
-                   perf/ (the query analysis, ARCH.md §16 #68)
+                   perf/ (the query analysis, ARCH.md §16 #68); adding-a-column.md and
+                   adding-a-provider.md, the two contributor guides
+docs/features/     what Nalanda does, one page per area (cataloguing, reading, shelves and search,
+                   imports and exports, sharing, lending, connections, members and privacy, on your
+                   phone), indexed by its README.md and linked from the root README — each page
+                   links the runbooks and decisions it rests on; a feature isn't documented until
+                   its page says what the code does
 docs/decisions/    the decision log, one file per decision, indexed by ARCH.md §16 — cite a
                    decision as "ARCH.md §16 #N", and the index resolves it
 docs/screenshots/  README imagery, captured from seeded demo data — never real catalog data
