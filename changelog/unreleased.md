@@ -1,0 +1,15 @@
+## [Unreleased]
+
+<!-- Each pull request adds its entries here (### Added, ### Changed, ### Fixed, and ### Upgrading for what a host must do; link runbooks as ../runbooks/…); a release commit renames this file to vX.Y.Z.md and starts a fresh one (ARCH.md §16 #42). -->
+
+### Changed
+- The reading goal's note under the bar now reads "The mark shows where you'd be reading evenly since 1 January."
+- **A record's cover now comes from the Cover Art Archive, never from Discogs.** Discogs' API terms restrict its images, and a stored cover is shown on share pages and to connected households. Adding a record from a Discogs result (search, barcode or a held scan), the cover backfill, and wanting a recommended record now look the record up on MusicBrainz, by barcode or by a confident artist-and-title match, and store the archive's front cover, or none. Discogs still fills in the pressing. The Add page still previews Discogs' image while you choose. A Discogs image URL pasted into the cover field is refused, with the reason.
+
+### Fixed
+- Date fields sat a pixel above the button beside them in Chrome at about half of row positions; they now sit level. Safari is unchanged.
+- **Scans held offline can go straight onto your want list** from the Add page's review list (**Want to read** / **Want**), as search results can. A held scan of a book already in the catalog is wanted on that copy.
+- The accessibility audit now presses the Add page's **More results**, and `npm run a11y -- --only=<word>` also picks out single htmx steps.
+
+### Upgrading
+- **Replace record covers stored from Discogs** with the one-off in [record-covers.md](../runbooks/record-covers.md), soon after deploying: `npm run record-covers:remote -- rehearse --backup backups/remote-<date>`, then `export`, `enrich`, `upload`, `npm run backup`, `apply`. It touches only covers the data proves came from Discogs: a record added from a Discogs result and never saved since. It replaces each with the Cover Art Archive's, or drops it. Covers typed in by hand, and covers it can't place, are kept and counted. No migration, and no new secret. Connections on older versions are unaffected. A cover they copied from an old key shows its placeholder once that object is deleted.

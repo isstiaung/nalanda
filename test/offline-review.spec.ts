@@ -6,6 +6,7 @@ import { env } from 'cloudflare:test';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createLibrary, deleteUser } from '../src/db/queries';
 import { scanQueueOwner } from '../src/lib/auth';
+import { CandidateCard } from '../src/views/components';
 import { activateFetchMock, assertNoPendingInterceptors, intercept, json } from './fetch-mock';
 import { as, member, rows } from './member-helpers';
 
@@ -57,8 +58,28 @@ describe('GET /add/review — one held barcode, looked up', () => {
     expect(html).toMatch(/<select name="libraryId" aria-label="Shelf"><option value="\d+">Fiction<\/option><\/select>/);
     expect(html).toContain('<button type="submit">Add to shelf</button>');
     expect(html).toContain('data-review-drop');
-    // no "Log — not owned" here: an entry is added or dropped
+    // no "Log — not owned" here: an entry is added, wanted or dropped
     expect(html).not.toContain('logOnly');
+  });
+
+  it('offers Want, the same button a search result has: name, value, label and title', async () => {
+    const ravi = await member('ravi', 'admin');
+    await createLibrary(env.DB, 'Fiction');
+    bookLookup();
+    const html = await (await as(ravi, `/add/review?barcode=${ISBN}`, { htmx: true })).text();
+    // the search result's own button, rendered for the same book, is in the entry's form word for word
+    const card = String(
+      CandidateCard({
+        candidate: { provider: 'openlibrary', mediaType: 'book', title: 'The Held Book', creators: null, publisher: null, published: null, description: null, length: null, isbn13: ISBN, isbn10Upc: null, coverUrl: null, details: {} },
+        libraries: [],
+      } as never),
+    );
+    const want = /<button type="submit" name="want" value="1"[^>]*>[^<]*<\/button>/.exec(card)?.[0];
+    expect(want).toContain('>Want to read</button>');
+    expect(want).toContain('title="Put it on your want list — added as Not owned, or the copy already in the catalog if there is one"');
+    const form = /<form[^>]*data-review-add[^>]*>[\s\S]*?<\/form>/.exec(html)?.[0];
+    expect(form).toContain(want);
+    expect(form).toContain('name="scanOwner"'); // the stamp rides with Want as with Add
   });
 
   it('says so when nothing matched, and offers another look or a drop — nothing to add', async () => {
@@ -161,6 +182,61 @@ describe('POST /items from the review list', () => {
     const res = await as(sam, '/items', { body: fields(shelf.id, priyasStamp), htmx: true });
     expect(res.status).toBe(409);
     expect(await rows('SELECT id FROM items')).toEqual([]);
+  });
+
+  const wantsOf = async (userId: number) =>
+    (await rows<{ item: number }>('SELECT item_id AS item FROM wants WHERE user_id = ? ORDER BY item_id', userId)).map((r) => r.item);
+
+  it('wants it for whoever the list was shown to — added as Not owned — and answers with the entry, not a redirect', async () => {
+    const ravi = await member('ravi', 'admin');
+    const shelf = await createLibrary(env.DB, 'Fiction');
+    const res = await as(ravi, '/items', { body: { ...fields(shelf.id, await scanQueueOwner(env.SESSION_SECRET, ravi)), want: '1' }, htmx: true });
+    expect(res.status).toBe(200);
+    const [item] = await rows<{ id: number; library_id: number; added_by: number; copies: number }>(
+      'SELECT id, library_id, added_by, copies FROM items WHERE isbn13 = ?',
+      ISBN,
+    );
+    expect(item).toMatchObject({ library_id: shelf.id, added_by: ravi.id, copies: 0 });
+    expect(await wantsOf(ravi.id)).toEqual([item?.id]);
+    // data-added: scan-review.js takes the entry out of the device's queue on this answer, as for Add
+    expect(await res.text()).toBe(
+      `<article class="notice review-entry" data-added="true">Put <a href="/items/${item?.id}">The Held Book</a> on your want list, added to Fiction as Not owned.</article>`,
+    );
+  });
+
+  it('wants the copy already in the catalog, with no second one, and answers with the entry too', async () => {
+    const ravi = await member('ravi', 'admin');
+    const priya = await member('priya');
+    const shelf = await createLibrary(env.DB, 'Fiction');
+    await as(ravi, '/items', { body: fields(shelf.id) }); // the catalog's copy, owned
+    const [held] = await rows<{ id: number }>('SELECT id FROM items');
+    const res = await as(priya, '/items', { body: { ...fields(shelf.id, await scanQueueOwner(env.SESSION_SECRET, priya)), want: '1' }, htmx: true });
+    expect(res.status).toBe(200); // not the item page's redirect, which the review list would read as signed out
+    expect(await res.text()).toBe(
+      `<article class="notice review-entry" data-added="true">Put <a href="/items/${held?.id}">The Held Book</a> on your want list — the copy already in the catalog.</article>`,
+    );
+    expect(await rows('SELECT id, copies FROM items')).toEqual([{ id: held?.id, copies: 1 }]);
+    expect(await wantsOf(priya.id)).toEqual([held?.id]);
+    expect(await wantsOf(ravi.id)).toEqual([]);
+  });
+
+  it('refuses a Want held for someone else, as it refuses Add: nothing added, nothing wanted', async () => {
+    const ravi = await member('ravi', 'admin');
+    const priya = await member('priya');
+    const shelf = await createLibrary(env.DB, 'Fiction');
+    const ravisStamp = await scanQueueOwner(env.SESSION_SECRET, ravi);
+    for (const stamp of [ravisStamp, '', 'forged-stamp-000000000']) {
+      const res = await as(priya, '/items', { body: { ...fields(shelf.id, stamp), want: '1' }, htmx: true });
+      expect(res.status, stamp).toBe(409);
+      expect(await res.text(), stamp).toContain('Nothing was added');
+    }
+    expect(await rows('SELECT id FROM items')).toEqual([]);
+    // and with the book already in the catalog, where Want would only add a want: refused before that too
+    await as(ravi, '/items', { body: fields(shelf.id) });
+    const res = await as(priya, '/items', { body: { ...fields(shelf.id, ravisStamp), want: '1' }, htmx: true });
+    expect(res.status).toBe(409);
+    expect(await rows('SELECT user_id FROM wants')).toEqual([]);
+    expect(await rows('SELECT id FROM items')).toHaveLength(1);
   });
 
   it('leaves the ordinary add as it was: no stamp, no htmx, a redirect to the new item', async () => {

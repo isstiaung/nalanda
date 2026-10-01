@@ -1165,9 +1165,9 @@ export const GoalMeter: FC<{ count: number; target: number; year: number; today:
         <div class="progress-track">
           <div class="progress-fill" style={`width:${goalPercent(count, target)}%`} />
         </div>
-        {tick !== null ? <span class="goal-pace" style={`left:${tick}%`} title="Where a year-long pace is today" /> : null}
+        {tick !== null ? <span class="goal-pace" style={`left:${tick}%`} title="Where you'd be reading evenly since 1 January" /> : null}
       </div>
-      {tick !== null ? <p class="goal-note">Pace runs from 1 January: the mark is where a year-long pace is today.</p> : null}
+      {tick !== null ? <p class="goal-note">The mark shows where you'd be reading evenly since 1 January.</p> : null}
     </div>
   );
 };
@@ -1544,6 +1544,22 @@ const InCatalogPill: FC<{ id: number | null | undefined }> = ({ id }) =>
     </a>
   ) : null;
 
+/**
+ * §16 #53: a scan's or search result's way onto your want list, as "Not owned" — or, when the catalog already has it,
+ * that item. On the search results and on the review list of scans held offline alike.
+ */
+const WantButton: FC<{ mediaType: MediaType }> = ({ mediaType }) => (
+  <button
+    type="submit"
+    name="want"
+    value="1"
+    class="btn"
+    title="Put it on your want list — added as Not owned, or the copy already in the catalog if there is one"
+  >
+    {wantLabel(mediaType)}
+  </button>
+);
+
 export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[]; inCatalog?: number | null; shelfFor?: ShelfForType }> = ({
   candidate,
   libraries,
@@ -1562,16 +1578,7 @@ export const CandidateCard: FC<{ candidate: Candidate; libraries: Library[]; inC
         <button type="submit" name="logOnly" value="1" class="btn" title="Catalog as read/reviewed without owning a copy — opens the edit form for your rating and review">
           Log — not owned
         </button>
-        {/* §16 #53: onto your want list, as "Not owned" — or, when the catalog already has this ISBN, that item */}
-        <button
-          type="submit"
-          name="want"
-          value="1"
-          class="btn"
-          title="Put it on your want list — added as Not owned, or the copy already in the catalog if there is one"
-        >
-          {wantLabel(candidate.mediaType)}
-        </button>
+        <WantButton mediaType={candidate.mediaType} />
       </form>
     </div>
   </article>
@@ -1632,6 +1639,7 @@ export const ReviewEntry: FC<{
                 <input type="hidden" name="scanOwner" value={scanOwner} />
                 <ShelfSelect libraries={libraries} selected={startingShelf(candidate.mediaType, shelfFor)} />
                 <button type="submit">Add to shelf</button>
+                <WantButton mediaType={candidate.mediaType} />
                 {drop}
               </form>
             ) : (
@@ -1662,10 +1670,22 @@ export const ReviewEntry: FC<{
   );
 };
 
-/** What POST /items answers the review list with: the entry, now added. */
-export const ReviewAdded: FC<{ id: number; title: string; shelf: string }> = ({ id, title, shelf }) => (
+/**
+ * What POST /items answers the review list with: the entry, now added — or, for Want, on the adder's want list: a new
+ * item added as Not owned, or the one the catalog already had (§16 #53).
+ */
+export const ReviewAdded: FC<{ id: number; title: string; shelf: string; want?: 'new' | 'existing' }> = ({ id, title, shelf, want }) => (
   <article class="notice review-entry" data-added>
-    Added <a href={`/items/${id}`}>{title}</a> to {shelf}.
+    {want ? (
+      <>
+        Put <a href={`/items/${id}`}>{title}</a> on your want list
+        {want === 'new' ? `, added to ${shelf} as Not owned.` : ' — the copy already in the catalog.'}
+      </>
+    ) : (
+      <>
+        Added <a href={`/items/${id}`}>{title}</a> to {shelf}.
+      </>
+    )}
   </article>
 );
 

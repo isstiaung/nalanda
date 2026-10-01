@@ -8,219 +8,133 @@ import/export. Multi-user (admin + family members). **$0/month hosting is a hard
 requirement.**
 
 [ARCH.md](ARCH.md) is the source of truth for architecture decisions — read it before
-structural changes, update it (incl. §16 decision log) when a decision changes.
+structural changes, update it (incl. §16 decision log) when a decision changes. This file is the
+short operating manual. The long forms: [docs/privacy.md](docs/privacy.md) (every privacy rule by
+surface), [docs/conventions.md](docs/conventions.md), [docs/layout.md](docs/layout.md).
 
-Open source under [MIT](LICENSE). Outside contributions come through
-[CONTRIBUTING.md](CONTRIBUTING.md); vulnerability reports through
-[SECURITY.md](SECURITY.md); dependency licensing is tracked in
-[THIRD-PARTY.md](THIRD-PARTY.md). Deployment (resources, secrets, git integration,
-rollback) is in [runbooks/deploy.md](runbooks/deploy.md) — never assume a deployment's
-shape from this file.
+MIT. Contributions: [CONTRIBUTING.md](CONTRIBUTING.md); vulnerabilities: [SECURITY.md](SECURITY.md);
+dependency licences: [THIRD-PARTY.md](THIRD-PARTY.md). Deployment (resources, secrets, git
+integration, rollback) is in [runbooks/deploy.md](runbooks/deploy.md) — never assume a
+deployment's shape from this file.
 
 ## Stack (settled — don't re-litigate without updating ARCH.md)
 - TypeScript on Cloudflare Workers. Hono + `hono/jsx` SSR, htmx partials. No SPA, no React,
-  no client-side bundler (rationale: ARCH.md §17).
-- D1 (SQLite) + **Drizzle ORM**: schema lives in `src/db/schema.ts`; `drizzle-kit generate`
-  emits plain SQL into `migrations/`; **wrangler** applies them (one migration runner).
-  FTS5 table + sync triggers are a hand-written custom migration
-  (`drizzle-kit generate --custom`) — Drizzle's DSL can't express them.
-- R2 for cover art. Metadata providers behind `src/metadata/provider.ts`:
-  Open Library + Google Books (books, both keyless-capable), BoardGameGeek XML API2 (board
-  games — no barcode lookup, name search only, needs `BGG_TOKEN` — BGG went registration-only in 2025), Discogs (vinyl, **has** barcode search,
-  needs `DISCOGS_TOKEN`). A record's stored cover comes only from the Cover Art Archive via MusicBrainz
-  (`recordCover()`, keyless, one request a second) — **never a Discogs image**, which its terms make Restricted
-  Data (ARCH.md §16 #67); `fetchCover()` in `src/lib/covers.ts` refuses discogs.com hosts on every path.
-- Styling is the hand-written design system in `public/app.css` — no CSS framework. The
-  visual identity is "the manuscript ledger" (ARCH.md §16 #16), grounded in Nalanda's
-  Pala-era scriptorium: palm-leaf buff paper, lampblack ink, indigo working accent,
-  vermilion rubrication reserved for circulation/danger, turmeric gold for ratings,
-  monospace for all data (counts, ISBNs, dates, pills, accession numbers via `accNo()`),
-  Eczar (vendored woff2, Devanagari-first face) for page titles and brand only, light +
-  dark (lamp-lit) via `prefers-color-scheme`. The brand hangs from its vermilion
-  headstroke (śirorekhā) — that rule lives in `.brand-rule` only. Extend with the
-  existing tokens/components (`.pill`, `.data-table`, `.props`, `.eyebrow`) — don't add
-  frameworks.
-- htmx and ZXing-WASM are pinned as devDependencies and copied to `public/vendor/` by
-  `scripts/vendor.mjs` (runs on postinstall) — never hotlinked from a CDN, never imported
-  into the Worker bundle.
-- Tests: Vitest + `@cloudflare/vitest-pool-workers` (runs in real workerd). Since v0.20
-  there is no automatic per-test isolated storage: `test/apply-migrations.ts` calls
-  `reset()` and re-applies migrations before every test, and outbound `fetch` is stubbed
-  by `test/fetch-mock.ts` rather than the removed `fetchMock` (ARCH.md §16 #25). Config is
-  a plain Vitest config plus the `cloudflareTest()` plugin — `defineWorkersConfig` is gone.
+  no client-side bundler (ARCH.md §17).
+- D1 (SQLite) + **Drizzle ORM**: schema in `src/db/schema.ts`; `drizzle-kit generate` emits SQL
+  into `migrations/`; **wrangler** applies them (one runner). FTS5 + its sync triggers are a
+  hand-written `drizzle-kit generate --custom` migration — Drizzle's DSL can't express them.
+- R2 for cover art. Metadata providers behind `src/metadata/provider.ts`: Open Library + Google
+  Books (books, keyless-capable), BoardGameGeek XML API2 (games: name search only, no barcode
+  lookup, needs `BGG_TOKEN` — registration-only since 2025), Discogs (vinyl, **has** barcode
+  search, needs `DISCOGS_TOKEN`). A record's stored cover comes only from the Cover Art Archive via
+  MusicBrainz (`recordCover()`, keyless, one request a second) — **never a Discogs image**
+  (Restricted Data); `fetchCover()` refuses discogs.com hosts on every path (ARCH.md §16 #67).
+- Styling: the hand-written design system in `public/app.css`, "the manuscript ledger" (ARCH.md
+  §16 #16) — no CSS framework. Indigo working accent; vermilion only for circulation/danger;
+  turmeric gold for ratings; monospace for all data (counts, ISBNs, dates, pills, `accNo()`);
+  Eczar for page titles and brand only; light + lamp-lit dark via `prefers-color-scheme`; the
+  vermilion headstroke rule lives in `.brand-rule` only. Extend the existing tokens/components
+  (`.pill`, `.data-table`, `.props`, `.eyebrow`) — don't add frameworks (docs/conventions.md).
+- htmx and ZXing-WASM are pinned devDependencies copied to `public/vendor/` by
+  `scripts/vendor.mjs` (postinstall) — never hotlinked from a CDN, never imported into the
+  Worker bundle.
+- Tests: Vitest + `@cloudflare/vitest-pool-workers` (real workerd), plain Vitest config plus the
+  `cloudflareTest()` plugin. `test/apply-migrations.ts` resets and re-migrates D1 before every
+  test; `test/fetch-mock.ts` stubs outbound fetch (ARCH.md §16 #25; docs/conventions.md).
 - Runtime npm deps: `hono`, `drizzle-orm`, `fast-xml-parser` (BGG is XML; Workers has no
-  DOMParser). Adding a dependency beyond these needs a strong reason.
+  DOMParser). Adding another needs a strong reason.
 
 ## Hard constraints (Cloudflare free tier)
 - Free plans only: Workers, D1, R2. Never introduce paid CF features (Images, Queues, paid
   Durable Objects) or any AWS service.
-- **10 ms CPU per request**: no server-side image processing; no server-side bulk parsing —
-  CSV imports are parsed in the browser and posted as JSON batches; the Export button fetches
-  `/export.csv` 250 items a request (`?after=<id>`) and joins the pages in the browser — the
-  whole catalog in one request measured past 10 ms (ARCH.md §16 #38). A page also ends at
-  1,000 loans, and an import batch closes at 1,000 (§16 #57).
-- **D1 calls per Worker invocation — design to 50, the real cap is 1,000** (ARCH.md §16 #37).
-  D1's limits page says 50 on the free plan, but measured on this account the runtime allowed
-  exactly 1,000 D1 calls per invocation, and a `batch()` counted as **one** call however many
-  statements it held. Work handed to `waitUntil` belongs to the page's invocation. Keep 50 as
-  the budget — conservative, and possibly what binds elsewhere — but a batch is one call.
-  Connections' background work (feed and outbox pulls, push retries) runs through the
-  budgeted handle in `src/federation/budget.ts`; tests count queries per page load with it.
-- Password hashing is WebCrypto PBKDF2 only (100k iterations — also workerd's cap). Never
-  add bcrypt/argon2 packages (pure-JS, blows the CPU budget).
-- Workers runtime is not Node: no `fs`/`net`/native modules — fetch, WebCrypto, and Web
-  Streams only. No `nodejs_compat` flag.
-- Data portability: every user-visible field must round-trip through `/export.csv`. A new
-  column isn't done until export (and import mapping) covers it. Reading goals are the exception:
-  they're about people, not items; backups carry them (ARCH.md §16 #49).
+- **10 ms CPU per request**: no server-side image processing; no server-side bulk parsing — CSV
+  imports are parsed in the browser and posted as JSON batches; the Export button fetches
+  `/export.csv` 250 items a request (`?after=<id>`) and joins them in the browser (ARCH.md §16
+  #38). A page also ends at 1,000 loans, and an import batch closes at 1,000 (§16 #57).
+- **D1 calls per invocation: design to 50; the measured cap is 1,000** (ARCH.md §16 #37), and a
+  `batch()` counts as **one** call. `waitUntil` work belongs to the page's invocation.
+  Connections' background work runs through the budgeted handle in `src/federation/budget.ts`;
+  tests count queries per page load with it (docs/conventions.md).
+- Password hashing is WebCrypto PBKDF2 only (100k iterations — also workerd's cap). Never add
+  bcrypt/argon2 packages (pure-JS, blows the CPU budget).
+- Workers is not Node: no `fs`/`net`/native modules, no `nodejs_compat` flag — fetch, WebCrypto
+  and Web Streams only.
+- Data portability: every user-visible field must round-trip through `/export.csv`; a new column
+  isn't done until export and import mapping cover it. Reading goals are the exception: about
+  people, not items; backups carry them (ARCH.md §16 #49).
 
-## Privacy invariants (share links)
-- `/share/:token` pages render a **field whitelist** via `toPublicItem()` in
-  `src/lib/share.ts` — never add fields there without checking ARCH.md §9.
-- **Never** render on share pages: private `notes`, where an item lives (`location`, ARCH.md §16 #51 —
-  never published, and never a key of `toPublicItem()` or `toConnectionItem()`), loans/borrowers, the `copies` count,
-  a record's condition (`media_condition`, `sleeve_condition`, §16 #55), `added_by`, usernames, reads or their
-  dates, whose reads, or links into the authenticated
-  app — and nothing per member unless names are switched on (next bullet). (The derived boolean
-  `inCollection` — `copies > 0` — *is* whitelisted; it powers the "Not owned" badge. So is
-  `readCount`, the household's finishes, only from two on — "Read N times", ARCH.md §16 #41 —
-  and, on a shared game's or record's page, `playCount`, the household's plays, never a play's
-  date or who logged it, §16 #54. And a shared item's page shows its series name and number —
-  public catalogue data, like the publisher — only through `toPublicItem(item, { series })`,
-  ARCH.md §16 #52: never the numbers missing from a series or anyone's "next up", and not on
-  listings or to connections.)
-  `rating` and `review` there are the household summary: the average of everyone's ratings
-  and the review written last, with no author (§16 #43). Reading progress appears only when an
-  admin turns on `site_settings.progress_on_shares` (off by default), and then only for a book
-  being read now — in progress, or finished and being read again (`rereading`) — as the
-  latest page anyone reading it recorded; `toPublicItem(item, { progress })` omits the key
-  otherwise. Share pages get `noindex`.
-- **Names outside the app** (ARCH.md §16 #45) are a member's optional **display name**, never a
-  username, and only while an admin has switched them on — two `site_settings` switches. A new
-  instance starts with both on (§16 #49: the code's `SITE_DEFAULTS`, used only while there's no
-  row); migration 0036 pinned every instance that already had members to what it had, so an upgrade
-  never flips one. Tests about names off say so (`upgradedSwitches()` in test/member-helpers.ts).
-  `names_on_shares`: a shared book's page adds `reviews` (each member's rating and review, signed
-  with their display name or "A member"), still with no reads, no read dates and no "who read it".
-  `names_to_connections`: the feed serves one entry per person with `by` (a display name),
-  including kind `started`, and an item page adds `reviews`. Resolve names when serving,
-  never when recording — `member_activity` rows point at a read, review, page or goal, never a person.
-  **With both off, every served byte stays as before**: no `reviews` or `by` key at all, the
-  household's `activity_log` stream and ids untouched; tests compare with and without display
-  names. Named feed entries go out with ids past `MEMBER_ACTIVITY_BASE`; one stream is valid at a
-  time, so named ids fail the removal check once names are off and household ids while they're on.
-  A per-person start or finish is recorded only as it happens, dated then — never by a read's dates,
-  never backfilled. A rename or removal re-keys that member's entries in its batch
-  (`rekeyMemberActivity()`), and a move of a read or review re-keys that one's (`rekeyMoved()`),
-  so peers' held copies are withdrawn. Comments, borrow requests and recommendations are
-  signed with `outwardName()` — the display name while names go to connections, else "A member",
-  never the username. Names other instances send are strings from another instance (below).
-- **Reading goals** (ARCH.md §16 #49) never reach a share page. To connections they are per-person
-  entries — `goal_set`, `goal_halfway`, `goal_reached`, each `{ by, year, target, count }` and **no
-  `item`** — served only while `names_to_connections` *and* `goals_to_connections` are on (the second
-  greyed out on Connections while the first is off), and only for a member with a display name: never
-  "A member". Their `member_activity` rows point at the goal (`goal_id`), never a person; a milestone
-  also keeps the finish that crossed the line (`read_id`, `item_id`), so it goes only to views holding
-  that book and goes when that read does, and a set goes to views that can hold books. Recorded only
-  as they happen — the goal's own write in `setGoal()`'s batch, or migration 0036's triggers on a
-  finish today or yesterday outside an import — never backfilled, and never dated by a read. A changed
-  target re-keys the set and withdraws the old milestones; a deleted goal takes its entries; rename,
-  removal and the switch re-key them (`rekeyMemberActivity()`, `setGoalsToConnections()`). What counts
-  is `goalCountSql()` — a member's finished reads of books ending in the year — and the triggers
-  carry it word for word. The goal kinds are the only item-less ones: `parseFeedEntry()` still needs an
-  item on every other kind, and 1.3.0's parser (test/fixtures/items-v1.3.0.ts) skips goal entries.
-- **Gift lists** (ARCH.md §16 #53) are the one share kind that isn't a shelf: `shares.want_user_id`
-  captures one member's **want list as it stands** and nothing else (no shelf, no filters).
-  `shareFilters()` carries it as `wantedBy` and `itemMatchesShare(share, item, tags, wanters)`
-  checks the item's wanters — the twins must keep agreeing (a test holds every share kind to it).
-  They never count towards a shelf's visibility (`shareVisibility()`, `isWholeShelfShare()`).
-  Their pages render `toGiftItem()` — title, creators, cover, type, publisher, published, length,
-  description, `inCollection` and **purchase links** — built on `toPublicItem()`: no rating,
-  review, reviews, read count, progress, tags or details. The title is "A want list", or the
-  member's **display name** only while `names_on_shares` is on — never a username.
-  Removing a member deletes their wants and their gift lists in `deleteUser()`'s batch.
-- **"Wanted"** is a derived boolean — someone's want list holds the item and `copies = 0` — and the
-  one public key want lists added: `toPublicItem(item, { wanted })` adds `wanted: true` only when
-  asked and only while not owned, and `toConnectionItem(item, { wanted })` passes it to connections
-  (shelf cards, item pages, feed entries) the same way — absent otherwise, so every other item's
-  bytes are unchanged, and older peers drop the unknown key. Never whose want, never a count. It
-  shows wherever "Not owned" does; a peer's `wanted` renders as our own fixed text. A Not owned
-  item's share page never claims it was read (share pages have no status to say so).
-- **Purchase links** are pasted, never generated, the item's (any member adds or removes one),
-  and **public only on gift lists** — never on a shelf's share page or to connections
-  (`toConnectionItem()` has no field for them). `checkPurchaseLink()` (`src/lib/links.ts`) takes
-  only an absolute http(s) URL without credentials, on every way in (form, import) and again on
-  the way out of a gift list; they render with `target="_blank" rel="noopener noreferrer"`,
-  so a share token never reaches a shop. Want lists and links round-trip through `/export.csv`
-  (`wanted_by`, `purchase_links`), with names as the reads and reviews cells carry them.
-- The shelf's **"Read by" filter** (`ReaderFilter` in `src/db/queries.ts`) is never publishable:
-  it is deliberately not part of `ItemFilters`, so `shareFilters()`, `itemMatchesShare()` and
-  connection views have no room for it, and the publish form carries no field for it. Keep it
-  that way — a published "read by ravi" would tell the world who read what.
-- A shelf's search box (`ItemFilters.q`) matches `location`, so share links and connection views
-  must never capture `q` (`shareFilters()`, `shelfPage()` don't) — a view filtered by "loft" would
-  publish where things are kept.
-- Share tokens are random 128-bit, **one per published view** (`shares` table — filters, or a
-  tag, captured at publish time; `itemMatchesShare()` guards the public item route, and its
-  query-side twin `shareFilters()` must stay in step with it; a captured In progress holds a
-  re-read too, through `matchesStatus()`/`statusWhere()`, ARCH.md §16 #64).
-  Publish/rotate/remove is admin-only; `/shares` (`src/routes/shares.tsx`) is the
-  admin-only inventory of everything published. A shelf is only "Shared" when a
-  filterless link exposes it entire — `shareVisibility()`, ARCH.md §16 #23. Share pages are memory-cached per isolate for
-  1 h (burst shield); every successful mutation clears the handling isolate's cache,
-  but rotation can lag up to 1 h on untouched isolates (ARCH.md §16 #19).
-- A record's **condition** (ARCH.md §16 #55) — its media and sleeve grades — describes this
-  household's copy, like `copies`: it is never published, not on share pages and not to
-  connections. It lives in its own columns precisely because `details` is public; never move a
-  grade into `details`, and an import drops an off-scale grade rather than keeping it there. Its
-  **pressing** (label, catno, country, year, format, tracklist) is public catalogue data in
-  `details`; connections get its plain values, not the tracklist. Discogs' API terms want
-  "Data provided by Discogs." beside it, linked to the release, plus their not-affiliated notice
-  (ARCH.md §16 #63): `discogsLink()` in `src/views/attribution.tsx` decides — a record with a
-  `discogs_id` and something Discogs filled, never one typed in by hand — and builds the href from
-  a numeric release id only (else discogs.com). Never `nofollow` on it.
-  `details`; connections get its plain values, not the tracklist.
-- **Money is never published** (ARCH.md §16 #61). What was paid (`purchase_price`, integer minor
-  units, with `purchase_currency`) is in no whitelist: never on share pages, never to connections,
-  never a key of `toPublicItem()` or `toConnectionItem()`. `toPublicItem()` also strips money keys
-  (`MONEY_DETAIL_KEYS` in `src/lib/money.ts` — libib's `price`) from the `details` it publishes; never
-  move a price into `details`. Money is never a float: parse with `parseMoney()`, sum in SQL as
-  `CAST(sum(…) AS TEXT)`, format with `formatMoney()`, and never add two currencies together.
-- `/covers/:key` is intentionally public — keys are random UUIDs; never make them
-  enumerable or derived from item data.
-- **The service worker never stores a page or an API answer** (ARCH.md §16 #48): only the
-  files in `STATIC` in `public/sw.js`, and it leaves `/share/*` entirely alone. Offline scans
-  hold a barcode and a time, nothing else, and belong to the account signed in on the device:
-  a different account's pages empty the queue, logout empties it, and POST /items refuses a
-  held scan's add (`scanOwner`) for anyone else. Bump `VERSION` in sw.js when `STATIC` or its
-  behaviour changes.
-- Connections see only `toConnectionItem()` fields (`src/federation/items.ts`, built on
-  `toPublicItem()`), and only for items inside a connection view. Availability is a derived
-  boolean — never a borrower, due date or copies count, nor where the item is kept (`location`); reading history is a count
-  (`readCount`, the household's), never the reads, their dates or their readers; the rating
-  and review are the household summary, never a member's name — unless `names_to_connections` is
-  on, and then only display names (see above). A view's status filters as the shelf does — In
-  progress holds a re-read (§16 #64) — and a view filtered to In progress serves only reading still
-  going on (`readingInView()`): no finish or goal milestone, and a reader's start and pages only while
-  their read is open, though someone else still reading keeps the book in. Triggers on `items` record
-  activity only while a connection view exists (migration 0007), dated by when it happened —
-  an import's batch brackets itself with `import_in_progress` so old reads aren't news
-  (migration 0021, ARCH.md §16 #40).
-- **Recommendations** (ARCH.md §16 #58) send `toRecommendedItem()` — built on `toConnectionItem()`: id, stamp,
-  a view id, media type, title, creators, published, cover key, and `ids` (only `bgg_id`/`discogs_id` from
-  details, whole numbers) — plus the note and an `outwardName()`; never a username, the ISBN or barcode
-  columns, or anything toConnectionItem() lacks. Only for an item inside a connection view
-  (`recommendableItem()`, checked at send time), and only to a household whose descriptor lists `Recommend`
-  in `accepts`: 1.5.0 and older refuse a type they don't know (test/fixtures/*-v1.4.0.ts). A new directed
-  type follows the same rule — advertise it in `ACCEPTS`, check `peerAccepts()` before queuing. What the
-  receiver does with one (want, dismiss) is never sent back — though a wanted item on a shared shelf shows
-  there as any item does. Wanting one copies its cover from their `/covers/`: `storeCover()` keeps raster
-  types only and follows no redirect for a peer's URL, and `serveCover()` sends a sandboxing CSP, so no
-  cover can run script on this origin.
-- Strings from another instance — household names, view names, feed entries, members' names (`by`, `reviews`), comments,
-  recommendations (title, creators, the name it's signed with, the note) —
-  render only as escaped text. A comment thread is only ever shown to the two households in it. Never put them inside an inline handler such as `onsubmit="confirm('…')"`:
-  the browser decodes HTML escapes back into quotes before it runs the script.
+## Privacy invariants
+Each is a hard rule. [docs/privacy.md](docs/privacy.md) has every one in full, by surface, with
+the code that enforces it and why — read its section before changing anything a surface shows.
+- **Share pages** (`/share/:token`, `noindex`) render only the `toPublicItem()` whitelist
+  (`src/lib/share.ts`); never add a field there without checking ARCH.md §9.
+- Never on share pages: private `notes`, `location` (never published, never a key of
+  `toPublicItem()` or `toConnectionItem()`), loans/borrowers, the `copies` count, a record's
+  condition, money, `added_by`, usernames, reads or their dates, whose reads, links into the
+  authenticated app, or anything per member unless names are switched on.
+- Share pages may show only these derived values: `inCollection` ("Not owned"); `readCount` from
+  two on; a game's or record's `playCount` (never a play's date or who logged it); series name and
+  number on the item page (never the gaps or anyone's "next up", not on listings or to
+  connections); the household rating (average) and latest review, no author; progress only with
+  `progress_on_shares` on and only for a book being read now. A Not owned item never claims a read.
+- Never capture the **"Read by" filter** (`ReaderFilter`, kept out of `ItemFilters`) or the search
+  box `q` (it matches `location`) in a share link or connection view.
+- Share tokens: random 128-bit, one per published view. `itemMatchesShare()` and `shareFilters()`
+  must stay in step (status via `matchesStatus()`/`statusWhere()`). Publish/rotate/remove and
+  `/shares` are admin-only. A shelf is "Shared" only when a filterless link exposes it entire.
+  Share pages cache 1 h per isolate; rotation can lag that long.
+- **Names outside the app** are only a member's **display name**, never a username, and only while
+  an admin's switch is on (`names_on_shares`, `names_to_connections`); an upgrade never flips a
+  switch. With both off, every served byte stays as before (no `reviews` or `by` key).
+- Resolve names when serving, never when recording: `member_activity` points at a read, review,
+  page or goal, never a person. Per-person entries are recorded only as they happen — never
+  backfilled, never dated by a read's dates. Renames, removals and moves re-key them.
+- Comments, borrow requests and recommendations are signed with `outwardName()` — the display
+  name or "A member", never the username.
+- **Reading goals** never reach a share page. To connections only while `names_to_connections` and
+  `goals_to_connections` are both on, only for a member with a display name (never "A member"),
+  never with an `item` (the only item-less kinds); never backfilled or dated by a read. What counts
+  is `goalCountSql()`.
+- **Gift lists** render only `toGiftItem()` (no rating, reviews, read count, progress, tags or
+  details); titled "A want list", or the display name only while `names_on_shares` is on — never a
+  username. They never count towards a shelf's visibility; `shareFilters()` and
+  `itemMatchesShare()` must agree on `wantedBy`. Removing a member deletes their wants and gift
+  lists in `deleteUser()`'s batch.
+- **"Wanted"** is a boolean, added only when asked and only while not owned — never whose want,
+  never a count.
+- **Purchase links** are pasted, never generated, and public only on gift lists — never on a
+  shelf's share page or to connections. `checkPurchaseLink()` takes only absolute http(s) URLs
+  without credentials, on the way in and out; render `target="_blank" rel="noopener noreferrer"`
+  so a share token never reaches a shop.
+- A record's **condition** is never published (share pages or connections); never move a grade
+  into `details`, and an import drops an off-scale grade. The pressing in `details` is public;
+  connections get its plain values, not the tracklist.
+- **Money is never published**: `purchase_price`/`purchase_currency` are never keys of
+  `toPublicItem()`/`toConnectionItem()`, and never move a price into `details` (`toPublicItem()`
+  strips `MONEY_DETAIL_KEYS`). Money is never a float (`parseMoney()`, `CAST(sum(…) AS TEXT)`,
+  `formatMoney()`); never add two currencies together.
+- **Connections** see only `toConnectionItem()` fields, only for items inside a connection view:
+  availability a boolean (never borrower, due date, copies or `location`); reading history a count
+  (never the reads, their dates or readers); rating and review the household summary, names only as
+  above. A view filtered to In progress serves only reading still going on (`readingInView()`).
+  Activity triggers record only while a connection view exists, dated when it happened; imports
+  bracket themselves with `import_in_progress`.
+- **Recommendations** send only `toRecommendedItem()` — never a username, the ISBN or barcode
+  columns, or anything `toConnectionItem()` lacks; only for an item inside a connection view, only
+  to a household whose `accepts` lists `Recommend` (a new directed type: advertise it in `ACCEPTS`,
+  check `peerAccepts()`). The receiver's want/dismiss is never sent back. A peer's cover: raster
+  types only, no redirects, served with a sandboxing CSP.
+- Strings from another instance render only as escaped text — never inside an inline handler such
+  as `onsubmit="confirm('…')"`. A comment thread is shown only to its two households.
+- `/covers/:key` is public by design: keys are random UUIDs — never enumerable or derived from item
+  data.
+- Discogs' credit ("Data provided by Discogs." + their notice): `discogsLink()` decides — never on a
+  record typed in by hand — and builds the href from a numeric release id only. Never `nofollow`.
+- **The service worker never stores a page or an API answer** — only `STATIC` in `public/sw.js` —
+  and leaves `/share/*` alone. Offline scans hold a barcode and a time only and belong to the
+  signed-in account (another account's pages or logout empty the queue; POST /items refuses
+  anyone else's held scan via `scanOwner`). Bump `VERSION` in sw.js when `STATIC` or its behaviour
+  changes.
 
 ## Commands
 ```
@@ -229,178 +143,84 @@ npm run dev:demo           # same, on :8788 with its own --persist-to state (scr
 npm run seed:demo          # fills that demo instance over HTTP; refuses a non-empty one
 npm test                   # vitest, runs inside workerd
 npm run typecheck          # tsc --noEmit
-npm run lint               # eslint-plugin-jsx-a11y (strict) over src/**/*.tsx, + no-restricted-syntax for
-                           # hono's `autofocus` and hx-* off forms/buttons/links — no other rules
-npm run a11y               # axe-core (WCAG 2.2 A/AA) on every page in Chromium, light + dark,
-                           # 1280 + 390 wide, htmx swaps and a keyboard walk; its own wrangler
-                           # dev on 127.0.0.1:8817 with temp --persist-to state (never 8787 or
-                           # your dev DB), and one on :8819 for the Refresh buttons (placeholder
-                           # provider tokens, refreshes answered by the browser, never Discogs or
-                           # BGG); `npx playwright install chromium` once (ARCH.md §18)
+npm run lint               # eslint-plugin-jsx-a11y (strict) over src/**/*.tsx + no-restricted-syntax
+                           # (hono's `autofocus`, hx-* off forms/buttons/links) — no other rules
+npm run a11y               # axe-core WCAG 2.2 A/AA, every page, both themes, 1280 + 390, htmx swaps,
+                           # keyboard; own servers on 127.0.0.1:8817/:8819 with temp state —
+                           # never 8787 or your dev DB, never Discogs or BGG (ARCH.md §18);
+                           # `npx playwright install chromium` once
 npm run db:generate        # drizzle-kit generate — schema.ts → migrations/*.sql
 npm run db:migrate         # wrangler d1 migrations apply nalanda --local
 npm run db:migrate:remote  # same, against production (via wrangler:remote)
-npm run wrangler:remote -- <args>  # any wrangler command against production D1: resolves
-                           # the real database id (D1_DATABASE_ID, else by name via
-                           # `wrangler d1 list`) into a gitignored temp config
-npm run deploy             # needs D1_DATABASE_ID in the env (never in the repo — the
-                           # database_id in wrangler.jsonc is an all-zero placeholder);
-                           # resolves it into a gitignored config, migrates, deploys
-npm run backup             # per-table data-only export → backups/remote-<date>/
-                           # (D1 cannot dump databases with FTS5 virtual tables;
-                           #  schema comes from migrations/ — see backup runbook);
-                           # reaches production the same way as wrangler:remote
+npm run wrangler:remote -- <args>  # any wrangler command against production D1 (real id → temp config)
+npm run deploy             # needs D1_DATABASE_ID in the env, never in the repo; migrates, deploys
+npm run backup             # per-table data-only export → backups/remote-<date>/ (D1 can't dump
+                           # FTS5; schema comes from migrations/ — backup runbook)
 npm run backup:local       # same, for the local dev database
-npm run backfill:remote -- <step>  # covers + descriptions for production, run from this machine
-                           # with the app's own src/metadata (Node's native TS): rehearse |
-                           # export | enrich | upload | apply | status — rehearse first;
-                           # apply wants a backup < 12 h old (runbooks/metadata-backfill.md)
-npm run record-covers:remote -- <step>  # one-off: replace record covers stored from Discogs with the
-                           # Cover Art Archive's, or drop them — rehearse | export | enrich | upload | apply |
-                           # status; rehearse --backup on a local copy first; apply wants a backup < 12 h old
-                           # (runbooks/record-covers.md, ARCH.md §16 #67)
+npm run backfill:remote -- <step>  # production covers + descriptions: rehearse | export | enrich |
+                           # upload | apply | status; apply wants a backup < 12 h old (runbook)
+npm run record-covers:remote -- <step>  # one-off: record covers stored from Discogs → the Cover Art
+                           # Archive's, or dropped; same steps (runbooks/record-covers.md, §16 #67)
 npm run vendor             # re-copy vendored assets after bumping htmx/zxing/font versions
-npm run federation:keygen  # Ed25519 identity for connections → FEDERATION_PRIVATE_KEY
-                           # (printed once, never written to disk)
+npm run federation:keygen  # Ed25519 identity → FEDERATION_PRIVATE_KEY, printed once, never on disk
 ```
 
 ## Layout
-```
-src/index.ts       Hono app entry; route order matters: public (share, covers, auth) first,
-                   then requireAuth, then protected routes. Origin-check CSRF on mutations.
-src/routes/        pages + htmx partials + /api/lookup, /api/import + share.tsx (public
-                   share pages) and shares.tsx (admin share management — don't confuse)
-src/views/         hono/jsx layout + components (page() helper wraps Layout + doctype)
-src/db/            schema.ts (Drizzle) + queries.ts — the ONLY code touching D1
-src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googlebooks, bgg,
-                   discogs, itunes, musicbrainz — nothing else calls external APIs
-src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist), csv.ts
-                   (export + libib mapping, whose reads an import brings), covers.ts (only R2
-                   code), reads.ts (each read: how reads decide status, the legacy mapping, the
-                   export cell, Goodreads), reviews.ts (each member's review: the household
-                   summary, the export's reviews cell), loans.ts (the export's loans cell),
-                   names.ts (display names, and names peers send), plays.ts (the household's play
-                   log for games and records: which types take plays, the export's plays cell —
-                   ARCH.md §16 #54), series.ts (series names and numbers, the gaps, each member's next up;
-                   its queries are in db/queries.ts, its pages in routes/series.tsx, ARCH.md §16 #52),
-                   condition.ts (a record's grades and their fixed scale), pressing.ts (what an add
-                   and "Refresh from Discogs" may write into a record's details, and reading it back),
-                   goals.ts (a reading goal's pace and limits; what counts is goalCountSql in queries.ts),
-                   links.ts (purchase links: the http(s) check, the export's want and link cells — §16 #53),
-                   dates.ts (how every page writes a date: 2026-09-28, and 2026-09-28 18:28 with a time —
-                   display only; public/scan-review.js writes a scan's time the same way),
-                   yearreview.ts (the Year in review page's shapes and arithmetic; its one batch is
-                   yearInReview() in queries.ts, its page routes/yearreview.tsx — ARCH.md §16 #59)
-                   games.ts (a board game's weight bands, the play-tonight filters, and what "Refresh
-                   from BGG" may fill; the filtering SQL is gamesForTonight in queries.ts, the page
-                   routes/play.tsx, ARCH.md §16 #60),
-                   money.ts (purchase prices: minor units, parsing, exact formatting, currency codes —
-                   ARCH.md §16 #61), record-covers.ts (the one-off of §16 #67: which stored record covers
-                   came from Discogs, and the batched SQL that swaps or drops them)
-src/federation/    connections between instances (docs/proposals/connections.md): keys,
-                   RFC 9421 signing profile, peer HTTP, messages, item whitelist (items.ts),
-                   feed pulls (feed.ts), receiving comments, borrowing and recommendations
-                   (comments.ts, borrowing.ts, recommendations.ts, dispatched by directed.ts),
-                   the outbox (outbox.ts), public routes. Its D1 queries live in
-                   src/db/federation.ts; admin pages in routes/connections, Feed in routes/feed,
-                   comments in routes/comments, recommendations in routes/recommendations,
-                   shelves/requests/Borrowed and the Loans-page section in routes/borrowing,
-                   in-app notifications in routes/notifications (recorded in src/db/federation.ts)
-public/            app.css, scanner.js, import.js, app.js, covers.js (swaps a cover that fails to
-                   load for its media-icon box; app and share pages) + vendor/ (htmx, zxing, eczar fonts)
-                   + the installed app (ARCH.md §16 #48): manifest.webmanifest, icons/, sw.js (keeps
-                   only static files — never a page or API answer, never touches /share), offline.html
-                   (static scan-only page), scan-queue.js (the device's IndexedDB queue of offline
-                   scans: barcode + time only) and scan-review.js (the Add page's review list)
-                   + bgg/ (BGG's "Powered by BGG" logos, committed unmodified — its API terms
-                   require them beside its data; src/views/attribution.tsx, ARCH.md §16 #44 —
-                   Discogs' credit, text only, lives there too, §16 #63)
-migrations/        append-only: drizzle-generated + custom SQL (FTS5/triggers)
-test/              auth, csv/libib mapping, barcode routing, share whitelist, FTS smoke;
-                   apply-migrations.ts resets + re-migrates D1 before EVERY test and fails
-                   any test that logs an error it didn't capture and check (console.ts),
-                   and fetch-mock.ts stubs outbound fetch (see §16 #25); public/ is bound
-                   as ASSETS for tests only, to read static files as served (§16 #48)
-scripts/           vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp config),
-                   backup.mjs + backup-dir.mjs (a same-day backup never overwrites),
-                   wrangler-remote.mjs + remote-config.mjs (real db id → temp config),
-                   seed-demo.mjs, hash-password.mjs, federation-keygen.mjs,
-                   backfill-remote.mjs + ts-resolve.mjs (runs src/metadata under Node),
-                   record-covers.mjs (the one-off replacing Discogs covers, §16 #67),
-                   a11y.mjs (the runtime accessibility audit; eslint.config.mjs is the static one)
-runbooks/          operational guides: deploy, updating (for self-hosters), backup/restore, accounts,
-                   connections, libib import, goodreads import, metadata backfill, record covers,
-                   troubleshooting —
-                   update when ops procedures change
-.github/           CI (typecheck + lint + test, and the a11y audit as its own job; no secrets,
-                   never pull_request_target), release (on a vX.Y.Z tag: publishes that
-                   version's CHANGELOG section; never deploys),
-                   dependabot (minor/patch grouped, majors alone), CODEOWNERS
-CHANGELOG.md       every release, newest first, each with an Upgrading section (ARCH.md §16 #42)
-docs/screenshots/  README imagery, captured from seeded demo data — never real catalog data
-```
+File by file: [docs/layout.md](docs/layout.md). The rules it carries:
+- `src/index.ts`: route order matters — public (share, covers, auth) first, then `requireAuth`,
+  then protected routes; Origin-check CSRF on mutations.
+- `src/db/` is the ONLY code touching D1 (`schema.ts`, `queries.ts`, `federation.ts`);
+  `src/metadata/` the only code calling external APIs; `src/lib/covers.ts` the only R2 code.
+- `src/routes/share.tsx` is the public share pages, `shares.tsx` admin share management — don't
+  confuse them. Whitelists: `src/lib/share.ts` (public), `src/federation/items.ts` (connections).
+- `migrations/` is append-only. `changelog/` holds `vX.Y.Z.md` per release and `unreleased.md`;
+  CHANGELOG.md is their index.
+- `.github/`: CI has no secrets and never uses `pull_request_target`; the release workflow never
+  deploys. `docs/screenshots/` come from seeded demo data — never real catalog data. Update
+  `runbooks/` when ops procedures change.
 
 ## Conventions
-- **Commit after every completed feature or architectural unit** — conventional messages
-  (`feat:`, `fix:`, `docs:`, `chore:`, `test:`); never batch unrelated changes into one
-  commit. Push only when asked.
-- **Releases** (ARCH.md §16 #42) are SemVer. A release commit bumps the version with
-  `npm version X.Y.Z --no-git-tag-version`, updates `src/version.ts` to match (a test checks),
-  and adds the CHANGELOG.md section with its **Upgrading** block: migrations and whether to back
-  up, new secrets, compatibility with connections on older versions. After it merges, tag main
-  `vX.Y.Z`; the release workflow publishes the notes (only for tags on main; v1.0.0, which
-  predates the workflow, was published by hand). A migration that changes data, a new
-  secret, or anything needing a manual step must be in Upgrading.
-- Handlers render a full page normally, a partial when the `HX-Request` header is present —
-  one handler, two renders.
-- Accessibility (ARCH.md §18): WCAG 2.2 AA in both themes. `hx-*` only on forms, buttons and links,
-  every field labelled, errors `role="alert"` (+ `invalid()` on their fields), colour never the only
-  signal; a new page or htmx swap joins `scripts/a11y.mjs`, and `npm run lint` + `npm run a11y` pass.
-- Mutations are POSTs; CSRF = `SameSite=Lax` session cookie + Origin-check middleware.
-- A write and whatever depends on it are **one batch**: a change and the message it queues for a
-  connection, the notification it records, its replay marker, an item and its tags (ARCH.md §16 #39).
-  As separate calls, a failure between them leaves half a change that the path's own idempotency
-  check then treats as done. Nothing after the batch may be able to fail the request.
-  Cookies set `Secure` only on https so local dev login works.
-- Auth model (ARCH.md §8): admin creates member accounts with one-time temp passwords
-  (`must_change_password`); roles are just `admin`/`member` — no permission matrix.
-  User ids are reused (no AUTOINCREMENT), so a session names the id **and** `users.session_key`
-  (random, set in the insert, never changed — ARCH.md §16 #56). Every path that
-  inserts a user sets a key; anything else that remembers a person across time (an HMAC
-  stamp, a cache) binds `accountIdentity()`, never the bare id.
-- Never hand-edit drizzle-generated migrations; hand-written SQL goes in `--custom`
-  migrations. Migrations are append-only — never edit one that has been applied anywhere.
-- Barcode routing lives in `src/metadata/index.ts`: EAN-13 starting `978`/`979` → book
-  providers (Open Library + Google Books merged); any other EAN/UPC → Discogs.
-- Tags are normalized lowercase at write time; uniqueness is by exact string.
-- Reading state lives in `reads`, one row per read (ARCH.md §16 #41), each with its reader
-  (`reader_id`; NULL = a member removed since — §16 #43). `items.status`, `began_on`,
-  `completed_on`, `read_count`, `rereading` and `progress_page` are the **household's** summary
-  of everyone's reads: write reads and `refreshReadState()` in one batch, never those columns
-  directly. Completed once anyone has finished it; a re-read — or anyone's read of a book
-  someone finished — keeps it Completed (`rereading` marks it). Every Status filter — the shelf,
-  share links, connection views — lists a re-read under In progress **and** Completed
-  (`matchesStatus()` in src/lib/reads.ts, `statusWhere()` its SQL twin, ARCH.md §16 #64; never
-  compare `items.status` to a filter by hand), and its status pill says "Re-reading". Each
-  person has at most one open read of an item; "Read again", Finish, Stop and Record act on the
-  signed-in person's own reads, and the edit form's status
-  and dates are theirs. Pages belong to their read's reader (`reading_progress.added_by`
-  follows a moved read). A finished book takes no page from you until you "Read again".
-- Ratings and reviews live in `reviews`, one per member per item (§16 #43). `items.rating`
-  (the average, rounded to 1–10) and `items.review` (the one written last, by `reviewed_at`)
-  are their summary: write reviews and `refreshReviewState()` in one batch, never those
-  columns directly. `reviewed_at` moves only when the text really changes, so a rating
-  changed alone never makes an old review the household's latest; a write that can remove a
-  review also carries `redateReviewActivity()`, so an older review showing again isn't news.
-  Only an admin's import keeps the names a file gives reads and reviews; a member's is theirs.
-- Members change their own reads, pages and review; admins anyone's, and only admins move
-  one to another member. Check it in the route (403 with a reason) *and* in the statement
-  that writes (the `Actor` guards in `src/db/queries.ts`). No permission matrix beyond this.
-- `copies = 0` = "in the catalog, not in the physical collection" (reading-log entries,
-  e.g. Goodreads imports). Not lendable; badged "Not owned" everywhere incl. share pages
-  (ARCH.md §16 #13). The Holding toggle spans **only 0 and 1** — an item held in 2+ copies
-  renders a plain count, and the route refuses to zero it, because `copies` round-trips
-  through `/export.csv` (ARCH.md §16 #27).
+Long forms in [docs/conventions.md](docs/conventions.md).
+- **Commit after every completed feature or architectural unit**, conventional messages (`feat:`,
+  `fix:`, `docs:`, `chore:`, `test:`); never batch unrelated changes into one commit. Push only
+  when asked.
+- **Releases** (ARCH.md §16 #42) are SemVer; PRs add their entries to `changelog/unreleased.md`.
+  A release commit: `npm version X.Y.Z --no-git-tag-version` and `src/version.ts` (a test checks);
+  rename `changelog/unreleased.md` to `changelog/vX.Y.Z.md`, headed `## [X.Y.Z] - <date>` with a
+  one-sentence summary; a fresh `unreleased.md`; the version's line in the CHANGELOG.md index. A
+  migration that changes data (and whether to back up), a new secret, connections on older
+  versions, or any manual step must be in its **Upgrading** block. After it merges, tag main
+  `vX.Y.Z`; the release workflow publishes that file (only for tags on main).
+- One handler, two renders: a full page normally, a partial when `HX-Request` is present.
+- Accessibility (ARCH.md §18): WCAG 2.2 AA in both themes. `hx-*` only on forms, buttons and links;
+  every field labelled; errors `role="alert"` (+ `invalid()`); colour never the only signal; a new
+  page or htmx swap joins `scripts/a11y.mjs`; `npm run lint` + `npm run a11y` pass.
+- Mutations are POSTs; CSRF = `SameSite=Lax` session cookie + Origin check. Cookies set `Secure`
+  only on https.
+- A write and whatever depends on it are **one batch** (ARCH.md §16 #39) — its queued message,
+  notification, replay marker, an item and its tags. Nothing after the batch may be able to fail
+  the request.
+- Auth (ARCH.md §8): roles are just `admin`/`member` — no permission matrix; admins create members
+  with one-time temp passwords. User ids are reused, so a session names the id **and**
+  `users.session_key` (set in every user insert, never changed); anything that remembers a person
+  across time binds `accountIdentity()`, never the bare id.
+- Never hand-edit drizzle-generated migrations (hand-written SQL goes in `--custom` ones); never
+  edit a migration that has been applied anywhere.
+- Barcode routing (`src/metadata/index.ts`): EAN-13 `978`/`979` → book providers (merged); any
+  other EAN/UPC → Discogs. Tags are normalized lowercase at write time; uniqueness by exact string.
+- Reads (`reads`, one row per read, each with its reader) and reviews (`reviews`, one per member
+  per item) are per member. The `items` summary columns (`status`, `began_on`, `completed_on`,
+  `read_count`, `rereading`, `progress_page`, `rating`, `review`) are written only by
+  `refreshReadState()`/`refreshReviewState()` in the same batch — never directly. Never compare
+  `items.status` to a filter by hand: `matchesStatus()`/`statusWhere()` (a re-read is In progress
+  **and** Completed, pill "Re-reading"). One open read per person per item; a finished book takes no
+  page until "Read again". `reviewed_at` moves only when the text changes; a write that can remove
+  a review carries `redateReviewActivity()`. Only an admin's import keeps a file's names.
+- Members change only their own reads, pages and review; admins anyone's, and only admins move one
+  to another member — checked in the route (403 with a reason) *and* the writing statement
+  (`Actor` guards).
+- `copies = 0` = catalogued, not owned: not lendable, badged "Not owned" everywhere incl. share
+  pages. The Holding toggle spans only 0 and 1; the route refuses to zero 2+ copies (§16 #13, #27).
 
 ## Ops guardrails
 - Develop against local D1. `--remote` is for deploy, remote migrate, backup, and
@@ -408,14 +228,12 @@ docs/screenshots/  README imagery, captured from seeded demo data — never real
 - Any destructive remote operation (dropping data, hand-run `wrangler d1 execute --remote`)
   requires a fresh `npm run backup` first.
 - Secrets (`SESSION_SECRET`, `DISCOGS_TOKEN`, `BGG_TOKEN`, optional `GOOGLE_BOOKS_KEY`, optional
-  `HOME_SHARE_TOKEN` — points logged-out `/` at a share page, ARCH.md §16 #21) via
-  `wrangler secret put` — never in code, `wrangler.jsonc`, or git. Local values go in
-  `.dev.vars` (gitignored; see `.dev.vars.example`).
-- **`FEDERATION_PRIVATE_KEY`** is this instance's identity to its connections: a runtime
-  secret, never in git or D1, and so not in backups — losing it means reconnecting with every
-  household. Unset means connections are disabled entirely and every connections route 404s.
-- **No Cloudflare resource ids in the repo** (ARCH.md §16 #24). `database_id` stays the
-  all-zero placeholder; deploys supply `D1_DATABASE_ID` from the environment. Don't
-  "helpfully" fill it in — and note miniflare keys local D1 state by that value, so
-  editing it orphans the local database (§16 #20).
-- Keep this file and ARCH.md current as commands and decisions evolve.
+  `HOME_SHARE_TOKEN` — logged-out `/` shows that share, §16 #21) via `wrangler secret put` —
+  never in code, `wrangler.jsonc`, or git. Local values go in `.dev.vars` (gitignored).
+- **`FEDERATION_PRIVATE_KEY`** is this instance's identity to its connections: a runtime secret,
+  never in git or D1, so not in backups — losing it means reconnecting with every household.
+  Unset, connections are disabled and every connections route 404s.
+- **No Cloudflare resource ids in the repo** (ARCH.md §16 #24): `database_id` stays the all-zero
+  placeholder, deploys supply `D1_DATABASE_ID`. Don't "helpfully" fill it in — miniflare keys
+  local D1 state by it, so editing it orphans the local database (§16 #20).
+- Keep this file, docs/ and ARCH.md current as commands and decisions evolve.
