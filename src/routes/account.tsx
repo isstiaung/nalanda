@@ -42,13 +42,14 @@ const DevicesForm = ({ done }: { done?: boolean }) => (
   <article class="panel form-card account-card" id="devices">
     <p class="eyebrow">Devices</p>
     {done ? <p class="notice">Every other device is signed out. This one stays in.</p> : null}
-    <form method="post" action="/account/sign-out-others">
+    {/* as every settings panel reads: the explanation, then the action (.switch-form) */}
+    <form method="post" action="/account/sign-out-others" class="switch-form">
+      <p class="muted">
+        Signs this account out everywhere but here — a phone that went missing, a browser left signed in. Changing your
+        password does the same. Each of them logs in again with your password; this device stays signed in.
+      </p>
       <button type="submit">Sign out other devices</button>
     </form>
-    <p class="muted form-note">
-      Signs this account out everywhere but here — a phone that went missing, a browser left signed in. Changing your
-      password does the same. Each of them logs in again with your password; this device stays signed in.
-    </p>
   </article>
 );
 
