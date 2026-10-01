@@ -40,8 +40,8 @@ describe('Author A–Z', () => {
       'A Wizard of Earthsea', // guin, "Ursula K. Le Guin", then by title
       'The Dispossessed', // guin, same name, later title
       'The Fifth Season', // jemisin
-      'Stride Toward Freedom', // king — "Martin Luther King, Jr." then "Martin Luther King Jr." by the full string
-      'Why We Can’t Wait',
+      'Why We Can’t Wait', // king — "martin luther king jr." before "martin luther king, jr." by the full string (space before comma)
+      'Stride Toward Freedom',
       'Earthsea', // le guin — the "Last, First" person sorts under the whole last name
       'Mort', // pratchett, then by the full string: "pratchett & gaiman" before "terry pratchett, neil gaiman"
       'Good Omens', // pratchett — "Terry Pratchett, Neil Gaiman" is two people, the first of them
