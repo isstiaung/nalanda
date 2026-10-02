@@ -347,7 +347,7 @@ export const en = {
   'account.device_unknown': 'A browser',
   'account.this_device': 'this device',
   'account.device_dates': 'signed in {signedIn} · last used {used}',
-  'account.sign_out_device': 'Sign out {device}',
+  'account.sign_out_device': 'Sign out {device}, signed in {signedIn}',
   'account.sign_out': 'Sign out',
   'account.devices_note': 'Signs this account out everywhere but here — a phone that went missing, a browser left signed in. Changing your password does the same. Each of them logs in again with your password; this device stays signed in.',
   'account.sign_out_others': 'Sign out other devices',

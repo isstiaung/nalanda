@@ -12,6 +12,7 @@ import {
   LOGIN_ATTEMPT_WINDOW_MINUTES,
   recordLoginAttempt,
   useAccountLink,
+  type NewSession,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import {
@@ -41,9 +42,20 @@ const auth = new Hono<AppEnv>();
  * the account's id, session key (§16 #56) and generation (§16 #70).
  */
 export async function signIn(c: Context<AppEnv>, secret: string, account: SessionRef): Promise<void> {
-  const sid = newSessionId();
-  await createSession(c.env.DB, account, sid, deviceName(c.req.header('user-agent')));
-  await setSessionCookie(c, secret, account, sid);
+  const ns = await newSessionFor(c);
+  await createSession(c.env.DB, account, ns);
+  await setSessionCookie(c, secret, account, ns.sid);
+}
+
+/**
+ * The device session this request will start (§16 #98): a new id, this browser's name, and the session its cookie named
+ * until now — which ends as this one starts, so signing in again on a browser never leaves the old session behind.
+ * A batch that makes or moves the account takes it (startSession() in queries.ts), so the device that asked is signed
+ * in by the same write; setSessionCookie() then sends the cookie.
+ */
+export async function newSessionFor(c: Context<AppEnv>): Promise<NewSession> {
+  const held = await verifySessionToken(c.env.SESSION_SECRET, getCookie(c, SESSION_COOKIE), Math.floor(Date.now() / 1000));
+  return { sid: newSessionId(), device: deviceName(c.req.header('user-agent')), replaces: held?.sid ?? null };
 }
 
 /** The session cookie on this response, good for SESSION_TTL_SECONDS from now: at sign-in, and as a used session slides. */
@@ -273,12 +285,13 @@ auth.post('/join/:token', async (c) => {
   if (password.length < 8) return form(t('join.too_short'), ['password']);
   if (password !== confirm) return form(t('setup.mismatch'), ['confirm']);
   // the batch decides (§16 #97): the link is found again inside it, so of two uses racing, one sets the password
-  const signedIn = await useAccountLink(c.env.DB, await hashLinkToken(token), await hashPassword(password));
+  const ns = await newSessionFor(c);
+  const signedIn = await useAccountLink(c.env.DB, await hashLinkToken(token), await hashPassword(password), ns);
   if (!signedIn) {
     c.status(410);
     return page(c, t('join.gone_title'), <LinkGone />);
   }
-  await signIn(c, secret, signedIn);
+  await setSessionCookie(c, secret, signedIn, ns.sid);
   return c.redirect('/');
 });
 
@@ -344,9 +357,10 @@ auth.post('/setup', async (c) => {
   // The count above only saves hashing on a closed setup. The batch decides: of two setups racing, one wins. The
   // loser goes to login, which says why: usually it's the second click of a double-click, whose response is the
   // page the browser shows, and the password just chosen works there.
-  const admin = await createFirstAdmin(c.env.DB, { username, passwordHash: await hashPassword(password) }, STARTER_SHELVES);
+  const ns = await newSessionFor(c);
+  const admin = await createFirstAdmin(c.env.DB, { username, passwordHash: await hashPassword(password) }, STARTER_SHELVES, ns);
   if (admin === null) return c.redirect('/login?raced=1');
-  await signIn(c, secret, admin);
+  await setSessionCookie(c, secret, admin, ns.sid);
   return c.redirect('/');
 });
 

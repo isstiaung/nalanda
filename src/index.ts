@@ -162,8 +162,6 @@ app.use(async (c, next) => {
   c.set('i18n', translator(resolveLocale(user, { language: account.language }), account.translation, account.font));
   c.set('householdLanguage', account.language);
   c.set('sessionId', session.sid ?? null);
-  // used today for the first time in a day: the session slides, and so does its cookie (§16 #98)
-  if (session.sid && account.device?.touched && hasSessionSecret(c.env.SESSION_SECRET)) await setSessionCookie(c, c.env.SESSION_SECRET, user, session.sid);
   // A temporary password reaches the Account page and the password change, and nothing else — not the display name,
   // not "Sign out other devices", not a token: own-account actions all, but whoever holds the temp password isn't
   // yet shown to be the member, and a display name set here would go out on share pages with names on.
@@ -176,6 +174,9 @@ app.use(async (c, next) => {
   // kept, so Back or a restored tab on a shared device after a logout shows none of it. Share pages, covers, static
   // files and the login page are served before this middleware and cache as they did.
   c.res.headers.set('cache-control', 'no-store');
+  // used for the first time in a day: the session slid, and so does its cookie (§16 #98) — set on the response the
+  // handler made, whatever it is (a page, a redirect, the export's own Response), so no slide goes without its cookie
+  if (session.sid && account.device?.touched && hasSessionSecret(c.env.SESSION_SECRET)) await setSessionCookie(c, c.env.SESSION_SECRET, user, session.sid);
 });
 
 /** What a session that must still change its temporary password may reach (logout is public, before this middleware). */

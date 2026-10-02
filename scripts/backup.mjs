@@ -20,7 +20,7 @@ import { DATABASE, removeRemoteConfig, writeRemoteConfig } from './remote-config
 // (recreated by `wrangler d1 migrations apply`) are deliberately excluded.
 // federation_seen and connection_push_counts are left out on purpose: replay and rate bookkeeping that's
 // worthless within a day. So is import_in_progress, which only ever holds a row inside an import's batch. And so is
-// sessions (ARCH.md §16 #98): a restore signs every device out, and each signs in again with its password. The federation private key isn't data at all — it's a secret.
+// sessions (ARCH.md §16 #98): a restore signs out every device signed in since, and each signs in again with its password. The federation private key isn't data at all — it's a secret.
 export const TABLES = [
   'users',
   'acting', // the writing member's marker (ARCH.md §16 #84): empty between batches, listed so the backup names every table

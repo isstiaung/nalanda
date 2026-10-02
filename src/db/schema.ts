@@ -404,8 +404,8 @@ export type AccountLink = typeof accountLinks.$inferSelect;
 /**
  * Each signed-in device (ARCH.md §16 #98): one row per sign-in, named in that device's cookie by its id, so Account can
  * list them and sign one out. Bound to the account as the cookie is — its key (#56) and generation (#70) — so "Sign out
- * other devices", a new password or a reset end every row at once. Sliding: a row lives SESSION_TTL_SECONDS from when it
- * was last used, and `last_seen_at` moves at most once a day, so an ordinary request writes nothing.
+ * other devices", a new password or a reset end every row at once. Sliding: a row lives SESSION_DAYS from when it was
+ * last used, and `last_seen_at` moves at most once a day, so an ordinary request writes nothing.
  */
 export const sessions = sqliteTable(
   'sessions',
@@ -416,7 +416,7 @@ export const sessions = sqliteTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     sessionKey: text('session_key').notNull(),
     generation: integer('generation').notNull(),
-    device: text('device').notNull().default(''), // "Chrome on macOS", read from the User-Agent at sign-in; nothing else of it kept
+    device: text('device').notNull().default(''), // "Chrome · macOS", read from the User-Agent at sign-in; nothing else of it kept
     createdAt: text('created_at').notNull().default(now),
     lastSeenAt: text('last_seen_at').notNull().default(now),
   },

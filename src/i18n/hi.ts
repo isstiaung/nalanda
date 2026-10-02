@@ -341,7 +341,7 @@ export const hi: Pack = {
     'account.device_unknown': 'एक ब्राउज़र',
     'account.this_device': 'यह डिवाइस',
     'account.device_dates': '{signedIn} को साइन इन · आख़िरी उपयोग {used}',
-    'account.sign_out_device': '{device} को साइन आउट करें',
+    'account.sign_out_device': '{device} को साइन आउट करें, {signedIn} को साइन इन',
     'account.sign_out': 'साइन आउट करें',
     'account.devices_note': 'इस खाते को यहाँ के सिवा हर जगह से साइन आउट करता है — खोया हुआ फ़ोन, साइन इन छूटा ब्राउज़र। पासवर्ड बदलने से भी यही होता है। हर एक को आपके पासवर्ड से दोबारा लॉग इन करना होगा; यह डिवाइस साइन इन रहेगा।',
     'account.sign_out_others': 'अन्य डिवाइस से साइन आउट करें',

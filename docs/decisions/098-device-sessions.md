@@ -25,10 +25,15 @@ and sessions that slide.
   signed in, last used, most recent first. *Sign out* ends any other one, the member's own only.
   This device signs out with Log out, which now deletes its row too, so a copy of the cookie kept
   anywhere signs nobody in afterwards.
-- **What ends every device:** "Sign out other devices", a password change, an admin's reset, using
-  a one-time link (#97), and removing the member. Each deletes the account's rows in the batch that
-  moves its generation on, and the device that asked signs in again with a new row. Rows past their
-  30 days go when the account next signs in.
+- **What ends every device:** "Sign out other devices", a password change, an admin's reset and
+  using a one-time link (#97) each delete the account's rows in the batch that moves its generation
+  on, and **the device that asked signs in again with a new row in that same batch** (#39) — never
+  by a later write that could fail and leave it signed out. Removing the member deletes the rows by
+  cascade.
+- **Tidy by construction.** Every sign-in ends the session its browser held before (signing in
+  again never leaves the old one live), and deletes the account's rows that can no longer sign in —
+  past 30 days, another key or generation — and the least recently used past **20 devices**
+  (`MAX_SESSIONS`), so the list and its cost stay bounded.
 - **Cookies from before** name no session. They sign in until they expire, as they always did, and
   aren't listed; "Sign out other devices" ends them as before. **Nobody is signed out by the
   upgrade.** Within 30 days every cookie still in use names a session.
@@ -38,8 +43,9 @@ and sessions that slide.
   laptop.
 - **Writing on every request.** Daily is what "last used" needs, and it keeps D1's rows written at
   one per device per day.
-- **Backing up sessions.** A restore signs every device out, and each signs in again with its
-  password: no session outlives the database it was made in.
+- **Backing up sessions.** A restore signs out every device signed in since device sessions (a
+  cookie from before needs no row, and works until it expires): no listed session outlives the
+  database it was made in.
 
 **Tests:** `test/device-sessions.spec.ts` covers:
 - the row, its name, the cookie, and "this device";

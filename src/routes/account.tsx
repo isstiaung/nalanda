@@ -19,7 +19,7 @@ import {
 import type { AppEnv } from '../env';
 import { hasSessionSecret, hashApiToken, hashPassword, newApiToken, verifyPassword } from '../lib/auth';
 import { ledgerDate } from '../lib/dates';
-import { clientIp, signIn } from './auth';
+import { clientIp, newSessionFor, setSessionCookie } from './auth';
 import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
 import { DRAFT_LOCALES, isLocale, LOCALE_NAMES, locales, resolveLocale } from '../i18n';
 import { VERSION } from '../version';
@@ -131,7 +131,7 @@ const DevicesForm = ({ done, devices, current }: { done?: 'out' | 'one'; devices
               </span>
               {d.id === current ? null : (
                 <form method="post" action={`/account/devices/${d.id}/sign-out`} class="inline-form">
-                  <button type="submit" class="btn" aria-label={t('account.sign_out_device', { device: d.device || t('account.device_unknown') })}>
+                  <button type="submit" class="btn" aria-label={t('account.sign_out_device', { device: d.device || t('account.device_unknown'), signedIn: ledgerDate(d.createdAt) })}>
                     {t('account.sign_out')}
                   </button>
                 </form>
@@ -382,26 +382,29 @@ account.post('/account/password', async (c) => {
     return page(c, title, <Form mustChange={user.mustChangePassword} error={t('account.mismatch')} errorField="confirm" />);
   }
   // the new password signs every other device out (§16 #70); this one carries on, in the generation the row is in now
-  const account = await setPassword(c.env.DB, user.id, await hashPassword(next), false);
+  const ns = await newSessionFor(c);
+  const account = await setPassword(c.env.DB, user.id, await hashPassword(next), false, ns);
   if (!account || !hasSessionSecret(c.env.SESSION_SECRET)) return c.redirect('/login');
-  await signIn(c, c.env.SESSION_SECRET, account);
+  await setSessionCookie(c, c.env.SESSION_SECRET, account, ns.sid);
   return c.redirect(user.mustChangePassword ? '/' : '/account?ok=1');
 });
 
 /** Signs the account out everywhere but this device (§16 #70): the generation moves on, and this cookie moves with it. */
 account.post('/account/sign-out-others', async (c) => {
-  const account = await signOutOtherDevices(c.env.DB, c.get('user').id);
+  const ns = await newSessionFor(c);
+  const account = await signOutOtherDevices(c.env.DB, c.get('user').id, ns);
   if (!account || !hasSessionSecret(c.env.SESSION_SECRET)) return c.redirect('/login');
-  await signIn(c, c.env.SESSION_SECRET, account);
+  await setSessionCookie(c, c.env.SESSION_SECRET, account, ns.sid);
   return c.redirect('/account?devices=out#devices');
 });
 
 /** Signs one other device out (§16 #98): the member's own session, by its id; that device's cookie signs nobody in after. */
 account.post('/account/devices/:sid/sign-out', async (c) => {
   const sid = c.req.param('sid');
-  // this device signs out with Log out, which also clears its cookie and cache: not here
-  if (sid !== c.get('sessionId')) await deleteSession(c.env.DB, c.get('user').id, sid);
-  return c.redirect('/account?devices=one#devices');
+  // this device signs out with Log out, which also clears its cookie and cache: not here; and only the member's own,
+  // and only one that was there, says so
+  const ended = sid !== c.get('sessionId') && (await deleteSession(c.env.DB, c.get('user').id, sid));
+  return c.redirect(ended ? '/account?devices=one#devices' : '/account#devices');
 });
 
 export default account;

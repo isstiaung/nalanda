@@ -6,6 +6,7 @@ import { createUser } from '../src/db/queries';
 import { b64url, hashPassword, SESSION_COOKIE } from '../src/lib/auth';
 import { deviceName } from '../src/lib/devices';
 import app from '../src/index';
+import { captureErrors } from './console';
 import { member, rows } from './member-helpers';
 
 const ORIGIN = 'http://nalanda.test';
@@ -137,6 +138,60 @@ describe('what ends every device', () => {
     await send(`/settings/users/${ravi}/reset`, admin.cookie, { form: {} });
     expect(await signedIn(now)).toBe(false);
     expect(await rows('SELECT id FROM sessions WHERE user_id = ?1', ravi)).toEqual([]);
+  });
+});
+
+describe('the review’s cases', () => {
+  it('a password change and its new session are one write: if the session can’t start, the password hasn’t changed', async () => {
+    await account('ravi');
+    const laptop = await login('ravi', MAC_CHROME);
+    await env.DB.prepare(`CREATE TRIGGER no_sessions BEFORE INSERT ON sessions BEGIN SELECT RAISE(ABORT, 'refused'); END`).run();
+    const logged = captureErrors(); // the refused batch is a 500, logged as one
+    const res = await send('/account/password', laptop, { form: { current: 'a-good-password', next: 'new-password-1', confirm: 'new-password-1' } });
+    expect(res.status).toBe(500);
+    expect(JSON.stringify(logged.mock.calls.map((call) => call.map(String)))).toContain('refused');
+    await env.DB.prepare('DROP TRIGGER no_sessions').run();
+    expect(await signedIn(laptop)).toBe(true); // nothing moved on: the old session, and the old password
+    expect((await send('/auth/login', '', { form: { username: 'ravi', password: 'a-good-password' }, ua: IPHONE })).status).toBe(302);
+  });
+
+  it('a slide on a route that answers with its own Response still sends the cookie', async () => {
+    const asha = await createUser(env.DB, { username: 'asha', passwordHash: await hashPassword('a-good-password'), role: 'admin', mustChangePassword: false });
+    void asha;
+    const laptop = await login('asha', MAC_CHROME);
+    await env.DB.prepare(`UPDATE sessions SET last_seen_at = datetime('now', '-2 days')`).run();
+    const res = await send('/export.csv', laptop);
+    expect(res.status).toBe(200);
+    expect(sidOf(cookieOf(res)!)).toBe(sidOf(laptop));
+  });
+
+  it('signing in again on a browser ends the session it held', async () => {
+    await account('ravi');
+    const first = await login('ravi', MAC_CHROME);
+    const res = await send('/auth/login', first, { form: { username: 'ravi', password: 'a-good-password' }, ua: MAC_CHROME });
+    const second = cookieOf(res)!;
+    expect(await signedIn(first)).toBe(false);
+    expect(await signedIn(second)).toBe(true);
+    expect((await rows('SELECT id FROM sessions')).length).toBe(1);
+  });
+
+  it('says a device signed out only when one did', async () => {
+    await account('ravi');
+    await account('dee');
+    const laptop = await login('ravi', MAC_CHROME);
+    const dee = await login('dee', IPHONE);
+    expect((await send(`/account/devices/${sidOf(laptop)}/sign-out`, laptop, { form: {} })).headers.get('location')).toBe('/account#devices');
+    expect((await send(`/account/devices/${sidOf(dee)}/sign-out`, laptop, { form: {} })).headers.get('location')).toBe('/account#devices');
+    expect(await signedIn(laptop)).toBe(true);
+  });
+
+  it('keeps at most 20 devices: the least recently used signs out as another signs in', async () => {
+    await account('ravi');
+    const first = await login('ravi', MAC_CHROME);
+    await env.DB.prepare(`UPDATE sessions SET last_seen_at = datetime('now', '-5 days')`).run();
+    for (let i = 0; i < 20; i++) await login('ravi', IPHONE);
+    expect((await rows('SELECT id FROM sessions')).length).toBe(20);
+    expect(await signedIn(first)).toBe(false);
   });
 });
 
