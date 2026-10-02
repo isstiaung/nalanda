@@ -38,8 +38,14 @@ Then:
    holds your database's id (the button wrote it in), so the scripts find it without
    `D1_DATABASE_ID`.
 
-If you renamed the database or bucket on the button's form, the runbooks' `wrangler d1 … nalanda`
-commands take your name in place of `nalanda`, or the binding, `DB`.
+If you renamed the database on the button's form, the runbooks' `wrangler d1 … nalanda` commands
+take your name in place of `nalanda`, or the binding, `DB`. The backup and `reset-admin` scripts
+find it themselves.
+
+Your copy also carries this repository's GitHub workflows (CI, releases, the demo). They run only in
+`isstiaung/nalanda`, so your copy's Actions stay quiet. It carries `.github/dependabot.yml` too, which
+opens a monthly pull request for dependency updates. Close those, or delete the file, and take updates
+with releases instead ([updating.md](updating.md)).
 
 ## First deploy (once)
 

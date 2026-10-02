@@ -284,14 +284,15 @@ directory, so your everyday dev database is never touched, and its own key throu
    (a `DISCOGS_TOKEN`, say) goes in these files too.
 3. Migrate and start each one, in separate terminals:
    ```sh
-   npx wrangler d1 migrations apply nalanda --local --persist-to .wrangler/connections/a-state
+   npx wrangler d1 migrations apply DB --local --persist-to .wrangler/connections/a-state
    npx wrangler dev --port 8791 --persist-to .wrangler/connections/a-state --env-file .wrangler/connections/a.env
 
-   npx wrangler d1 migrations apply nalanda --local --persist-to .wrangler/connections/b-state
+   npx wrangler d1 migrations apply DB --local --persist-to .wrangler/connections/b-state
    npx wrangler dev --port 8792 --persist-to .wrangler/connections/b-state --env-file .wrangler/connections/b.env
    ```
-4. Open `http://localhost:8791` and `http://localhost:8792`, create an admin on each, name
-   both libraries, and connect them as above.
+4. Open `http://localhost:8791` and `http://localhost:8792`, create an admin on each (`/setup`
+   asks for that instance's `SESSION_SECRET`, from its env file), name both libraries, and connect
+   them as above.
 
 Delete `.wrangler/connections/` to start over.
 

@@ -267,6 +267,12 @@ describe('setup with a SESSION_SECRET', () => {
     expect(await users()).toEqual([]);
   });
 
+  it('takes the secret as typed when the one set ends in a newline — a password field can’t hold one', async () => {
+    const withNewline = { ...env, SESSION_SECRET: `${env.SESSION_SECRET}\r\n` };
+    expect((await send('/setup', withNewline, { form: setupForm('admin') })).status).toBe(200);
+    expect(await users()).toEqual([{ username: 'admin', role: 'admin', must_change_password: 0 }]);
+  });
+
   it('refuses a second setup once one succeeded', async () => {
     expect((await send('/setup', env, { form: setupForm('admin') })).status).toBe(200);
     const before = await snapshot();

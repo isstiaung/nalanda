@@ -162,7 +162,7 @@ npm run a11y               # axe-core WCAG 2.2 A/AA, every page, both themes, 12
                            # never 8787 or your dev DB, never Discogs or BGG (ARCH.md §18);
                            # `npx playwright install chromium` once
 npm run db:generate        # drizzle-kit generate — schema.ts → migrations/*.sql
-npm run db:migrate         # wrangler d1 migrations apply nalanda --local
+npm run db:migrate         # wrangler d1 migrations apply DB --local (the binding: any copy's name)
 npm run db:migrate:remote  # same, against production (via wrangler:remote)
 npm run wrangler:remote -- <args>  # any wrangler command against production D1 (real id → temp config)
 npm run deploy             # needs D1_DATABASE_ID in the env (or a button copy's own id), never in

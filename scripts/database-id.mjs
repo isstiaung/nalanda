@@ -22,6 +22,7 @@ export function configuredDatabase(source) {
  */
 export function chooseDatabaseId(envValue, source) {
   const fromEnv = (envValue ?? '').trim();
+  if (fromEnv === PLACEHOLDER_ID) return { error: 'D1_DATABASE_ID is the all-zero placeholder, not a database: `wrangler d1 list` shows the real id' };
   if (fromEnv) return UUID.test(fromEnv) ? { id: fromEnv, from: 'env' } : { error: `D1_DATABASE_ID is not a UUID: ${fromEnv}` };
   const { id } = configuredDatabase(source);
   return id ? { id, from: 'config' } : { error: 'no-id' };

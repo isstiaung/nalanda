@@ -7,34 +7,38 @@ import devVarsExample from '../.dev.vars.example?raw';
 import pkg from '../package.json';
 
 const REAL = '0f3c5a1e-8b2d-4c6f-9a7e-1d2b3c4d5e6f';
-const copied = wrangler.replace(PLACEHOLDER_ID, REAL); // as the button leaves a person's copy
+// The config as this repository keeps it, and as the button leaves a person's copy. Built from the real file, with its
+// id set either way, so these pass in a copy too: that this repository keeps the placeholder is a CI step (ci.yml).
+const placeheld = withDatabaseId(wrangler, PLACEHOLDER_ID)!;
+const copied = withDatabaseId(wrangler, REAL)!;
 
 describe('the database a deploy means', () => {
   it('is D1_DATABASE_ID when set — this repository’s own deploys', () => {
-    expect(chooseDatabaseId(` ${REAL} `, wrangler)).toEqual({ id: REAL, from: 'env' });
+    expect(chooseDatabaseId(` ${REAL} `, placeheld)).toEqual({ id: REAL, from: 'env' });
     expect(chooseDatabaseId(REAL, copied)).toEqual({ id: REAL, from: 'env' });
   });
 
   it('is a button copy’s own id when D1_DATABASE_ID isn’t set, and never the placeholder', () => {
     expect(chooseDatabaseId(undefined, copied)).toEqual({ id: REAL, from: 'config' });
-    expect(chooseDatabaseId('', wrangler)).toEqual({ error: 'no-id' });
+    expect(chooseDatabaseId('', placeheld)).toEqual({ error: 'no-id' });
   });
 
-  it('refuses a D1_DATABASE_ID that isn’t a UUID, rather than falling back', () => {
+  it('refuses a D1_DATABASE_ID that isn’t a UUID, or is the placeholder, rather than falling back', () => {
     expect(chooseDatabaseId('not-an-id', copied).error).toContain('not a UUID');
+    expect(chooseDatabaseId(PLACEHOLDER_ID, copied).error).toContain('placeholder');
   });
 
   it('writes the id into the config, the same id included — only a config without the field is refused', () => {
-    expect(withDatabaseId(wrangler, REAL)).toBe(copied);
+    expect(withDatabaseId(placeheld, REAL)).toBe(copied);
     expect(withDatabaseId(copied, REAL)).toBe(copied);
     expect(withDatabaseId('{ "name": "x" }', REAL)).toBeNull();
   });
 });
 
-describe('this repository’s config', () => {
-  it('names no Cloudflare resource: the all-zero placeholder, which the button overwrites', () => {
-    expect(configuredDatabase(wrangler)).toEqual({ id: '', name: 'nalanda', hasIdField: true });
-    expect(wrangler).toContain(`"database_id": "${PLACEHOLDER_ID}"`);
+describe('the config', () => {
+  it('reads as a placeholder here and as a real id in a copy — the same file either way', () => {
+    expect(configuredDatabase(placeheld)).toMatchObject({ id: '', hasIdField: true });
+    expect(configuredDatabase(copied)).toMatchObject({ id: REAL, hasIdField: true });
   });
 });
 

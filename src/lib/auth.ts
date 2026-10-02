@@ -69,9 +69,10 @@ export function hasSessionSecret(secret: string | undefined): secret is string {
 }
 
 /** Whether a typed value is the session secret (§16 #101), in time that says nothing about where they differ: both are
- *  hashed, and the digests compared in full. */
+ *  hashed, and the digests compared in full. Both are trimmed first, as hasSessionSecret() reads it: a password field
+ *  drops a newline that a secret set by API or a pasted line may end with, and wrangler trims what it stores. */
 export async function isSessionSecret(typed: string, secret: string): Promise<boolean> {
-  const [a, b] = await Promise.all([typed, secret].map(async (v) => new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(v)))));
+  const [a, b] = await Promise.all([typed.trim(), secret.trim()].map(async (v) => new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(v)))));
   let diff = 0;
   for (let i = 0; i < a!.length; i++) diff |= a![i]! ^ b![i]!;
   return diff === 0;

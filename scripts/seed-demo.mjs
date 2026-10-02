@@ -29,10 +29,14 @@ function sessionSecret() {
   if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
   const local = ['localhost', '127.0.0.1', '[::1]'].includes(new URL(BASE).hostname);
   if (!local || !existsSync('.dev.vars')) return '';
-  const line = readFileSync('.dev.vars', 'utf8')
-    .split('\n')
-    .find((l) => /^\s*SESSION_SECRET\s*=/.test(l));
-  return line ? line.replace(/^\s*SESSION_SECRET\s*=\s*/, '').trim().replace(/^(['"])(.*)\1$/, '$2') : '';
+  // read as dotenv reads it: an `export ` prefix allowed, the last line naming it wins, a quoted value as quoted, an
+  // unquoted one up to a ` #` comment
+  const lines = readFileSync('.dev.vars', 'utf8')
+    .split(/\r?\n/)
+    .filter((l) => /^\s*(export\s+)?SESSION_SECRET\s*=/.test(l));
+  const raw = (lines.at(-1) ?? '').replace(/^\s*(export\s+)?SESSION_SECRET\s*=\s*/, '');
+  const quoted = /^(['"`])(.*)\1\s*(#.*)?$/.exec(raw);
+  return quoted ? quoted[2] : raw.replace(/\s+#.*$/, '').trim();
 }
 
 // libib's CSV column names — mapLibibRow() in src/lib/csv.ts is the contract.

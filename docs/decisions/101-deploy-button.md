@@ -32,7 +32,11 @@ All of it is free.
 
   `npm run deploy` and every remote script (`backup`, `reset-admin`, the backfills) use it. They
   name the database as the config does (`nalanda` here), so a copy whose database the person renamed
-  still finds its own. The npm migrate scripts use the binding, `DB`, as Cloudflare's templates do.
+  still finds its own. For this repository every command line they run is exactly what it was. The
+  npm migrate scripts and the local scratch servers (the audit, the demo build) use the binding, `DB`,
+  as Cloudflare's templates do. The backfills' cover bucket is still `nalanda-covers` by name. They
+  are the owner's own tools.
+  - A `D1_DATABASE_ID` that is the placeholder itself is refused, as one that isn't a UUID is.
 - **The form asks for one secret, `SESSION_SECRET`**, with no value filled in. `.dev.vars.example`
   lists only it uncommented; Discogs, BoardGameGeek, Google Books, a home share and connections are
   optional and set later in the dashboard. The example once carried a sample value. A form that kept
@@ -48,8 +52,15 @@ All of it is free.
   - Lost it? Set a new one in the dashboard and use that: a secret's value can't be read back, only
     replaced.
   - This applies to every instance not yet set up, by button or by hand.
-- **A copy's own Actions don't run this repository's releases or demo**: those workflows run only in
-  `isstiaung/nalanda`. CI still runs in a copy.
+- **A copy's own Actions run none of this repository's workflows.** CI, the releases and the demo run
+  only in `isstiaung/nalanda`; a fork's pull request still runs CI, since for `pull_request` the
+  repository is this one. A household's copy holds its own database id and maybe another database
+  name, so this repository's checks don't apply to it. So the rule that *this* repository's
+  `wrangler.jsonc` keeps the placeholder (#24) is a CI step, not a test: the tests pass in a copy too.
+- **The button reaches only what is on `deploy-site`.** A change to what the button needs (the
+  example, the deploy script, the setup check) reaches new households with the release that moves
+  `deploy-site`, not with the merge. So the README's button and the release go out together:
+  **release right after merging anything the button depends on.**
 - **Updating a copy** is merging a release tag from this repository and pushing. Workers Builds
   deploys it, and its migrations run first, as they always do (`runbooks/updating.md`).
 
@@ -69,8 +80,9 @@ changed; nobody should have one. In local development, set `SESSION_SECRET` in `
 `npm run seed:demo` reads it from there.
 
 **Tests:**
-- `test/deploy-config.spec.ts`: the id chosen from the environment, a copy's config or neither, and a
-  malformed one refused; the id written into the config; this repository's placeholder; the form
-  asking for `SESSION_SECRET` alone, empty, and described.
+- `test/deploy-config.spec.ts`: the id chosen from the environment, a copy's config or neither; a
+  malformed or placeholder one refused; the id written into the config; the form asking for
+  `SESSION_SECRET` alone, empty, and described. It passes in a copy as in this repository. The
+  placeholder check is in CI (`ci.yml`).
 - `test/setup.spec.ts`: the old sample treated as no secret; a wrong secret writing nothing, refused,
   throttled and never echoed.

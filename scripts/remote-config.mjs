@@ -4,8 +4,8 @@
 // config's own, in a copy the Deploy to Cloudflare button made (§16 #101); else the id of the database the config
 // names (`nalanda` here) in the account wrangler is logged in to.
 //
-// scripts/deploy.mjs does the same but insists on D1_DATABASE_ID: in Cloudflare's build, that's how the id
-// arrives, and a deploy shouldn't guess.
+// scripts/deploy.mjs does the same with D1_DATABASE_ID or a button copy's own id, but never asks `wrangler d1 list`:
+// in Cloudflare's build, one of those is how the id arrives, and a deploy shouldn't guess.
 import { execFileSync } from 'node:child_process';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { chooseDatabaseId, configuredDatabase, withDatabaseId } from './database-id.mjs';
@@ -13,8 +13,8 @@ import { chooseDatabaseId, configuredDatabase, withDatabaseId } from './database
 const SOURCE = 'wrangler.jsonc';
 
 /** What scripts pass wrangler's d1 commands: the database's name as wrangler.jsonc gives it — `nalanda` here, and
- *  whatever a copy made with the Deploy button has (§16 #101). Wrangler finds that entry in the config, and its id;
- *  `d1 export` takes a name only, never the binding. */
+ *  whatever a copy made with the Deploy button has (§16 #101). Wrangler finds that entry in the config, and its id —
+ *  and every command line this repository's own production scripts run stays exactly what it was. */
 export const DATABASE = configuredDatabase(readFileSync(SOURCE, 'utf8')).name || 'nalanda';
 const RESOLVED = '.wrangler-remote.jsonc';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

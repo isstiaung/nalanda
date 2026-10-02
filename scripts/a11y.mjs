@@ -225,7 +225,7 @@ const SECRETS = new Map();
 async function startServer({ port = PORT, dir = stateDir, dummyTokens = false } = {}) {
   const base = `http://127.0.0.1:${port}`;
   mkdirSync(dir, { recursive: true });
-  await run(WRANGLER, ['d1', 'migrations', 'apply', 'nalanda', '--local', '--persist-to', dir]);
+  await run(WRANGLER, ['d1', 'migrations', 'apply', 'DB', '--local', '--persist-to', dir]); // the binding: any copy's name
   const secret = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, '0')).join('');
   SECRETS.set(port, secret);
   // The Worker's secrets, from a file in the scratch state rather than .dev.vars: given --env-file, wrangler doesn't
