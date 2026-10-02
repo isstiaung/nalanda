@@ -316,10 +316,11 @@ auth.post('/join/:token', async (c) => {
 /** The new device's half of a scan: its poll secret, on this path alone, for as long as the request is open. */
 const PAIR_COOKIE = 'nalanda_pair';
 
-/** A code typed: a guess at a credential, so it counts with the address's failed logins — ten in ten minutes between
- *  them — by the address alone: a code names no account, and nobody elsewhere can add to an address's count. Taken back
- *  when the code works, as a login's is. */
-const pairAttempt = (c: Context<AppEnv>) => recordLoginAttempt(c.env.DB, clientIp(c), null);
+/** A code typed: a guess at a credential, so ten wrong an address in ten minutes — on a counter of its own (an address
+ *  column only this route writes), so a household setting up its devices never uses up its password tries, nor they its
+ *  codes; and by the address alone: a code names no account, and nobody elsewhere can add to an address's count. Taken
+ *  back when the code works, as a login's is. Ten more guesses at a 40-bit code that lives five minutes change nothing. */
+const pairAttempt = (c: Context<AppEnv>) => recordLoginAttempt(c.env.DB, `#code:${clientIp(c)}`, null);
 
 /** A scan request opened: a row anyone may make, so ten an address in ten minutes — counted apart from logins (its own
  *  address column, which only this route writes), so tapping "Sign in with your phone" never uses up a household's

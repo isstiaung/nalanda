@@ -81,8 +81,8 @@ Please don't file these:
   any copy of its cookie (ARCH.md §16 #98). A session lives 30 days from its last use. Only the
   browser and system are kept from the User-Agent; no address or location.
 - **Signing in from another device** (ARCH.md §16 #99). Either a code shown on a signed-in
-  device's Account page (about 40 bits, five minutes, once, counted by address with its failed
-  logins), or a QR on the new device that a signed-in phone approves by **typing** the two-digit
+  device's Account page (about 40 bits, five minutes, once, ten wrong an address in ten minutes on a
+  counter apart from logins), or a QR on the new device that a signed-in phone approves by **typing** the two-digit
   number shown on that device. One wrong answer ends the request, so a link opened blind is approved
   once in ninety. It does not stop someone who sends the link *and* the number: the phone's page
   warns against exactly that, and names the device and the account it would join. Opening either

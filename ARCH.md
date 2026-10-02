@@ -459,7 +459,7 @@ Multi-user, built into the app (no email infrastructure, no paid services):
   row of the account. A cookie from before device sessions names none and works until it expires.
 - **Signing in from another device** (§16 #99), both ways round. Account → Devices shows an
   eight-character code (and its QR) that the new device types at `/pair`: once, within five
-  minutes, counted with the address's failed logins. Or the new device's log in page shows a QR
+  minutes, ten wrong an address in ten minutes (a counter apart from logins). Or the new device's log in page shows a QR
   and two digits; a signed-in phone scans it, sees which device asks, and types that number (one
   wrong answer ends the request); the new device's htmx poll (204 while it waits) then claims its
   session in one batch. Codes and requests

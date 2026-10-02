@@ -21,11 +21,13 @@ were each considered and set aside.
   - An account has one code at a time: a new one replaces the old.
   - The code is bound to the account's key (#56) and generation (#70), so "Sign out other
     devices", a password change or a reset kills it.
-  - A typed code is a guess at a credential, so it **counts with the address's failed logins**:
-    ten in ten minutes between them. It counts **by the address alone** (`recordLoginAttempt(…,
-    null)`): a code names no account, and no username anyone types elsewhere adds to an address's
-    count. What can't be a code at all (the wrong length, a character outside the 31) is answered
-    before the count, so a typo costs no try.
+  - A typed code is a guess at a credential, so it is throttled: **ten wrong an address in ten
+    minutes, on a counter of its own**, apart from the address's failed logins. A household behind one
+    router, setting up its devices, never uses up its password tries, nor they its codes, and ten more
+    guesses at a 40-bit code that lives five minutes change nothing. It counts **by the address alone**
+    (`recordLoginAttempt(…, null)`): a code names no account, and no username anyone types elsewhere
+    adds to an address's count. What can't be a code at all (the wrong length, a character outside the
+    31) is answered before the count, so a typo costs no try.
   - Signing in, deleting the code and taking the try back are **one batch** (#39).
 - **A QR the new device shows.** Log in → *Sign in with your phone* opens a request with three
   secrets:
@@ -97,7 +99,7 @@ five minutes.
   - filled in, and not spent, by opening it;
   - signing in once, and dying past its minutes, when replaced, and when the account's generation
     moves;
-  - the throttle shared with failed logins, a typo costing nothing, and the try taken back;
+  - the throttle, apart from failed logins both ways, a typo costing nothing, and the try taken back;
   - a wrong code leaving the browser's session alone;
   - no username typed elsewhere throttling an address;
 - **the scan:**

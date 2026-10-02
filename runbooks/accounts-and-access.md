@@ -119,9 +119,9 @@ Two ways, both from a device already signed in (ARCH.md §16 #99):
 - **A code.** On the signed-in device, Account → **Devices** → **Sign in another device** shows a
   code like `ABCD-EFGH` and a QR code. On the new device, Log in → *Sign in with a code from a
   signed-in device*, and type it, or scan the QR, which opens that page with the code filled in, then
-  *Sign in*. A code works once, within five minutes; making another replaces it. Wrong codes count
-  with the address's failed logins (ten in ten minutes, then *Too many attempts*); a typo that can't
-  be a code at all doesn't.
+  *Sign in*. A code works once, within five minutes; making another replaces it. Ten wrong codes in
+  ten minutes from one address get *Too many attempts* — counted apart from wrong passwords, so
+  neither locks the other out; a typo that can't be a code at all doesn't count.
 - **Your phone.** On the new device, Log in → **Sign in with your phone** shows a QR code and a
   two-digit number. Scan the QR with a phone signed in to the library: it names the device asking and
   asks for the number. Type the one on the new device's screen and it signs in within a couple of
