@@ -68,7 +68,7 @@ export const ta: Pack = {
     'setup.mismatch': 'கடவுச்சொற்கள் பொருந்தவில்லை.',
     'setup.secret': 'அமர்வு ரகசியம்',
     'setup.secret_note': 'முதலில், இந்த நூலகத்தை அமைப்பது நீங்கள்தான் என்று காட்ட: பயன்படுத்தும்போது (deploy) நீங்கள் அமைத்த SESSION_SECRET. தொலைந்துவிட்டதா? புதியதை அமைத்து — Cloudflare டாஷ்போர்டில், Worker → Settings → Variables and Secrets — அதை இங்கே ஒட்டுங்கள்.',
-    'setup.wrong_secret': 'அது இந்த நூலகத்தின் SESSION_SECRET அல்ல. எதுவும் சேமிக்கப்படவில்லை.',
+    'setup.wrong_secret': 'அது இந்த நூலகத்தின் SESSION_SECRET அல்ல. எதுவும் சேமிக்கப்படவில்லை. தொலைந்துவிட்டதா? Cloudflare அதை மீண்டும் காட்டாது, ஆனால் மாற்றலாம்: டாஷ்போர்டில், Worker → Settings → Variables and Secrets → SESSION_SECRET → புதிய மதிப்பு, பிறகு அதை இங்கே ஒட்டுங்கள்.',
     'join.title_invite': 'வரவேற்கிறோம்',
     'join.title_reset': 'புதிய கடவுச்சொல்லைத் தேர்வுசெய்',
     'join.intro_invite': 'இந்த வீட்டின் நூலகத்துக்கு நீங்கள் அழைக்கப்பட்டுள்ளீர்கள். ஒரு கடவுச்சொல்லைத் தேர்வுசெய்தால், {name} ஆக உள்நுழைவீர்கள்.',

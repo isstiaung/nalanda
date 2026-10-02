@@ -68,7 +68,7 @@ export const hi: Pack = {
     'setup.mismatch': 'दोनों पासवर्ड मेल नहीं खाते।',
     'setup.secret': 'सेशन सीक्रेट',
     'setup.secret_note': 'पहले, यह दिखाने के लिए कि इस लाइब्रेरी को आप ही सेट कर रहे हैं: डिप्लॉय करते समय सेट किया गया SESSION_SECRET। खो गया? नया सेट करें — Cloudflare डैशबोर्ड में, Worker → Settings → Variables and Secrets — और वही यहाँ डालें।',
-    'setup.wrong_secret': 'यह इस लाइब्रेरी का SESSION_SECRET नहीं है। कुछ भी सहेजा नहीं गया।',
+    'setup.wrong_secret': 'यह इस लाइब्रेरी का SESSION_SECRET नहीं है। कुछ भी सहेजा नहीं गया। खो गया? Cloudflare इसे दोबारा कभी नहीं दिखाता, पर आप इसे बदल सकते हैं: डैशबोर्ड में, Worker → Settings → Variables and Secrets → SESSION_SECRET → नया मान, फिर वही यहाँ डालें।',
     'join.title_invite': 'स्वागत है',
     'join.title_reset': 'नया पासवर्ड चुनें',
     'join.intro_invite': 'आपको इस घर की लाइब्रेरी में आमंत्रित किया गया है। एक पासवर्ड चुनें, और आप {name} के रूप में साइन इन हो जाएँगे।',

@@ -12,7 +12,8 @@ The button (ARCH.md §16 #101) uses a free Cloudflare account and a GitHub (or G
 1. It copies the latest release into a new repository of yours.
 2. It creates your D1 database and R2 bucket.
 3. It asks for one secret, **`SESSION_SECRET`**: any long random value (`openssl rand -hex 32`
-   makes one, as does a password manager's generator). **Keep a copy**: `/setup` asks for it.
+   makes one, as does a password manager's generator). **Keep a copy**: Cloudflare never shows a
+   secret's value again, and `/setup` asks for it.
 4. It builds and deploys, and gives you an address like `https://nalanda.<you>.workers.dev`.
 
 Every push to your copy deploys again, with its migrations first.

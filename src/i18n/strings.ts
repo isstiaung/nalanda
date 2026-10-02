@@ -67,7 +67,7 @@ export const en = {
   'setup.mismatch': 'Passwords do not match.',
   'setup.secret': 'Session secret',
   'setup.secret_note': 'First, to show it’s you setting this library up: the SESSION_SECRET you set when you deployed it. Lost it? Set a new one — in the Cloudflare dashboard, the Worker → Settings → Variables and Secrets — and paste that.',
-  'setup.wrong_secret': 'That isn’t this library’s SESSION_SECRET. Nothing was saved.',
+  'setup.wrong_secret': 'That isn’t this library’s SESSION_SECRET. Nothing was saved. Lost it? Cloudflare never shows it again, but you can replace it: in the dashboard, the Worker → Settings → Variables and Secrets → SESSION_SECRET → a new value, then paste that here.',
   'join.title_invite': 'Welcome',
   'join.title_reset': 'Choose a new password',
   'join.intro_invite': 'You have been invited to this household’s library. Choose a password, and you are signed in as {name}.',
