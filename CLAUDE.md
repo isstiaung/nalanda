@@ -229,8 +229,9 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   within 30 days of its last use (moved at most daily), ended by Log out or Account's per-device Sign out;
   `signIn()` makes the row, and whatever moves the generation deletes the account's rows in its batch. A device
   also signs in from another (§16 #99): a code from Account typed at `/pair`, or the new device's QR approved on
-  a signed-in phone by picking its number — five minutes, once, hashed, bound to key and generation; a GET never
-  signs in, and a claim is one batch. An admin's recovery code (§16 #100) is made with the account at setup,
+  a signed-in phone by typing its number — five minutes, once, hashed, bound to key and generation. Opening the
+  code's QR or the approve page signs nobody in; only the new device's poll, with its cookie, claims, in one
+  batch. An admin's recovery code (§16 #100) is made with the account at setup,
   shown once, kept hashed, used once at `/recover` and replaced in that batch; making one on Account takes the
   password. Login and
   the current-password check are throttled by `recordLoginAttempt()`: ten failures in ten minutes

@@ -1,10 +1,10 @@
 // Signing in a device from another one (ARCH.md §16 #99), both ways round: a code a signed-in device shows, typed or
-// scanned on the new one; and a QR the new device shows, scanned by a signed-in phone that must pick the same digits.
+// scanned on the new one; and a QR the new device shows, scanned by a signed-in phone that must type the digits it shows.
 import { createExecutionContext, env, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, expect, it } from 'vitest';
-import { createUser } from '../src/db/queries';
+import { createUser, updateSiteSettings } from '../src/db/queries';
 import { hashLinkToken, hashPassword, SESSION_COOKIE } from '../src/lib/auth';
-import { matchChoices, normalizePairCode } from '../src/lib/pairing';
+import { normalizeDigits, normalizePairCode } from '../src/lib/pairing';
 import app from '../src/index';
 import { rows } from './member-helpers';
 
@@ -85,11 +85,35 @@ describe('a code from a signed-in device', () => {
     expect(await (await send('/pair', { form: { code: third.code } })).text()).toContain('That code didn’t work');
   });
 
-  it('allows ten wrong codes an address in ten minutes, whatever else that address tries', async () => {
+  it('allows ten wrong codes an address in ten minutes, counted with its failed logins; a typo that can’t be a code costs none', async () => {
     await ravi();
-    for (let i = 0; i < 10; i++) expect((await send('/pair', { form: { code: 'ABCD-EFGH' }, ip: '198.51.100.7' })).status).toBe(200);
+    for (let i = 0; i < 5; i++) await send('/auth/login', { form: { username: 'ravi', password: 'wrong-password' }, ip: '198.51.100.7' });
+    for (let i = 0; i < 5; i++) expect((await send('/pair', { form: { code: 'ABCD-EFGH' }, ip: '198.51.100.7' })).status).toBe(200);
+    expect(await (await send('/pair', { form: { code: 'ABC' }, ip: '198.51.100.7' })).text()).toContain('That code didn’t work');
     expect((await send('/pair', { form: { code: 'ABCD-EFGH' }, ip: '198.51.100.7' })).status).toBe(429);
     expect((await send('/pair', { form: { code: 'ABCD-EFGH' }, ip: '198.51.100.8' })).status).toBe(200); // another address
+  });
+
+  it('takes its try back when it works, in the batch that signs in', async () => {
+    const phone = await ravi();
+    const { code } = await makeCode(phone);
+    await send('/pair', { form: { code }, ip: '198.51.100.9' });
+    expect(await rows(`SELECT * FROM login_attempts WHERE ip = '198.51.100.9'`)).toEqual([]);
+  });
+
+  it('leaves the browser’s own session alone when the code is wrong', async () => {
+    const phone = await ravi();
+    expect(await (await send('/pair', { cookie: phone, form: { code: 'ABCD-EFGH' } })).text()).toContain('That code didn’t work');
+    expect(await signedInAs(phone)).toContain('ravi');
+  });
+
+  it('can’t be throttled from elsewhere: no username a login types counts against an address’s codes or requests', async () => {
+    await ravi();
+    for (const username of ['', '#pair:198.51.100.7', '#scan:198.51.100.7']) {
+      for (let i = 0; i < 10; i++) await send('/auth/login', { form: { username, password: 'x' }, ip: `203.0.113.${50 + i}` });
+    }
+    expect((await send('/pair', { form: { code: 'ABCD-EFGH' }, ip: '198.51.100.7' })).status).toBe(200);
+    expect((await send('/pair/scan', { form: {}, ip: '198.51.100.7' })).status).toBe(200);
   });
 });
 
@@ -99,42 +123,46 @@ describe('a QR the new device shows, scanned by a signed-in phone', () => {
     expect(res.status).toBe(200);
     const html = await res.text();
     const token = /data-qr="http:\/\/nalanda\.test\/pair\/approve\/([A-Za-z0-9_-]{43})"/.exec(html)![1]!;
-    const digits = /class="pair-digits mono"[^>]*>(\d\d)</.exec(html)![1]!;
-    return { pollCookie: cookieNamed(res, 'nalanda_pair')!, token, digits, setCookie: res.headers.get('set-cookie') ?? '' };
+    const digits = /class="pair-digits mono">(\d\d)</.exec(html)![1]!;
+    const request = /hx-get="\/pair\/scan\/status\?r=([0-9a-f]{12})"/.exec(html)![1]!;
+    const poll = (cookie = pollCookie, r = request) => send(`/pair/scan/status?r=${r}`, { cookie, htmx: true });
+    const pollCookie = cookieNamed(res, 'nalanda_pair')!;
+    return { pollCookie, token, digits, request, poll, setCookie: res.headers.get('set-cookie') ?? '' };
   }
 
   it('shows the phone which device is asking, signs it in only with the right digits, and lets the new device claim it once', async () => {
     const phone = await ravi();
     const laptop = await ask();
     expect(laptop.setCookie).toMatch(/nalanda_pair=[^;]+; Max-Age=300; Path=\/pair; HttpOnly; SameSite=Lax/);
-    const waiting = await send('/pair/scan/status', { cookie: laptop.pollCookie, htmx: true });
-    expect(await waiting.text()).toContain('Waiting for your phone');
+    // waiting: nothing for htmx to swap, so nothing on the page is replaced while someone reads or tabs through it
+    const waiting = await laptop.poll();
+    expect(waiting.status).toBe(204);
+    expect(await waiting.text()).toBe('');
 
     const approve = await (await send(`/pair/approve/${laptop.token}`, { cookie: phone })).text();
     expect(approve).toContain('Chrome · macOS is asking to be signed in as ravi');
-    const offered = [...approve.matchAll(/name="pick" value="(\d\d)"/g)].map((m) => m[1]);
-    expect(offered).toHaveLength(3);
-    expect(offered).toContain(laptop.digits);
-    // the same three on every load: reloading never narrows them down
-    expect([...(await (await send(`/pair/approve/${laptop.token}`, { cookie: phone })).text()).matchAll(/name="pick" value="(\d\d)"/g)].map((m) => m[1])).toEqual(offered);
-    expect(await (await send(`/pair/approve/${laptop.token}`, { cookie: phone, form: { pick: laptop.digits } })).text()).toContain('the other device is signing in');
+    expect(approve).toContain('If someone sent you this link');
+    expect(approve).toContain('name="digits"');
+    expect(approve).not.toContain(`>${laptop.digits}<`); // the phone types the number; it never shows it
+    expect(await (await send(`/pair/approve/${laptop.token}`, { cookie: phone, form: { digits: ` ${laptop.digits} ` } })).text()).toContain('the other device is signing in');
 
-    const claimed = await send('/pair/scan/status', { cookie: laptop.pollCookie, htmx: true });
+    const claimed = await laptop.poll();
     expect(claimed.headers.get('HX-Redirect')).toBe('/');
     expect(claimed.headers.get('set-cookie')).toContain('nalanda_pair=;');
     expect(await signedInAs(cookieNamed(claimed, SESSION_COOKIE)!)).toContain('ravi');
     expect(await rows('SELECT * FROM device_pairings')).toEqual([]);
-    expect(await (await send('/pair/scan/status', { cookie: laptop.pollCookie, htmx: true })).text()).toContain('This request is over');
+    expect(await (await laptop.poll()).text()).toContain('This request is over');
   });
 
-  it('ends the request on the wrong digits, or Don’t sign it in, and signs nothing in', async () => {
+  it('ends the request on one wrong number, or Don’t sign it in, and signs nothing in', async () => {
     const phone = await ravi();
-    for (const pick of ['wrong', '']) {
+    for (const answer of ['wrong', 'not digits', 'decline']) {
       const laptop = await ask();
-      const wrong = pick === 'wrong' ? String(((Number(laptop.digits) - 10 + 1) % 90) + 10) : '';
-      const answer = await (await send(`/pair/approve/${laptop.token}`, { cookie: phone, form: { pick: wrong } })).text();
-      expect(answer).toContain(pick === 'wrong' ? 'nothing was signed in' : 'Nothing was signed in.');
-      const status = await send('/pair/scan/status', { cookie: laptop.pollCookie, htmx: true });
+      const form: Record<string, string> =
+        answer === 'decline' ? { digits: '', decline: '1' } : { digits: answer === 'wrong' ? String(((Number(laptop.digits) - 10 + 1) % 90) + 10) : 'ab' };
+      const said = await (await send(`/pair/approve/${laptop.token}`, { cookie: phone, form })).text();
+      expect(said).toContain(answer === 'decline' ? 'Nothing was signed in.' : 'nothing was signed in');
+      const status = await laptop.poll();
       expect(await status.text()).toContain('This request is over');
       expect(cookieNamed(status, SESSION_COOKIE)).toBeNull();
       expect((await send(`/pair/approve/${laptop.token}`, { cookie: phone })).status).toBe(410);
@@ -145,7 +173,7 @@ describe('a QR the new device shows, scanned by a signed-in phone', () => {
     const phone = await ravi();
     const laptop = await ask();
     expect((await send(`/pair/approve/${laptop.token}`)).status).toBe(302); // signed out: to log in
-    await send(`/pair/approve/${laptop.token}`, { cookie: phone, form: { pick: laptop.digits } });
+    await send(`/pair/approve/${laptop.token}`, { cookie: phone, form: { digits: laptop.digits } });
     const stranger = await send('/pair/scan/status', { htmx: true });
     expect(cookieNamed(stranger, SESSION_COOKIE)).toBeNull();
     expect(await stranger.text()).toContain('This request is over');
@@ -154,8 +182,8 @@ describe('a QR the new device shows, scanned by a signed-in phone', () => {
   it('of two claims racing, signs one in', async () => {
     const phone = await ravi();
     const laptop = await ask();
-    await send(`/pair/approve/${laptop.token}`, { cookie: phone, form: { pick: laptop.digits } });
-    const claims = await Promise.all([1, 2].map(() => send('/pair/scan/status', { cookie: laptop.pollCookie, htmx: true })));
+    await send(`/pair/approve/${laptop.token}`, { cookie: phone, form: { digits: laptop.digits } });
+    const claims = await Promise.all([1, 2].map(() => laptop.poll()));
     expect(claims.filter((r) => r.headers.get('HX-Redirect') === '/').length).toBe(1);
   });
 
@@ -165,9 +193,9 @@ describe('a QR the new device shows, scanned by a signed-in phone', () => {
     await env.DB.prepare(`UPDATE device_pairings SET expires_at = datetime('now', '-1 minute')`).run();
     expect((await send(`/pair/approve/${laptop.token}`, { cookie: phone })).status).toBe(410);
     const late = await ask();
-    await send(`/pair/approve/${late.token}`, { cookie: phone, form: { pick: late.digits } });
+    await send(`/pair/approve/${late.token}`, { cookie: phone, form: { digits: late.digits } });
     await env.DB.prepare(`UPDATE device_pairings SET expires_at = datetime('now', '-1 minute')`).run();
-    const claimed = await send('/pair/scan/status', { cookie: late.pollCookie, htmx: true });
+    const claimed = await late.poll();
     expect(cookieNamed(claimed, SESSION_COOKIE)).toBeNull();
     expect(await claimed.text()).toContain('This request is over');
   });
@@ -176,7 +204,7 @@ describe('a QR the new device shows, scanned by a signed-in phone', () => {
     await createUser(env.DB, { username: 'asha', passwordHash: await hashPassword('temporary-pass'), role: 'member', mustChangePassword: true });
     const temp = cookieNamed(await send('/auth/login', { form: { username: 'asha', password: 'temporary-pass' }, ua: IPHONE }), SESSION_COOKIE)!;
     const laptop = await ask();
-    for (const res of [await send(`/pair/approve/${laptop.token}`, { cookie: temp, form: { pick: laptop.digits } }), await send('/account/pair', { cookie: temp, form: {} })]) {
+    for (const res of [await send(`/pair/approve/${laptop.token}`, { cookie: temp, form: { digits: laptop.digits } }), await send('/account/pair', { cookie: temp, form: {} })]) {
       expect(res.status).toBe(302);
       expect(res.headers.get('location')).toBe('/account');
     }
@@ -196,10 +224,41 @@ describe('a QR the new device shows, scanned by a signed-in phone', () => {
   it('dies with its approver’s generation: approved, then signed out everywhere, it signs nobody in', async () => {
     const phone = await ravi();
     const laptop = await ask();
-    await send(`/pair/approve/${laptop.token}`, { cookie: phone, form: { pick: laptop.digits } });
+    await send(`/pair/approve/${laptop.token}`, { cookie: phone, form: { digits: laptop.digits } });
     await send('/account/sign-out-others', { cookie: phone, form: {} });
-    const claimed = await send('/pair/scan/status', { cookie: laptop.pollCookie, htmx: true });
+    const claimed = await laptop.poll();
     expect(cookieNamed(claimed, SESSION_COOKIE)).toBeNull();
+  });
+
+  it('a claim that finds nothing leaves the browser’s own session alone', async () => {
+    const phone = await ravi();
+    await createUser(env.DB, { username: 'asha', passwordHash: await hashPassword('asha-password'), role: 'member', mustChangePassword: false });
+    const asha = cookieNamed(await send('/auth/login', { form: { username: 'asha', password: 'asha-password' } }), SESSION_COOKIE)!;
+    const laptop = await ask();
+    await send(`/pair/approve/${laptop.token}`, { cookie: phone, form: { digits: laptop.digits } });
+    await send('/account/sign-out-others', { cookie: phone, form: {} });
+    await laptop.poll(`${asha}; ${laptop.pollCookie}`);
+    expect(await signedInAs(asha)).toContain('asha');
+  });
+
+  it('in two tabs, the older page says it’s over, and leaves the newer one’s cookie be', async () => {
+    const phone = await ravi();
+    const first = await ask();
+    const second = await ask(); // the same browser: its cookie now polls the second request
+    const older = await first.poll(second.pollCookie);
+    expect(await older.text()).toContain('This request is over');
+    expect(older.headers.get('set-cookie')).toBeNull();
+    await send(`/pair/approve/${second.token}`, { cookie: phone, form: { digits: second.digits } });
+    expect((await second.poll()).headers.get('HX-Redirect')).toBe('/');
+  });
+
+  it('answers its polls in the household’s language', async () => {
+    await updateSiteSettings(env.DB, { language: 'hi' });
+    const laptop = await ask();
+    await env.DB.prepare(`UPDATE device_pairings SET expires_at = datetime('now', '-1 minute')`).run();
+    const over = await (await laptop.poll()).text();
+    expect(over).toContain('यह अनुरोध खत्म हो गया');
+    expect(over).not.toContain('This request is over');
   });
 });
 
@@ -212,13 +271,11 @@ describe('the codes', () => {
     expect(normalizePairCode(undefined)).toBe('');
   });
 
-  it('offers the right digits among three, the same three for the same request', () => {
-    const seed = 'a1'.repeat(32);
-    const choices = matchChoices('42', seed);
-    expect(choices).toHaveLength(3);
-    expect(choices).toContain('42');
-    expect(new Set(choices).size).toBe(3);
-    expect(matchChoices('42', seed)).toEqual(choices);
-    expect(matchChoices('42', '')).toEqual(['10', '11', '42']); // a seed that runs out still makes three
+  it('read the phone’s two digits as typed, and nothing else', () => {
+    expect(normalizeDigits(' 42 ')).toBe('42');
+    expect(normalizeDigits('4 2')).toBe('42');
+    expect(normalizeDigits('421')).toBe('');
+    expect(normalizeDigits('4a')).toBe('');
+    expect(normalizeDigits(undefined)).toBe('');
   });
 });

@@ -20,15 +20,16 @@ auth relook **the owner decided** on both: **a recovery code shown at setup**, a
 - **Used at `/recover`**, linked from the log in page as *Forgot your password?*. The form takes a
   username, the code — read back as typed, in any case, with or without its dashes — and a new
   password twice.
-  - **The checks run in order, cheapest first.** The new password is checked first, so a short or
-    unconfirmed one costs no try. Then **login's throttle** (§8): ten failures in ten minutes, by
-    address and by the account named. Then the code is looked up, before anything is hashed. A wrong
-    code and an unknown username get the same answer.
+  - **The checks run in order, cheapest first.** The new password is checked first, then whether the
+    code could be one at all (its length, its 31 characters), so a short or unconfirmed password, or a
+    typo, costs no try. Then **login's throttle** (§8): ten failures in ten minutes, by address and by
+    the account named. Then the code is looked up, before anything is hashed. A wrong code and an
+    unknown username get the same answer.
   - **One batch whose statements each find the account through the code** sets the new password,
     moves the generation on (every device signs out, #70), deletes the admin's API tokens and links,
-    and signs this device in (#98). Last, it **replaces the code with a new one**, shown on the page
-    the answer is. So a code works once, an admin is never left without one, and of two uses racing,
-    one signs in.
+    signs this device in (#98) and takes the try back. Last, it **replaces the code with a new one**,
+    shown on the page the answer is. So a code works once, an admin is never left without one, and of
+    two uses racing, one signs in.
 - **Made again on Account**, by admins, under *Recovery code*. The panel says when the code was made,
   never the code, and *Make a new recovery code* asks for **the account's password**, checked under
   login's throttle as a password change is. A code outlives a password change and "Sign out other

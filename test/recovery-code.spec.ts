@@ -83,12 +83,21 @@ describe('the code setup shows', () => {
     expect(await logIn('admin', 'first-password')).not.toBeNull();
   });
 
-  it('checks the new password before the code: a short or unconfirmed one costs no try', async () => {
+  it('checks what was typed first: a short or unconfirmed password, or what can’t be a code, costs no try — and a code that works takes its try back', async () => {
     const { code } = await setUp();
     expect(await (await recover({ code, password: 'short', confirm: 'short' })).text()).toContain('at least 8 characters');
     expect(await (await recover({ code, confirm: 'something-else' })).text()).toContain('Passwords do not match');
+    expect(await (await recover({ code: 'ABCD-EFGH' })).text()).toContain('don’t go together');
     expect(await rows('SELECT * FROM login_attempts')).toEqual([]);
     expect((await recover({ code })).status).toBe(200);
+    expect(await rows('SELECT * FROM login_attempts')).toEqual([]);
+  });
+
+  it('leaves the browser’s own session alone when the code is wrong', async () => {
+    const { cookie } = await setUp();
+    const res = await send('/recover', { cookie, form: { username: 'admin', code: 'ABCD-EFGH-JKMN-PQRS-TUVW', password: 'second-password', confirm: 'second-password' } });
+    expect(await res.text()).toContain('don’t go together');
+    expect(await signsIn(cookie)).toBe(true);
   });
 
   it('allows ten wrong tries an account in ten minutes, from anywhere, as login does', async () => {
