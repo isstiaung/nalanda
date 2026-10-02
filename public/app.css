@@ -903,8 +903,10 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 /* signing in from another device (§16 #99): the ways below the login form, the code or digits to read off, the three to pick from */
 .pair-ways { display: grid; gap: 0.5rem; justify-items: start; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--line); }
 .pair-digits { font-size: 2.25rem; letter-spacing: 0.12em; text-align: center; margin: 0.75rem 0; }
-.pair-choices { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0.5rem 0 1rem; }
-.pair-choices .btn { font-size: 1.5rem; min-width: 4.5rem; min-height: 3rem; }
+.pair-digits-label { text-align: center; margin: 0.75rem 0 0; }
+.pair-digits-label + .pair-digits { margin-top: 0.25rem; }
+.pair-type { font-size: 1.5rem; max-width: 6rem; letter-spacing: 0.12em; }
+.pair-answers { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; }
 .pair-waiting { margin-top: 0.75rem; }
 .auth-card h1 { font-size: 18px; }
 

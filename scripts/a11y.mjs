@@ -1192,13 +1192,13 @@ async function interactions(context, ids, variant) {
 // ── Signing in from another device (ARCH.md §16 #99) ───────────────────────────────────────────────────────────
 //
 // Both ways round, in each variant, each new device a browser of its own: it ends signed in as the admin, and the
-// anonymous browser the other pages use must stay signed out. The code: Account's code and its QR, then /pair as the QR
-// opens it, filled in, signing in. A wrong code only in the first variant: it counts with the address's failed logins,
-// every request here comes from one address, and the wrong-password audits already spend some. The scan: the log in
-// page's "Sign in with your phone", its QR and number; the phone's page; a wrong number, which ends the request on both
-// (the new device's poll swaps in the end, the phone's link answers 410); then a new request, the right number, and the
-// new device's poll signing it in.
-async function pairing(admin, variant, first) {
+// anonymous browser the other pages use must stay signed out. The code: Account's code and its QR, then /pair refusing
+// what can't be a code (which costs no try: every request here comes from one address, and the wrong-password audits
+// spend its ten), then /pair as the QR opens it, filled in, signing in. The scan: the log in page's "Sign in with your
+// phone", its QR and number; the phone's page; a wrong number typed, which ends the request on both (the new device's
+// poll swaps in the end, the phone's link answers 410); then a new request, the right number, and the new device's poll
+// signing it in.
+async function pairing(admin, variant) {
   const reload = async (page, name) => {
     await page.waitForLoadState('load');
     await page.addScriptTag({ content: AXE });
@@ -1216,13 +1216,11 @@ async function pairing(admin, variant, first) {
       url = (await page.locator('.pair-code img[data-qr]').getAttribute('data-qr')) ?? '';
     });
     await withVariant(typing, variant, async (page) => {
-      if (first) {
-        await open(page, '/pair');
-        await page.getByLabel('Code').fill('ABCD-EFGH');
-        await page.getByRole('button', { name: 'Sign in' }).click();
-        await page.locator('.error').waitFor({ timeout: 10_000 });
-        await reload(page, 'Pair → wrong code');
-      }
+      await open(page, '/pair');
+      await page.getByLabel('Code').fill('ABC');
+      await page.getByRole('button', { name: 'Sign in' }).click();
+      await page.locator('.error').waitFor({ timeout: 10_000 });
+      await reload(page, 'Pair → wrong code');
       await open(page, path(url));
       await axe(page, 'Pair: sign in with a code', variant.name);
       if (variant.scheme === 'light') await keyboard(page, 'Pair: sign in with a code', variant.name);
@@ -1254,7 +1252,8 @@ async function pairing(admin, variant, first) {
         await open(phone, asked.approve);
         await axe(phone, 'Pair: approve on the phone', variant.name);
         if (variant.scheme === 'light') await keyboard(phone, 'Pair: approve on the phone', variant.name);
-        await phone.locator(`.pair-choices button:not([value="${asked.digits}"])`).first().click();
+        await phone.getByLabel('The number shown on that device').fill(String(((Number(asked.digits) - 10 + 1) % 90) + 10));
+        await phone.getByRole('button', { name: 'Sign it in' }).click();
         await reload(phone, 'Pair → the wrong number (phone)');
         await open(phone, asked.approve, 410);
         await axe(phone, 'Pair: a request no longer open (phone)', variant.name);
@@ -1266,7 +1265,8 @@ async function pairing(admin, variant, first) {
       const again = await ask();
       await withVariant(admin, variant, async (phone) => {
         await open(phone, again.approve);
-        await phone.getByRole('button', { name: `Pick ${again.digits}` }).click();
+        await phone.getByLabel('The number shown on that device').fill(again.digits);
+        await phone.getByRole('button', { name: 'Sign it in' }).click();
         await reload(phone, 'Pair → approved (phone)');
       });
       await device.waitForURL(`${BASE}/`, { timeout: 10_000 });
@@ -1681,7 +1681,7 @@ async function main() {
     await interactions(admin, ids, variant);
     if (chosen('Pair')) {
       try {
-        await pairing(admin, variant, variant === VARIANTS[0]);
+        await pairing(admin, variant);
       } catch (err) {
         failures.push(`interaction · signing in another device [${variant.name}]: ${err.message.split('\n')[0]}`);
       }

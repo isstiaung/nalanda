@@ -21,7 +21,7 @@ import {
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { hashLinkToken, hasSessionSecret, hashApiToken, hashPassword, isLinkToken, newApiToken, verifyPassword } from '../lib/auth';
-import { formatPairCode, matchChoices, newPairCode, PAIR_MINUTES } from '../lib/pairing';
+import { formatPairCode, newPairCode, normalizeDigits, PAIR_MINUTES } from '../lib/pairing';
 import { QR_BLANK } from './shares';
 import { ledgerDate } from '../lib/dates';
 import { clientIp, newSessionFor, setSessionCookie } from './auth';
@@ -435,27 +435,28 @@ account.post('/account/pair', async (c) => {
   return accountPage(c, { pair: { code: formatPairCode(code), page: `${origin}/pair`, url: `${origin}/pair?code=${code}` } });
 });
 
-/** What a phone shows when it scans a new device's QR (§16 #99): which device is asking, and the three numbers to pick from. */
-const ApprovePage = ({ token, device, choices, name }: { token: string; device: string; choices: string[]; name: string }) => {
+/**
+ * What a phone shows when it scans a new device's QR (§16 #99): which device is asking, a warning, and the number on
+ * that device to type. Declining skips the field's own checks (formnovalidate): it needs no number.
+ */
+const ApprovePage = ({ token, device, name }: { token: string; device: string; name: string }) => {
   const { t } = useI18n();
   return (
     <article class="panel form-card account-card">
       <h1>{t('pair.approve_title')}</h1>
       <p>{t('pair.approve_intro', { device: device || t('account.device_unknown'), name })}</p>
+      <p class="notice">{t('pair.approve_warning')}</p>
       <form method="post" action={`/pair/approve/${token}`}>
-        <fieldset>
-          <legend>{t('pair.pick')}</legend>
-          <div class="pair-choices">
-            {choices.map((n) => (
-              <button type="submit" name="pick" value={n} class="btn mono" aria-label={t('pair.pick_one', { digits: n })}>
-                {n}
-              </button>
-            ))}
-          </div>
-        </fieldset>
-        <button type="submit" name="pick" value="" class="btn-danger">
-          {t('pair.cancel')}
-        </button>
+        <label>
+          {t('pair.type_label')}
+          <input name="digits" required inputmode="numeric" pattern="[0-9]{2}" maxlength={2} autocomplete="off" class="mono pair-type" />
+        </label>
+        <div class="pair-answers">
+          <button type="submit">{t('pair.approve')}</button>
+          <button type="submit" name="decline" value="1" formnovalidate class="btn-danger">
+            {t('pair.cancel')}
+          </button>
+        </div>
       </form>
     </article>
   );
@@ -492,7 +493,7 @@ account.get('/pair/approve/:token', async (c) => {
     c.status(410);
     return page(c, t('pair.gone_title'), <ApproveResult outcome="gone" />);
   }
-  return page(c, t('pair.approve_title'), <ApprovePage token={token} device={found.device} choices={matchChoices(found.matchDigits, hash)} name={c.get('user').username} />);
+  return page(c, t('pair.approve_title'), <ApprovePage token={token} device={found.device} name={c.get('user').username} />);
 });
 
 account.post('/pair/approve/:token', async (c) => {
@@ -502,16 +503,18 @@ account.post('/pair/approve/:token', async (c) => {
     c.status(410);
     return page(c, t('pair.gone_title'), <ApproveResult outcome="gone" />);
   }
-  const pick = String((await c.req.parseBody())['pick'] ?? '');
+  const body = await c.req.parseBody();
+  const declined = body['decline'] === '1';
+  const digits = declined ? '' : normalizeDigits(body['digits']);
   const hash = await hashLinkToken(token);
   const open = await pairScanFor(c.env.DB, hash);
   if (!open) {
     c.status(410);
     return page(c, t('pair.gone_title'), <ApproveResult outcome="gone" />);
   }
-  // the right digits approve it for this account; the wrong ones, or Cancel, end the request — nothing is signed in
-  const approved = await answerPairScan(c.env.DB, hash, c.get('user'), /^\d{2}$/.test(pick) ? pick : null);
-  return page(c, t('pair.approve_title'), <ApproveResult outcome={approved ? 'approved' : pick ? 'wrong' : 'cancelled'} />);
+  // the right digits approve it for this account; any others, or declining, end the request — nothing is signed in
+  const approved = await answerPairScan(c.env.DB, hash, c.get('user'), digits || null);
+  return page(c, t('pair.approve_title'), <ApproveResult outcome={approved ? 'approved' : declined ? 'cancelled' : 'wrong'} />);
 });
 
 /** Signs one other device out (§16 #98): the member's own session, by its id; that device's cookie signs nobody in after. */

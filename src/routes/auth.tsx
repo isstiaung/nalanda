@@ -40,7 +40,7 @@ import { formatPairCode, newMatchDigits, normalizePairCode, PAIR_MINUTES } from 
 import { QR_BLANK } from './shares';
 import { invalid } from '../views/components';
 import { useI18n } from '../views/i18n';
-import { Brand, i18nOf, page } from '../views/layout';
+import { Brand, i18nOf, page, partial } from '../views/layout';
 
 const auth = new Hono<AppEnv>();
 
@@ -316,13 +316,15 @@ auth.post('/join/:token', async (c) => {
 /** The new device's half of a scan: its poll secret, on this path alone, for as long as the request is open. */
 const PAIR_COOKIE = 'nalanda_pair';
 
-/** A code typed: a guess at a credential, so it counts with the address's failed logins — ten in ten minutes between them —
- *  under the address's own name, never one anyone else could use up. Forgotten when the code works, as a login is. */
-const pairAttempt = (c: Context<AppEnv>) => recordLoginAttempt(c.env.DB, clientIp(c), `#pair:${clientIp(c)}`);
+/** A code typed: a guess at a credential, so it counts with the address's failed logins — ten in ten minutes between
+ *  them — by the address alone: a code names no account, and nobody elsewhere can add to an address's count. Taken back
+ *  when the code works, as a login's is. */
+const pairAttempt = (c: Context<AppEnv>) => recordLoginAttempt(c.env.DB, clientIp(c), null);
 
-/** A scan request opened: a row anyone may make, so ten an address in ten minutes — counted apart from logins, so tapping
- *  "Sign in with your phone" never uses up a household's password tries (one address, behind its router). */
-const scanAttempt = (c: Context<AppEnv>) => recordLoginAttempt(c.env.DB, `#scan:${clientIp(c)}`, `#scan:${clientIp(c)}`);
+/** A scan request opened: a row anyone may make, so ten an address in ten minutes — counted apart from logins (its own
+ *  address column, which only this route writes), so tapping "Sign in with your phone" never uses up a household's
+ *  password tries, behind one router's address. */
+const scanAttempt = (c: Context<AppEnv>) => recordLoginAttempt(c.env.DB, `#scan:${clientIp(c)}`, null);
 
 const CodeForm = ({ code, error }: { code?: string; error?: string }) => {
   const { t } = useI18n();
@@ -364,32 +366,44 @@ auth.post('/pair', async (c) => {
   c.header('cache-control', 'no-store');
   const { t } = await i18nOf(c);
   const typed = String((await c.req.parseBody())['code'] ?? '');
+  // what can't be a code is answered before the throttle: a typo costs no try
+  const code = normalizePairCode(typed);
+  if (!code) return page(c, t('pair.code_title'), <CodeForm code={typed} error={t('pair.code_wrong')} />);
   const attempt = await pairAttempt(c);
   if (!attempt) {
     c.status(429);
     return page(c, t('pair.code_title'), <CodeForm code={typed} error={t('login.too_many', { minutes: LOGIN_ATTEMPT_WINDOW_MINUTES })} />);
   }
-  const code = normalizePairCode(typed);
+  // one batch: the session, the code gone, and the try taken back if it worked (§16 #39)
   const ns = await newSessionFor(c);
-  const account = code ? await redeemPairCode(c.env.DB, await hashLinkToken(code), ns) : null;
+  const account = await redeemPairCode(c.env.DB, await hashLinkToken(code), ns, attempt);
   if (!account) return page(c, t('pair.code_title'), <CodeForm code={typed} error={t('pair.code_wrong')} />);
-  await forgetLoginAttempt(c.env.DB, attempt);
   await setSessionCookie(c, secret, account, ns.sid);
   return c.redirect('/');
 });
 
-/** What the new device shows while it waits: polled every two seconds by htmx, with a button for a browser without it. */
-const PairWaiting = () => {
+/**
+ * What the new device shows while it waits: htmx asks every two seconds, and the answer is nothing (204, which htmx
+ * leaves alone) until the request is approved — a redirect into the app — or over, when this is swapped for saying so.
+ * Nothing in it takes focus, and the live region isn't made anew on every poll. `request` is the start of the request's
+ * poll hash, nothing secret: a newer request in another tab replaced the cookie, and this one then says it's over.
+ */
+const PairWaiting = ({ request }: { request: string }) => {
   const { t } = useI18n();
   return (
-    <form method="get" action="/pair/scan/status" hx-get="/pair/scan/status" hx-trigger="every 2s" hx-swap="outerHTML" class="pair-waiting">
+    <form hx-get={`/pair/scan/status?r=${request}`} hx-trigger="every 2s" hx-swap="outerHTML" class="pair-waiting">
       <output aria-live="polite">{t('pair.waiting')}</output>
-      <button type="submit" class="btn">
-        {t('pair.continue')}
-      </button>
+      <noscript>
+        <p>
+          {t('pair.needs_script')} <a href="/pair">{t('login.with_code')}</a>
+        </p>
+      </noscript>
     </form>
   );
 };
+
+/** What a waiting page shows of its request: enough of the poll hash to tell it from a newer one, and nothing secret. */
+const requestTag = (pollHash: string): string => pollHash.slice(0, 12);
 
 /** A request that is over: expired, declined, or answered wrongly on the phone. */
 const PairGone = () => {
@@ -404,7 +418,7 @@ const PairGone = () => {
   );
 };
 
-const ScanPage = ({ approveUrl, digits }: { approveUrl: string | null; digits: string | null }) => {
+const ScanPage = ({ approveUrl, digits, request }: { approveUrl: string | null; digits: string | null; request: string }) => {
   const { t } = useI18n();
   return (
     <article class="auth-card">
@@ -418,10 +432,9 @@ const ScanPage = ({ approveUrl, digits }: { approveUrl: string | null; digits: s
               <img data-qr={approveUrl} alt={t('pair.qr_alt')} width="512" height="512" src={QR_BLANK} />
             </div>
           ) : null}
-          <p class="pair-digits mono" aria-label={t('pair.digits_label', { digits })}>
-            {digits}
-          </p>
-          <PairWaiting />
+          <p class="pair-digits-label">{t('pair.digits_label')}</p>
+          <p class="pair-digits mono">{digits}</p>
+          <PairWaiting request={request} />
           <script src="/vendor/qrcode.js" defer></script>
           <script src="/qr.js" defer></script>
         </>
@@ -442,13 +455,10 @@ auth.post('/pair/scan', async (c) => {
   }
   // three secrets of this request: the cookie this device polls with, the QR the phone scans, and the digits to match
   const poll = newLinkToken();
+  const pollHash = await hashLinkToken(poll);
   const approve = newLinkToken();
   const digits = newMatchDigits();
-  await createPairScan(
-    c.env.DB,
-    { pollHash: await hashLinkToken(poll), approveHash: await hashLinkToken(approve), matchDigits: digits, device: deviceName(c.req.header('user-agent')) },
-    PAIR_MINUTES,
-  );
+  await createPairScan(c.env.DB, { pollHash, approveHash: await hashLinkToken(approve), matchDigits: digits, device: deviceName(c.req.header('user-agent')) }, PAIR_MINUTES);
   setCookie(c, PAIR_COOKIE, poll, {
     path: '/pair',
     httpOnly: true,
@@ -456,18 +466,24 @@ auth.post('/pair/scan', async (c) => {
     secure: new URL(c.req.url).protocol === 'https:',
     maxAge: PAIR_MINUTES * 60,
   });
-  return page(c, t('pair.scan_title'), <ScanPage approveUrl={`${new URL(c.req.url).origin}/pair/approve/${approve}`} digits={digits} />);
+  return page(c, t('pair.scan_title'), <ScanPage approveUrl={`${new URL(c.req.url).origin}/pair/approve/${approve}`} digits={digits} request={requestTag(pollHash)} />);
 });
 
 auth.get('/pair/scan/status', async (c) => {
   c.header('cache-control', 'no-store');
   const htmx = !!c.req.header('HX-Request');
   const poll = getCookie(c, PAIR_COOKIE);
+  const pollHash = poll && isLinkToken(poll) ? await hashLinkToken(poll) : null;
+  const { t } = await i18nOf(c);
+  const over = () => (htmx ? partial(c, <PairGone />) : page(c, t('pair.scan_title'), <ScanPage approveUrl={null} digits={null} request="" />));
+  // a page whose request a newer one replaced (another tab took the cookie): over, the cookie left to the newer one
+  const asked = c.req.query('r');
+  if (asked && (!pollHash || requestTag(pollHash) !== asked)) return over();
+  const status = pollHash ? await pairScanStatus(c.env.DB, pollHash) : ({ state: 'gone' } as const);
   const secret = c.env.SESSION_SECRET;
-  const status = poll && isLinkToken(poll) ? await pairScanStatus(c.env.DB, await hashLinkToken(poll)) : ({ state: 'gone' } as const);
-  if (status.state === 'approved' && hasSessionSecret(secret)) {
+  if (status.state === 'approved' && pollHash && hasSessionSecret(secret)) {
     const ns = await newSessionFor(c);
-    const account = await claimPairScan(c.env.DB, await hashLinkToken(poll!), ns);
+    const account = await claimPairScan(c.env.DB, pollHash, ns);
     if (account) {
       await setSessionCookie(c, secret, account, ns.sid);
       deleteCookie(c, PAIR_COOKIE, { path: '/pair' });
@@ -476,10 +492,10 @@ auth.get('/pair/scan/status', async (c) => {
       return c.body(null);
     }
   }
-  const { t } = await i18nOf(c);
-  if (status.state === 'waiting') return htmx ? c.html(<PairWaiting />) : page(c, t('pair.scan_title'), <ScanPage approveUrl={null} digits={status.matchDigits} />);
+  // still waiting: nothing to swap
+  if (status.state === 'waiting') return htmx ? c.body(null, 204) : page(c, t('pair.scan_title'), <ScanPage approveUrl={null} digits={status.matchDigits} request={requestTag(pollHash!)} />);
   deleteCookie(c, PAIR_COOKIE, { path: '/pair' });
-  return htmx ? c.html(<PairGone />) : page(c, t('pair.scan_title'), <ScanPage approveUrl={null} digits={null} />);
+  return over();
 });
 
 type SetupField = 'username' | 'password' | 'confirm';

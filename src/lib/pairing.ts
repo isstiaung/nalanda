@@ -1,5 +1,5 @@
 // Signing in a device from another one (ARCH.md §16 #99): the short code a signed-in device shows, and the two digits
-// a new device shows for the phone to match. Pure: what the codes look like and how they are read back; the rows are
+// a new device shows for the phone to type. Pure: what the codes look like and how they are read back; the rows are
 // in db/queries.ts, the pages in routes/auth.tsx (the new device's) and routes/account.tsx (the signed-in one's).
 
 /** How long either way of pairing stays open: long enough to pick up the other device, short enough to be no standing key. */
@@ -26,16 +26,14 @@ export function normalizePairCode(raw: unknown): string {
   return code.length === PAIR_CODE_LENGTH && [...code].every((ch) => ALPHABET.includes(ch)) ? code : '';
 }
 
-/** The two digits a new device shows, 10 to 99: what the phone must pick before it approves (§16 #99). */
+/** The two digits a new device shows, 10 to 99: what the phone must type before it approves (§16 #99) — a request sent
+ *  to someone who can't see that screen is right once in ninety guesses, and one wrong answer ends it. */
 export function newMatchDigits(): string {
   return String(10 + (crypto.getRandomValues(new Uint32Array(1))[0]! % 90));
 }
 
-/** The three numbers the phone offers: the right one among two others, in an order that gives nothing away. The others
- *  come from the request's hash (hex), so they are the same on every load: reloading the page narrows nothing down. */
-export function matchChoices(match: string, seed: string): string[] {
-  const picks = new Set([match]);
-  for (let i = 0; i + 2 <= seed.length && picks.size < 3; i += 2) picks.add(String(10 + (parseInt(seed.slice(i, i + 2), 16) % 90)));
-  for (let n = 10; picks.size < 3; n++) picks.add(String(n));
-  return [...picks].sort();
+/** Two digits as typed on the phone, spaces aside; '' if they aren't two digits. */
+export function normalizeDigits(raw: unknown): string {
+  const typed = String(raw ?? '').replace(/\s+/g, '');
+  return /^\d{2}$/.test(typed) ? typed : '';
 }

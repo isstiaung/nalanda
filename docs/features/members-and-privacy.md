@@ -52,7 +52,7 @@ Devices** lists each signed-in device by its browser and system, with when it si
 used, and signs any other one out; Log out ends this one. A session lasts 30 days from its last use
 ([#98](../decisions/098-device-sessions.md)). A new device can sign in without a password: **Sign in
 another device** on Account shows a code to type on it (or scan), or the new device's log in page
-shows a QR for a signed-in phone, which approves it by picking the number the new device shows
+shows a QR for a signed-in phone, which approves it by typing the number the new device shows
 ([#99](../decisions/099-device-pairing.md)). **Sign out other
 devices** on Account ends every other session and keeps this one
 ([#70](../decisions/070-sign-out-other-devices.md)); changing your password does the same, and an
