@@ -43,6 +43,16 @@ HTTPS* when the certificate has been issued. Nothing in the repository changes: 
 Pages for the site's base path at build time (`actions/configure-pages`), so links are written for
 `/<repo>/` on github.io and for `/` on a custom domain alike.
 
+The workflow also passes Pages' **origin** (`--origin`): the app writes some addresses in full — a share's
+address, its QR code and copy button on Shared links, a share page's link-preview tags, a feed's entries — from
+the address it was crawled at, so the build points every one of them at the demo's own copy on the site's origin.
+A local build without `--origin` links them by path alone.
+
+**Release tags may deploy.** The `github-pages` environment (Settings → Environments → *github-pages* →
+*Deployment branches and tags*) allows only `main` by default, so the run a release tag starts builds the demo and
+then fails to publish it ("Tag … is not allowed to deploy to github-pages due to environment protection rules").
+Add a tag rule `v*` there once.
+
 ## Building locally
 
 ```sh
@@ -68,6 +78,9 @@ rebuild. The seed drives the real import routes, so it can never write a shape t
   forbid the `pages: write` permission.
 - *Links on the demo lead to the repository root:* a local build was made without `--base`; the
   workflow takes the base from Pages itself (`/<repo>` on github.io, nothing on a custom domain).
+- *A release tag's run builds but doesn't publish* ("not allowed to deploy to github-pages"): add the `v*`
+  tag rule above, then re-run it or start the workflow by hand from `main`.
+- *Links or QR codes on the demo point at `127.0.0.1`:* a build made without `--origin`; the workflow passes it.
 - *"DNS check unsuccessful" under Custom domain:* the `CNAME` record isn't there or is proxied —
   see above.
 - *A page in the demo is missing:* the crawl stops at 600 pages and never follows `?page=`,

@@ -2,7 +2,7 @@
 // the crawl never follows, and what every page gets and loses. The crawl itself (scripts/demo-build.mjs) runs a
 // scratch wrangler dev and is exercised by the Demo workflow, not here.
 import { describe, expect, it } from 'vitest';
-import { addressesIn, bannerHtml, CANNED_SEARCHES, crawlable, DEMO_PASSWORD, DEMO_USER, fileFor, hrefFor, inject, isAsset, LOGIN_NOTE, rewriteLinks } from '../scripts/demo-static.mjs';
+import { addressesIn, bannerHtml, CANNED_SEARCHES, crawlable, DEMO_PASSWORD, DEMO_USER, fileFor, fullAddressesIn, hrefFor, inject, isAsset, LOGIN_NOTE, rewriteFullAddresses, rewriteLinks } from '../scripts/demo-static.mjs';
 
 describe('where an address lands', () => {
   it('puts the home under home/, a page under its path, a filtered page under q/, and keeps a file where it is', () => {
@@ -70,6 +70,26 @@ describe('what a page becomes', () => {
     expect(rewriteLinks(html, '/nalanda')).toBe(
       '<a href="/nalanda/home/">home</a> <a href="/nalanda/libraries/3/q/sort=title&amp;view=grid.html#top">shelf</a> <form action="/nalanda/search/"><input name="q"></form> <img src="/nalanda/covers/k"> <script src="/nalanda/app.js"></script> <a href="https://x.example/p">x</a> <a href="//cdn.example/y">y</a> <source srcset="/nalanda/bgg/x.svg"> <a href="/nalanda/creators/Ursula%20K.%20Le%20Guin/">u</a>',
     );
+  });
+
+  it('finds the addresses the app writes in full on the scratch origin, and points them at the demo on its own origin', () => {
+    const from = 'http://127.0.0.1:8818';
+    // as Shared links writes a share: its link, the address as text, the QR code's data — and a feed entry, a preview tag
+    const html =
+      `<a href="${from}/share/abc" class="mono">${from}/share/abc</a> <img data-qr="${from}/share/abc">` +
+      ` <meta property="og:image" content="${from}/covers/k1"> <a href="${from}/libraries/3?sort=title&amp;view=grid#top">s</a>` +
+      ` <a href="https://elsewhere.example/share/abc">x</a> <a href="/share/abc">already a path</a>`;
+    expect(fullAddressesIn(html, from)).toEqual(['/share/abc', '/covers/k1', '/libraries/3?sort=title&view=grid']);
+    expect(rewriteFullAddresses(html, from, 'https://demo.example', '/nalanda')).toBe(
+      `<a href="https://demo.example/nalanda/share/abc/" class="mono">https://demo.example/nalanda/share/abc/</a> <img data-qr="https://demo.example/nalanda/share/abc/">` +
+        ` <meta property="og:image" content="https://demo.example/nalanda/covers/k1"> <a href="https://demo.example/nalanda/libraries/3/q/sort=title&amp;view=grid.html#top">s</a>` +
+        ` <a href="https://elsewhere.example/share/abc">x</a> <a href="/share/abc">already a path</a>`,
+    );
+    // a local build has no origin: the full addresses become paths under the base
+    expect(rewriteFullAddresses(`<link href="${from}/share/abc/feed.atom">`, from)).toBe('<link href="/share/abc/feed.atom">');
+    // a feed's entries, with nothing else of the scratch server left in it
+    const atom = `<entry><id>${from}/share/abc/items/7</id><link href="${from}/share/abc/items/7"/></entry>`;
+    expect(rewriteFullAddresses(atom, from, 'https://demo.example')).not.toContain('127.0.0.1');
   });
 
   it('loses the manifest, the app metas and htmx, gains the demo stylesheet, pages and script in the head, and the banner first in the body', () => {

@@ -10,5 +10,7 @@ export function fileFor(pathWithQuery: string): string;
 export function hrefFor(pathWithQuery: string, base?: string): string;
 export function addressesIn(html: string): string[];
 export function rewriteLinks(html: string, base?: string): string;
+export function fullAddressesIn(text: string, origin: string): string[];
+export function rewriteFullAddresses(text: string, from: string, to?: string, base?: string): string;
 export function inject(html: string, opts: { base?: string; banner: string }): string;
 export function bannerHtml(base?: string, repo?: string): string;
