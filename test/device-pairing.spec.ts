@@ -85,13 +85,19 @@ describe('a code from a signed-in device', () => {
     expect(await (await send('/pair', { form: { code: third.code } })).text()).toContain('That code didn’t work');
   });
 
-  it('allows ten wrong codes an address in ten minutes, counted with its failed logins; a typo that can’t be a code costs none', async () => {
+  it('allows ten wrong codes an address in ten minutes, apart from its failed logins both ways; a typo that can’t be a code costs none', async () => {
     await ravi();
-    for (let i = 0; i < 5; i++) await send('/auth/login', { form: { username: 'ravi', password: 'wrong-password' }, ip: '198.51.100.7' });
-    for (let i = 0; i < 5; i++) expect((await send('/pair', { form: { code: 'ABCD-EFGH' }, ip: '198.51.100.7' })).status).toBe(200);
+    // the address's password tries spent: its codes are untouched
+    for (let i = 0; i < 10; i++) await send('/auth/login', { form: { username: 'ravi', password: 'wrong-password' }, ip: '198.51.100.7' });
+    for (let i = 0; i < 10; i++) expect((await send('/pair', { form: { code: 'ABCD-EFGH' }, ip: '198.51.100.7' })).status).toBe(200);
     expect(await (await send('/pair', { form: { code: 'ABC' }, ip: '198.51.100.7' })).text()).toContain('That code didn’t work');
     expect((await send('/pair', { form: { code: 'ABCD-EFGH' }, ip: '198.51.100.7' })).status).toBe(429);
     expect((await send('/pair', { form: { code: 'ABCD-EFGH' }, ip: '198.51.100.8' })).status).toBe(200); // another address
+    // and the other way: an address whose codes are spent still signs in with a password (ravi's ten wrong ones, which
+    // count against his account too, aged out first)
+    await env.DB.prepare(`DELETE FROM login_attempts WHERE ip = '198.51.100.7'`).run();
+    for (let i = 0; i < 10; i++) await send('/pair', { form: { code: 'ABCD-EFGH' }, ip: '198.51.100.9' });
+    expect(cookieNamed(await send('/auth/login', { form: { username: 'ravi', password: 'a-good-password' }, ip: '198.51.100.9' }), SESSION_COOKIE)).not.toBeNull();
   });
 
   it('takes its try back when it works, in the batch that signs in', async () => {

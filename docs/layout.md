@@ -37,7 +37,7 @@ src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googleboo
 src/lib/           auth.ts (pbkdf2, signed cookie), devices.ts (a session's device name from its User-Agent —
                    ARCH.md §16 #98), codes.ts (codes read off one screen and typed on another: the alphabet,
                    making one, reading it back — §16 #99, #100), pairing.ts (signing in from another device:
-                   the code, the digits to match and the three choices — §16 #99; the pages in routes/auth.tsx
+                   the code, the digits the phone types — §16 #99; the pages in routes/auth.tsx
                    and routes/account.tsx), recovery.ts (an admin's recovery code — §16 #100), share.ts (public whitelist), csv.ts
                    (export + libib, Goodreads, StoryGraph and LibraryThing mappings, whose reads an import brings), covers.ts (with
                    fonts.ts, the only R2 code), fonts.ts (a household's display fonts: the sniffer, the
