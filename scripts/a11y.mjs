@@ -1189,6 +1189,93 @@ async function interactions(context, ids, variant) {
   });
 }
 
+// ── Signing in from another device (ARCH.md §16 #99) ───────────────────────────────────────────────────────────
+//
+// Both ways round, in each variant, each new device a browser of its own: it ends signed in as the admin, and the
+// anonymous browser the other pages use must stay signed out. The code: Account's code and its QR, then /pair as the QR
+// opens it, filled in, signing in. A wrong code only in the first variant: it counts with the address's failed logins,
+// every request here comes from one address, and the wrong-password audits already spend some. The scan: the log in
+// page's "Sign in with your phone", its QR and number; the phone's page; a wrong number, which ends the request on both
+// (the new device's poll swaps in the end, the phone's link answers 410); then a new request, the right number, and the
+// new device's poll signing it in.
+async function pairing(admin, variant, first) {
+  const reload = async (page, name) => {
+    await page.waitForLoadState('load');
+    await page.addScriptTag({ content: AXE });
+    await axe(page, name, variant.name);
+  };
+  const path = (url) => `${new URL(url).pathname}${new URL(url).search}`;
+  const typing = await browser.newContext();
+  try {
+    let url = '';
+    await withVariant(admin, variant, async (page) => {
+      await open(page, '/account');
+      await page.getByRole('button', { name: 'Sign in another device' }).click();
+      await page.locator('.pair-code img[data-qr]').waitFor({ timeout: 10_000 });
+      await reload(page, 'Account → a code for another device');
+      url = (await page.locator('.pair-code img[data-qr]').getAttribute('data-qr')) ?? '';
+    });
+    await withVariant(typing, variant, async (page) => {
+      if (first) {
+        await open(page, '/pair');
+        await page.getByLabel('Code').fill('ABCD-EFGH');
+        await page.getByRole('button', { name: 'Sign in' }).click();
+        await page.locator('.error').waitFor({ timeout: 10_000 });
+        await reload(page, 'Pair → wrong code');
+      }
+      await open(page, path(url));
+      await axe(page, 'Pair: sign in with a code', variant.name);
+      if (variant.scheme === 'light') await keyboard(page, 'Pair: sign in with a code', variant.name);
+      await page.getByRole('button', { name: 'Sign in' }).click();
+      await page.waitForURL(`${BASE}/`, { timeout: 10_000 });
+    });
+  } finally {
+    await typing.close();
+  }
+
+  const scanning = await browser.newContext();
+  try {
+    await withVariant(scanning, variant, async (device) => {
+      const ask = async () => {
+        await open(device, '/login');
+        await device.getByRole('button', { name: 'Sign in with your phone' }).click();
+        await device.locator('.pair-waiting output').waitFor({ timeout: 10_000 });
+        await device.waitForLoadState('load');
+        await device.addScriptTag({ content: AXE });
+        return {
+          approve: path((await device.locator('img[data-qr]').getAttribute('data-qr')) ?? ''),
+          digits: ((await device.locator('.pair-digits').textContent()) ?? '').trim(),
+        };
+      };
+      const asked = await ask();
+      await axe(device, 'Pair: sign in with your phone', variant.name);
+      if (variant.scheme === 'light') await keyboard(device, 'Pair: sign in with your phone', variant.name);
+      await withVariant(admin, variant, async (phone) => {
+        await open(phone, asked.approve);
+        await axe(phone, 'Pair: approve on the phone', variant.name);
+        if (variant.scheme === 'light') await keyboard(phone, 'Pair: approve on the phone', variant.name);
+        await phone.locator(`.pair-choices button:not([value="${asked.digits}"])`).first().click();
+        await reload(phone, 'Pair → the wrong number (phone)');
+        await open(phone, asked.approve, 410);
+        await axe(phone, 'Pair: a request no longer open (phone)', variant.name);
+      });
+      // the poll, every two seconds, swaps in the end of the request
+      await device.locator('.pair-waiting [role="alert"]').waitFor({ timeout: 10_000 });
+      await axe(device, 'Pair → the request over (new device)', variant.name);
+
+      const again = await ask();
+      await withVariant(admin, variant, async (phone) => {
+        await open(phone, again.approve);
+        await phone.getByRole('button', { name: `Pick ${again.digits}` }).click();
+        await reload(phone, 'Pair → approved (phone)');
+      });
+      await device.waitForURL(`${BASE}/`, { timeout: 10_000 });
+    });
+  } finally {
+    await scanning.close();
+  }
+}
+
 // ── Refresh from Discogs / Refresh from BGG, in place (ARCH.md §16 #55, #60) ─────────────────────────────────────
 //
 // The buttons render only with a provider token, and the main instance has none (its Add-page lookups would use
@@ -1592,6 +1679,13 @@ async function main() {
     });
     // every step checks --only itself: --only=htmx runs them all, another word the steps whose name has it
     await interactions(admin, ids, variant);
+    if (chosen('Pair')) {
+      try {
+        await pairing(admin, variant, variant === VARIANTS[0]);
+      } catch (err) {
+        failures.push(`interaction · signing in another device [${variant.name}]: ${err.message.split('\n')[0]}`);
+      }
+    }
   }
   if (chosen('Refresh')) {
     try {

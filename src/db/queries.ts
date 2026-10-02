@@ -373,6 +373,98 @@ export async function createSession(d1: D1Database, account: { id: number }, ns:
   await d1.batch(startSession(d1, ns, '?1', [account.id]));
 }
 
+// ---------- signing in a device from another (ARCH.md §16 #99) ----------
+
+/** The account a live code names: still in the key and generation it was made in, and within its minutes. */
+const PAIR_CODE_USER = `SELECT p.user_id FROM device_pairings p JOIN users u ON u.id = p.user_id AND u.session_key = p.session_key AND u.session_generation = p.generation
+  WHERE p.kind = 'code' AND p.code_hash = ?1 AND p.expires_at > datetime('now')`;
+
+/** The account a phone approved for a new device's request: approved, still in that key and generation, within its minutes. */
+const PAIR_SCAN_USER = `SELECT p.user_id FROM device_pairings p JOIN users u ON u.id = p.user_id AND u.session_key = p.session_key AND u.session_generation = p.generation
+  WHERE p.kind = 'scan' AND p.poll_hash = ?1 AND p.approved_at IS NOT NULL AND p.expires_at > datetime('now')`;
+
+/** Pairings past their minutes, anyone's: let go whenever one is made. */
+const expiredPairings = (d1: D1Database) => d1.prepare(`DELETE FROM device_pairings WHERE expires_at <= datetime('now')`);
+
+/** A code for another device to sign in with (§16 #99): the account's only one — a new one replaces it — for `minutes`. */
+export async function createPairCode(d1: D1Database, user: { id: number; sessionKey: string; sessionGeneration: number }, codeHash: string, minutes: number): Promise<void> {
+  await d1.batch([
+    expiredPairings(d1),
+    d1.prepare(`DELETE FROM device_pairings WHERE user_id = ?1 AND kind = 'code'`).bind(user.id),
+    d1
+      .prepare(`INSERT INTO device_pairings (kind, user_id, session_key, generation, code_hash, expires_at) VALUES ('code', ?1, ?2, ?3, ?4, datetime('now', ?5))`)
+      .bind(user.id, user.sessionKey, user.sessionGeneration, codeHash, `+${minutes} minutes`),
+  ]);
+}
+
+/**
+ * A pairing used (§16 #99): the new device's session starts for the account it names, and the pairing goes, in one
+ * batch — so it works once, and of two devices racing for it, one is signed in. The account to sign in, or null.
+ */
+async function usePairing(d1: D1Database, userSql: string, secretHash: string, column: 'code_hash' | 'poll_hash', ns: NewSession) {
+  const statements = [
+    ...startSession(d1, ns, userSql, [secretHash]),
+    d1.prepare('SELECT id, session_key AS sessionKey, session_generation AS sessionGeneration FROM users WHERE id = (SELECT user_id FROM sessions WHERE id = ?1)').bind(ns.sid),
+    d1.prepare(`DELETE FROM device_pairings WHERE ${column} = ?1`).bind(secretHash),
+  ];
+  const results = await d1.batch(statements);
+  const row = (results[statements.length - 2]?.results ?? [])[0] as { id: number; sessionKey: string; sessionGeneration: number } | undefined;
+  return row ?? null;
+}
+
+/** A code entered on a new device (§16 #99): its session, or null for a code that is wrong, used or past its minutes. */
+export const redeemPairCode = (d1: D1Database, codeHash: string, ns: NewSession) => usePairing(d1, PAIR_CODE_USER, codeHash, 'code_hash', ns);
+
+/** A new device asking to be signed in by a phone (§16 #99): its poll secret, the QR's secret and the digits, for `minutes`. */
+export async function createPairScan(d1: D1Database, values: { pollHash: string; approveHash: string; matchDigits: string; device: string }, minutes: number): Promise<void> {
+  await d1.batch([
+    expiredPairings(d1),
+    d1
+      .prepare(`INSERT INTO device_pairings (kind, poll_hash, approve_hash, match_digits, device, expires_at) VALUES ('scan', ?1, ?2, ?3, ?4, datetime('now', ?5))`)
+      .bind(values.pollHash, values.approveHash, values.matchDigits, values.device, `+${minutes} minutes`),
+  ]);
+}
+
+/** A request the phone scanned, while it waits: which device is asking, and the digits it shows. Null once approved, used or expired. */
+export async function pairScanFor(d1: D1Database, approveHash: string): Promise<{ device: string; matchDigits: string } | null> {
+  return (
+    (await d1
+      .prepare(`SELECT device, match_digits AS matchDigits FROM device_pairings WHERE kind = 'scan' AND approve_hash = ?1 AND approved_at IS NULL AND expires_at > datetime('now')`)
+      .bind(approveHash)
+      .first<{ device: string; matchDigits: string }>()) ?? null
+  );
+}
+
+/**
+ * The phone's answer (§16 #99): the digits it picked match, and the request now names this account — or they don't, or
+ * the member cancelled, and the request is gone, so the new device starts again. True only when approved.
+ */
+export async function answerPairScan(d1: D1Database, approveHash: string, user: { id: number; sessionKey: string; sessionGeneration: number }, picked: string | null): Promise<boolean> {
+  const res = await d1
+    .prepare(
+      `UPDATE device_pairings SET user_id = ?2, session_key = ?3, generation = ?4, approved_at = datetime('now')
+       WHERE kind = 'scan' AND approve_hash = ?1 AND approved_at IS NULL AND expires_at > datetime('now') AND match_digits = ?5`,
+    )
+    .bind(approveHash, user.id, user.sessionKey, user.sessionGeneration, picked ?? '')
+    .run();
+  if (res.meta.changes > 0) return true;
+  await d1.prepare(`DELETE FROM device_pairings WHERE kind = 'scan' AND approve_hash = ?1 AND approved_at IS NULL`).bind(approveHash).run();
+  return false;
+}
+
+/** Where a new device's request stands, by its poll secret: waiting (with its digits), approved, or gone. */
+export async function pairScanStatus(d1: D1Database, pollHash: string): Promise<{ state: 'waiting'; matchDigits: string } | { state: 'approved' } | { state: 'gone' }> {
+  const row = await d1
+    .prepare(`SELECT match_digits AS matchDigits, approved_at IS NOT NULL AS approved FROM device_pairings WHERE kind = 'scan' AND poll_hash = ?1 AND expires_at > datetime('now')`)
+    .bind(pollHash)
+    .first<{ matchDigits: string; approved: number }>();
+  if (!row) return { state: 'gone' };
+  return row.approved ? { state: 'approved' } : { state: 'waiting', matchDigits: row.matchDigits };
+}
+
+/** The new device claims what the phone approved (§16 #99): its session, or null. */
+export const claimPairScan = (d1: D1Database, pollHash: string, ns: NewSession) => usePairing(d1, PAIR_SCAN_USER, pollHash, 'poll_hash', ns);
+
 /** Signs one device out (§16 #98): the member's own session, by its id. False when there was none of theirs. */
 export async function deleteSession(d1: D1Database, userId: number, sid: string): Promise<boolean> {
   const res = await d1.prepare('DELETE FROM sessions WHERE id = ?1 AND user_id = ?2').bind(sid, userId).run();
