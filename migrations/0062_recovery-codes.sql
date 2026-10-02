@@ -3,6 +3,8 @@ CREATE TABLE `recovery_codes` (
 	`session_key` text NOT NULL,
 	`code_hash` text NOT NULL,
 	`created_at` text DEFAULT (datetime('now')) NOT NULL,
+	`used_hash` text,
+	`used_at` text,
 	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint

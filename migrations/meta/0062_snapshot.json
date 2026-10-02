@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "309063a0-7aab-49c6-9688-679af7cd40df",
+  "id": "dc49ca54-6929-42ae-8f15-280f566e2fac",
   "prevId": "f30fdfb8-0d57-4476-bde6-0cb10c655819",
   "tables": {
     "account_links": {
@@ -3751,6 +3751,20 @@
           "notNull": true,
           "autoincrement": false,
           "default": "(datetime('now'))"
+        },
+        "used_hash": {
+          "name": "used_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "used_at": {
+          "name": "used_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {

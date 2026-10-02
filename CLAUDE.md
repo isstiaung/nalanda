@@ -233,7 +233,7 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   code's QR or the approve page signs nobody in; only the new device's poll, with its cookie, claims, in one
   batch. An admin's recovery code (§16 #100) is made with the account at setup,
   shown once, kept hashed, used once at `/recover` and replaced in that batch; making one on Account takes the
-  password. Login and
+  password, and any other new password (a change, a reset, a link) deletes it in its batch. Login and
   the current-password check are throttled by `recordLoginAttempt()`: ten failures in ten minutes
   per IP and per account, counted in the statement that checks, *before* the password is verified,
   answered 429; an unknown username is checked against `DUMMY_HASH`. A temporary-password session

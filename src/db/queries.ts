@@ -136,6 +136,8 @@ export async function resetWithLink(
       )
       .bind(id, tokenHash, `+${days} days`),
     d1.prepare('DELETE FROM account_links WHERE user_id = ?1 AND token_hash <> ?2').bind(id, tokenHash),
+    // and an admin's recovery code (§16 #100): whoever knew the old password could have made it, and it would outlive this
+    d1.prepare('DELETE FROM recovery_codes WHERE user_id = ?1').bind(id),
   ]);
   const row = (made?.results ?? [])[0] as { purpose: 'invite' | 'reset' } | undefined;
   return row?.purpose ?? null;
@@ -176,6 +178,8 @@ export async function useAccountLink(
     d1.prepare(`DELETE FROM sessions WHERE user_id = (${LIVE_LINK})`).bind(tokenHash), // every device, as a new password ends (§16 #98)
     // this device signs in by the same write, found through the link before the link goes (§16 #39)
     ...(ns ? startSession(d1, ns, LIVE_LINK, [tokenHash]) : []),
+    // a recovery code made under the old password goes with it (§16 #100) — `npm run reset-admin`'s link included
+    d1.prepare(`DELETE FROM recovery_codes WHERE user_id = (${LIVE_LINK})`).bind(tokenHash),
     d1.prepare(`DELETE FROM account_links WHERE user_id = (${LIVE_LINK})`).bind(tokenHash),
   ]);
   return ((moved?.results ?? [])[0] as { id: number; sessionKey: string; sessionGeneration: number } | undefined) ?? null;
@@ -392,21 +396,52 @@ export async function createSession(d1: D1Database, account: { id: number }, ns:
 const RECOVERY_USER = `SELECT u.id FROM users u JOIN recovery_codes r ON r.user_id = u.id AND r.session_key = u.session_key
   WHERE u.username = ?1 AND r.code_hash = ?2`;
 
-/** Makes an account's recovery code, or a new one in its place: the old one stops working. False if the account is gone. */
-export async function setRecoveryCode(d1: D1Database, userId: number, codeHash: string): Promise<boolean> {
-  const res = await d1
-    .prepare(
-      `INSERT INTO recovery_codes (user_id, session_key, code_hash) SELECT id, session_key, ?2 FROM users WHERE id = ?1
-       ON CONFLICT(user_id) DO UPDATE SET session_key = excluded.session_key, code_hash = excluded.code_hash, created_at = datetime('now')`,
-    )
-    .bind(userId, codeHash)
-    .run();
+/** What a page knows of the code it showed: the start of its hash — nothing that opens anything — or '' for none. */
+export const recoveryTag = (codeHash: string): string => codeHash.slice(0, 16);
+
+/**
+ * Makes an account's recovery code, or a new one in place of the one the page showed (`was`, its recoveryTag(), or ''
+ * for none): the old one stops working. Conditional on that, so of two clicks racing, one makes a code and the other
+ * makes nothing — never a code on screen that a later write already replaced. False when nothing was made.
+ */
+export async function setRecoveryCode(d1: D1Database, userId: number, codeHash: string, was: string): Promise<boolean> {
+  const res = await (was
+    ? d1
+        .prepare(
+          `UPDATE recovery_codes SET code_hash = ?2, session_key = (SELECT session_key FROM users WHERE id = ?1), created_at = datetime('now'),
+             used_hash = NULL, used_at = NULL
+           WHERE user_id = ?1 AND substr(code_hash, 1, 16) = ?3`,
+        )
+        .bind(userId, codeHash, was)
+    : d1
+        .prepare(
+          // none shown: made only if there is none — or only one bound to another key, which opens nothing
+          `INSERT INTO recovery_codes (user_id, session_key, code_hash) SELECT id, session_key, ?2 FROM users WHERE id = ?1
+           ON CONFLICT(user_id) DO UPDATE SET session_key = excluded.session_key, code_hash = excluded.code_hash,
+             created_at = datetime('now'), used_hash = NULL, used_at = NULL
+           WHERE recovery_codes.session_key <> excluded.session_key`,
+        )
+        .bind(userId, codeHash)
+  ).run();
   return res.meta.changes > 0;
 }
 
-/** Whether a username and recovery code go together — looked up before anything is hashed, as a one-time link is (§16 #97). */
-export async function recoveryCodeOpens(d1: D1Database, username: string, codeHash: string): Promise<boolean> {
-  return (await d1.prepare(RECOVERY_USER).bind(username, codeHash).first()) !== null;
+/** How long a used code is still recognised as just used. */
+const RECOVERY_JUST_USED = '-10 minutes';
+
+/**
+ * What a username and recovery code are, looked up before anything is hashed, as a one-time link is (§16 #97): `live`,
+ * `used` (it was, minutes ago: a double-click or a reload of the page that used it), or null — wrong, or nobody's.
+ */
+export async function recoveryCodeState(d1: D1Database, username: string, codeHash: string): Promise<'live' | 'used' | null> {
+  const row = await d1
+    .prepare(
+      `SELECT r.code_hash = ?2 AS live FROM users u JOIN recovery_codes r ON r.user_id = u.id AND r.session_key = u.session_key
+       WHERE u.username = ?1 AND (r.code_hash = ?2 OR (r.used_hash = ?2 AND r.used_at > datetime('now', ?3)))`,
+    )
+    .bind(username, codeHash, RECOVERY_JUST_USED)
+    .first<{ live: number }>();
+  return row ? (row.live ? 'live' : 'used') : null;
 }
 
 /**
@@ -436,7 +471,10 @@ export async function recoverWithCode(
     ...startSession(d1, ns, RECOVERY_USER, [username, codeHash]),
     d1.prepare('DELETE FROM login_attempts WHERE rowid = ?1 AND EXISTS (SELECT 1 FROM sessions WHERE id = ?2)').bind(attempt.rowid, ns.sid),
     d1
-      .prepare(`UPDATE recovery_codes SET code_hash = ?3, created_at = datetime('now') WHERE user_id = (${RECOVERY_USER})`)
+      .prepare(
+        `UPDATE recovery_codes SET used_hash = code_hash, used_at = datetime('now'), code_hash = ?3, created_at = datetime('now')
+         WHERE user_id = (${RECOVERY_USER})`,
+      )
       .bind(username, codeHash, input.nextCodeHash),
   ]);
   return ((moved?.results ?? [])[0] as { id: number; sessionKey: string; sessionGeneration: number } | undefined) ?? null;
@@ -884,6 +922,8 @@ export async function setPassword(
       .bind(id, passwordHash, mustChangePassword ? 1 : 0),
     d1.prepare('DELETE FROM api_tokens WHERE user_id = ?1').bind(id),
     endSessions(d1, id), // their rows too (§16 #98): the generation already refuses them; this keeps Devices honest
+    // and a recovery code (§16 #100): whoever knew the old password could have made one, and it would outlive the change
+    d1.prepare('DELETE FROM recovery_codes WHERE user_id = ?1').bind(id),
     // and the device that asked signs in again, in the new generation, by the same write (§16 #39)
     ...(ns ? startSession(d1, ns, '?1', [id]) : []),
   ]);
@@ -957,6 +997,7 @@ export async function userWithTokens(
   tokens: Array<{ id: number; name: string; createdAt: string }>;
   devices: DeviceRow[];
   recoveryMade: string | null;
+  recoveryTag: string;
 }> {
   const [u, t, sd, rc] = await d1.batch([
     d1.prepare('SELECT display_name AS displayName, locale FROM users WHERE id = ?1').bind(userId),
@@ -971,7 +1012,11 @@ export async function userWithTokens(
       )
       .bind(userId, `-${SESSION_DAYS} days`),
     // when the recovery code was made (§16 #100) — never the code, which is only a hash here
-    d1.prepare('SELECT r.created_at AS createdAt FROM recovery_codes r JOIN users u ON u.id = r.user_id AND u.session_key = r.session_key WHERE r.user_id = ?1').bind(userId),
+    d1
+      .prepare(
+        'SELECT r.created_at AS createdAt, substr(r.code_hash, 1, 16) AS tag FROM recovery_codes r JOIN users u ON u.id = r.user_id AND u.session_key = r.session_key WHERE r.user_id = ?1',
+      )
+      .bind(userId),
   ]);
   const row = (u?.results ?? [])[0] as { displayName: string | null; locale: string | null } | undefined;
   return {
@@ -980,6 +1025,7 @@ export async function userWithTokens(
     tokens: (t?.results ?? []) as Array<{ id: number; name: string; createdAt: string }>,
     devices: (sd?.results ?? []) as DeviceRow[],
     recoveryMade: ((rc?.results ?? [])[0] as { createdAt: string } | undefined)?.createdAt ?? null,
+    recoveryTag: ((rc?.results ?? [])[0] as { tag: string } | undefined)?.tag ?? '',
   };
 }
 

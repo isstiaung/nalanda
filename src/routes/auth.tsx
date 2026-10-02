@@ -15,7 +15,7 @@ import {
   pairScanStatus,
   recordLoginAttempt,
   recoverWithCode,
-  recoveryCodeOpens,
+  recoveryCodeState,
   redeemPairCode,
   useAccountLink,
   type NewSession,
@@ -602,15 +602,18 @@ auth.post('/recover', async (c) => {
     c.status(429);
     return form(t('login.too_many', { minutes: LOGIN_ATTEMPT_WINDOW_MINUTES }), []);
   }
-  // the code before the password is hashed: a wrong one costs a lookup, never a PBKDF2
+  // the code before the password is hashed: a wrong one costs a lookup, never a PBKDF2. One used minutes ago — the
+  // second click of a double-click, the page reloaded — is told so: it worked, and its new code was on a closed page
   const codeHash = await hashLinkToken(code);
-  if (!(await recoveryCodeOpens(c.env.DB, username, codeHash))) return form(t('recover.wrong'), ['username', 'code']);
+  const state = await recoveryCodeState(c.env.DB, username, codeHash);
+  if (state === 'used') return form(t('recover.just_used'), []);
+  if (!state) return form(t('recover.wrong'), ['username', 'code']);
   // the batch decides (§16 #100): the code is found again in every statement, so of two uses racing, one signs in;
   // the try is taken back in it too, so nothing after it can fail the request (§16 #39)
   const next = newRecoveryCode();
   const ns = await newSessionFor(c);
   const account = await recoverWithCode(c.env.DB, { username, codeHash, passwordHash: await hashPassword(password), nextCodeHash: await hashLinkToken(next) }, ns, attempt);
-  if (!account) return form(t('recover.wrong'), ['username', 'code']);
+  if (!account) return form(t('recover.just_used'), []); // found a moment ago, gone now: a use racing this one won
   await setSessionCookie(c, secret, account, ns.sid);
   return page(c, t('recovery.title'), <RecoveryCodePage code={next} after="recovered" />);
 });

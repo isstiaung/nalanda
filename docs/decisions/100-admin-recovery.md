@@ -30,12 +30,28 @@ auth relook **the owner decided** on both: **a recovery code shown at setup**, a
     signs this device in (#98) and takes the try back. Last, it **replaces the code with a new one**,
     shown on the page the answer is. So a code works once, an admin is never left without one, and of
     two uses racing, one signs in.
+  - **A code used minutes ago is told so**, not that it is wrong. The row keeps the used code's hash
+    and when, for ten minutes. A double-click, or a reload of the page that used it, shows the
+    response to the second request, and that request finds the code already replaced. It says the new
+    password is set and to make a new code on Account, because the next code was on a page that has
+    since closed.
 - **Made again on Account**, by admins, under *Recovery code*. The panel says when the code was made,
   never the code, and *Make a new recovery code* asks for **the account's password**, checked under
-  login's throttle as a password change is. A code outlives a password change and "Sign out other
-  devices", so whoever holds only a stolen session mustn't be able to mint one. The new code is shown
-  once and the old one stops working. An admin from before this version has none until they make one;
-  the panel says so.
+  login's throttle as a password change is. A code outlives "Sign out other devices", so whoever holds
+  only a stolen session mustn't be able to mint one. The new code is shown once and the old one stops
+  working.
+  - **Conditional on the code the page showed.** The form names it (the start of its hash, which opens
+    nothing). Of two clicks racing, one makes a code; the other makes nothing and says so. The code on
+    screen is never one a later write already replaced.
+  - **The write comes last.** The page showing the new code is rendered first, with every read it
+    needs, so nothing after the write can fail the request (#39).
+  - An admin with none — from before this version, added later under Members, or whose code went with
+    a password (below) — makes one here, and the panel says so.
+- **A new password set any other way ends the code**: a password change on Account, an admin's reset
+  (#97) and a one-time link used (`reset-admin`'s included), each in its own batch. Whoever knew the
+  old password could have made a code, and it would otherwise outlive the remedy. With a phished
+  password, a reset would be undone by the code the phisher made. After a change, Account says the
+  code stopped working, beside the button that makes another.
 - **A member has no recovery code.** An admin resets them with a link (#97). `/recover` says so, and
   `POST /account/recovery` answers a member 403.
 - **`npm run reset-admin -- <username> --url=https://…`**, run by whoever holds the Cloudflare
@@ -62,17 +78,21 @@ auth relook **the owner decided** on both: **a recovery code shown at setup**, a
 - **The command setting a password itself.** A password typed into a terminal ends up in shell
   history. A link lets the admin choose theirs in the browser, as every other password is chosen.
 
-**Upgrading.** Migration 0062 adds `recovery_codes`; existing admins have none until they make one on
+**Upgrading.** Migration 0062 adds `recovery_codes`. Existing admins have none until they make one on
 Account (it asks for their password). `npm run reset-admin` needs `account_links` (#97), so it works
 from the release that brings one-time links on.
 
 **Tests:** `test/recovery-code.spec.ts` covers:
 - **setup's code:** kept as a hash; used once with its replacement shown; every device, token and
-  link ended;
-- **refusals:** the same answer for a wrong code and an unknown name; the password checked first;
-  the throttle; a race; a removed admin's code;
-- **Account:** the date never the code; a new one only for the password; members refused and shown
-  nothing; an admin with none;
+  link ended; "just used" for ten minutes, then wrong;
+- **refusals:** the same answer for a wrong code and an unknown name; the password and the code's shape
+  checked first; the throttle; a race; a removed admin's code; a wrong code leaving the browser's session;
+- **Account:** the date never the code; a new one only for the password, naming itself for the next
+  click; members refused and shown nothing; an admin with none;
+- **a code outliving its password:** gone with another admin's reset (the phished-password case), a
+  password change (and Account saying so) and a one-time link used;
+- **double-clicks:** on `/recover`, one signs in and the other says "just used"; on *Make a new recovery
+  code*, one code shown, and it works;
 - **`reset-admin`'s SQL** against a real database: the app's own link, nothing changed until it is
   used; an invite kept an invite; a keyless account keyed; a quote in a username; nothing for a
   member;

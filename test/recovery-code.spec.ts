@@ -29,6 +29,12 @@ const sessionOf = (res: Response): string | null => {
   return m && m[1] ? `${SESSION_COOKIE}=${m[1]}` : null;
 };
 const codeOn = (html: string): string | null => /class="recovery-digits mono">([A-Z2-9-]{24})</.exec(html)?.[1] ?? null;
+const wasOn = (html: string): string => /name="was" value="([0-9a-f]*)"/.exec(html)?.[1] ?? '';
+/** "Make a new recovery code", as the page sends it: the password, and which code the page showed. */
+async function makeAnother(cookie: string, current: string) {
+  const was = wasOn(await (await send('/account', { cookie })).text());
+  return send('/account/recovery', { cookie, form: { current, was } });
+}
 const signsIn = async (cookie: string | null) => !!cookie && (await send('/account', { cookie })).status === 200;
 const logIn = async (username: string, password: string) => sessionOf(await send('/auth/login', { form: { username, password } }));
 
@@ -68,7 +74,10 @@ describe('the code setup shows', () => {
     expect(await rows('SELECT * FROM api_tokens')).toEqual([]);
     expect(await rows<{ h: string }>('SELECT code_hash AS h FROM recovery_codes')).toEqual([{ h: await hashLinkToken(next.replaceAll('-', '')) }]);
 
-    // used: the old code opens nothing; the new one does
+    // used: the old code opens nothing — minutes later it says it was just used (a double-click, a reload), then that
+    // it's wrong — and the new one does
+    expect(await (await recover({ code, password: 'third-password', confirm: 'third-password' })).text()).toContain('was used a few minutes ago');
+    await env.DB.prepare(`UPDATE recovery_codes SET used_at = datetime('now', '-11 minutes')`).run();
     expect(await (await recover({ code, password: 'third-password', confirm: 'third-password' })).text()).toContain('don’t go together');
     expect((await recover({ code: next, password: 'third-password', confirm: 'third-password' })).status).toBe(200);
     expect(await logIn('admin', 'third-password')).not.toBeNull();
@@ -131,14 +140,18 @@ describe('Account’s recovery code', () => {
     expect(account).toContain('You have a recovery code, made');
     expect(codeOn(account)).toBeNull();
 
-    const wrong = await (await send('/account/recovery', { cookie, form: { current: 'not-it' } })).text();
+    const wrong = await (await makeAnother(cookie, 'not-it')).text();
     expect(wrong).toContain('Current password is wrong.');
     expect(codeOn(wrong)).toBeNull();
 
-    const made = await send('/account/recovery', { cookie, form: { current: 'first-password' } });
+    const made = await makeAnother(cookie, 'first-password');
     expect(made.headers.get('cache-control')).toBe('no-store');
-    const fresh = codeOn(await made.text())!;
+    const page = await made.text();
+    const fresh = codeOn(page)!;
     expect(fresh).not.toBe(code);
+    expect(page).toContain('This is your new recovery code.');
+    // the page that shows it names it, so another click from it replaces this one
+    expect(wasOn(page)).toBe((await hashLinkToken(fresh.replaceAll('-', ''))).slice(0, 16));
     expect(await (await recover({ code })).text()).toContain('don’t go together');
     expect((await recover({ code: fresh })).status).toBe(200);
   });
@@ -157,7 +170,7 @@ describe('Account’s recovery code', () => {
     const ann = await createUser(env.DB, { username: 'ann', passwordHash: await hashPassword('ann-password'), role: 'admin', mustChangePassword: false });
     const cookie = await logIn('ann', 'ann-password');
     expect(await (await send('/account', { cookie: cookie! })).text()).toContain('You have no recovery code.');
-    const first = codeOn(await (await send('/account/recovery', { cookie: cookie!, form: { current: 'ann-password' } })).text());
+    const first = codeOn(await (await makeAnother(cookie!, 'ann-password')).text());
     expect(first).not.toBeNull();
     expect(await rows<{ id: number }>('SELECT user_id AS id FROM recovery_codes')).toEqual([{ id: ann.id }]);
   });
@@ -206,6 +219,62 @@ describe('npm run reset-admin’s link', () => {
 
     await createUser(env.DB, { username: 'ravi', passwordHash: 'pbkdf2$1$x$y', role: 'member', mustChangePassword: false });
     expect((await mint('ravi')).made).toBeNull();
+  });
+});
+
+describe('a code that would outlive its password', () => {
+  it('goes when another admin resets the account: whoever made it with a phished password can’t undo the reset', async () => {
+    const { cookie: a } = await setUp();
+    await send('/settings/users', { cookie: a, form: { username: 'bea', role: 'admin' } });
+    const bea = (await rows<{ id: number }>(`SELECT id FROM users WHERE username = 'bea'`))[0]!;
+    await env.DB.prepare(`UPDATE users SET password_hash = ?1 WHERE id = ?2`).bind(await hashPassword('bea-password'), bea.id).run();
+    const phished = await logIn('bea', 'bea-password');
+    const backdoor = codeOn(await (await makeAnother(phished!, 'bea-password')).text())!;
+    await send(`/settings/users/${bea.id}/reset`, { cookie: a, form: {} });
+    expect(await rows(`SELECT * FROM recovery_codes WHERE user_id = ${bea.id}`)).toEqual([]);
+    expect(await (await recover({ username: 'bea', code: backdoor })).text()).toContain('don’t go together');
+  });
+
+  it('goes with a password change, and Account says to make another; and with a one-time link used', async () => {
+    const { cookie, code } = await setUp();
+    const changed = await send('/account/password', { cookie, form: { current: 'first-password', next: 'second-password', confirm: 'second-password' } });
+    const next = sessionOf(changed)!;
+    expect(await rows('SELECT * FROM recovery_codes')).toEqual([]);
+    expect(await (await send('/account?ok=1', { cookie: next })).text()).toContain('Your recovery code stopped working with your old password');
+    expect(await (await recover({ code })).text()).toContain('don’t go together');
+
+    codeOn(await (await makeAnother(next, 'second-password')).text());
+    const { secret } = await (async () => {
+      const account = (await env.DB.prepare(resetLink.accountSql('admin')).first()) as { id: number; sessionKey: string };
+      const secret = resetLink.newLinkSecret();
+      const tokenHash = await resetLink.sha256Hex(secret);
+      for (const sql of resetLink.resetLinkStatements({ id: account.id, sessionKey: account.sessionKey, tokenHash })) await env.DB.prepare(sql).run();
+      return { secret };
+    })();
+    expect(await rows('SELECT user_id FROM recovery_codes')).toHaveLength(1); // the link changes nothing until it's used
+    await send(`/join/${secret}`, { form: { password: 'third-password', confirm: 'third-password' } });
+    expect(await rows('SELECT * FROM recovery_codes')).toEqual([]);
+  });
+});
+
+describe('a double-click', () => {
+  it('on /recover: one signs in, the other says the code was just used — not that it was wrong', async () => {
+    const { code } = await setUp();
+    const both = await Promise.all([recover({ code }), recover({ code })]);
+    expect(both.filter((r) => sessionOf(r)).length).toBe(1);
+    const other = both.find((r) => !sessionOf(r))!;
+    expect(await other.text()).toContain('was used a few minutes ago');
+  });
+
+  it('on Make a new recovery code: one makes a code, the other makes none and says so — the code on screen always works', async () => {
+    const { cookie } = await setUp();
+    const was = wasOn(await (await send('/account', { cookie })).text());
+    const both = await Promise.all([1, 2].map(() => send('/account/recovery', { cookie, form: { current: 'first-password', was } })));
+    const pages = await Promise.all(both.map((r) => r.text()));
+    const shown = pages.map(codeOn).filter((c): c is string => c !== null);
+    expect(shown).toHaveLength(1);
+    expect(pages.find((p) => !codeOn(p))).toContain('made a moment ago by another click');
+    expect((await recover({ code: shown[0]! })).status).toBe(200);
   });
 });
 

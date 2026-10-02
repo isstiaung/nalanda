@@ -98,9 +98,11 @@ Please don't file these:
 - **An admin's recovery code** (ARCH.md §16 #100) is how an admin with a forgotten password gets
   back in when no other admin can make them a link. It is shown once, at setup, or when made
   again on Account, which asks for the password. It is about 99 bits, kept as a SHA-256, used once,
-  and replaced in the batch that uses it. `/recover` counts under login's throttle, by address and
-  by account, and answers a wrong code and an unknown username alike. Failing that, `npm run
-  reset-admin`, run with the Cloudflare credentials, makes the admin a one-time reset link.
+  and replaced in the batch that uses it. A new password set any other way — changed, reset by
+  another admin, a one-time link — deletes it in its batch, so a code made by whoever had the old
+  password can't undo the remedy. `/recover` counts under login's throttle, by address and by account,
+  and answers a wrong code and an unknown username alike. Failing that, `npm run reset-admin`, run
+  with the Cloudflare credentials, makes the admin a one-time reset link.
 - **Metadata providers are called server-side over plain `fetch`.** Nalanda sends them
   barcodes and search terms; it sends them nothing about your users.
 - **GHSA-67mh-4wv8-2f99 (esbuild dev server).** Dismissed deliberately: it requires

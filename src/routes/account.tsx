@@ -10,6 +10,7 @@ import {
   revokeApiToken,
   setDisplayName,
   setPassword,
+  recoveryTag,
   setRecoveryCode,
   setUserLocale,
   signOutOtherDevices,
@@ -237,20 +238,23 @@ const TokensForm = ({ tokens, fresh, error }: { tokens: Array<{ id: number; name
  * it — and a new one in its place, for the account's password: whoever holds only a session can't make one, since a code
  * outlives a password change and "Sign out other devices".
  */
-type RecoveryPanel = { made: string | null; fresh?: string | null; error?: string };
-const RecoveryForm = ({ made, fresh, error }: RecoveryPanel) => {
+type RecoveryPanel = { made: string | null; tag: string; fresh?: string | null; notice?: string; error?: string };
+const RecoveryForm = ({ made, tag, fresh, notice, error }: RecoveryPanel) => {
   const { t } = useI18n();
   return (
     <article class="panel form-card account-card" id="recovery">
       <p class="eyebrow">{t('recovery.title')}</p>
       {fresh ? <RecoveryCodeBox code={fresh} /> : null}
-      <p class="muted">{made ? t('recovery.made', { date: ledgerDate(made) }) : t('recovery.none')}</p>
+      {notice ? <p class="notice">{notice}</p> : null}
+      <p class="muted">{fresh ? t('recovery.fresh') : made ? t('recovery.made', { date: ledgerDate(made) }) : t('recovery.none')}</p>
       {error ? (
         <p class="error" role="alert" id="recovery-error">
           {error}
         </p>
       ) : null}
+      {/* which code this page showed: a new one replaces that one only, so of two clicks racing, one makes a code */}
       <form method="post" action="/account/recovery#recovery">
+        <input type="hidden" name="was" value={tag} />
         <label>
           {t('recovery.password')}
           <input type="password" name="current" required autocomplete="current-password" {...invalid(error, 'recovery-error')} />
@@ -348,10 +352,21 @@ const Form = ({
 /** The Account page, with the member's tokens — and, right after one is made, the token itself, this once (§16 #88). */
 async function accountPage(
   c: Parameters<typeof page>[0],
-  extras: { freshToken?: { name: string; token: string } | null; tokenError?: string; pair?: PairCode; recovery?: string; recoveryError?: string } = {},
+  extras: {
+    freshToken?: { name: string; token: string } | null;
+    tokenError?: string;
+    pair?: PairCode;
+    recovery?: { code: string; tag: string };
+    recoveryNotice?: string;
+    recoveryError?: string;
+  } = {},
 ) {
   const user = c.get('user');
-  const { displayName, locale, tokens, devices, recoveryMade } = await userWithTokens(c.env.DB, user.id); // one call, as getUserById was
+  const { displayName, locale, tokens, devices, recoveryMade, recoveryTag: storedTag } = await userWithTokens(c.env.DB, user.id); // one call, as getUserById was
+  const { t } = c.get('i18n');
+  // a password just changed took the recovery code with it (§16 #100): say so, beside the button that makes another
+  const passwordChanged = c.req.query('ok') === '1';
+  const recoveryNotice = extras.recoveryNotice ?? (passwordChanged && !recoveryMade ? t('recovery.after_password') : undefined);
   const devicesQuery = c.req.query('devices');
   return page(
     c,
@@ -368,7 +383,17 @@ async function accountPage(
       devices={devices}
       current={c.get('sessionId')}
       pair={extras.pair ?? null}
-      recovery={user.role === 'admin' ? { made: recoveryMade, fresh: extras.recovery ?? null, error: extras.recoveryError } : null}
+      recovery={
+        user.role === 'admin'
+          ? {
+              made: recoveryMade,
+              tag: extras.recovery?.tag ?? storedTag,
+              fresh: extras.recovery?.code ?? null,
+              notice: recoveryNotice,
+              error: extras.recoveryError,
+            }
+          : null
+      }
       tokens={tokens}
       freshToken={extras.freshToken ?? null}
       tokenError={extras.tokenError}
@@ -461,7 +486,9 @@ account.post('/account/recovery', async (c) => {
   if (sessionUser.role !== 'admin') return c.text(t('recovery.admins_only'), 403);
   const user = await getUserById(c.env.DB, sessionUser.id);
   if (!user) return c.redirect('/login');
-  const current = String((await c.req.parseBody())['current'] ?? '');
+  const body = await c.req.parseBody();
+  const current = String(body['current'] ?? '');
+  const was = String(body['was'] ?? '').slice(0, 16);
   const attempt = await recordLoginAttempt(c.env.DB, clientIp(c), user.username);
   if (!attempt) {
     c.status(429);
@@ -469,9 +496,14 @@ account.post('/account/recovery', async (c) => {
   }
   if (!(await verifyPassword(current, user.passwordHash))) return accountPage(c, { recoveryError: t('account.wrong_current') });
   await forgetLoginAttempt(c.env.DB, attempt);
+  // the page with the new code is made first — every read it needs — and the write is the last thing this does, so
+  // nothing after it can fail: the old code stops working only on a response that shows its replacement (§16 #39)
   const code = newRecoveryCode();
-  if (!(await setRecoveryCode(c.env.DB, user.id, await hashLinkToken(code)))) return c.redirect('/login');
-  return accountPage(c, { recovery: code });
+  const hash = await hashLinkToken(code);
+  const shown = await accountPage(c, { recovery: { code, tag: recoveryTag(hash) } });
+  if (await setRecoveryCode(c.env.DB, user.id, hash, was)) return shown;
+  // another click made one a moment ago, from the same page: this one made nothing, and says so
+  return accountPage(c, { recoveryNotice: t('recovery.raced') });
 });
 
 /** Signs the account out everywhere but this device (§16 #70): the generation moves on, and this cookie moves with it. */

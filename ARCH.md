@@ -470,7 +470,7 @@ Multi-user, built into the app (no email infrastructure, no paid services):
   account. `/recover` (from *Forgot your password?*) takes username, code and a new password under
   login's throttle; one batch sets the password, moves the generation on, ends tokens and links, signs
   this device in and replaces the code with a new one, shown once. Admins make a new code on Account
-  with their password. `npm run reset-admin` makes a locked-out admin a one-time reset link from the
+  with their password; a new password set any other way (a change, a reset, a link) deletes it. `npm run reset-admin` makes a locked-out admin a one-time reset link from the
   CLI, and changes nothing until it is used.
 - CSRF: `SameSite=Lax` + an Origin-check middleware on all mutating routes.
 - An htmx request the session middleware turns away (signed out, `/setup`, `must_change_password`)
