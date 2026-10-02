@@ -69,15 +69,12 @@ export async function createUser(
 
 // ---------- one-time links to an account (ARCH.md §16 #97) ----------
 
-/** A link still good, as Members shows it: whose, which kind, until when. */
-export type PendingLink = { userId: number; purpose: 'invite' | 'reset'; expiresAt: string };
+/** A member's link, as Members shows it: whose, which kind, until when — and whether that has passed. */
+export type PendingLink = { userId: number; purpose: 'invite' | 'reset'; expiresAt: string; expired: boolean };
 
 /** The link a secret names, if it is still good: for the account it was made for (its id and key, #56), before it expires. */
 const LIVE_LINK = `SELECT l.user_id FROM account_links l JOIN users u ON u.id = l.user_id AND u.session_key = l.session_key
   WHERE l.token_hash = ?1 AND l.expires_at > datetime('now')`;
-
-/** Links past their week, anyone's: let go whenever a link is made, so the table holds only what could still be used. */
-const expiredLinks = (d1: D1Database) => d1.prepare(`DELETE FROM account_links WHERE expires_at <= datetime('now')`);
 
 /**
  * A new member and the invite that lets them in (§16 #97), in one batch (§16 #39): the account with a password nobody
@@ -103,7 +100,6 @@ export async function createInvitedUser(
            SELECT id, session_key, 'invite', ?2, datetime('now', ?3) FROM users WHERE username = ?1`,
         )
         .bind(values.username, tokenHash, `+${days} days`),
-      expiredLinks(d1),
     ]);
     return true;
   } catch (err) {
@@ -115,8 +111,9 @@ export async function createInvitedUser(
 /**
  * An admin's reset (§16 #97): the member's password stops working at once — replaced by one nobody knows — every
  * session and API token of theirs goes (#70, #88), and a new link lets them choose another. All one batch. The link is
- * an invite again for an account that never used its invite (it still has no password of its own), a reset otherwise;
- * any older link of theirs is replaced. The new link's kind, or null when there is no such member.
+ * an invite again for an account that never used its invite (it still has no password of its own) — its invite row
+ * stays, expired or not, until it is used, replaced or the member removed — and a reset otherwise; any older link of
+ * theirs is replaced. The new link's kind, or null when there is no such member.
  */
 export async function resetWithLink(
   d1: D1Database,
@@ -138,7 +135,6 @@ export async function resetWithLink(
       )
       .bind(id, tokenHash, `+${days} days`),
     d1.prepare('DELETE FROM account_links WHERE user_id = ?1 AND token_hash <> ?2').bind(id, tokenHash),
-    expiredLinks(d1),
   ]);
   const row = (made?.results ?? [])[0] as { purpose: 'invite' | 'reset' } | undefined;
   return row?.purpose ?? null;
@@ -368,18 +364,23 @@ export async function membersSettings(d1: D1Database): Promise<{
       .select({ locale: s.displayFonts.locale, name: s.displayFonts.name, bytes: s.displayFonts.bytes, uploadedAt: s.displayFonts.uploadedAt })
       .from(s.displayFonts)
       .orderBy(asc(s.displayFonts.locale)),
-    // each member's link still good (§16 #97), so the list can say who is invited and whose reset is out
+    // each member's link (§16 #97), so the list can say who is invited, whose reset is out — and whose has lapsed:
+    // an invite past its week still marks an account that never joined, and holds no password of its own
     dbi
-      .select({ userId: s.accountLinks.userId, purpose: s.accountLinks.purpose, expiresAt: s.accountLinks.expiresAt })
-      .from(s.accountLinks)
-      .where(sql`${s.accountLinks.expiresAt} > datetime('now')`),
+      .select({
+        userId: s.accountLinks.userId,
+        purpose: s.accountLinks.purpose,
+        expiresAt: s.accountLinks.expiresAt,
+        expired: sql<number>`${s.accountLinks.expiresAt} <= datetime('now')`,
+      })
+      .from(s.accountLinks),
   ]);
   return {
     settings: settingsOf(rows[0]),
     customFields: fields,
     translations: trs.map((r) => ({ locale: r.locale, count: Object.keys(overridesOf(r) ?? {}).length, updatedAt: r.updatedAt })),
     fonts,
-    links,
+    links: links.map((l) => ({ ...l, expired: !!l.expired })),
   };
 }
 

@@ -8,8 +8,9 @@
    let them scan the code from your screen. It works once, for seven days (ARCH.md §16 #97).
 4. They open it, choose their own password, and are signed in. You never see their password.
 
-The Members table says *Invited · until <date>* while the link is out. If it expired or went astray,
-**New invite link** beside their name makes another and the old one stops working.
+The Members table says *Invited · until <date>* while the link is out, and *Invite expired* once the
+week has passed. If it expired or went astray, **New invite link** beside their name makes another and
+the old one stops working.
 
 Members can do everything except manage users, publish or rotate share links, and **delete items
 in bulk**. Bulk edit's other actions (tag, untag, move to a shelf, owned, not owned) are open to

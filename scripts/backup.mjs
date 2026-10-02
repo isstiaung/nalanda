@@ -19,12 +19,13 @@ import { DATABASE, removeRemoteConfig, writeRemoteConfig } from './remote-config
 // FK-safe restore order. login_attempts (transient) and d1_migrations
 // (recreated by `wrangler d1 migrations apply`) are deliberately excluded.
 // federation_seen and connection_push_counts are left out on purpose: replay and rate bookkeeping that's
-// worthless within a day. So is import_in_progress, which only ever holds a row inside an import's batch. And so is
-// account_links (ARCH.md §16 #97): a one-time link is a short-lived secret, and an admin makes a new one in a click. The federation private key isn't data at all — it's a secret.
+// worthless within a day. So is import_in_progress, which only ever holds a row inside an import's batch. The federation private key isn't data at all — it's a secret.
 export const TABLES = [
   'users',
   'acting', // the writing member's marker (ARCH.md §16 #84): empty between batches, listed so the backup names every table
   'api_tokens', // members' read-only API tokens, as hashes (ARCH.md §16 #88): after users
+  'account_links', // one-time invite and reset links, as hashes (ARCH.md §16 #97): after users. An invite's row is also
+  // what says an account never joined, so a restore keeps it
   'libraries',
   'shares',
   'saved_views', // a shelf's named filter sets (ARCH.md §16 #81): after libraries and users, which it references

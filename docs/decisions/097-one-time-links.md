@@ -26,8 +26,9 @@ auth relook **the owner decided** that one-time links replace temporary password
   for seven days (`LINK_DAYS`). Using it sets the password, moves the generation on, deletes the
   member's API tokens and **every link of theirs**, in one batch whose statements each find the
   account through the link: of two uses racing, one sets the password and the other finds nothing.
-  An account has at most one link: a new one replaces the old. Links past their week are deleted
-  whenever a link is made.
+  An account has at most one link: a new one replaces the old. A link past its week opens nothing, but
+  its row stays until it is used, replaced or the member removed: an invite's row is what says the
+  account never joined, so a lapsed invite still shows *Invite expired* and still renews as an invite.
 - **`/join/<secret>`** is public, before the session middleware, beside `/login`: the account's
   username (read-only, offered to a password manager), a new password of at least 8 characters
   and its confirmation, and *Set password and sign in*, which signs the member in on this device.
@@ -35,8 +36,12 @@ auth relook **the owner decided** that one-time links replace temporary password
   made up — answers **410 with the same page whatever the reason**, naming nobody. A POST looks the
   link up before hashing anything, so a made-up link costs a lookup, never a PBKDF2.
 - **Members says where things stand.** *Invited · until <date>* or *Reset link out · until <date>*
-  beside a name, and *New invite link* in place of *Reset password* while an invite is out. The
-  link itself appears only on the response that made it.
+  beside a name — *Invite expired* or *Reset link expired* once the week has passed — and *New invite
+  link* in place of *Reset password* for an account that never joined. The link itself appears only on
+  the response that made it.
+- **An account with no session key yet** (restored from an older backup, or added by hand) gets one
+  before its reset link is made, as its next login would give it (#56): the link is bound to the key,
+  and signing in on the far side needs one.
 
 **What it rules out:**
 - **Throttling the links.** A secret of 256 bits can't be guessed, as a share token (#18) or an API
@@ -45,10 +50,14 @@ auth relook **the owner decided** that one-time links replace temporary password
   Nalanda still sends no mail and stores no address.
 - **Keeping temporary passwords** as an option beside links: one way in, one thing to secure.
 
+**Logs.** With Workers Logs on (`observability` in `wrangler.jsonc`), Cloudflare's request log records
+a link's address while it lives, as it records a share link's: the log is the account owner's, and a
+link dies when it is used and after its week.
+
 **Upgrading.** Migration 0059 adds `account_links`; nothing changes for existing accounts. A member
 who still has a temporary password from before keeps it, and the forced change at first sign-in
-(`mustChangeMayReach()`) still applies to them. Backups leave `account_links` out, as they leave
-`login_attempts` out: a link is a short-lived secret, and an admin makes a new one in a click.
+(`mustChangeMayReach()`) still applies to them. Backups carry `account_links` — hashes only, as they
+carry API tokens — so a restore still knows who never joined.
 
 **Tests:** `test/account-links.spec.ts` covers:
 - the invite shown once, with only its hash kept;

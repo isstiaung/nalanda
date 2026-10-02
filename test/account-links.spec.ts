@@ -42,6 +42,9 @@ describe('an invite', () => {
     const { html, url, token } = await invite(admin, 'ravi');
     expect(html).toContain('Invite link for “ravi”');
     expect(html).toContain(`data-qr="${url}"`);
+    // the QR library before /qr.js, which draws nothing without it
+    expect(html.indexOf('/vendor/qrcode.js')).toBeGreaterThan(-1);
+    expect(html.indexOf('/vendor/qrcode.js')).toBeLessThan(html.indexOf('/qr.js'));
     expect(html).not.toContain('Temporary password');
     const [row] = await rows<{ purpose: string; tokenHash: string; days: number }>(
       `SELECT purpose, token_hash AS tokenHash, round(julianday(expires_at) - julianday('now')) AS days FROM account_links`,
@@ -116,6 +119,20 @@ describe('an invite', () => {
   });
 });
 
+describe('an invite that lapsed', () => {
+  it('still says the account never joined, and renews as an invite — however many links were made since', async () => {
+    const admin = await member('asha', 'admin');
+    await invite(admin, 'ravi');
+    const ravi = (await rows<{ id: number }>(`SELECT id FROM users WHERE username = 'ravi'`))[0]!.id;
+    await env.DB.prepare(`UPDATE account_links SET expires_at = datetime('now', '-1 day')`).run();
+    await invite(admin, 'dee'); // another link made meanwhile sweeps nothing of ravi's
+    const members = await (await as(admin, '/settings/users')).text();
+    expect(members).toContain('Invite expired');
+    expect(members).toContain('New invite link');
+    expect(await (await as(admin, `/settings/users/${ravi}/reset`, { body: {} })).text()).toContain('Invite link for “ravi”');
+  });
+});
+
 describe('a reset', () => {
   it('stops the old password at once, signs the member out everywhere, takes their tokens, and lets them choose another', async () => {
     const admin = await member('asha', 'admin');
@@ -137,6 +154,16 @@ describe('a reset', () => {
     expect(done.status).toBe(302);
     expect((await login('dee', 'new-password-1')).status).toBe(302);
     expect((await getUserById(env.DB, dee.id))!.mustChangePassword).toBe(false);
+  });
+
+  it('gives an account with no session key yet one first, so the member is signed in at the end of it', async () => {
+    const admin = await member('asha', 'admin');
+    const dee = await createUser(env.DB, { username: 'dee', passwordHash: await hashPassword('old-password'), role: 'member', mustChangePassword: false });
+    await env.DB.prepare(`UPDATE users SET session_key = '' WHERE id = ?1`).bind(dee.id).run(); // restored from an older backup
+    const { token } = linkIn(await (await as(admin, `/settings/users/${dee.id}/reset`, { body: {} })).text());
+    const done = await as(null, `/join/${token}`, { body: { password: 'new-password-1', confirm: 'new-password-1' } });
+    expect(done.status).toBe(302);
+    expect(await signedInAs(cookieOf(done)!)).toContain('dee');
   });
 
   it('is an admin’s alone', async () => {

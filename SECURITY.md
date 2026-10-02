@@ -81,6 +81,8 @@ Please don't file these:
   SHA-256, bound to the account, good for seven days and once. Making a reset link stops the old
   password and signs the member out everywhere at once. Links aren't throttled — like share links
   and API tokens they can't be guessed — and a dead one answers the same way whatever the reason.
+  With Workers Logs on, Cloudflare's request log records a live link's address, as it does a share
+  link's; the link dies when used and after its week.
 - **Metadata providers are called server-side over plain `fetch`.** Nalanda sends them
   barcodes and search terms; it sends them nothing about your users.
 - **GHSA-67mh-4wv8-2f99 (esbuild dev server).** Dismissed deliberately: it requires

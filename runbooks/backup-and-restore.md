@@ -40,8 +40,7 @@ index rebuilds itself from triggers during restore.
 Left out on purpose: `login_attempts` (login throttling, stale within minutes),
 `federation_seen` and `connection_push_counts` (replay and rate bookkeeping, stale within a
 day), `import_in_progress` (holds a row only inside an import's own batch, so it's always
-empty), `account_links` (one-time invite and reset links, short-lived secrets — an admin makes a new one
-in a click, ARCH.md §16 #97), and `d1_migrations` (recreated when migrations are applied). The federation private key
+empty), and `d1_migrations` (recreated when migrations are applied). The federation private key
 isn't in the database at all — it's a secret, so keep your own copy of it.
 This procedure is rehearsed: a 315-item backup restored with every row present and the
 FTS index rebuilt to match.
@@ -79,7 +78,7 @@ npm run db:migrate:remote
 
 # 2. data, in FK-safe order — the order `npm run backup` prints, TABLES in scripts/backup.mjs
 #    (the files set defer_foreign_keys themselves; a table with no rows is an empty file)
-for t in users acting api_tokens libraries shares saved_views site_settings custom_fields translations display_fonts \
+for t in users acting api_tokens account_links libraries shares saved_views site_settings custom_fields translations display_fonts \
         series items editions \
         reads reading_progress reviews plays reading_goals wants purchase_links tags item_tags loans \
         borrows item_history federation_settings connection_invites connections connection_views \

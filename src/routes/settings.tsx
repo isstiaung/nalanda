@@ -6,6 +6,7 @@ import { CUSTOM_KINDS } from '../db/schema';
 import {
   createCustomField,
   createInvitedUser,
+  ensureSessionKey,
   deleteCustomField,
   deleteDisplayFont,
   deleteTranslation,
@@ -22,7 +23,7 @@ import {
   type DisplayFontRow,
 } from '../db/queries';
 import type { AppEnv } from '../env';
-import { hashLinkToken, LINK_DAYS, newLinkToken, unusablePasswordHash } from '../lib/auth';
+import { hashLinkToken, isSessionKey, LINK_DAYS, newLinkToken, unusablePasswordHash } from '../lib/auth';
 import { cleanCustomName, CUSTOM_FIELD_LIMIT, isCustomKind, MAX_CUSTOM_NAME } from '../lib/custom';
 import { cleanFontName, deleteFont, FONT_MAX_BYTES, FONT_MIN_BYTES, sniffFontType, storeFont } from '../lib/fonts';
 import { currencyCodes, currencyName, isCurrencyCode } from '../lib/money';
@@ -232,6 +233,8 @@ const MintedLink = ({ minted, expiresAt }: { minted: { username: string; link: s
           {t('members.link_shown_once')}
         </small>
       </p>
+      {/* the QR library first, as Shared links loads it: /qr.js draws nothing without it */}
+      <script src="/vendor/qrcode.js" defer></script>
       <script src="/qr.js" defer></script>
     </article>
   );
@@ -305,8 +308,10 @@ const UsersPage = ({
                   {linkOf.has(u.id) ? (
                     <>
                       {' '}
-                      <span class="pill progress">
-                        {t(linkOf.get(u.id)!.purpose === 'invite' ? 'members.invited_until' : 'members.reset_until', { date: ledgerDate(linkOf.get(u.id)!.expiresAt) })}
+                      <span class={linkOf.get(u.id)!.expired ? 'pill' : 'pill progress'}>
+                        {linkOf.get(u.id)!.expired
+                          ? t(linkOf.get(u.id)!.purpose === 'invite' ? 'members.invite_expired' : 'members.reset_expired')
+                          : t(linkOf.get(u.id)!.purpose === 'invite' ? 'members.invited_until' : 'members.reset_until', { date: ledgerDate(linkOf.get(u.id)!.expiresAt) })}
                       </span>
                     </>
                   ) : u.mustChangePassword ? (
@@ -784,6 +789,9 @@ settings.post('/settings/users/:id/reset', async (c) => {
   if (id === c.get('user').id) return c.text('Change your own password under Account — a reset would sign this device out.', 400);
   const user = await getUserById(c.env.DB, id);
   if (!user) return c.notFound();
+  // an account without a session key yet — restored from an older backup, or added by hand — gets one first, as its
+  // next login would give it (§16 #56): the link is bound to the key, and signing in on the far side needs one
+  if (!isSessionKey(user.sessionKey)) await ensureSessionKey(c.env.DB, id);
   // their password stops working and they are signed out everywhere, in the batch that makes the link (§16 #97)
   const token = newLinkToken();
   const purpose = await resetWithLink(c.env.DB, id, await unusablePasswordHash(), await hashLinkToken(token), LINK_DAYS);

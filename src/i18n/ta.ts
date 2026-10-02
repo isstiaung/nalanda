@@ -371,6 +371,8 @@ export const ta: Pack = {
     'members.link_qr': '{name}க்கான இணைப்பின் QR குறியீடு',
     'members.invited_until': 'அழைக்கப்பட்டார் · {date} வரை',
     'members.reset_until': 'மீட்டமைப்பு இணைப்பு அனுப்பப்பட்டது · {date} வரை',
+    'members.invite_expired': 'அழைப்பு காலாவதியானது',
+    'members.reset_expired': 'மீட்டமைப்பு இணைப்பு காலாவதியானது',
     'members.new_invite_link': 'புதிய அழைப்பு இணைப்பு',
     'members.username': 'பயனர் பெயர்',
     'members.display_name': 'காட்சிப் பெயர்',

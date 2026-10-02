@@ -378,6 +378,8 @@ export const en = {
   'members.link_qr': 'QR code of the link for {name}',
   'members.invited_until': 'Invited · until {date}',
   'members.reset_until': 'Reset link out · until {date}',
+  'members.invite_expired': 'Invite expired',
+  'members.reset_expired': 'Reset link expired',
   'members.new_invite_link': 'New invite link',
   'members.username': 'Username',
   'members.display_name': 'Display name',

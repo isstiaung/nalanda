@@ -371,6 +371,8 @@ export const hi: Pack = {
     'members.link_qr': '{name} के लिंक का QR कोड',
     'members.invited_until': 'आमंत्रित · {date} तक',
     'members.reset_until': 'रीसेट लिंक भेजा गया · {date} तक',
+    'members.invite_expired': 'आमंत्रण की अवधि खत्म',
+    'members.reset_expired': 'रीसेट लिंक की अवधि खत्म',
     'members.new_invite_link': 'नया आमंत्रण लिंक',
     'members.username': 'उपयोगकर्ता नाम',
     'members.display_name': 'प्रदर्शित नाम',
