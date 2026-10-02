@@ -421,10 +421,13 @@ Multi-user, built into the app (no email infrastructure, no paid services):
   account (you). The admin and the three starter shelves are one batch (§16 #39), every
   statement guarded inside it by "no user yet", so two setups racing make one admin; the
   loser is sent to login.
-- **Admin creates family accounts** at `/settings/users`: username + a temp password shown
-  once; the member logs in and is forced to set their own password
-  (`must_change_password`). No invites, no email, no reset flows — admin can re-issue a
-  temp password the same way.
+- **Admin invites family members** at `/settings/users` with a **one-time link** (§16 #97): the
+  account is made with a password nobody knows, and `https://<instance>/join/<secret>` is shown once,
+  with its QR code, for the admin to pass on. Opening it, the member chooses their own password and
+  is signed in; the link works once and for seven days, and only its hash is kept. A forgotten
+  password is the same: **Reset password** stops the old one and every session at once and makes a
+  reset link. No email, and no admin ever sees a member's password. Accounts from before links that
+  still hold a temporary password must change it at first sign-in (`must_change_password`).
 - **Roles**: `admin` = manage users + publish/unpublish share links; `member` = everything
   else (full item/library/loan CRUD, and bulk edit but for bulk delete, which is an admin's —
   §16 #47). Two roles, no permission matrix. Reading and reviews
@@ -560,6 +563,7 @@ portable, and makes share routes trivially public. CF Access remains available l
 ```
 GET  /setup                    first-run admin creation (404 once a user exists)
 GET  /login                    POST /auth/login · POST /auth/logout
+GET  /join/:token              a one-time invite or reset link: choose a password, signed in (§16 #97) · POST to set it
 GET  /account                  change own password (also the forced first-login flow) · POST /account/display-name
 GET  /goals                    reading goals: your own, or ?member=:id for an admin (§16 #49)
 POST /goals                    set a goal (this year or next) · POST /goals/:id/delete — own, or anyone's for an admin
@@ -609,7 +613,7 @@ GET  /export.csv               everything; ?library=:id to scope; ?after=:id for
 GET  /covers/:key              cover art from R2 (public, unguessable, immutable cache)
 GET  /fonts/:key               a household's display font from R2 (public, unguessable, immutable cache; §16 #96)
 
-GET  /settings/users           admin: create/remove members, reissue temp passwords; the household currency
+GET  /settings/users           admin: invite/remove members, make reset links (§16 #97); the household currency
 POST /settings/currency        admin: set the household currency — an ISO 4217 code (§16 #61)
 POST /settings/display-fonts   admin: upload a display font for a shipped locale, multipart (§16 #96) ·
                                POST /settings/display-fonts/:locale/delete removes it
@@ -890,6 +894,7 @@ is a section of this document and "#N" another decision.
 | 94 | 2026-10-01 | [Rapid batch scanning: "Keep scanning" holds each barcode on the device; "Add all" resolves them twenty a request, as bare records, covers later](docs/decisions/094-rapid-batch-scanning.md) |
 | 95 | 2026-10-01 | [Custom fields: up to ten household fields (text, yes/no, date) on every item form, kept in `items.custom`, private unless a field's own share switch is on, never to connections](docs/decisions/095-custom-fields.md) |
 | 96 | 2026-10-02 | [A household's own display font: one per shipped locale, uploaded by an admin under Members, stored in R2 under a random key, public at `/fonts/<key>`, set in front of Eczar on every page in that language](docs/decisions/096-display-font.md) |
+| 97 | 2026-10-02 | [One-time links let a member in: an invite for a new account, a reset for a forgotten password, each shown once with its QR code, kept as a hash, good for a week and once; no admin ever sees a password](docs/decisions/097-one-time-links.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

@@ -3,8 +3,10 @@
 ## Accounts
 
 `/setup` on a fresh instance makes the first admin and the starter shelves, then closes. Admins add
-members under **Members** with a one-time temporary password, which the member must change before
-doing anything else; no email is involved ([#3](../decisions/003-access.md),
+members under **Members** with a **one-time link**, shown once with its QR code: the member opens
+it, chooses their own password and is signed in, and a forgotten password gets a reset link the same
+way ([#97](../decisions/097-one-time-links.md)); no email is involved, and no admin ever sees a
+password ([#3](../decisions/003-access.md),
 [ARCH.md §8](../../ARCH.md)). Two roles and no permission matrix: everyone catalogues, lends, reads
 and reviews; **admins** alone manage members, set the household's currency and language, publish,
 rotate and remove share links, run Connections, delete a shelf or items in bulk, open the Trash and

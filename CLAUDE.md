@@ -216,8 +216,9 @@ Long forms in [docs/conventions.md](docs/conventions.md).
 - A write and whatever depends on it are **one batch** (ARCH.md §16 #39) — its queued message,
   notification, replay marker, an item and its tags. Nothing after the batch may be able to fail
   the request.
-- Auth (ARCH.md §8): roles are just `admin`/`member` — no permission matrix; admins create members
-  with one-time temp passwords. User ids are reused, so a session names the id **and**
+- Auth (ARCH.md §8): roles are just `admin`/`member` — no permission matrix; admins invite members,
+  and reset a forgotten password, with **one-time links** (`/join/<secret>`, §16 #97) — kept as a hash,
+  bound to the account's id and key, a week, used once — never a password an admin sees. User ids are reused, so a session names the id **and**
   `users.session_key` (set in every user insert, never changed); anything that remembers a person
   across time binds `accountIdentity()`, never the bare id. Beside it, `users.session_generation`
   (ARCH.md §16 #70) is which sessions still count: the cookie names it, and "Sign out other

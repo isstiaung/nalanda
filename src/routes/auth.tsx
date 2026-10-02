@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono';
 import { deleteCookie, setCookie } from 'hono/cookie';
 import {
+  accountLinkFor,
   countUsers,
   createFirstAdmin,
   ensureSessionKey,
@@ -8,13 +9,16 @@ import {
   getUserByUsername,
   LOGIN_ATTEMPT_WINDOW_MINUTES,
   recordLoginAttempt,
+  useAccountLink,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import {
   createSessionToken,
   DUMMY_HASH,
   hasSessionSecret,
+  hashLinkToken,
   hashPassword,
+  isLinkToken,
   isSessionKey,
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
@@ -156,6 +160,108 @@ auth.post('/auth/logout', (c) => {
   // browser kept anyway); app.js empties the device's scan queue on the same click (§16 #48)
   c.header('Clear-Site-Data', '"cache"');
   return c.redirect('/login');
+});
+
+// ---- a one-time link (ARCH.md §16 #97): where an invited member, or one whose password was reset, chooses theirs ----
+
+type JoinField = 'password' | 'confirm';
+
+/** The form a live link opens: whose account it is (shown, and offered to a password manager), and the new password. */
+const JoinForm = ({ token, username, purpose, error, wrong = [] }: { token: string; username: string; purpose: 'invite' | 'reset'; error?: string; wrong?: JoinField[] }) => {
+  const { t } = useI18n();
+  return (
+    <article class="auth-card">
+      <Brand />
+      <h1>{t(purpose === 'invite' ? 'join.title_invite' : 'join.title_reset')}</h1>
+      <p class="muted">{t(purpose === 'invite' ? 'join.intro_invite' : 'join.intro_reset', { name: username })}</p>
+      {error ? (
+        <p class="error" role="alert" id="join-error">
+          {error}
+        </p>
+      ) : null}
+      <form method="post" action={`/join/${token}`}>
+        <label>
+          {t('login.username')}
+          <input name="username" value={username} readonly autocomplete="username" />
+        </label>
+        <label>
+          {t('login.password')} <small>{t('setup.password_hint')}</small>
+          {/* eslint-disable-next-line no-restricted-syntax -- the page is one form, opened to do one thing: choose a password */}
+          <input type="password" name="password" required minlength={8} autofocus autocomplete="new-password" {...invalid(wrong.includes('password') && error, 'join-error')} />
+        </label>
+        <label>
+          {t('setup.confirm')}
+          <input type="password" name="confirm" required autocomplete="new-password" {...invalid(wrong.includes('confirm') && error, 'join-error')} />
+        </label>
+        <button type="submit">{t('join.submit')}</button>
+      </form>
+    </article>
+  );
+};
+
+/** What a link that no longer works opens: why, and where to go. Says nothing about whose it was. */
+const LinkGone = () => {
+  const { t } = useI18n();
+  return (
+    <article class="auth-card">
+      <Brand />
+      <h1>{t('join.gone_title')}</h1>
+      <p>{t('join.gone')}</p>
+      <p>
+        <a href="/login">{t('join.to_login')}</a>
+      </p>
+    </article>
+  );
+};
+
+/**
+ * A link's page, never kept by the browser — it carries a secret in its address, and the session middleware's no-store
+ * doesn't reach this side of it — and the account the link opens, or the page saying it no longer works.
+ */
+async function linkPage(c: Context<AppEnv>, token: string) {
+  c.header('cache-control', 'no-store');
+  const account = isLinkToken(token) ? await accountLinkFor(c.env.DB, await hashLinkToken(token)) : null;
+  if (!account) {
+    c.status(410);
+    return { account: null, gone: page(c, (await i18nOf(c)).t('join.gone_title'), <LinkGone />) };
+  }
+  return { account, gone: null };
+}
+
+auth.get('/join/:token', async (c) => {
+  const token = c.req.param('token');
+  const { account, gone } = await linkPage(c, token);
+  if (!account) return gone;
+  return page(c, (await i18nOf(c)).t(account.purpose === 'invite' ? 'join.title_invite' : 'join.title_reset'), (
+    <JoinForm token={token} username={account.username} purpose={account.purpose} />
+  ));
+});
+
+auth.post('/join/:token', async (c) => {
+  const secret = c.env.SESSION_SECRET;
+  if (!hasSessionSecret(secret)) return noSessionSecret(c);
+  const token = c.req.param('token');
+  // the link first, before any hashing: a request for a dead or made-up link costs a lookup, never a PBKDF2
+  const { account, gone } = await linkPage(c, token);
+  if (!account) return gone;
+  const body = await c.req.parseBody();
+  const password = String(body['password'] ?? '');
+  const confirm = String(body['confirm'] ?? '');
+  const { t } = await i18nOf(c);
+  const form = (error: string, wrong: JoinField[]) =>
+    page(c, t(account.purpose === 'invite' ? 'join.title_invite' : 'join.title_reset'), (
+      <JoinForm token={token} username={account.username} purpose={account.purpose} error={error} wrong={wrong} />
+    ));
+  if (password.length < 8) return form(t('join.too_short'), ['password']);
+  if (password !== confirm) return form(t('setup.mismatch'), ['confirm']);
+  // the batch decides (§16 #97): the link is found again inside it, so of two uses racing, one sets the password
+  const signedIn = await useAccountLink(c.env.DB, await hashLinkToken(token), await hashPassword(password));
+  if (!signedIn) {
+    c.status(410);
+    return page(c, t('join.gone_title'), <LinkGone />);
+  }
+  await signIn(c, secret, signedIn);
+  return c.redirect('/');
 });
 
 type SetupField = 'username' | 'password' | 'confirm';

@@ -77,7 +77,10 @@ Please don't file these:
   `D1_DATABASE_ID` in the environment (`scripts/deploy.mjs`). Even a real D1 id would be
   inert without credentials for the account that owns it — keeping it out is hygiene.
 - **No password reset emails.** Deliberate — there is no email infrastructure. An admin
-  issues one-time temporary passwords instead (ARCH.md §8).
+  makes a one-time link instead (ARCH.md §16 #97): 256 random bits in its path, kept only as a
+  SHA-256, bound to the account, good for seven days and once. Making a reset link stops the old
+  password and signs the member out everywhere at once. Links aren't throttled — like share links
+  and API tokens they can't be guessed — and a dead one answers the same way whatever the reason.
 - **Metadata providers are called server-side over plain `fetch`.** Nalanda sends them
   barcodes and search terms; it sends them nothing about your users.
 - **GHSA-67mh-4wv8-2f99 (esbuild dev server).** Dismissed deliberately: it requires

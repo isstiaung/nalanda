@@ -9,7 +9,7 @@ import { newShareToken } from '../src/lib/share';
 import { as, book, member } from './member-helpers';
 
 describe('the browser’s cache', () => {
-  it('keeps no signed-in answer: pages, partials and the Members page with a minted password are no-store', async () => {
+  it('keeps no signed-in answer: pages, partials and the Members page with a minted link are no-store', async () => {
     const admin = await member('admin', 'admin');
     const dee = await member('dee');
     const item = await book(admin, { notes: 'private' });
@@ -22,7 +22,7 @@ describe('the browser’s cache', () => {
     expect(partial.headers.get('cache-control')).toBe('no-store');
     const minted = await as(admin, `/settings/users/${dee.id}/reset`, { body: {} });
     expect(minted.status).toBe(200);
-    expect(await minted.text()).toContain('Temporary password for');
+    expect(await minted.text()).toContain('Password reset link for'); // the link, shown once (§16 #97)
     expect(minted.headers.get('cache-control')).toBe('no-store');
   });
 

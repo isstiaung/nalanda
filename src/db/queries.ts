@@ -67,6 +67,119 @@ export async function createUser(
   return u;
 }
 
+// ---------- one-time links to an account (ARCH.md §16 #97) ----------
+
+/** A link still good, as Members shows it: whose, which kind, until when. */
+export type PendingLink = { userId: number; purpose: 'invite' | 'reset'; expiresAt: string };
+
+/** The link a secret names, if it is still good: for the account it was made for (its id and key, #56), before it expires. */
+const LIVE_LINK = `SELECT l.user_id FROM account_links l JOIN users u ON u.id = l.user_id AND u.session_key = l.session_key
+  WHERE l.token_hash = ?1 AND l.expires_at > datetime('now')`;
+
+/** Links past their week, anyone's: let go whenever a link is made, so the table holds only what could still be used. */
+const expiredLinks = (d1: D1Database) => d1.prepare(`DELETE FROM account_links WHERE expires_at <= datetime('now')`);
+
+/**
+ * A new member and the invite that lets them in (§16 #97), in one batch (§16 #39): the account with a password nobody
+ * knows, and a link good for `days` — so no password is ever shown to the admin, and an account is never left without
+ * its way in. False, with nothing written, when the username is taken.
+ */
+export async function createInvitedUser(
+  d1: D1Database,
+  values: { username: string; role: 'admin' | 'member'; passwordHash: string },
+  tokenHash: string,
+  days: number,
+): Promise<boolean> {
+  const user = db(d1)
+    .insert(s.users)
+    .values({ ...values, mustChangePassword: false, sessionKey: newSessionKey() })
+    .toSQL();
+  try {
+    await d1.batch([
+      d1.prepare(user.sql).bind(...user.params),
+      d1
+        .prepare(
+          `INSERT INTO account_links (user_id, session_key, purpose, token_hash, expires_at)
+           SELECT id, session_key, 'invite', ?2, datetime('now', ?3) FROM users WHERE username = ?1`,
+        )
+        .bind(values.username, tokenHash, `+${days} days`),
+      expiredLinks(d1),
+    ]);
+    return true;
+  } catch (err) {
+    if (String(err instanceof Error ? err.message : err).includes('UNIQUE constraint failed: users.username')) return false;
+    throw err;
+  }
+}
+
+/**
+ * An admin's reset (§16 #97): the member's password stops working at once — replaced by one nobody knows — every
+ * session and API token of theirs goes (#70, #88), and a new link lets them choose another. All one batch. The link is
+ * an invite again for an account that never used its invite (it still has no password of its own), a reset otherwise;
+ * any older link of theirs is replaced. The new link's kind, or null when there is no such member.
+ */
+export async function resetWithLink(
+  d1: D1Database,
+  id: number,
+  passwordHash: string,
+  tokenHash: string,
+  days: number,
+): Promise<'invite' | 'reset' | null> {
+  const [, , , made] = await d1.batch([
+    d1.prepare('UPDATE users SET password_hash = ?2, must_change_password = 0, session_generation = session_generation + 1 WHERE id = ?1').bind(id, passwordHash),
+    d1.prepare('DELETE FROM api_tokens WHERE user_id = ?1').bind(id),
+    // the kind is read before anything of theirs is deleted: an invite stays an invite, even one past its week
+    d1.prepare(`DELETE FROM account_links WHERE user_id = ?1 AND purpose = 'reset'`).bind(id),
+    d1
+      .prepare(
+        `INSERT INTO account_links (user_id, session_key, purpose, token_hash, expires_at)
+         SELECT id, session_key, CASE WHEN EXISTS (SELECT 1 FROM account_links WHERE user_id = ?1) THEN 'invite' ELSE 'reset' END, ?2, datetime('now', ?3)
+         FROM users WHERE id = ?1 RETURNING purpose`,
+      )
+      .bind(id, tokenHash, `+${days} days`),
+    d1.prepare('DELETE FROM account_links WHERE user_id = ?1 AND token_hash <> ?2').bind(id, tokenHash),
+    expiredLinks(d1),
+  ]);
+  const row = (made?.results ?? [])[0] as { purpose: 'invite' | 'reset' } | undefined;
+  return row?.purpose ?? null;
+}
+
+/** Whose a link is, while it is good: the account's id and username, and what the link is for. Null otherwise. */
+export async function accountLinkFor(d1: D1Database, tokenHash: string): Promise<{ id: number; username: string; purpose: 'invite' | 'reset' } | null> {
+  return (
+    (await d1
+      .prepare(
+        `SELECT u.id, u.username, l.purpose FROM account_links l JOIN users u ON u.id = l.user_id AND u.session_key = l.session_key
+         WHERE l.token_hash = ?1 AND l.expires_at > datetime('now')`,
+      )
+      .bind(tokenHash)
+      .first<{ id: number; username: string; purpose: 'invite' | 'reset' }>()) ?? null
+  );
+}
+
+/**
+ * A link used (§16 #97): its account takes the password chosen, every other session and token of theirs goes, and
+ * every link of theirs with it — so it works once — in one batch, each statement finding the account through the link
+ * itself. Of two uses racing, the second finds no link and changes nothing. The account to sign in, or null.
+ */
+export async function useAccountLink(
+  d1: D1Database,
+  tokenHash: string,
+  passwordHash: string,
+): Promise<{ id: number; sessionKey: string; sessionGeneration: number } | null> {
+  const [moved] = await d1.batch([
+    d1
+      .prepare(
+        `UPDATE users SET password_hash = ?2, must_change_password = 0, session_generation = session_generation + 1
+         WHERE id = (${LIVE_LINK}) RETURNING id, session_key AS sessionKey, session_generation AS sessionGeneration`,
+      )
+      .bind(tokenHash, passwordHash),
+    d1.prepare(`DELETE FROM api_tokens WHERE user_id = (${LIVE_LINK})`).bind(tokenHash),
+    d1.prepare(`DELETE FROM account_links WHERE user_id = (${LIVE_LINK})`).bind(tokenHash),
+  ]);
+  return ((moved?.results ?? [])[0] as { id: number; sessionKey: string; sessionGeneration: number } | undefined) ?? null;
+}
+
 /**
  * First-run setup: the admin and the household's starter shelves, in one batch (ARCH.md §16 #39) — or nothing, once
  * anyone exists. Every statement carries the same guard, no user yet, decided inside it; the shelves come first, so
@@ -244,9 +357,10 @@ export async function membersSettings(d1: D1Database): Promise<{
   customFields: CustomField[];
   translations: Array<{ locale: string; count: number; updatedAt: string }>;
   fonts: DisplayFontRow[];
+  links: PendingLink[];
 }> {
   const dbi = db(d1);
-  const [rows, fields, trs, fonts] = await dbi.batch([
+  const [rows, fields, trs, fonts, links] = await dbi.batch([
     dbi.select().from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
     dbi.select().from(s.customFields).orderBy(asc(s.customFields.position), asc(s.customFields.id)),
     dbi.select().from(s.translations).orderBy(asc(s.translations.locale)),
@@ -254,12 +368,18 @@ export async function membersSettings(d1: D1Database): Promise<{
       .select({ locale: s.displayFonts.locale, name: s.displayFonts.name, bytes: s.displayFonts.bytes, uploadedAt: s.displayFonts.uploadedAt })
       .from(s.displayFonts)
       .orderBy(asc(s.displayFonts.locale)),
+    // each member's link still good (§16 #97), so the list can say who is invited and whose reset is out
+    dbi
+      .select({ userId: s.accountLinks.userId, purpose: s.accountLinks.purpose, expiresAt: s.accountLinks.expiresAt })
+      .from(s.accountLinks)
+      .where(sql`${s.accountLinks.expiresAt} > datetime('now')`),
   ]);
   return {
     settings: settingsOf(rows[0]),
     customFields: fields,
     translations: trs.map((r) => ({ locale: r.locale, count: Object.keys(overridesOf(r) ?? {}).length, updatedAt: r.updatedAt })),
     fonts,
+    links,
   };
 }
 

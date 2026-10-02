@@ -527,7 +527,7 @@ describe('pages recorded before reads', () => {
 describe('backups', () => {
   it('export every table that holds data, in an order that restores', async () => {
     const listed = [...backupScript.slice(backupScript.indexOf('export const TABLES'), backupScript.indexOf('];')).matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
-    const transient = ['login_attempts', 'federation_seen', 'connection_push_counts', 'import_in_progress', 'd1_migrations'];
+    const transient = ['login_attempts', 'account_links', 'federation_seen', 'connection_push_counts', 'import_in_progress', 'd1_migrations'];
     const tables = (await rows<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'"))
       .map((t) => t.name)
       .filter((n) => !n.startsWith('sqlite_') && !n.startsWith('_cf_') && !n.startsWith('items_fts') && !transient.includes(n));

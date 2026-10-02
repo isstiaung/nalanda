@@ -378,6 +378,30 @@ export const apiTokens = sqliteTable(
 export type ApiToken = typeof apiTokens.$inferSelect;
 
 /**
+ * One-time links to an account (ARCH.md §16 #97): how an admin lets a member in — an invite for a new account, a reset
+ * for a forgotten password — without ever seeing a password. Kept only as a SHA-256 hash of the secret in the link,
+ * bound to the account as a session is (its id and key, #56), good for LINK_DAYS and once: setting a password through
+ * one deletes every link of that account. An account has at most one at a time; a new one replaces it.
+ */
+export const accountLinks = sqliteTable(
+  'account_links',
+  {
+    // AUTOINCREMENT: nothing outside names a link by id, but a reused id would never name a newer link either
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    sessionKey: text('session_key').notNull(),
+    purpose: text('purpose', { enum: ['invite', 'reset'] }).notNull(),
+    tokenHash: text('token_hash').notNull().unique(), // SHA-256 of the secret, hex; the secret itself is never stored
+    expiresAt: text('expires_at').notNull(),
+    createdAt: text('created_at').notNull().default(now),
+  },
+  (t) => [index('idx_account_links_user').on(t.userId)],
+);
+export type AccountLink = typeof accountLinks.$inferSelect;
+
+/**
  * Failed password checks, for throttling (ARCH.md §8): a row is written before the password is checked, in the one
  * statement that also refuses it once the IP or the account has ten in ten minutes (`recordLoginAttempt()`), and
  * taken back when the password turns out right. `username` is as typed — the account guessed at — so guesses spread
