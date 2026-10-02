@@ -165,7 +165,8 @@ npm run db:generate        # drizzle-kit generate — schema.ts → migrations/*
 npm run db:migrate         # wrangler d1 migrations apply nalanda --local
 npm run db:migrate:remote  # same, against production (via wrangler:remote)
 npm run wrangler:remote -- <args>  # any wrangler command against production D1 (real id → temp config)
-npm run deploy             # needs D1_DATABASE_ID in the env, never in the repo; migrates, deploys
+npm run deploy             # needs D1_DATABASE_ID in the env (or a button copy's own id), never in
+                           # this repo; migrates, deploys
 npm run backup             # per-table data-only export → backups/remote-<date>/ (D1 can't dump
                            # FTS5; schema comes from migrations/ — backup runbook)
 npm run backup:local       # same, for the local dev database
@@ -281,5 +282,8 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   runbooks/backup-and-restore.md).
 - **No Cloudflare resource ids in the repo** (ARCH.md §16 #24): `database_id` stays the all-zero
   placeholder, deploys supply `D1_DATABASE_ID`. Don't "helpfully" fill it in — miniflare keys
-  local D1 state by it, so editing it orphans the local database (§16 #20).
+  local D1 state by it, so editing it orphans the local database (§16 #20). The Deploy to Cloudflare
+  button (§16 #101) writes a real id into a *household's own copy*; `scripts/database-id.mjs` takes it
+  when `D1_DATABASE_ID` is unset — never in this repository. `.dev.vars.example` lists only required
+  secrets uncommented (the button asks for each), `SESSION_SECRET` with no value; `/setup` asks for it.
 - Keep this file, docs/ and ARCH.md current as commands and decisions evolve.

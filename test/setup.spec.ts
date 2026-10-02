@@ -43,7 +43,8 @@ async function send(
   return res;
 }
 
-const setupForm = (username: string, password = 'correct horse') => ({ username, password, confirm: password });
+/** Setup as the form sends it, with the session secret that shows it's whoever deployed it (§16 #101). */
+const setupForm = (username: string, password = 'correct horse', secret = env.SESSION_SECRET) => ({ secret, username, password, confirm: password });
 
 /** Every table's row count: "nothing written" means this doesn't change. */
 async function snapshot(): Promise<Record<string, number>> {
@@ -107,6 +108,8 @@ describe.each([
   ['empty', ''],
   ['whitespace-only', ' \t\n '],
   ['missing', undefined],
+  // the value .dev.vars.example once carried: anyone can read it, so a one-click deploy that kept it signs nothing (§16 #101)
+  ['the example this repository once published', 'change-me-to-anything-long-and-random'],
 ])('an instance whose SESSION_SECRET is %s', (_label, secret) => {
   const bindings = without(secret);
 
@@ -244,6 +247,24 @@ describe('setup with a SESSION_SECRET', () => {
     const login = await send('/auth/login', env, { form: { username: 'admin', password: 'correct horse' } });
     expect(login.status).toBe(302);
     expect(login.headers.get('location')).toBe('/');
+  });
+
+  it('asks for the session secret first: a wrong one writes nothing, keeps the username, and is throttled', async () => {
+    const before = await snapshot();
+    const wrong = await send('/setup', env, { form: setupForm('admin', 'correct horse', 'not-the-secret') });
+    expect(wrong.status).toBe(200);
+    const html = await wrong.text();
+    expect(html).toContain('That isn’t this library’s SESSION_SECRET.');
+    expect(html).toMatch(/name="secret"[^>]*aria-invalid="true"/);
+    expect(html).toContain('value="admin"');
+    expect(html).not.toContain('not-the-secret');
+    expect(wrong.headers.get('set-cookie')).toBeNull();
+    const { login_attempts: _, ...rest } = await snapshot();
+    const { login_attempts: __, ...restBefore } = before;
+    expect(rest).toEqual(restBefore);
+    for (let i = 0; i < 9; i++) await send('/setup', env, { form: setupForm('admin', 'correct horse', 'not-the-secret') });
+    expect((await send('/setup', env, { form: setupForm('admin') })).status).toBe(429);
+    expect(await users()).toEqual([]);
   });
 
   it('refuses a second setup once one succeeded', async () => {

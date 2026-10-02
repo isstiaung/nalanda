@@ -13,12 +13,27 @@
 //
 // Point it at your real instance and it will refuse: /setup only answers on an
 // instance with no users.
+//
+// /setup asks for the instance's session secret (ARCH.md §16 #101). The scratch servers the accessibility audit and
+// the demo build start pass theirs in SESSION_SECRET; against `npm run dev:demo` on this machine it is read from
+// .dev.vars, as wrangler reads it — never sent anywhere but a local address.
+import { existsSync, readFileSync } from 'node:fs';
 
 const BASE = process.argv.find((a) => a.startsWith('--url='))?.slice(6) ?? 'http://localhost:8788';
 // --no-covers skips the live cover fetch: the accessibility audit (scripts/a11y.mjs) seeds offline.
 const COVERS = !process.argv.includes('--no-covers');
 const USERNAME = 'librarian';
 const PASSWORD = 'demo-password';
+
+function sessionSecret() {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  const local = ['localhost', '127.0.0.1', '[::1]'].includes(new URL(BASE).hostname);
+  if (!local || !existsSync('.dev.vars')) return '';
+  const line = readFileSync('.dev.vars', 'utf8')
+    .split('\n')
+    .find((l) => /^\s*SESSION_SECRET\s*=/.test(l));
+  return line ? line.replace(/^\s*SESSION_SECRET\s*=\s*/, '').trim().replace(/^(['"])(.*)\1$/, '$2') : '';
+}
 
 // libib's CSV column names — mapLibibRow() in src/lib/csv.ts is the contract.
 const BOOKS = [
@@ -101,7 +116,7 @@ async function call(path, { method = 'GET', form, json } = {}) {
 async function main() {
   const setup = await call('/setup', {
     method: 'POST',
-    form: { username: USERNAME, password: PASSWORD, confirm: PASSWORD },
+    form: { secret: sessionSecret(), username: USERNAME, password: PASSWORD, confirm: PASSWORD },
   });
   if (setup.status === 404) {
     console.error(
@@ -110,7 +125,11 @@ async function main() {
     );
     process.exit(1);
   }
-  if (!cookie) throw new Error(`Setup failed (${setup.status}) — is the dev server running at ${BASE}?`);
+  if (!cookie) {
+    throw new Error(
+      `Setup failed (${setup.status}) — is the dev server running at ${BASE}, and is SESSION_SECRET set (in the environment, or in .dev.vars for a local server)? /setup asks for it.`,
+    );
+  }
   console.log(`admin "${USERNAME}" created (password: ${PASSWORD})`);
 
   // The shelves /setup creates, read back off the import form rather than assumed.

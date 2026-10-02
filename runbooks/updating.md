@@ -36,6 +36,20 @@ npm test
 
 If you've never changed the code, `git checkout v1.2.0` works just as well.
 
+**Deployed with the button?** Your repository is a copy of a release, and its `wrangler.jsonc` holds
+your database's id (ARCH.md §16 #101). If `git merge` says it is *refusing to merge unrelated
+histories*, your copy doesn't share this repository's history. Take the release's files instead,
+keeping your config:
+
+```sh
+git fetch https://github.com/isstiaung/nalanda.git --tags
+git checkout v1.2.0 -- . ':(exclude)wrangler.jsonc'   # every file as released, but your own wrangler.jsonc
+git diff HEAD v1.2.0 -- wrangler.jsonc                 # anything new in the release's config? copy it in, keeping your id
+git commit -m "Update to v1.2.0"
+```
+
+A file the release removed stays behind in your copy. The notes say so when one matters.
+
 ## 3. Back up, when the notes say so
 
 ```sh
@@ -52,7 +66,8 @@ Upgrading notes in order.
 The same way as always ([deploy.md](deploy.md)):
 
 - **From your machine:** `npm run deploy`. It applies the migrations first, then the new code.
-- **With Cloudflare's git integration:** push the updated branch it builds from.
+- **With Cloudflare's git integration:** push the updated branch it builds from. A copy made with the
+  button is set up this way: push, and Workers Builds deploys.
 
 Deploy when nobody is editing if the notes mention a data migration. For a few seconds the migration
 has run while the old code is still serving.

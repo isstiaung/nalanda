@@ -219,11 +219,15 @@ async function federationKey() {
  * is set) never run against a token, and the only requests that could use one, the refreshes, are answered by the
  * browser (page.route) or reach the Worker only when there is no id to look up.
  */
+/** Each scratch server's session secret, by port: /setup asks for it (§16 #101), and the seed and the Refresh setup type it. */
+const SECRETS = new Map();
+
 async function startServer({ port = PORT, dir = stateDir, dummyTokens = false } = {}) {
   const base = `http://127.0.0.1:${port}`;
   mkdirSync(dir, { recursive: true });
   await run(WRANGLER, ['d1', 'migrations', 'apply', 'nalanda', '--local', '--persist-to', dir]);
   const secret = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  SECRETS.set(port, secret);
   // The Worker's secrets, from a file in the scratch state rather than .dev.vars: given --env-file, wrangler doesn't
   // read .dev.vars at all — and it must not, since a .dev.vars value outranks a --var one, so a developer's real
   // provider tokens would otherwise be sent to BGG and Discogs from the audit. The tokens are there, empty: off.
@@ -1346,6 +1350,7 @@ async function refreshInPlace(variants) {
   // #100) — is audited here, in the first variant, since an instance is set up only once
   await withVariant(context, variants[0], async (page) => {
     await open(page, '/setup', 200, REFRESH_BASE);
+    await page.getByLabel('Session secret').fill(SECRETS.get(REFRESH_PORT));
     await page.getByLabel('Username').fill('refresher');
     await page.getByLabel(/^Password/).fill('refresh-password');
     await page.getByLabel('Confirm password').fill('refresh-password');
@@ -1501,7 +1506,7 @@ async function main() {
   }
 
   console.log('a11y: seeding demo data');
-  await run(process.execPath, [join(ROOT, 'scripts', 'seed-demo.mjs'), `--url=${BASE}`, '--no-covers']);
+  await run(process.execPath, [join(ROOT, 'scripts', 'seed-demo.mjs'), `--url=${BASE}`, '--no-covers'], { env: { ...LOCAL_ENV, SESSION_SECRET: SECRETS.get(PORT) } });
 
   // log in through the form, as a person would
   const admin = await browser.newContext();

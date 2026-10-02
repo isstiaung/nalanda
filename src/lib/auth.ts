@@ -54,13 +54,27 @@ export async function verifyPassword(password: string, stored: string): Promise<
  */
 export const DUMMY_HASH = 'pbkdf2$100000$DMuk-QhtQIG9za9uqBwsKw$nG2uIPkg5UIX9fpsow2Uo5ZXFGjISmFUkisGOwKrKew';
 
+/** Values this repository has published as an example SESSION_SECRET: anyone can read them, so they sign nothing. A
+ *  one-click deploy (§16 #101) asks for the secret on a form, and a value copied from the example must not pass. */
+const PUBLISHED_SECRETS = new Set(['change-me-to-anything-long-and-random']);
+
 /**
- * A session secret that can sign anything: set, and not blank. Missing, empty and whitespace-only all count as
- * none — an empty key makes WebCrypto throw, and a blank one would sign cookies anyone could forge. Without one
- * nobody can be signed in, and setup and login say so before writing anything.
+ * A session secret that can sign anything: set, not blank, and not one this repository ever published as an example.
+ * Missing, empty and whitespace-only all count as none — an empty key makes WebCrypto throw, and a blank or published
+ * one would sign cookies anyone could forge. Without one nobody can be signed in, and setup and login say so before
+ * writing anything.
  */
 export function hasSessionSecret(secret: string | undefined): secret is string {
-  return typeof secret === 'string' && secret.trim() !== '';
+  return typeof secret === 'string' && secret.trim() !== '' && !PUBLISHED_SECRETS.has(secret.trim());
+}
+
+/** Whether a typed value is the session secret (§16 #101), in time that says nothing about where they differ: both are
+ *  hashed, and the digests compared in full. */
+export async function isSessionSecret(typed: string, secret: string): Promise<boolean> {
+  const [a, b] = await Promise.all([typed, secret].map(async (v) => new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(v)))));
+  let diff = 0;
+  for (let i = 0; i < a!.length; i++) diff |= a![i]! ^ b![i]!;
+  return diff === 0;
 }
 
 async function hmacKey(secret: string): Promise<CryptoKey> {

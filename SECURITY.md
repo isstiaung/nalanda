@@ -80,6 +80,11 @@ Please don't file these:
   so Account lists each device and signs any one out, and Log out ends that device's session for
   any copy of its cookie (ARCH.md §16 #98). A session lives 30 days from its last use. Only the
   browser and system are kept from the User-Agent; no address or location.
+- **Setting up a new instance** (ARCH.md §16 #101). Until its first admin exists, anyone who reaches
+  `/setup` could make one, and a one-click deploy's address is easy to guess. So `/setup` asks first
+  for the `SESSION_SECRET` that whoever deployed it set: compared in constant time, throttled, and
+  never echoed back. The value this repository once published as an example counts as no secret at
+  all, and nobody can sign in with it.
 - **Signing in from another device** (ARCH.md §16 #99). Either a code shown on a signed-in
   device's Account page (about 40 bits, five minutes, once, ten wrong an address in ten minutes on a
   counter apart from logins), or a QR on the new device that a signed-in phone approves by **typing** the two-digit

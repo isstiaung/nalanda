@@ -40,7 +40,7 @@ const logIn = async (username: string, password: string) => sessionOf(await send
 
 /** A fresh instance's admin, as setup leaves them: signed in, and the recovery code setup showed. */
 async function setUp() {
-  const res = await send('/setup', { form: { username: 'admin', password: 'first-password', confirm: 'first-password' } });
+  const res = await send('/setup', { form: { secret: env.SESSION_SECRET, username: 'admin', password: 'first-password', confirm: 'first-password' } });
   return { cookie: sessionOf(res)!, code: codeOn(await res.text())! };
 }
 
