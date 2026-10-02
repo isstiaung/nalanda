@@ -225,8 +225,13 @@ describe('setup with a SESSION_SECRET', () => {
   it('creates the admin and the three starter shelves, and signs them in', async () => {
     const res = await send('/setup', env, { form: setupForm('admin') });
 
-    expect(res.status).toBe(302);
-    expect(res.headers.get('location')).toBe('/');
+    // the answer is the admin's recovery code (§16 #100), shown this once and never kept by the browser
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-control')).toBe('no-store');
+    const page = await res.text();
+    expect(page).toContain('Your recovery code');
+    expect(page).toMatch(/class="recovery-digits mono">[A-Z2-9]{4}(-[A-Z2-9]{4}){4}</);
+    expect(page).toContain('href="/"');
     expect(await users()).toEqual([{ username: 'admin', role: 'admin', must_change_password: 0 }]);
     expect(await shelves()).toEqual(SHELVES);
     const cookie = res.headers.get('set-cookie')?.split(';')[0];
@@ -242,7 +247,7 @@ describe('setup with a SESSION_SECRET', () => {
   });
 
   it('refuses a second setup once one succeeded', async () => {
-    expect((await send('/setup', env, { form: setupForm('admin') })).status).toBe(302);
+    expect((await send('/setup', env, { form: setupForm('admin') })).status).toBe(200);
     const before = await snapshot();
 
     expect((await send('/setup', env, { form: setupForm('intruder') })).status).toBe(404);
@@ -264,17 +269,19 @@ describe('setup with a SESSION_SECRET', () => {
 
     expect(await users()).toHaveLength(1);
     expect(await shelves()).toEqual(SHELVES);
-    // the winner is signed in; the loser — on a double-click, the page the browser shows — goes to login, which says why
-    expect(results.map((r) => r.status)).toEqual([302, 302]);
-    const [won, lost] = results[0]!.headers.get('location') === '/' ? results : [results[1]!, results[0]!];
-    expect(won!.headers.get('location')).toBe('/');
+    // the winner is signed in, shown its recovery code; the loser — on a double-click, the page the browser shows — goes
+    // to login, which says why, and how to make the code again
+    expect(results.map((r) => r.status).sort()).toEqual([200, 302]);
+    const [won, lost] = results[0]!.status === 200 ? results : [results[1]!, results[0]!];
     expect(won!.headers.get('set-cookie')).toMatch(new RegExp(`^${SESSION_COOKIE}=`));
     expect(lost!.headers.get('location')).toBe('/login?raced=1');
     expect(lost!.headers.get('set-cookie')).toBeNull();
 
     const login = await send(lost!.headers.get('location')!, env);
     expect(login.status).toBe(200);
-    expect(await login.text()).toContain('another setup finished first');
+    const said = await login.text();
+    expect(said).toContain('another setup finished first');
+    expect(said).toContain('make a new one on Account');
     expect(await (await send('/login', env)).text()).not.toContain('another setup finished first');
   });
 });

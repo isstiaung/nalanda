@@ -14,6 +14,8 @@ import {
   createPairScan,
   pairScanStatus,
   recordLoginAttempt,
+  recoverWithCode,
+  recoveryCodeOpens,
   redeemPairCode,
   useAccountLink,
   type NewSession,
@@ -37,6 +39,7 @@ import {
 } from '../lib/auth';
 import { deviceName } from '../lib/devices';
 import { formatPairCode, newMatchDigits, normalizePairCode, PAIR_MINUTES } from '../lib/pairing';
+import { formatRecoveryCode, newRecoveryCode, normalizeRecoveryCode } from '../lib/recovery';
 import { QR_BLANK } from './shares';
 import { invalid } from '../views/components';
 import { useI18n } from '../views/i18n';
@@ -102,6 +105,9 @@ const LoginForm = ({ error, note, fieldsWrong = true }: { error?: string; note?:
         </label>
         <button type="submit">{t('login.submit')}</button>
       </form>
+      <p class="form-note">
+        <a href="/recover">{t('login.forgot')}</a>
+      </p>
       {/* or from a device already signed in (§16 #99): a code it shows, or a QR this one shows for a phone to scan */}
       <div class="pair-ways">
         <a href="/pair">{t('login.with_code')}</a>
@@ -482,6 +488,114 @@ auth.get('/pair/scan/status', async (c) => {
   return htmx ? c.html(<PairGone />) : page(c, t('pair.scan_title'), <ScanPage approveUrl={null} digits={null} />);
 });
 
+// ---- an admin's recovery code (ARCH.md §16 #100): shown at setup, used at /recover, made again on Account ----
+
+/** A recovery code, the once it is shown: easy to select whole, and to read back in fours. */
+export const RecoveryCodeBox = ({ code }: { code: string }) => {
+  const { t } = useI18n();
+  return (
+    <div class="notice recovery-code">
+      <p class="recovery-digits mono">{formatRecoveryCode(code)}</p>
+      <p>{t('recovery.keep')}</p>
+    </div>
+  );
+};
+
+/** After setup, and after a recovery code was used: the code to keep, and on into the app. */
+const RecoveryCodePage = ({ code, after }: { code: string; after: 'setup' | 'recovered' }) => {
+  const { t } = useI18n();
+  return (
+    <article class="auth-card">
+      <Brand />
+      <h1>{t('recovery.title')}</h1>
+      <p>{t(after === 'setup' ? 'recovery.after_setup' : 'recovery.after_recover')}</p>
+      <RecoveryCodeBox code={code} />
+      <p>
+        <a href="/" class="btn">
+          {t('recovery.continue')}
+        </a>
+      </p>
+    </article>
+  );
+};
+
+type RecoverField = 'username' | 'code' | 'password' | 'confirm';
+
+const RecoverForm = ({ username, error, wrong = [] }: { username?: string; error?: string; wrong?: RecoverField[] }) => {
+  const { t } = useI18n();
+  const at = (f: RecoverField) => invalid(wrong.includes(f) && error, 'recover-error');
+  return (
+    <article class="auth-card">
+      <Brand />
+      <h1>{t('recover.title')}</h1>
+      <p class="muted">{t('recover.intro')}</p>
+      {error ? (
+        <p class="error" role="alert" id="recover-error">
+          {error}
+        </p>
+      ) : null}
+      <form method="post" action="/recover">
+        <label>
+          {t('login.username')}
+          {/* eslint-disable-next-line no-restricted-syntax -- the page is one form, opened to do one thing */}
+          <input name="username" value={username ?? ''} required autofocus autocomplete="username" {...at('username')} />
+        </label>
+        <label>
+          {t('recover.code_label')}
+          <input name="code" required autocomplete="off" autocapitalize="characters" spellcheck={false} class="mono" {...at('code')} />
+        </label>
+        <label>
+          {t('account.new')} <small>{t('setup.password_hint')}</small>
+          <input type="password" name="password" required minlength={8} autocomplete="new-password" {...at('password')} />
+        </label>
+        <label>
+          {t('setup.confirm')}
+          <input type="password" name="confirm" required autocomplete="new-password" {...at('confirm')} />
+        </label>
+        <button type="submit">{t('join.submit')}</button>
+      </form>
+      <p>
+        <a href="/login">{t('pair.back_to_login')}</a>
+      </p>
+    </article>
+  );
+};
+
+auth.get('/recover', async (c) => page(c, (await i18nOf(c)).t('recover.title'), <RecoverForm />));
+
+auth.post('/recover', async (c) => {
+  const secret = c.env.SESSION_SECRET;
+  if (!hasSessionSecret(secret)) return noSessionSecret(c);
+  c.header('cache-control', 'no-store');
+  const body = await c.req.parseBody();
+  const username = String(body['username'] ?? '').trim();
+  const password = String(body['password'] ?? '');
+  const confirm = String(body['confirm'] ?? '');
+  const { t } = await i18nOf(c);
+  const form = (error: string, wrong: RecoverField[]) => page(c, t('recover.title'), <RecoverForm username={username} error={error} wrong={wrong} />);
+  // what was typed first: a password too short or unconfirmed costs no try
+  if (password.length < 8) return form(t('join.too_short'), ['password']);
+  if (password !== confirm) return form(t('setup.mismatch'), ['confirm']);
+  // then login's throttle (ARCH.md §8), by address and by the account named, counted before the code is checked
+  const attempt = await recordLoginAttempt(c.env.DB, clientIp(c), username);
+  if (!attempt) {
+    c.status(429);
+    return form(t('login.too_many', { minutes: LOGIN_ATTEMPT_WINDOW_MINUTES }), []);
+  }
+  // the code before the password is hashed: a wrong one costs a lookup, never a PBKDF2
+  const code = normalizeRecoveryCode(body['code']);
+  const codeHash = code ? await hashLinkToken(code) : '';
+  if (!codeHash || !(await recoveryCodeOpens(c.env.DB, username, codeHash))) return form(t('recover.wrong'), ['username', 'code']);
+  // the batch decides (§16 #100): the code is found again in every statement, so of two uses racing, one signs in
+  const next = newRecoveryCode();
+  const ns = await newSessionFor(c);
+  const account = await recoverWithCode(c.env.DB, { username, codeHash, passwordHash: await hashPassword(password), nextCodeHash: await hashLinkToken(next) }, ns);
+  if (!account) return form(t('recover.wrong'), ['username', 'code']);
+  await forgetLoginAttempt(c.env.DB, attempt);
+  await setSessionCookie(c, secret, account, ns.sid);
+  return page(c, t('recovery.title'), <RecoveryCodePage code={next} after="recovered" />);
+});
+
 type SetupField = 'username' | 'password' | 'confirm';
 
 /** `wrong`: the fields the error is about, which point at it. */
@@ -545,10 +659,18 @@ auth.post('/setup', async (c) => {
   // loser goes to login, which says why: usually it's the second click of a double-click, whose response is the
   // page the browser shows, and the password just chosen works there.
   const ns = await newSessionFor(c);
-  const admin = await createFirstAdmin(c.env.DB, { username, passwordHash: await hashPassword(password) }, STARTER_SHELVES, ns);
+  // the admin's recovery code (§16 #100), made with the account and shown on the page this answers with, this once
+  const recovery = newRecoveryCode();
+  const admin = await createFirstAdmin(
+    c.env.DB,
+    { username, passwordHash: await hashPassword(password), recoveryHash: await hashLinkToken(recovery) },
+    STARTER_SHELVES,
+    ns,
+  );
   if (admin === null) return c.redirect('/login?raced=1');
   await setSessionCookie(c, secret, admin, ns.sid);
-  return c.redirect('/');
+  c.header('cache-control', 'no-store');
+  return page(c, t('recovery.title'), <RecoveryCodePage code={recovery} after="setup" />);
 });
 
 export default auth;

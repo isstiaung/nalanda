@@ -1165,6 +1165,14 @@ async function interactions(context, ids, variant) {
         await page.locator('.error').waitFor({ timeout: 10_000 });
       });
     });
+    await step('Account → a new recovery code', async () => {
+      await open(page, '/account');
+      await submitted('Account → a new recovery code', async () => {
+        await page.getByLabel('Your password, to make a new code').fill(PASSWORD);
+        await page.getByRole('button', { name: /recovery code$/ }).click();
+        await page.locator('#recovery .recovery-digits').waitFor({ timeout: 10_000 });
+      });
+    });
     await step('Members → add a member', async () => {
       const username = `guest-${variant.scheme}-${variant.width}`;
       await open(page, '/settings/users');
@@ -1334,7 +1342,20 @@ async function refreshInPlace(variants) {
   await startServer({ port: REFRESH_PORT, dir: join(stateDir, 'refresh'), dummyTokens: true });
   const context = await browser.newContext();
   const form = (fields) => ({ form: fields, maxRedirects: 0 });
-  await context.request.post(`${REFRESH_BASE}/setup`, form({ username: 'refresher', password: 'refresh-password', confirm: 'refresh-password' }));
+  // set up in a browser, as a person does: the page setup answers with — the admin's recovery code, shown once (§16
+  // #100) — is audited here, in the first variant, since an instance is set up only once
+  await withVariant(context, variants[0], async (page) => {
+    await open(page, '/setup', 200, REFRESH_BASE);
+    await page.getByLabel('Username').fill('refresher');
+    await page.getByLabel(/^Password/).fill('refresh-password');
+    await page.getByLabel('Confirm password').fill('refresh-password');
+    await page.getByRole('button', { name: 'Create account' }).click();
+    await page.locator('.recovery-digits').waitFor({ timeout: 10_000 });
+    await page.waitForLoadState('load');
+    await page.addScriptTag({ content: AXE });
+    await axe(page, 'Setup → the admin’s recovery code', variants[0].name);
+    await keyboard(page, 'Setup → the admin’s recovery code', variants[0].name);
+  });
   const made = await context.request.post(`${REFRESH_BASE}/libraries`, form({ name: 'Refresh' }));
   const shelf = made.headers().location?.match(/\/libraries\/(\d+)/)?.[1];
   if (!shelf) throw new Error('the Refresh instance: could not make a shelf (setup failed?)');
@@ -1559,6 +1580,22 @@ async function main() {
         await page.waitForLoadState('load');
         await page.addScriptTag({ content: AXE });
         await axe(page, 'Log in → wrong password', variant.name);
+      }
+      // an admin's way back in (§16 #100): refused here for passwords that differ, which is checked before login's
+      // throttle — every request in this run comes from one address, and the wrong-password audits spend its tries
+      if (chosen('Recover')) {
+        await open(page, '/recover');
+        await axe(page, 'Recover: use your recovery code', variant.name);
+        await keyboard(page, 'Recover: use your recovery code', variant.name);
+        await page.getByLabel('Username').fill(USERNAME);
+        await page.getByLabel('Recovery code').fill('ABCD-EFGH-JKMN-PQRS-TUVW');
+        await page.getByLabel(/^New password/).fill('a-new-password');
+        await page.getByLabel('Confirm password').fill('another-password');
+        await page.getByRole('button', { name: 'Set password and sign in' }).click();
+        await page.locator('.error').waitFor({ timeout: 10_000 });
+        await page.waitForLoadState('load');
+        await page.addScriptTag({ content: AXE });
+        await axe(page, 'Recover → refused, passwords differ', variant.name);
       }
       // the page the installed app shows when it can't reach the server
       if (chosen('Offline')) {

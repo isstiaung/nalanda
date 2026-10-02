@@ -35,9 +35,10 @@ src/db/            schema.ts (Drizzle) + queries.ts — the ONLY code touching D
 src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googlebooks, bgg,
                    discogs, itunes, musicbrainz — nothing else calls external APIs
 src/lib/           auth.ts (pbkdf2, signed cookie), devices.ts (a session's device name from its User-Agent —
-                   ARCH.md §16 #98), pairing.ts (signing in from another device: the code's alphabet, reading it
-                   back, the digits to match and the three choices — §16 #99; the pages in routes/auth.tsx and
-                   routes/account.tsx), share.ts (public whitelist), csv.ts
+                   ARCH.md §16 #98), codes.ts (codes read off one screen and typed on another: the alphabet,
+                   making one, reading it back — §16 #99, #100), pairing.ts (signing in from another device:
+                   the code, the digits to match and the three choices — §16 #99; the pages in routes/auth.tsx
+                   and routes/account.tsx), recovery.ts (an admin's recovery code — §16 #100), share.ts (public whitelist), csv.ts
                    (export + libib, Goodreads, StoryGraph and LibraryThing mappings, whose reads an import brings), covers.ts (with
                    fonts.ts, the only R2 code), fonts.ts (a household's display fonts: the sniffer, the
                    1 KB–2 MB caps, store, delete, serve, the checked face a page's <style> takes — ARCH.md
@@ -119,6 +120,8 @@ scripts/           demo-build.mjs + demo-static.mjs (+ its .d.mts, for the test 
                    backup.mjs + backup-dir.mjs (a same-day backup never overwrites),
                    wrangler-remote.mjs + remote-config.mjs (real db id → temp config),
                    seed-demo.mjs, hash-password.mjs, federation-keygen.mjs,
+                   reset-admin.mjs + reset-link.mjs (+ its .d.mts) (a locked-out admin's reset link — the
+                   SQL in reset-link.mjs, which a test runs; ARCH.md §16 #100),
                    backfill-remote.mjs + ts-resolve.mjs (runs src/metadata under Node),
                    a11y.mjs (the runtime accessibility audit; eslint.config.mjs is the static one)
 runbooks/          operational guides: deploy, updating (for self-hosters), backup/restore, accounts,

@@ -190,7 +190,7 @@ export async function useAccountLink(
  */
 export async function createFirstAdmin(
   d1: D1Database,
-  values: { username: string; passwordHash: string },
+  values: { username: string; passwordHash: string; recoveryHash?: string },
   shelves: readonly string[],
   ns?: NewSession,
 ): Promise<{ id: number; sessionKey: string } | null> {
@@ -206,6 +206,14 @@ export async function createFirstAdmin(
     // the admin's first session, by the same write (§16 #98, #39): found by the username and this request's own hash —
     // its salt is fresh — so a setup that lost the race starts no session on the winner's account
     ...(ns ? startSession(d1, ns, 'SELECT id FROM users WHERE username = ?1 AND password_hash = ?2', [values.username, values.passwordHash]) : []),
+    // and their recovery code (§16 #100), found the same way: the one setup shows is the one that works
+    ...(values.recoveryHash
+      ? [
+          d1
+            .prepare(`INSERT INTO recovery_codes (user_id, session_key, code_hash) SELECT id, session_key, ?3 FROM users WHERE username = ?1 AND password_hash = ?2`)
+            .bind(values.username, values.passwordHash, values.recoveryHash),
+        ]
+      : []),
   ]);
   const made = results[shelves.length]?.results[0] as { id: number; sessionKey: string } | undefined;
   return made ?? null;
@@ -371,6 +379,59 @@ function startSession(d1: D1Database, ns: NewSession, userIdSql: string, binds: 
 /** A sign-in on a device (§16 #98): its session, in one batch with the tidying startSession() does. */
 export async function createSession(d1: D1Database, account: { id: number }, ns: NewSession): Promise<void> {
   await d1.batch(startSession(d1, ns, '?1', [account.id]));
+}
+
+// ---------- an admin's recovery code (ARCH.md §16 #100) ----------
+
+/** The account a recovery code opens: the username typed, the code's hash, and still the key the code was made under. */
+const RECOVERY_USER = `SELECT u.id FROM users u JOIN recovery_codes r ON r.user_id = u.id AND r.session_key = u.session_key
+  WHERE u.username = ?1 AND r.code_hash = ?2`;
+
+/** Makes an account's recovery code, or a new one in its place: the old one stops working. False if the account is gone. */
+export async function setRecoveryCode(d1: D1Database, userId: number, codeHash: string): Promise<boolean> {
+  const res = await d1
+    .prepare(
+      `INSERT INTO recovery_codes (user_id, session_key, code_hash) SELECT id, session_key, ?2 FROM users WHERE id = ?1
+       ON CONFLICT(user_id) DO UPDATE SET session_key = excluded.session_key, code_hash = excluded.code_hash, created_at = datetime('now')`,
+    )
+    .bind(userId, codeHash)
+    .run();
+  return res.meta.changes > 0;
+}
+
+/** Whether a username and recovery code go together — looked up before anything is hashed, as a one-time link is (§16 #97). */
+export async function recoveryCodeOpens(d1: D1Database, username: string, codeHash: string): Promise<boolean> {
+  return (await d1.prepare(RECOVERY_USER).bind(username, codeHash).first()) !== null;
+}
+
+/**
+ * Signs an admin back in with their recovery code (§16 #100), in one batch whose statements each find the account
+ * through the code: the new password, the generation moved on (every device signs out, #70), their API tokens and
+ * links deleted, this device's session (#98) — and, last, the code replaced by a new one, so it is used once and the
+ * admin is never left without one. Of two uses racing, one sets the password and the other finds nothing.
+ */
+export async function recoverWithCode(
+  d1: D1Database,
+  input: { username: string; codeHash: string; passwordHash: string; nextCodeHash: string },
+  ns: NewSession,
+): Promise<{ id: number; sessionKey: string; sessionGeneration: number } | null> {
+  const { username, codeHash } = input;
+  const [moved] = await d1.batch([
+    d1
+      .prepare(
+        `UPDATE users SET password_hash = ?3, must_change_password = 0, session_generation = session_generation + 1
+         WHERE id = (${RECOVERY_USER}) RETURNING id, session_key AS sessionKey, session_generation AS sessionGeneration`,
+      )
+      .bind(username, codeHash, input.passwordHash),
+    d1.prepare(`DELETE FROM api_tokens WHERE user_id = (${RECOVERY_USER})`).bind(username, codeHash),
+    d1.prepare(`DELETE FROM account_links WHERE user_id = (${RECOVERY_USER})`).bind(username, codeHash),
+    d1.prepare(`DELETE FROM sessions WHERE user_id = (${RECOVERY_USER})`).bind(username, codeHash),
+    ...startSession(d1, ns, RECOVERY_USER, [username, codeHash]),
+    d1
+      .prepare(`UPDATE recovery_codes SET code_hash = ?3, created_at = datetime('now') WHERE user_id = (${RECOVERY_USER})`)
+      .bind(username, codeHash, input.nextCodeHash),
+  ]);
+  return ((moved?.results ?? [])[0] as { id: number; sessionKey: string; sessionGeneration: number } | undefined) ?? null;
 }
 
 // ---------- signing in a device from another (ARCH.md §16 #99) ----------
@@ -877,8 +938,14 @@ export async function listApiTokens(d1: D1Database, userId: number): Promise<Arr
 export async function userWithTokens(
   d1: D1Database,
   userId: number,
-): Promise<{ displayName: string | null; locale: string | null; tokens: Array<{ id: number; name: string; createdAt: string }>; devices: DeviceRow[] }> {
-  const [u, t, sd] = await d1.batch([
+): Promise<{
+  displayName: string | null;
+  locale: string | null;
+  tokens: Array<{ id: number; name: string; createdAt: string }>;
+  devices: DeviceRow[];
+  recoveryMade: string | null;
+}> {
+  const [u, t, sd, rc] = await d1.batch([
     d1.prepare('SELECT display_name AS displayName, locale FROM users WHERE id = ?1').bind(userId),
     d1.prepare('SELECT id, name, created_at AS createdAt FROM api_tokens WHERE user_id = ?1 ORDER BY id').bind(userId),
     // the devices signed in (§16 #98), in the same call: only those still in the account's key and generation and
@@ -890,6 +957,8 @@ export async function userWithTokens(
          ORDER BY s.last_seen_at DESC, s.created_at DESC LIMIT ${MAX_SESSIONS}`,
       )
       .bind(userId, `-${SESSION_DAYS} days`),
+    // when the recovery code was made (§16 #100) — never the code, which is only a hash here
+    d1.prepare('SELECT r.created_at AS createdAt FROM recovery_codes r JOIN users u ON u.id = r.user_id AND u.session_key = r.session_key WHERE r.user_id = ?1').bind(userId),
   ]);
   const row = (u?.results ?? [])[0] as { displayName: string | null; locale: string | null } | undefined;
   return {
@@ -897,6 +966,7 @@ export async function userWithTokens(
     locale: row?.locale ?? null, // the interface language chosen here (§16 #93), in the same call
     tokens: (t?.results ?? []) as Array<{ id: number; name: string; createdAt: string }>,
     devices: (sd?.results ?? []) as DeviceRow[],
+    recoveryMade: ((rc?.results ?? [])[0] as { createdAt: string } | undefined)?.createdAt ?? null,
   };
 }
 

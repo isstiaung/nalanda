@@ -906,6 +906,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .pair-choices { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0.5rem 0 1rem; }
 .pair-choices .btn { font-size: 1.5rem; min-width: 4.5rem; min-height: 3rem; }
 .pair-waiting { margin-top: 0.75rem; }
+/* an admin's recovery code (§16 #100), the once it is shown: selected whole with one tap, wrapping between its fours */
+.recovery-digits { font-size: 1.35rem; letter-spacing: 0.06em; text-align: center; margin: 0.25rem 0 0.75rem; user-select: all; overflow-wrap: break-word; }
 .auth-card h1 { font-size: 18px; }
 
 /* ── share (public) ───────────────────────────────────────────────────────── */

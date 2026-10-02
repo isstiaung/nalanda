@@ -10,6 +10,7 @@ import {
   revokeApiToken,
   setDisplayName,
   setPassword,
+  setRecoveryCode,
   setUserLocale,
   signOutOtherDevices,
   userWithTokens,
@@ -22,9 +23,10 @@ import {
 import type { AppEnv } from '../env';
 import { hashLinkToken, hasSessionSecret, hashApiToken, hashPassword, isLinkToken, newApiToken, verifyPassword } from '../lib/auth';
 import { formatPairCode, matchChoices, newPairCode, PAIR_MINUTES } from '../lib/pairing';
+import { newRecoveryCode } from '../lib/recovery';
 import { QR_BLANK } from './shares';
 import { ledgerDate } from '../lib/dates';
-import { clientIp, newSessionFor, setSessionCookie } from './auth';
+import { clientIp, newSessionFor, RecoveryCodeBox, setSessionCookie } from './auth';
 import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
 import { DRAFT_LOCALES, isLocale, LOCALE_NAMES, locales, resolveLocale } from '../i18n';
 import { VERSION } from '../version';
@@ -230,6 +232,35 @@ const TokensForm = ({ tokens, fresh, error }: { tokens: Array<{ id: number; name
   );
 };
 
+/**
+ * An admin's recovery code (§16 #100): when it was made, never the code — that is shown once, on the response that made
+ * it — and a new one in its place, for the account's password: whoever holds only a session can't make one, since a code
+ * outlives a password change and "Sign out other devices".
+ */
+type RecoveryPanel = { made: string | null; fresh?: string | null; error?: string };
+const RecoveryForm = ({ made, fresh, error }: RecoveryPanel) => {
+  const { t } = useI18n();
+  return (
+    <article class="panel form-card account-card" id="recovery">
+      <p class="eyebrow">{t('recovery.title')}</p>
+      {fresh ? <RecoveryCodeBox code={fresh} /> : null}
+      <p class="muted">{made ? t('recovery.made', { date: ledgerDate(made) }) : t('recovery.none')}</p>
+      {error ? (
+        <p class="error" role="alert" id="recovery-error">
+          {error}
+        </p>
+      ) : null}
+      <form method="post" action="/account/recovery#recovery">
+        <label>
+          {t('recovery.password')}
+          <input type="password" name="current" required autocomplete="current-password" {...invalid(error, 'recovery-error')} />
+        </label>
+        <button type="submit">{t(made ? 'recovery.make_new' : 'recovery.make')}</button>
+      </form>
+    </article>
+  );
+};
+
 /** Which field a refused password change is about, so its message is tied to that field. */
 type PasswordField = 'current' | 'next' | 'confirm';
 
@@ -247,6 +278,7 @@ const Form = ({
   devices,
   current,
   pair,
+  recovery,
   tokens,
   freshToken,
   tokenError,
@@ -264,6 +296,7 @@ const Form = ({
   devices?: DeviceRow[];
   current?: string | null;
   pair?: PairCode | null;
+  recovery?: RecoveryPanel | null; // admins only
   tokens?: Array<{ id: number; name: string; createdAt: string }>; // none on a refused password change: the section is below it
   freshToken?: { name: string; token: string } | null;
   tokenError?: string;
@@ -302,6 +335,7 @@ const Form = ({
       {mustChange ? null : <DisplayNameForm displayName={displayName ?? null} saved={nameSaved} />}
       {mustChange ? null : <LanguageForm locale={locale ?? null} household={household ?? 'en'} saved={languageSaved} />}
       {mustChange ? null : <DevicesForm done={devicesDone} devices={devices ?? []} current={current ?? null} pair={pair} />}
+      {mustChange || !recovery ? null : <RecoveryForm {...recovery} />}
       {mustChange ? null : <TokensForm tokens={tokens ?? []} fresh={freshToken} error={tokenError} />}
       <p class="muted version-line">
         Nalanda <span class="mono">v{VERSION}</span> ·{' '}
@@ -312,9 +346,12 @@ const Form = ({
 };
 
 /** The Account page, with the member's tokens — and, right after one is made, the token itself, this once (§16 #88). */
-async function accountPage(c: Parameters<typeof page>[0], extras: { freshToken?: { name: string; token: string } | null; tokenError?: string; pair?: PairCode } = {}) {
+async function accountPage(
+  c: Parameters<typeof page>[0],
+  extras: { freshToken?: { name: string; token: string } | null; tokenError?: string; pair?: PairCode; recovery?: string; recoveryError?: string } = {},
+) {
   const user = c.get('user');
-  const { displayName, locale, tokens, devices } = await userWithTokens(c.env.DB, user.id); // one call, as getUserById was
+  const { displayName, locale, tokens, devices, recoveryMade } = await userWithTokens(c.env.DB, user.id); // one call, as getUserById was
   const devicesQuery = c.req.query('devices');
   return page(
     c,
@@ -331,6 +368,7 @@ async function accountPage(c: Parameters<typeof page>[0], extras: { freshToken?:
       devices={devices}
       current={c.get('sessionId')}
       pair={extras.pair ?? null}
+      recovery={user.role === 'admin' ? { made: recoveryMade, fresh: extras.recovery ?? null, error: extras.recoveryError } : null}
       tokens={tokens}
       freshToken={extras.freshToken ?? null}
       tokenError={extras.tokenError}
@@ -411,6 +449,29 @@ account.post('/account/password', async (c) => {
   if (!account || !hasSessionSecret(c.env.SESSION_SECRET)) return c.redirect('/login');
   await setSessionCookie(c, c.env.SESSION_SECRET, account, ns.sid);
   return c.redirect(user.mustChangePassword ? '/' : '/account?ok=1');
+});
+
+/**
+ * A new recovery code (§16 #100), admins only, for the account's password — checked under login's throttle, as a password
+ * change is — and shown on the page this once; the old one stops working.
+ */
+account.post('/account/recovery', async (c) => {
+  const sessionUser = c.get('user');
+  const { t } = c.get('i18n');
+  if (sessionUser.role !== 'admin') return c.text(t('recovery.admins_only'), 403);
+  const user = await getUserById(c.env.DB, sessionUser.id);
+  if (!user) return c.redirect('/login');
+  const current = String((await c.req.parseBody())['current'] ?? '');
+  const attempt = await recordLoginAttempt(c.env.DB, clientIp(c), user.username);
+  if (!attempt) {
+    c.status(429);
+    return accountPage(c, { recoveryError: t('login.too_many', { minutes: LOGIN_ATTEMPT_WINDOW_MINUTES }) });
+  }
+  if (!(await verifyPassword(current, user.passwordHash))) return accountPage(c, { recoveryError: t('account.wrong_current') });
+  await forgetLoginAttempt(c.env.DB, attempt);
+  const code = newRecoveryCode();
+  if (!(await setRecoveryCode(c.env.DB, user.id, await hashLinkToken(code)))) return c.redirect('/login');
+  return accountPage(c, { recovery: code });
 });
 
 /** Signs the account out everywhere but this device (§16 #70): the generation moves on, and this cookie moves with it. */
