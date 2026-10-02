@@ -129,6 +129,43 @@ export function rewriteLinks(html, base = '') {
   });
 }
 
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** A full address on `origin` in a page or a feed: up to the next quote, angle bracket or space. */
+const fullAddress = (origin) => new RegExp(`${escapeRe(origin)}(/[^"'<>\\s]*)`, 'g');
+
+/**
+ * Every address a page or feed names in full on the origin it was crawled from, as `/path?query`, once each. The app
+ * writes some addresses whole, from the request's own origin — a share's address, its QR code and copy button on
+ * Shared links, a share page's link-preview tags, a feed's entries — so in the scratch server's pages they read
+ * `http://127.0.0.1:<port>/share/…`, which addressesIn() (same-origin paths only) passes over.
+ */
+export function fullAddressesIn(text, origin) {
+  const out = [];
+  const seen = new Set();
+  for (const m of text.matchAll(fullAddress(origin))) {
+    const address = m[1].replace(/&amp;/g, '&').split('#')[0];
+    if (!address || seen.has(address)) continue;
+    seen.add(address);
+    out.push(address);
+  }
+  return out;
+}
+
+/**
+ * Every full address on `from` — attribute or text, page or feed — pointed at the demo's own copy: `to`, the site's
+ * origin (`https://nalanda-demo.example`, nothing for a local build), then the file's address under `base`. Run after
+ * rewriteLinks(): its result can begin with `/`, which rewriteLinks would otherwise take for an app path. Ampersands
+ * are written as `&amp;`, as both HTML and XML want them.
+ */
+export function rewriteFullAddresses(text, from, to = '', base = '') {
+  return text.replace(fullAddress(from), (whole, raw) => {
+    const [address, hash] = raw.replace(/&amp;/g, '&').split('#');
+    if (!address) return whole;
+    return `${to}${hrefFor(address, base)}`.replace(/&/g, '&amp;') + (hash ? `#${hash}` : '');
+  });
+}
+
 /**
  * What every page gets: the manifest and the service worker's script gone (the demo is not an app to install, and
  * keeps nothing), htmx gone (nothing to swap in — every form is intercepted), the demo's stylesheet and script in

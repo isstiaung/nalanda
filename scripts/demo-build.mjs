@@ -7,6 +7,8 @@
 //
 //   npm run demo:build                      # → demo/, for http://localhost:8000/ (npx serve demo)
 //   npm run demo:build -- --base=/nalanda   # for a project site at https://<owner>.github.io/nalanda/
+//   npm run demo:build -- --origin=https://nalanda-demo.example  # where the site is served: full addresses (a
+//                                           # share's, its QR code's, a feed's) are written for it
 //   npm run demo:build -- --no-covers       # offline: no cover fetches from the providers
 //
 // Everything is local: wrangler runs --local with a temporary --persist-to, never --remote, and this process's
@@ -16,13 +18,16 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { addressesIn, bannerHtml, CANNED_SEARCHES, crawlable, DEMO_PASSWORD, DEMO_USER, fileFor, hrefFor, inject, isAsset, LOGIN_NOTE, rewriteLinks } from './demo-static.mjs';
+import { addressesIn, bannerHtml, CANNED_SEARCHES, crawlable, DEMO_PASSWORD, DEMO_USER, fileFor, fullAddressesIn, hrefFor, inject, isAsset, LOGIN_NOTE, rewriteFullAddresses, rewriteLinks } from './demo-static.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = join(ROOT, 'demo');
 const PORT = Number(process.env.DEMO_PORT ?? 8818);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 const base = (process.argv.find((a) => a.startsWith('--base='))?.slice(7) ?? '').replace(/\/$/, '');
+// the site's own origin, for the addresses the app writes in full: nothing for a local build, whose pages then link
+// by path alone
+const origin = (process.argv.find((a) => a.startsWith('--origin='))?.slice(9) ?? '').replace(/\/$/, '');
 const covers = !process.argv.includes('--no-covers');
 const MAX_PAGES = 600;
 const WRANGLER = join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'wrangler.cmd' : 'wrangler');
@@ -182,13 +187,25 @@ async function main() {
 
   // the login page as the app renders it, with the demo's note and a form the demo's script answers
   const loginHtml = await (await fetch(`${BASE_URL}/login`)).text();
-  const loginPage = inject(rewriteLinks(loginHtml, base), { base, banner: bannerHtml(base) }).replace(/(<form[^>]*>[\s\S]*?<\/form>)/, `$1<p class="muted demo-note">${LOGIN_NOTE}</p>`);
+  const loginPage = rewriteFullAddresses(inject(rewriteLinks(loginHtml, base), { base, banner: bannerHtml(base) }), BASE_URL, origin, base).replace(
+    /(<form[^>]*>[\s\S]*?<\/form>)/,
+    `$1<p class="muted demo-note">${LOGIN_NOTE}</p>`,
+  );
   writeFileSync(join(OUT, 'index.html'), loginPage);
 
   const queue = ['/', ...CANNED_SEARCHES.map((q) => `/search?q=${encodeURIComponent(q).replace(/%20/g, '+')}`)];
   const seen = new Set(queue);
   const pages = {};
   let count = 0;
+  /** Queues what a page or feed refers to, by path or in full on the scratch server, that the crawl hasn't seen. */
+  const follow = (text, byPath) => {
+    for (const next of [...byPath, ...fullAddressesIn(text, BASE_URL)]) {
+      if (!seen.has(next) && crawlable(next) && (isAsset(next.split('?')[0]) || count + queue.length < MAX_PAGES)) {
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  };
   while (queue.length) {
     const address = queue.shift();
     const res = await fetch(`${BASE_URL}${address}`, { headers: { cookie }, redirect: 'manual' });
@@ -209,15 +226,17 @@ async function main() {
     mkdirSync(dirname(target), { recursive: true });
     if (type.startsWith('text/html')) {
       const html = await res.text();
-      for (const next of addressesIn(html)) {
-        if (!seen.has(next) && crawlable(next) && (isAsset(next.split('?')[0]) || count + queue.length < MAX_PAGES)) {
-          seen.add(next);
-          queue.push(next);
-        }
-      }
-      writeFileSync(target, inject(rewriteLinks(html, base), { base, banner: bannerHtml(base) }));
+      follow(html, addressesIn(html));
+      // paths first, then the addresses the app wrote in full — a share's, its QR code's, a link preview's — pointed
+      // at the demo's own copies on the site's origin
+      writeFileSync(target, rewriteFullAddresses(inject(rewriteLinks(html, base), { base, banner: bannerHtml(base) }), BASE_URL, origin, base));
       pages[file] = 1;
       count++;
+    } else if (/(atom|rss)\+xml|\/xml/.test(type)) {
+      // a share's feed: its entries name item pages in full
+      const xml = await res.text();
+      follow(xml, []);
+      writeFileSync(target, rewriteFullAddresses(xml, BASE_URL, origin, base));
     } else if (type.startsWith('text/css')) {
       // the stylesheet's own references (fonts) under the base too
       writeFileSync(target, (await res.text()).replace(/url\((['"]?)\//g, `url($1${base}/`));
