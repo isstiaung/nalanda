@@ -449,6 +449,14 @@ Multi-user, built into the app (no email infrastructure, no paid services):
   `accountIdentity()` — id and key — never the id alone. Without a `SESSION_SECRET` (missing, empty or whitespace) nobody can
   sign in: `/setup` and login answer 503 with how to set one, before writing anything, and
   no cookie verifies — a blank key would sign cookies anyone could forge.
+- **Device sessions** (§16 #98): every sign-in is a `sessions` row, named after its browser
+  ("Chrome · macOS"), whose id the cookie carries. A cookie that names one signs in only while
+  that row lives in the account's key and generation and within 30 days of its **last use**. The
+  middleware finds it in the batch it already makes and moves `last_seen_at` on at most once a day,
+  re-issuing the cookie when it does, so a session slides and an ordinary request writes nothing.
+  Account lists the devices and signs any other one out; Log out deletes this device's row.
+  "Sign out other devices", a password change, a reset, a one-time link and a removal delete every
+  row of the account. A cookie from before device sessions names none and works until it expires.
 - CSRF: `SameSite=Lax` + an Origin-check middleware on all mutating routes.
 - An htmx request the session middleware turns away (signed out, `/setup`, `must_change_password`)
   gets `HX-Redirect` instead of a 302, so the whole page goes to log in rather than htmx swapping
@@ -895,6 +903,7 @@ is a section of this document and "#N" another decision.
 | 95 | 2026-10-01 | [Custom fields: up to ten household fields (text, yes/no, date) on every item form, kept in `items.custom`, private unless a field's own share switch is on, never to connections](docs/decisions/095-custom-fields.md) |
 | 96 | 2026-10-02 | [A household's own display font: one per shipped locale, uploaded by an admin under Members, stored in R2 under a random key, public at `/fonts/<key>`, set in front of Eczar on every page in that language](docs/decisions/096-display-font.md) |
 | 97 | 2026-10-02 | [One-time links let a member in: an invite for a new account, a reset for a forgotten password, each shown once with its QR code, kept as a hash, good for a week and once; no admin ever sees a password](docs/decisions/097-one-time-links.md) |
+| 98 | 2026-10-02 | [Every sign-in is a device session: listed on Account by its browser's name, signed out one at a time, sliding 30 days from its last use (written at most daily); Log out ends this device's, and a cookie from before still works until it expires](docs/decisions/098-device-sessions.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

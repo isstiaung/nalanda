@@ -99,8 +99,18 @@ export type AccountRef = { id: number; sessionKey: string };
  */
 export type SessionRef = AccountRef & { sessionGeneration?: number };
 
-/** The id, key and generation a genuine cookie names — still to be checked against the user row, by `sessionMatches()`. */
-export type Session = { userId: number; key: string; generation: number };
+/**
+ * The id, key and generation a genuine cookie names — still to be checked against the user row, by `sessionMatches()` —
+ * and, for a cookie made since device sessions (§16 #98), the session it names, still to be found live in `sessions`.
+ */
+export type Session = { userId: number; key: string; generation: number; sid?: string };
+
+/** A device session's id (§16 #98): 16 random bytes, base64url, named in that device's signed cookie. */
+export function newSessionId(): string {
+  return b64url.encode(crypto.getRandomValues(new Uint8Array(16)));
+}
+
+const SESSION_ID = /^[A-Za-z0-9_-]{22}$/;
 
 /**
  * One account and no other, ever: its id and its key. For anything derived from who someone is that must not carry
@@ -111,13 +121,14 @@ export function accountIdentity(user: AccountRef): string {
   return `${user.id}:${user.sessionKey}`;
 }
 
-export async function createSessionToken(secret: string, user: SessionRef, nowSeconds: number): Promise<string> {
+export async function createSessionToken(secret: string, user: SessionRef, nowSeconds: number, sid?: string): Promise<string> {
   if (!hasSessionSecret(secret)) throw new Error('SESSION_SECRET is not set');
   if (!SESSION_KEY.test(user.sessionKey)) throw new Error('this account has no session key');
   // `g` only from 1 on: a cookie made in generation 0 is as it always was, byte for byte
   const g = user.sessionGeneration ?? 0;
   const payload = b64url.encode(
-    enc.encode(JSON.stringify({ u: user.id, k: user.sessionKey, ...(g > 0 ? { g } : {}), e: nowSeconds + SESSION_TTL_SECONDS })),
+    // `s`, the device session (§16 #98), on every cookie made since; one without it is from before, good until it expires
+    enc.encode(JSON.stringify({ u: user.id, k: user.sessionKey, ...(g > 0 ? { g } : {}), ...(sid ? { s: sid } : {}), e: nowSeconds + SESSION_TTL_SECONDS })),
   );
   const sig = b64url.encode(await crypto.subtle.sign('HMAC', await hmacKey(secret), enc.encode(payload)));
   return `${payload}.${sig}`;
@@ -167,13 +178,14 @@ export async function verifySessionToken(
   try {
     const ok = await crypto.subtle.verify('HMAC', await hmacKey(secret), b64url.decode(sig), enc.encode(payload));
     if (!ok) return null;
-    const data = JSON.parse(new TextDecoder().decode(b64url.decode(payload))) as { u?: unknown; k?: unknown; g?: unknown; e?: unknown };
+    const data = JSON.parse(new TextDecoder().decode(b64url.decode(payload))) as { u?: unknown; k?: unknown; g?: unknown; s?: unknown; e?: unknown };
     if (typeof data.u !== 'number' || !Number.isInteger(data.u) || typeof data.e !== 'number') return null;
     if (typeof data.k !== 'string' || !SESSION_KEY.test(data.k)) return null;
     // no `g` is generation 0 — every cookie from before generations (§16 #70), still good until its account moves on
     if (data.g !== undefined && (typeof data.g !== 'number' || !Number.isInteger(data.g) || data.g < 0)) return null;
+    if (data.s !== undefined && (typeof data.s !== 'string' || !SESSION_ID.test(data.s))) return null;
     if (data.e < nowSeconds) return null;
-    return { userId: data.u, key: data.k, generation: data.g ?? 0 };
+    return { userId: data.u, key: data.k, generation: data.g ?? 0, ...(typeof data.s === 'string' ? { sid: data.s } : {}) };
   } catch {
     return null;
   }

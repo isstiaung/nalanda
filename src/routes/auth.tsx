@@ -1,9 +1,11 @@
 import { Hono, type Context } from 'hono';
-import { deleteCookie, setCookie } from 'hono/cookie';
+import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import {
   accountLinkFor,
   countUsers,
   createFirstAdmin,
+  createSession,
+  deleteSession,
   ensureSessionKey,
   forgetLoginAttempt,
   getUserByUsername,
@@ -20,20 +22,33 @@ import {
   hashPassword,
   isLinkToken,
   isSessionKey,
+  newSessionId,
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
   verifyPassword,
+  verifySessionToken,
   type SessionRef,
 } from '../lib/auth';
+import { deviceName } from '../lib/devices';
 import { invalid } from '../views/components';
 import { useI18n } from '../views/i18n';
 import { Brand, i18nOf, page } from '../views/layout';
 
 const auth = new Hono<AppEnv>();
 
-/** Signs this account in on this response: a cookie naming its id, session key (§16 #56) and generation (§16 #70). */
+/**
+ * Signs this account in on this device (§16 #98): a session row named after the browser, then a cookie naming its id,
+ * the account's id, session key (§16 #56) and generation (§16 #70).
+ */
 export async function signIn(c: Context<AppEnv>, secret: string, account: SessionRef): Promise<void> {
-  const token = await createSessionToken(secret, account, Math.floor(Date.now() / 1000));
+  const sid = newSessionId();
+  await createSession(c.env.DB, account, sid, deviceName(c.req.header('user-agent')));
+  await setSessionCookie(c, secret, account, sid);
+}
+
+/** The session cookie on this response, good for SESSION_TTL_SECONDS from now: at sign-in, and as a used session slides. */
+export async function setSessionCookie(c: Context<AppEnv>, secret: string, account: SessionRef, sid: string): Promise<void> {
+  const token = await createSessionToken(secret, account, Math.floor(Date.now() / 1000), sid);
   setCookie(c, SESSION_COOKIE, token, {
     path: '/',
     httpOnly: true,
@@ -154,7 +169,10 @@ auth.post('/auth/login', async (c) => {
   return c.redirect('/');
 });
 
-auth.post('/auth/logout', (c) => {
+auth.post('/auth/logout', async (c) => {
+  // this device's session goes with its cookie (§16 #98): a copy of the cookie kept anywhere signs nobody in after this
+  const session = await verifySessionToken(c.env.SESSION_SECRET, getCookie(c, SESSION_COOKIE), Math.floor(Date.now() / 1000));
+  if (session?.sid) await deleteSession(c.env.DB, session.userId, session.sid);
   deleteCookie(c, SESSION_COOKIE, { path: '/' });
   // the browser's cache of this origin goes with the session (signed-in pages are no-store, this is for whatever a
   // browser kept anyway); app.js empties the device's scan queue on the same click (§16 #48)

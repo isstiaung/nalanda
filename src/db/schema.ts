@@ -402,6 +402,29 @@ export const accountLinks = sqliteTable(
 export type AccountLink = typeof accountLinks.$inferSelect;
 
 /**
+ * Each signed-in device (ARCH.md §16 #98): one row per sign-in, named in that device's cookie by its id, so Account can
+ * list them and sign one out. Bound to the account as the cookie is — its key (#56) and generation (#70) — so "Sign out
+ * other devices", a new password or a reset end every row at once. Sliding: a row lives SESSION_TTL_SECONDS from when it
+ * was last used, and `last_seen_at` moves at most once a day, so an ordinary request writes nothing.
+ */
+export const sessions = sqliteTable(
+  'sessions',
+  {
+    id: text('id').primaryKey(), // 16 random bytes, base64url; in the signed cookie, so knowing it alone forges nothing
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    sessionKey: text('session_key').notNull(),
+    generation: integer('generation').notNull(),
+    device: text('device').notNull().default(''), // "Chrome on macOS", read from the User-Agent at sign-in; nothing else of it kept
+    createdAt: text('created_at').notNull().default(now),
+    lastSeenAt: text('last_seen_at').notNull().default(now),
+  },
+  (t) => [index('idx_sessions_user').on(t.userId)],
+);
+export type DeviceSession = typeof sessions.$inferSelect;
+
+/**
  * Failed password checks, for throttling (ARCH.md §8): a row is written before the password is checked, in the one
  * statement that also refuses it once the IP or the account has ten in ten minutes (`recordLoginAttempt()`), and
  * taken back when the password turns out right. `username` is as typed — the account guessed at — so guesses spread

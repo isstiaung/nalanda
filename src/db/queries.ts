@@ -122,9 +122,10 @@ export async function resetWithLink(
   tokenHash: string,
   days: number,
 ): Promise<'invite' | 'reset' | null> {
-  const [, , , made] = await d1.batch([
+  const [, , , , made] = await d1.batch([
     d1.prepare('UPDATE users SET password_hash = ?2, must_change_password = 0, session_generation = session_generation + 1 WHERE id = ?1').bind(id, passwordHash),
     d1.prepare('DELETE FROM api_tokens WHERE user_id = ?1').bind(id),
+    endSessions(d1, id),
     // the kind is read before anything of theirs is deleted: an invite stays an invite, even one past its week
     d1.prepare(`DELETE FROM account_links WHERE user_id = ?1 AND purpose = 'reset'`).bind(id),
     d1
@@ -171,6 +172,7 @@ export async function useAccountLink(
       )
       .bind(tokenHash, passwordHash),
     d1.prepare(`DELETE FROM api_tokens WHERE user_id = (${LIVE_LINK})`).bind(tokenHash),
+    d1.prepare(`DELETE FROM sessions WHERE user_id = (${LIVE_LINK})`).bind(tokenHash), // every device, as a new password ends (§16 #98)
     d1.prepare(`DELETE FROM account_links WHERE user_id = (${LIVE_LINK})`).bind(tokenHash),
   ]);
   return ((moved?.results ?? [])[0] as { id: number; sessionKey: string; sessionGeneration: number } | undefined) ?? null;
@@ -267,17 +269,22 @@ function overridesOf(row: { locale: string; strings: string } | undefined): Over
 export async function sessionAccount(
   d1: D1Database,
   id: number,
-): Promise<{ user: User | null; language: string; translation: Overrides | null; font: DisplayFace | null }> {
+  sid?: string,
+): Promise<{ user: User | null; language: string; translation: Overrides | null; font: DisplayFace | null; device: LiveSession | null }> {
   const dbi = db(d1);
   const resolved = sql`(SELECT CASE WHEN u.locale IN (${shippedLocales()}) THEN u.locale WHEN st.language IN (${shippedLocales()}) THEN st.language ELSE ${'en'} END
     FROM users u LEFT JOIN site_settings st ON st.id = 1 WHERE u.id = ${id})`;
-  const [users, settings, rows, fonts] = await dbi.batch([
+  const [users, settings, rows, fonts, ...rest] = await dbi.batch([
     dbi.select().from(s.users).where(eq(s.users.id, id)),
     dbi.select({ language: s.siteSettings.language }).from(s.siteSettings).where(eq(s.siteSettings.id, 1)),
     dbi.select({ locale: s.translations.locale, strings: s.translations.strings }).from(s.translations).where(eq(s.translations.locale, resolved)),
     // the household's display font for that locale (§16 #96), in the same call: none, and this is simply empty
     displayFontFor(dbi, resolved),
+    // the device session the cookie names (§16 #98), if it is still within its sliding 30 days — and its last use
+    // moved on, at most once a day, so it slides; an ordinary request writes nothing. A cookie from before names none.
+    ...(sid ? sessionStatements(dbi, id, sid) : []),
   ]);
+  const [found, touched] = sid ? (rest as unknown as [Array<{ sessionKey: string; generation: number }>, Array<{ id: string }>]) : [[], []];
   const language = settings[0]?.language;
   const user = users[0] ?? null;
   const translation = overridesOf(rows[0]);
@@ -289,8 +296,58 @@ export async function sessionAccount(
     language: isLanguageCode(language) ? language : DEFAULT_LANGUAGE,
     translation: rows[0]?.locale === expected ? translation : null,
     font: fonts[0]?.locale === expected ? displayFaceOf(fonts[0]) : null,
+    device: found[0] ? { sessionKey: found[0].sessionKey, generation: found[0].generation, touched: touched.length > 0 } : null,
   };
 }
+
+// ---------- device sessions (ARCH.md §16 #98) ----------
+
+/** How long a device session lives from its last use, and how often that use is written down. */
+export const SESSION_DAYS = 30;
+const LIVE = sql`datetime('now', ${`-${SESSION_DAYS} days`})`;
+
+/** A device session as the middleware finds it: the key and generation it was made in, and whether this request slid it. */
+export type LiveSession = { sessionKey: string; generation: number; touched: boolean };
+
+/** A signed-in device, as Account lists it. */
+export type DeviceRow = { id: string; device: string; createdAt: string; lastSeenAt: string };
+
+/** The two statements every signed-in request with a device session adds to its batch: find it, and slide it daily. */
+function sessionStatements(dbi: ReturnType<typeof db>, userId: number, sid: string) {
+  return [
+    dbi
+      .select({ sessionKey: s.sessions.sessionKey, generation: s.sessions.generation })
+      .from(s.sessions)
+      .where(and(eq(s.sessions.id, sid), eq(s.sessions.userId, userId), sql`${s.sessions.lastSeenAt} > ${LIVE}`)),
+    dbi
+      .update(s.sessions)
+      .set({ lastSeenAt: sql`datetime('now')` })
+      .where(and(eq(s.sessions.id, sid), eq(s.sessions.userId, userId), sql`${s.sessions.lastSeenAt} <= datetime('now', '-1 day')`, sql`${s.sessions.lastSeenAt} > ${LIVE}`))
+      .returning({ id: s.sessions.id }),
+  ] as const;
+}
+
+/**
+ * A sign-in on a device (§16 #98): its row, bound to the account's key and generation as the cookie is — and, in the
+ * same call, this account's sessions past their 30 days let go, so the list holds only what could still sign in.
+ */
+export async function createSession(d1: D1Database, account: { id: number; sessionKey: string; sessionGeneration?: number }, sid: string, device: string): Promise<void> {
+  await d1.batch([
+    d1.prepare(`DELETE FROM sessions WHERE user_id = ?1 AND last_seen_at <= datetime('now', ?2)`).bind(account.id, `-${SESSION_DAYS} days`),
+    d1
+      .prepare('INSERT INTO sessions (id, user_id, session_key, generation, device) VALUES (?1, ?2, ?3, ?4, ?5)')
+      .bind(sid, account.id, account.sessionKey, account.sessionGeneration ?? 0, device),
+  ]);
+}
+
+/** Signs one device out (§16 #98): the member's own session, by its id. False when there was none of theirs. */
+export async function deleteSession(d1: D1Database, userId: number, sid: string): Promise<boolean> {
+  const res = await d1.prepare('DELETE FROM sessions WHERE id = ?1 AND user_id = ?2').bind(sid, userId).run();
+  return res.meta.changes > 0;
+}
+
+/** The statement that ends every device session of an account: in the batch of whatever moves its generation on. */
+const endSessions = (d1: D1Database, userId: number) => d1.prepare('DELETE FROM sessions WHERE user_id = ?1').bind(userId);
 
 /** The display font row for a locale resolved in SQL (§16 #96): the one statement every page's batch adds for it. */
 const displayFontFor = (dbi: ReturnType<typeof db>, locale: SQL) =>
@@ -626,6 +683,7 @@ export async function setPassword(
       )
       .bind(id, passwordHash, mustChangePassword ? 1 : 0),
     d1.prepare('DELETE FROM api_tokens WHERE user_id = ?1').bind(id),
+    endSessions(d1, id), // their rows too (§16 #98): the generation already refuses them; this keeps Devices honest
   ]);
   const row = moved?.results?.[0] as { id: number; sessionKey: string; sessionGeneration: number } | undefined;
   return row ?? null;
@@ -650,6 +708,7 @@ export async function signOutOtherDevices(
       )
       .bind(id),
     d1.prepare('DELETE FROM api_tokens WHERE user_id = ?1').bind(id),
+    endSessions(d1, id), // their rows too (§16 #98): the generation already refuses them; this keeps Devices honest
   ]);
   const row = moved?.results?.[0] as { id: number; sessionKey: string; sessionGeneration: number } | undefined;
   return row ?? null;
@@ -687,16 +746,26 @@ export async function listApiTokens(d1: D1Database, userId: number): Promise<Arr
 export async function userWithTokens(
   d1: D1Database,
   userId: number,
-): Promise<{ displayName: string | null; locale: string | null; tokens: Array<{ id: number; name: string; createdAt: string }> }> {
-  const [u, t] = await d1.batch([
+): Promise<{ displayName: string | null; locale: string | null; tokens: Array<{ id: number; name: string; createdAt: string }>; devices: DeviceRow[] }> {
+  const [u, t, sd] = await d1.batch([
     d1.prepare('SELECT display_name AS displayName, locale FROM users WHERE id = ?1').bind(userId),
     d1.prepare('SELECT id, name, created_at AS createdAt FROM api_tokens WHERE user_id = ?1 ORDER BY id').bind(userId),
+    // the devices signed in (§16 #98), in the same call: only those still in the account's key and generation and
+    // within their 30 days — the rest sign nobody in — most recently used first
+    d1
+      .prepare(
+        `SELECT s.id, s.device, s.created_at AS createdAt, s.last_seen_at AS lastSeenAt FROM sessions s JOIN users u ON u.id = s.user_id
+         WHERE s.user_id = ?1 AND s.session_key = u.session_key AND s.generation = u.session_generation AND s.last_seen_at > datetime('now', ?2)
+         ORDER BY s.last_seen_at DESC, s.created_at DESC`,
+      )
+      .bind(userId, `-${SESSION_DAYS} days`),
   ]);
   const row = (u?.results ?? [])[0] as { displayName: string | null; locale: string | null } | undefined;
   return {
     displayName: row?.displayName ?? null,
     locale: row?.locale ?? null, // the interface language chosen here (§16 #93), in the same call
     tokens: (t?.results ?? []) as Array<{ id: number; name: string; createdAt: string }>,
+    devices: (sd?.results ?? []) as DeviceRow[],
   };
 }
 

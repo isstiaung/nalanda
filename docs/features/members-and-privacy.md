@@ -46,8 +46,11 @@ is the household's to mind ([#96](../decisions/096-display-font.md)).
 
 ## Sessions and sign-in
 
-A session is a signed cookie, good for 30 days, naming the account by its id and a random key that
-is never reused ([#56](../decisions/056-session-names-account-id-random.md)). **Sign out other
+A session is a signed cookie naming the account by its id and a random key that is never reused
+([#56](../decisions/056-session-names-account-id-random.md)), and the device it was made on: **Account →
+Devices** lists each signed-in device by its browser and system, with when it signed in and was last
+used, and signs any other one out; Log out ends this one. A session lasts 30 days from its last use
+([#98](../decisions/098-device-sessions.md)). **Sign out other
 devices** on Account ends every other session and keeps this one
 ([#70](../decisions/070-sign-out-other-devices.md)); changing your password does the same, and an
 admin's **Reset password** signs that member out everywhere — the remedy for a lost phone. Login is
