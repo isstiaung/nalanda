@@ -74,12 +74,19 @@ works on localhost. Local secrets live in `.dev.vars`: copy `.dev.vars.example` 
 
 ## Running your own
 
-**In the browser, no terminal** (backups aside): fork this repository, then in Cloudflare **Import a repository**
-and pick your fork (default and production branch `deploy-site`, deploy command `npm run deploy`). The first
-deploy creates the database and the cover bucket. Set one secret, open `/setup`, and you're done.
-New releases arrive with GitHub's **Sync fork** button. The steps are in
-[runbooks/deploy.md](runbooks/deploy.md#run-your-own-from-a-fork); switch on R2 in Cloudflare
-first (free, but it asks for a card).
+**In the browser, no terminal** (backups aside), in
+[five steps](runbooks/deploy.md#run-your-own-from-a-fork):
+1. Switch on [R2](https://dash.cloudflare.com/?to=/:account/r2/overview) in Cloudflare (free, but it
+   asks for a card).
+2. [Fork this repository](https://github.com/isstiaung/nalanda/fork) with all its branches, and make
+   `deploy-site` your fork's default branch.
+3. In [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) → **Create application** → **Import a repository**, pick your fork:
+   name `nalanda`, deploy command `npm run deploy`. The first deploy creates the database and the
+   cover bucket.
+4. Add the secret `SESSION_SECRET`.
+5. Open `/setup`.
+
+New releases then arrive with GitHub's **Sync fork** button.
 
 **Or from a terminal** — everything below fits inside Cloudflare's free tier. One-time setup:
 

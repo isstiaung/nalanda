@@ -9,43 +9,50 @@ updating is in [updating.md](updating.md).
 All in the browser, with a free Cloudflare account and a GitHub account (ARCH.md §16 #101). Your
 fork keeps this repository's history, so each new release reaches you with one click: **Sync fork**.
 
-1. **Switch on R2** in Cloudflare: the dashboard → **R2 Object Storage** → enable it. It's free
-   (10 GB of covers a month cost nothing), but Cloudflare asks for a card or PayPal account to switch
-   it on, and a new account has it off.
-2. **Fork** [isstiaung/nalanda](https://github.com/isstiaung/nalanda): **Fork**, and *untick* "Copy
-   the `main` branch only". Then, in your fork on GitHub: **Settings** → **General** → **Default
-   branch** → switch it to **`deploy-site`**. Your library runs `deploy-site`, the latest release;
-   `main` is work in progress, and Cloudflare builds the default branch the moment you import. (A
-   build of `main` stops before touching anything, and says so.)
-3. **Import it** in Cloudflare: **Workers & Pages** → **Create** → **Import a repository** → your
-   fork.
+1. **Switch on R2**: open [R2 Object Storage](https://dash.cloudflare.com/?to=/:account/r2/overview)
+   in the Cloudflare dashboard and enable it ([how](https://developers.cloudflare.com/r2/get-started/)).
+   It's free (10 GB of covers a month cost nothing), but Cloudflare asks for a card or PayPal account
+   to switch it on, and a new account has it off.
+2. **[Fork isstiaung/nalanda](https://github.com/isstiaung/nalanda/fork)**, and *untick* "Copy the
+   `main` branch only". Then, in your fork on GitHub, **Settings** → **General** → **Default branch**:
+   switch it to **`deploy-site`**
+   ([how](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-branches-in-your-repository/changing-the-default-branch)).
+   Your library runs `deploy-site`, the latest release; `main` is work in progress, and Cloudflare
+   builds the default branch the moment you import. (A build of `main` stops before touching
+   anything, and says so.)
+3. **Import it**: open [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) → **Create application** → **Import a repository** →
+   your fork ([Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/)).
    - **Name: `nalanda`**, the name in `wrangler.jsonc`. With another name, builds fail or try to
      change your fork's config.
-   - **Production branch: `deploy-site`** (your fork's default branch, now).
+   - **Production branch: `deploy-site`** (your fork's default branch, now;
+     [build branches](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)).
    - **Build command:** leave it empty; there is no build step. **Deploy command:**
      `npm run deploy`. It runs the migrations, then deploys.
    - **Builds for non-production branches:** turn them off, if the form offers it. Only
      `deploy-site` is a library.
-   - **Where your database lives** (optional, but only settable now): add a build variable
+   - **Where your database lives** (optional, but only settable now): add a
+     [build variable](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)
      `D1_LOCATION` — `apac` for South Asia and the rest of Asia, `weur`/`eeur` for Europe,
-     `wnam`/`enam` for North America, `oc` for Oceania. Without it, Cloudflare places the database
-     near its build machine, and it stays there.
+     `wnam`/`enam` for North America, `oc` for Oceania
+     ([data location](https://developers.cloudflare.com/d1/configuration/data-location/)). Without
+     it, Cloudflare places the database near its build machine, and it stays there.
 
    The first deploy creates your database (`nalanda`) and your cover bucket (`nalanda-covers`), and
    gives you an address like `https://nalanda.<you>.workers.dev`. You set no database id: the deploy
    finds your account's `nalanda` database by name every time. If the first build says it couldn't
    list your D1 databases, give the build's API token D1 access
    ([troubleshooting](troubleshooting.md#deploys--database)).
-4. **Set `SESSION_SECRET`**: the Worker → **Settings** → **Variables and Secrets** → **Add**, type
-   **Secret**, name `SESSION_SECRET`. Use any long random value (`openssl rand -hex 32` makes one,
+4. **Set `SESSION_SECRET`**: [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) → **nalanda** → **Settings** → **Variables and
+   Secrets** → **Add**, type **Secret**, name `SESSION_SECRET`
+   ([secrets](https://developers.cloudflare.com/workers/configuration/secrets/)). Use any long random value (`openssl rand -hex 32` makes one,
    as does a password manager's generator). **Keep a copy**: Cloudflare never shows a secret's value
    again, and `/setup` asks for it. Until it's set, the library says *Not ready yet*. Still *Not
-   ready yet* after saving it? The Worker → **Deployments** → deploy the latest version.
+   ready yet* after saving it? **nalanda** → **Deployments** → deploy the latest version.
 5. **Open `<your-address>/setup`** and paste the session secret. Then choose your username and
    password. The next page shows your **recovery code** once: copy or download it, and keep it apart
    from this device. Lost the secret before setup? Set a new value and use that.
 6. **Optional tokens**, whenever you like, in the same place (**Variables and Secrets** → **Add**,
-   type **Secret**). A secret applies as soon as it is saved.
+   type **Secret**). If one doesn't take, deploy the latest version, as in step 4.
    - `DISCOGS_TOKEN` (vinyl lookup) and `BGG_TOKEN` (board game search): see
      [API tokens](#api-tokens) for how to get each;
    - `GOOGLE_BOOKS_KEY`: optional, raises the book-lookup quota;
@@ -54,7 +61,8 @@ fork keeps this repository's history, so each new release reaches you with one c
      [connections.md](connections.md).
 
 **Updating:** on GitHub, open your fork, switch to the `deploy-site` branch, and press **Sync fork**
-→ **Update branch**. Cloudflare builds it and deploys, migrations first. Read the release's notes
+→ **Update branch**
+([how](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork)). Cloudflare builds it and deploys, migrations first. Read the release's notes
 first: when they ask for a backup, take it before you sync ([updating.md](updating.md)).
 
 **Backups** come from a laptop, the one thing here that needs a terminal: `git clone -b deploy-site
