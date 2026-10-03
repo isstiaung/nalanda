@@ -736,22 +736,24 @@ Every authenticated page route returns a full document normally and a partial wh
   the cloud. Local secrets live in `.dev.vars` (gitignored).
 - **First deploy** (once; the full steps are in `runbooks/deploy.md`):
   1. `wrangler d1 create nalanda` (keep the database id it prints, for step 3) and
-     `wrangler r2 bucket create nalanda-covers`. The id never goes into `wrangler.jsonc`:
-     its `database_id` stays the all-zero placeholder (§16 #24).
+     `wrangler r2 bucket create nalanda-covers`. The id never goes into `wrangler.jsonc`,
+     which has no `database_id` at all (§16 #24); local dev keys by its all-zero
+     `preview_database_id`.
   2. `wrangler secret put SESSION_SECRET` (plus `DISCOGS_TOKEN` for vinyl lookups,
      `BGG_TOKEN` for board game search, and optionally `GOOGLE_BOOKS_KEY`).
   3. `D1_DATABASE_ID=<id> npm run deploy` → resolves the id into a gitignored copy of the
      config, applies remote migrations, deploys, prints your
      `https://nalanda.<account>.workers.dev` URL. Visit `/setup`, paste the session secret,
      create the admin account, start scanning.
-- **Or from a fork, in the browser** (§16 #101): a household forks the repository and imports the
-  fork in Cloudflare (Workers Builds, production branch `deploy-site`, deploy command
-  `npm run deploy`). With no `D1_DATABASE_ID`, in Workers Builds only, `deploy.mjs` finds the
-  account's `nalanda` database by name, or creates it (near `D1_LOCATION`) and migrates it before the
-  Worker goes live; a build of `main` is refused, and a laptop with no id refuses as before; `wrangler
-  deploy` creates the `nalanda-covers` bucket when it's missing. They set `SESSION_SECRET` in the
-  dashboard and open `/setup`. Updates are GitHub's **Sync fork**. This repository keeps its
-  placeholder.
+- **Or from a fork, in the browser** (§16 #101): a household forks the repository (default branch
+  `deploy-site`) and imports the fork in Cloudflare (Workers Builds), keeping Cloudflare's own
+  deploy command. `wrangler.jsonc`'s custom build, `scripts/workers-build.mjs`, runs before the
+  deploy: in a fork's build on its library's branch (no `D1_DATABASE_ID`), it finds the account's
+  `nalanda` database by name, or creates it near `D1_LOCATION`, and migrates it; any other branch's
+  build is refused. Wrangler's deploy then connects the binding to that database by name, and
+  creates the `nalanda-covers` bucket when it's missing. `npm run deploy` does the same in a fork,
+  and a laptop with no id refuses as before. They set `SESSION_SECRET` in the dashboard and open
+  `/setup`. Updates are GitHub's **Sync fork**.
 - **Custom domain** (later): with the zone on Cloudflare, add it to the Worker under
   Settings → Domains & Routes — no code or config change. TLS stays free.
 

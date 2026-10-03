@@ -1,8 +1,7 @@
-// wrangler.jsonc carries an all-zero placeholder database_id (ARCH.md §16 #24), which Cloudflare's API rejects —
-// so a bare `wrangler d1 … --remote` can't find the production database. Scripts that reach it from a laptop
-// run wrangler against a gitignored copy of the config holding the real id: D1_DATABASE_ID when it's set; else the
-// config's own when it isn't the placeholder; else the id of the database the config names (`nalanda`) in the account
-// wrangler is logged in to — a household's fork, whose deploys find it the same way (§16 #101).
+// wrangler.jsonc carries no database_id (ARCH.md §16 #24) — so a `wrangler d1 … --remote` command has no id to send.
+// Scripts that reach production from a laptop run wrangler against a gitignored copy of the config holding the real
+// id: D1_DATABASE_ID when it's set; else one written into the config; else the id of the database the config names
+// (`nalanda`) in the account wrangler is logged in to — a household's fork, whose deploys find it the same way (§16 #101).
 //
 // scripts/deploy.mjs does the same, and on a household's first deploy creates the database when there is none yet.
 // This never creates anything: a backup or a hand-run command needs a database that is already there.

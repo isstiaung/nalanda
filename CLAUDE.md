@@ -280,10 +280,13 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   production database sets `FEDERATION_OFFLINE=1` (a plain variable, never a secret, never in
   production) before its first page load, or it contacts the real households (§16 #92;
   runbooks/backup-and-restore.md).
-- **No Cloudflare resource ids in the repo** (ARCH.md §16 #24): `database_id` stays the all-zero
-  placeholder, deploys supply `D1_DATABASE_ID`. Don't "helpfully" fill it in — miniflare keys
-  local D1 state by it, so editing it orphans the local database (§16 #20). A household's **fork**
-  (§16 #101) deploys with no id anywhere: in Workers Builds only, `deploy.mjs` finds the account's
-  database by the config's name (`nalanda`), or creates it; never on a laptop, never for `main`. `.dev.vars.example`
+- **No Cloudflare resource ids in the repo** (ARCH.md §16 #24): `wrangler.jsonc` has no `database_id`;
+  deploys supply `D1_DATABASE_ID`. Don't "helpfully" add one, or change the all-zero
+  `preview_database_id` — miniflare keys local D1 state by it, so editing it orphans the local
+  database (§16 #20). A household's **fork**
+  (§16 #101) deploys with no id anywhere and Cloudflare's own deploy command: the custom build
+  (`scripts/workers-build.mjs`) finds the account's `nalanda` database by name, or creates it, and
+  migrates it — in Workers Builds only, only on the library's branch. Any other publish but
+  `npm run deploy` is refused by that hook: never a plain `wrangler deploy`. `.dev.vars.example`
   leaves `SESSION_SECRET` empty, the app refuses its old sample value, and `/setup` asks for the secret.
 - Keep this file, docs/ and ARCH.md current as commands and decisions evolve.

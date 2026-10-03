@@ -16,3 +16,10 @@ storage keying (#20), so editing it orphans an existing local database. Local de
 migrations, and tests all run against the placeholder, so a clone needs no edit at
 all. The same pass added LICENSE (MIT), CONTRIBUTING, SECURITY, THIRD-PARTY, CI, and
 CODEOWNERS, and untracked `options/`.
+
+**Amended 2026-10-03 (#101).** `wrangler.jsonc` now has **no `database_id` at all**. The all-zero UUID
+moved to `preview_database_id`, which keys local dev exactly as before, so no local database was
+re-keyed (tested). Without an id, Cloudflare's own `wrangler deploy` connects the binding by its
+`database_name`, which is what lets a household's fork deploy with Cloudflare's default command.
+`deploy.mjs` writes the real id from `D1_DATABASE_ID` into its resolved copy after `database_name`.
+The rule stands: the repo names no Cloudflare resource.

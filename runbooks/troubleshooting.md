@@ -103,10 +103,16 @@ time and reports "N added, M already here, P maybe already here, K not found" ([
   token with Workers Scripts, R2 and D1 edit), then build again.
 - **A fork's build: "This build is of `main`"**: set the Worker's production branch to `deploy-site`
   (**Settings** → **Build** → **Branch control**), and your fork's default branch on GitHub too.
-- **`D1 binding 'DB' references database '00000000-0000-0000-0000-000000000000'`**: the
-  build ran a bare `wrangler deploy` instead of `npm run deploy`, so the placeholder in
-  `wrangler.jsonc` was never substituted and remote migrations never ran. Set the Worker's
-  **deploy command** to `npm run deploy` (Cloudflare's default is the bare form).
+- **`D1 binding 'DB' references database '00000000-0000-0000-0000-000000000000'`**: the config
+  is from before 1.10.0, when `wrangler.jsonc` carried that placeholder as its `database_id`, and the
+  build ran a bare `wrangler deploy`. Update (a fork: Sync fork), or set the Worker's **deploy
+  command** to `npm run deploy`.
+- **"This build sets D1_DATABASE_ID … its deploy command must be `npm run deploy`"**: a Cloudflare
+  build of your own instance ran the bare `wrangler deploy`, which would run no migrations. Set the
+  **deploy command** to `npm run deploy`.
+- **"Deploy with `npm run deploy` … not a plain `wrangler deploy`"** on a laptop: as it says. A
+  plain deploy would publish your checkout onto the account's `nalanda` database without its
+  migrations.
 - **`Invalid uuid` from the D1 API on deploy**: `D1_DATABASE_ID` holds something that
   isn't the database id — check `npx wrangler d1 list`.
 - **"migrations pending" or schema mismatch locally**: `npm run db:migrate` (local) /

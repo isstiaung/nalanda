@@ -13,4 +13,5 @@ refuse a missing or blank secret up front and say how to set it, §8), and
 dashboard-pasted secret values can pick up whitespace (piping the value into
 `wrangler secret put` is the reliable path). Local reminder: miniflare keys local D1 state by `database_id`, so
 changing the id in `wrangler.jsonc` orphans local data until the state file is
-copied to the new key.
+copied to the new key. (Since #101 the config has no `database_id`, and local state keys by
+`preview_database_id`, which holds the same all-zero UUID: the same rule applies to it.)

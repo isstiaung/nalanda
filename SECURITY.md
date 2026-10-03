@@ -72,8 +72,8 @@ Please don't file these:
 - **Share pages are cached in-isolate for an hour.** After rotating or removing a share, an
   untouched isolate can keep serving the old page for up to 1 hour (ARCH.md §16 #19). It's a
   burst shield with a known, accepted lag.
-- **The all-zero `database_id` in `wrangler.jsonc`.** A placeholder, not a real resource:
-  this repo names no Cloudflare database, bucket, or account. Deploys take the real id from
+- **No `database_id` in `wrangler.jsonc`**, and an all-zero `preview_database_id` that only keys
+  local dev: this repo names no Cloudflare database, bucket, or account. Deploys take the real id from
   `D1_DATABASE_ID` in the environment (`scripts/deploy.mjs`); a household's fork, building in
   Cloudflare, uses its own account's `nalanda` database by name. Even a real D1 id would be
   inert without credentials for the account that owns it — keeping it out is hygiene.

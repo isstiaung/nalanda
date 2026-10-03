@@ -80,9 +80,9 @@ works on localhost. Local secrets live in `.dev.vars`: copy `.dev.vars.example` 
    asks for a card).
 2. [Fork this repository](https://github.com/isstiaung/nalanda/fork) with all its branches, and make
    `deploy-site` your fork's default branch.
-3. In [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) → **Create application** → **Import a repository**, pick your fork:
-   name `nalanda`, deploy command `npm run deploy`. The first deploy creates the database and the
-   cover bucket.
+3. In [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) →
+   **Create application** → **Import a repository**, pick your fork, and name it `nalanda`. Leave the
+   rest as it is. The first deploy creates the database and the cover bucket, and migrates them.
 4. Add the secret `SESSION_SECRET`.
 5. Open `/setup`.
 
@@ -102,9 +102,9 @@ wrangler secret put FEDERATION_PRIVATE_KEY  # optional — turns on connections;
 D1_DATABASE_ID=<the id> npm run deploy   # remote migrations, then wrangler deploy
 ```
 
-The repo names no Cloudflare resource of its own: `database_id` in `wrangler.jsonc` is an
-all-zero placeholder the deploy fills from `D1_DATABASE_ID`, so a fresh clone works offline with
-nothing to edit. From there `npm run deploy` is every update; releases are numbered, and each one's
+The repo names no Cloudflare resource of its own: `wrangler.jsonc` has no `database_id` (the
+deploy writes the real one from `D1_DATABASE_ID` into a temporary copy), and local dev keys its
+database by an all-zero `preview_database_id`, so a fresh clone works offline with nothing to edit. From there `npm run deploy` is every update; releases are numbered, and each one's
 notes ([GitHub Releases](https://github.com/isstiaung/nalanda/releases), [CHANGELOG.md](CHANGELOG.md))
 say what it changes and whether to back up first. Dashboard git integration, custom domains, rollback
 and moving your data are in [runbooks/deploy.md](runbooks/deploy.md).

@@ -24,12 +24,13 @@ fork keeps this repository's history, so each new release reaches you with one c
    your fork ([Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/)).
    - **Name: `nalanda`**, the name in `wrangler.jsonc`. With another name, builds fail or try to
      change your fork's config.
-   - **Production branch: `deploy-site`** (your fork's default branch, now;
-     [build branches](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)).
-   - **Build command:** leave it empty; there is no build step. **Deploy command:**
-     `npm run deploy`. It runs the migrations, then deploys.
+   - **Production branch:** `deploy-site`, your fork's default branch now, which the form picks
+     for you ([build branches](https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/)).
+   - **Build and deploy commands:** leave Cloudflare's defaults. Before each deploy, Nalanda's own
+     build step finds or creates your database and runs its migrations. (`npm run deploy` works
+     too.)
    - **Builds for non-production branches:** turn them off, if the form offers it. Only
-     `deploy-site` is a library.
+     `deploy-site` is a library; a build of any other branch stops and says so.
    - **Where your database lives** (optional, but only settable now): add a
      [build variable](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)
      `D1_LOCATION` — `apac` for South Asia and the rest of Asia, `weur`/`eeur` for Europe,
@@ -38,8 +39,10 @@ fork keeps this repository's history, so each new release reaches you with one c
      it, Cloudflare places the database near its build machine, and it stays there.
 
    The first deploy creates your database (`nalanda`) and your cover bucket (`nalanda-covers`), and
-   gives you an address like `https://nalanda.<you>.workers.dev`. You set no database id: the deploy
-   finds your account's `nalanda` database by name every time. If the first build says it couldn't
+   gives you an address like `https://nalanda.<you>.workers.dev`. Its log says *This account has
+   no D1 database "nalanda" yet: creating it*, then the migrations. You set no database id: every
+   deploy finds your account's `nalanda` database by name. (Running a branch of your own instead of
+   `deploy-site`? Name it in a build variable `NALANDA_BRANCH`.) If the first build says it couldn't
    list your D1 databases, give the build's API token D1 access
    ([troubleshooting](troubleshooting.md#deploys--database)).
 4. **Set `SESSION_SECRET`**: [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) → **nalanda** → **Settings** → **Variables and
@@ -82,11 +85,10 @@ CI, release and demo workflows run only in `isstiaung/nalanda` anyway.
    npx wrangler r2 bucket create nalanda-covers
    ```
    Note the `database_id` the first command prints — you supply it at deploy time as
-   `D1_DATABASE_ID` rather than committing it. `wrangler.jsonc` keeps an all-zero
-   placeholder there on purpose: the repo names no Cloudflare resource, and local dev,
-   local migrations, and the tests all run happily against the placeholder. Leave it
-   alone — editing it re-keys local storage, so a dev database you've been filling will
-   suddenly look empty. `npx wrangler d1 list` shows the real id again later. The bucket
+   `D1_DATABASE_ID` rather than committing it. `wrangler.jsonc` has no `database_id` on
+   purpose: the repo names no Cloudflare resource. Local dev, local migrations and the tests
+   key their database by the all-zero `preview_database_id`. Leave it alone — editing it
+   re-keys local storage, so a dev database you've been filling will suddenly look empty. `npx wrangler d1 list` shows the real id again later. The bucket
    needs no config change.
 
 2. **Set secrets** (each command prompts for the value):
@@ -121,9 +123,14 @@ CI, release and demo workflows run only in `isstiaung/nalanda` anyway.
    > at request time; the build container never sees them, so the build takes the fork
    > path — the account's `nalanda` database, by name — while the dashboard shows the
    > secret plainly set. The build log says which database it used. Also
-   > confirm the **deploy command** is `npm run deploy` — Cloudflare's default is a bare
-   > `wrangler deploy`, which skips the substitution and remote migrations entirely and
-   > fails with `D1 binding 'DB' references database '00000000-…'`.
+   > confirm the **deploy command** is `npm run deploy`: with `D1_DATABASE_ID` set,
+   > Cloudflare's default, a bare `wrangler deploy`, is stopped by the build hook, since it
+   > would run no migrations.
+
+   **Never a plain `wrangler deploy` from a laptop.** `wrangler.jsonc` names no database id, so
+   wrangler would find your `nalanda` database by name and publish whatever you have checked out,
+   without its migrations. The build hook (`scripts/workers-build.mjs`) refuses it and says to run
+   `npm run deploy`.
 
 4. **Create your account**: open `<your-url>/setup` immediately — it creates the admin
    account and disables itself once a user exists. It asks first for the `SESSION_SECRET` you

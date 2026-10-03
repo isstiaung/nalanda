@@ -2,6 +2,10 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "nalanda",
   "main": "src/index.ts",
+  // Runs before every deploy, version upload and `wrangler dev` (wrangler's custom build). It does nothing but in a
+  // household's fork building in Cloudflare (ARCH.md §16 #101): there, on the library's branch, it finds or creates the
+  // `nalanda` database and migrates it, so Cloudflare's own deploy command needs no changing — see the script.
+  "build": { "command": "node scripts/workers-build.mjs" },
   "compatibility_date": "2025-09-01",
   "assets": {
     "directory": "./public",
@@ -11,18 +15,17 @@
     // public/_headers, not from secureHeaders() in src/index.ts.
     "html_handling": "none"
   },
-  // database_id is an all-zero placeholder on purpose: this repo names no specific
-  // Cloudflare resource. `npm run dev`, local migrations, and the tests all work
-  // against it as-is, so a fresh clone runs offline with nothing to edit. Only
-  // deploys need the real id, substituted from D1_DATABASE_ID — see
-  // scripts/deploy.mjs. Keep it a well-formed UUID: `wrangler dev` fails on an
-  // empty string, and editing it re-keys local storage (a populated dev database
-  // will look empty until you put the old value back).
+  // No database_id, on purpose: this repo names no specific Cloudflare resource (ARCH.md §16 #24). A deploy finds
+  // the database by its name (`nalanda`) — wrangler connects to it, or creates it — and this repository's own deploys
+  // write the real id from D1_DATABASE_ID into a copy of this file (scripts/deploy.mjs). `preview_database_id` is the
+  // all-zero placeholder local dev has always used: `npm run dev`, local migrations and the tests key their local
+  // database by it, so a fresh clone runs offline with nothing to edit. Keep it: changing it re-keys local storage (a
+  // populated dev database will look empty until you put the old value back).
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "nalanda",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "preview_database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"
     }
   ],
