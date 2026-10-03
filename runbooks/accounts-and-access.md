@@ -70,9 +70,34 @@ and the purchase links on those books, stay.
 
 ## Admin lockout (you forgot the admin password)
 
-You can reset any password from the CLI. **The hash contains `$` characters — never paste
-it inside a double-quoted shell string (zsh/bash will expand the `$…` runs and silently
-corrupt it).** The shell-safe pattern:
+Three ways back, easiest first (ARCH.md §16 #100):
+
+1. **Your recovery code.** Setup showed it once; Account → *Recovery code* makes a new one (it
+   asks for your password). On the log in page, *Forgot your password?* → your username, the code
+   (any case, dashes or not) and a new password. Every other device signs out, and the page shows your
+   **next** code: the one you used no longer works. Keep the new one. (If the page instead says the code
+   was used a few minutes ago, a double-click or reload used it already: your new password is set. Log
+   in with it and make a new code on Account.) A password change, an admin's reset or a one-time link
+   also ends your code: make a new one afterwards.
+2. **Another admin** makes you a reset link under Members, as for anyone (above).
+3. **`npm run reset-admin`**, from a laptop logged in to Cloudflare with `wrangler login` (the
+   same access `npm run backup` needs):
+
+   ```sh
+   npm run reset-admin -- <admin username> --url=https://your.library
+   ```
+
+   It prints a one-time reset link for that admin, good for seven days. Open it and choose a new
+   password. It changes nothing until it's used, so it needs no backup first: the old password still
+   works and every device stays signed in until then. It refuses a member and lists the admins if the
+   name is wrong. `--local` does the same against your dev database. Afterwards, make a new recovery
+   code on Account.
+
+### Last resort: set a password by hand
+
+If even that can't run, you can set a password hash directly. **The hash contains `$`
+characters — never paste it inside a double-quoted shell string (zsh/bash will expand the
+`$…` runs and silently corrupt it).** The shell-safe pattern:
 
 ```sh
 HASH=$(node scripts/hash-password.mjs 'your-new-password')

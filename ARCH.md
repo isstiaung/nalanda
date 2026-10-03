@@ -420,7 +420,8 @@ Multi-user, built into the app (no email infrastructure, no paid services):
 - **First deploy** shows `/setup` (only while `users` is empty) to create the **admin**
   account (you). The admin and the three starter shelves are one batch (§16 #39), every
   statement guarded inside it by "no user yet", so two setups racing make one admin; the
-  loser is sent to login.
+  loser is sent to login. The same batch makes the admin's recovery code, which the page setup
+  answers with shows once (§16 #100).
 - **Admin invites family members** at `/settings/users` with a **one-time link** (§16 #97): the
   account is made with a password nobody knows, and `https://<instance>/join/<secret>` is shown once,
   with its QR code, for the admin to pass on. Opening it, the member chooses their own password and
@@ -464,6 +465,13 @@ Multi-user, built into the app (no email infrastructure, no paid services):
   wrong answer ends the request); the new device's htmx poll (204 while it waits) then claims its
   session in one batch. Codes and requests
   are kept as hashes, bound to the account's key and generation, in `device_pairings`, never backed up.
+- **Admin recovery** (§16 #100). Setup's batch also makes the first admin's **recovery code**, shown
+  once on the page setup answers with: twenty characters, kept as a SHA-256 in `recovery_codes`, one per
+  account. `/recover` (from *Forgot your password?*) takes username, code and a new password under
+  login's throttle; one batch sets the password, moves the generation on, ends tokens and links, signs
+  this device in and replaces the code with a new one, shown once. Admins make a new code on Account
+  with their password; a new password set any other way (a change, a reset, a link) deletes it. `npm run reset-admin` makes a locked-out admin a one-time reset link from the
+  CLI, and changes nothing until it is used.
 - CSRF: `SameSite=Lax` + an Origin-check middleware on all mutating routes.
 - An htmx request the session middleware turns away (signed out, `/setup`, `must_change_password`)
   gets `HX-Redirect` instead of a 302, so the whole page goes to log in rather than htmx swapping
@@ -582,6 +590,8 @@ GET  /join/:token              a one-time invite or reset link: choose a passwor
 GET  /pair                     sign in with a code from a signed-in device (?code= fills it in) · POST to sign in (§16 #99)
 POST /pair/scan                sign in with your phone: a QR and two digits · GET /pair/scan/status (the poll; claims)
 GET  /pair/approve/:token      signed in: approve a device by typing its number · POST to answer · POST /account/pair (a code)
+GET  /recover                  an admin's recovery code: a new password, signed in, a new code (§16 #100) · POST to use it
+                               · POST /account/recovery (admins, with their password: a new code, shown once)
 GET  /account                  change own password (also the forced first-login flow) · POST /account/display-name
 GET  /goals                    reading goals: your own, or ?member=:id for an admin (§16 #49)
 POST /goals                    set a goal (this year or next) · POST /goals/:id/delete — own, or anyone's for an admin
@@ -915,6 +925,7 @@ is a section of this document and "#N" another decision.
 | 97 | 2026-10-02 | [One-time links let a member in: an invite for a new account, a reset for a forgotten password, each shown once with its QR code, kept as a hash, good for a week and once; no admin ever sees a password](docs/decisions/097-one-time-links.md) |
 | 98 | 2026-10-02 | [Every sign-in is a device session: listed on Account by its browser's name, signed out one at a time, sliding 30 days from its last use (written at most daily); Log out ends this device's, and a cookie from before still works until it expires](docs/decisions/098-device-sessions.md) |
 | 99 | 2026-10-02 | [A device signs in from another one, both ways round: a code a signed-in device shows (once, five minutes, throttled with logins), or a QR the new device shows, approved on a signed-in phone by typing the number it shows (one wrong answer ends it)](docs/decisions/099-device-pairing.md) |
+| 100 | 2026-10-02 | [An admin locked out gets back in with a recovery code shown at setup (once, hashed, used once and replaced as it is used, made again on Account with the password), or with a one-time reset link `npm run reset-admin` makes](docs/decisions/100-admin-recovery.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

@@ -175,6 +175,8 @@ npm run record-covers:remote -- <step>  # one-off: record covers stored from Dis
                            # Archive's, or dropped; same steps (runbooks/record-covers.md, §16 #67)
 npm run vendor             # re-copy vendored assets after bumping htmx/zxing/font versions
 npm run federation:keygen  # Ed25519 identity → FEDERATION_PRIVATE_KEY, printed once, never on disk
+npm run reset-admin -- <admin> --url=https://…  # a locked-out admin's one-time reset link (§16 #100);
+                           # changes nothing until used; --local for the dev database
 ```
 
 ## Layout
@@ -229,7 +231,9 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   also signs in from another (§16 #99): a code from Account typed at `/pair`, or the new device's QR approved on
   a signed-in phone by typing its number — five minutes, once, hashed, bound to key and generation. Opening the
   code's QR or the approve page signs nobody in; only the new device's poll, with its cookie, claims, in one
-  batch. Login and
+  batch. An admin's recovery code (§16 #100) is made with the account at setup,
+  shown once, kept hashed, used once at `/recover` and replaced in that batch; making one on Account takes the
+  password, and any other new password (a change, a reset, a link) deletes it in its batch. Login and
   the current-password check are throttled by `recordLoginAttempt()`: ten failures in ten minutes
   per IP and per account, counted in the statement that checks, *before* the password is verified,
   answered 429; an unknown username is checked against `DUMMY_HASH`. A temporary-password session

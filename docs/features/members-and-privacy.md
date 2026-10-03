@@ -2,7 +2,8 @@
 
 ## Accounts
 
-`/setup` on a fresh instance makes the first admin and the starter shelves, then closes. Admins add
+`/setup` on a fresh instance makes the first admin and the starter shelves, shows that admin their
+recovery code once ([#100](../decisions/100-admin-recovery.md)), then closes. Admins add
 members under **Members** with a **one-time link**, shown once with its QR code: the member opens
 it, chooses their own password and is signed in, and a forgotten password gets a reset link the same
 way ([#97](../decisions/097-one-time-links.md)); no email is involved, and no admin ever sees a
@@ -53,7 +54,10 @@ used, and signs any other one out; Log out ends this one. A session lasts 30 day
 ([#98](../decisions/098-device-sessions.md)). A new device can sign in without a password: **Sign in
 another device** on Account shows a code to type on it (or scan), or the new device's log in page
 shows a QR for a signed-in phone, which approves it by typing the number the new device shows
-([#99](../decisions/099-device-pairing.md)). **Sign out other
+([#99](../decisions/099-device-pairing.md)). An admin who forgets their password uses the
+**recovery code** setup showed them, from *Forgot your password?* on the log in page, or makes a new one on
+Account; failing that, `npm run reset-admin` makes them a reset link ([#100](../decisions/100-admin-recovery.md)).
+**Sign out other
 devices** on Account ends every other session and keeps this one
 ([#70](../decisions/070-sign-out-other-devices.md)); changing your password does the same, and an
 admin's **Reset password** signs that member out everywhere — the remedy for a lost phone. Login is

@@ -163,7 +163,7 @@ describe('every way an account is made gives it a key of its own', () => {
   it('setup, an admin adding members, createUser and createFirstAdmin: each key usable and unlike any other', async () => {
     // setup's admin
     const setup = await send('/setup', { form: { username: 'admin', password: 'correct horse', confirm: 'correct horse' } });
-    expect(setup.status).toBe(302);
+    expect(setup.status).toBe(200); // the admin's recovery code (§16 #100)
     const setupCookie = setup.headers.get('set-cookie')!.split(';')[0]!;
     expect((await send('/account', { cookie: setupCookie })).status).toBe(200);
 
@@ -194,7 +194,7 @@ describe('every way an account is made gives it a key of its own', () => {
       send('/setup', { form: { username: 'ann', password: 'correct horse', confirm: 'correct horse' } }),
       send('/setup', { form: { username: 'ben', password: 'correct horse', confirm: 'correct horse' } }),
     ]);
-    const won = results.find((r) => r.headers.get('location') === '/')!;
+    const won = results.find((r) => r.status === 200)!;
     const all = await keys();
     expect(all).toHaveLength(1);
     expect(isSessionKey(all[0]!.k)).toBe(true);

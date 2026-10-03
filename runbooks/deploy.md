@@ -52,7 +52,9 @@
 
 4. **Create your account**: open `<your-url>/setup` immediately — it creates the admin
    account and disables itself once a user exists. If it says `SESSION_SECRET` isn't set,
-   step 2 didn't take: set it and reload. Nothing is saved until then.
+   step 2 didn't take: set it and reload. Nothing is saved until then. The next page shows
+   your **recovery code**, once: keep it apart from this device (written down, or in a password
+   manager). It is how you get back in if you forget your password ([accounts](accounts-and-access.md#admin-lockout-you-forgot-the-admin-password)).
 
 ## Every subsequent deploy
 

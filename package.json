@@ -19,6 +19,7 @@
     "backfill:remote": "node --disable-warning=ExperimentalWarning scripts/backfill-remote.mjs",
     "record-covers:remote": "node --disable-warning=ExperimentalWarning scripts/record-covers.mjs",
     "federation:keygen": "node scripts/federation-keygen.mjs",
+    "reset-admin": "node scripts/reset-admin.mjs",
     "vendor": "node scripts/vendor.mjs",
     "postinstall": "node scripts/vendor.mjs",
     "typecheck": "tsc --noEmit",

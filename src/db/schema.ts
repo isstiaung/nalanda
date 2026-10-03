@@ -450,6 +450,26 @@ export const devicePairings = sqliteTable('device_pairings', {
 });
 
 /**
+ * An admin's recovery code (ARCH.md §16 #100): what signs them back in when they have forgotten their password and no
+ * other admin can make them a link. Shown once — at setup, on Account when made again, and after it is used, when a
+ * new one replaces it — and kept only as a SHA-256. One per account, bound to it as a session is (its key, #56); used
+ * once, by the batch that sets the new password. A new password set any other way — changed, reset, a one-time link —
+ * deletes it, since whoever knew the old password could have made it.
+ */
+export const recoveryCodes = sqliteTable('recovery_codes', {
+  userId: integer('user_id')
+    .primaryKey()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  sessionKey: text('session_key').notNull(),
+  codeHash: text('code_hash').notNull().unique(), // SHA-256 of the code, normalized, hex
+  createdAt: text('created_at').notNull().default(now),
+  // the code used last, and when: for a few minutes a second use of it (a double-click, a reload) is told it worked
+  // already, rather than that it was wrong — the new code it was replaced by was on a page since closed
+  usedHash: text('used_hash'),
+  usedAt: text('used_at'),
+});
+
+/**
  * Failed password checks, for throttling (ARCH.md §8): a row is written before the password is checked, in the one
  * statement that also refuses it once the IP or the account has ten in ten minutes (`recordLoginAttempt()`), and
  * taken back when the password turns out right. `username` is as typed — the account guessed at — so guesses spread
