@@ -119,7 +119,7 @@ scripts/           demo-build.mjs + demo-static.mjs (+ its .d.mts, for the test 
                    demo/ for GitHub Pages — ARCH.md §16 #89; the pure parts tested), vendor.mjs (postinstall), deploy.mjs (D1_DATABASE_ID → temp config),
                    backup.mjs + backup-dir.mjs (a same-day backup never overwrites),
                    wrangler-remote.mjs + remote-config.mjs (real db id → temp config), database-id.mjs (+ its
-                   .d.mts) (which id: D1_DATABASE_ID, a Deploy-button copy's own, or none — §16 #101),
+                   .d.mts) (which id: D1_DATABASE_ID, the config's own, or a fork's database found by name — §16 #101),
                    seed-demo.mjs, hash-password.mjs, federation-keygen.mjs,
                    reset-admin.mjs + reset-link.mjs (+ its .d.mts) (a locked-out admin's reset link — the
                    SQL in reset-link.mjs, which a test runs; ARCH.md §16 #100),

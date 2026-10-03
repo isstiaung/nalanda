@@ -81,7 +81,7 @@ Please don't file these:
   any copy of its cookie (ARCH.md §16 #98). A session lives 30 days from its last use. Only the
   browser and system are kept from the User-Agent; no address or location.
 - **Setting up a new instance** (ARCH.md §16 #101). Until its first admin exists, anyone who reaches
-  `/setup` could make one, and a one-click deploy's address is easy to guess. So `/setup` asks first
+  `/setup` could make one, and a new library's address (`nalanda.<account>.workers.dev`) is easy to guess. So `/setup` asks first
   for the `SESSION_SECRET` that whoever deployed it set: compared in constant time, throttled, and
   never echoed back. The value this repository once published as an example counts as no secret at
   all, and nobody can sign in with it.

@@ -25,9 +25,8 @@ concurrency:
 
 jobs:
   check:
-    # this repository's checks: a copy made with the Deploy to Cloudflare button carries this file too, and a
-    # household's own copy holds its own database id (§16 #101). A pull request from a fork still runs: for
-    # pull_request, github.repository is this one.
+    # this repository's checks, not a household's fork, which carries this file too (§16 #101). A pull request from a
+    # fork still runs: for pull_request, github.repository is this one.
     if: github.repository == 'isstiaung/nalanda'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -49,7 +48,7 @@ jobs:
       - run: npm run typecheck
 
       # this repository names no Cloudflare resource (ARCH.md §16 #24): its database_id is the all-zero placeholder,
-      # which the Deploy button overwrites in a household's own copy (§16 #101) — so the check is here, not in the tests
+      # and a household's fork may write a real one in (§16 #101) — so the check is here, not in the tests
       - name: wrangler.jsonc keeps the placeholder database id
         run: |
           grep -q '"database_id": "00000000-0000-0000-0000-000000000000"' wrangler.jsonc

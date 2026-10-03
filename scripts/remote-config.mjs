@@ -1,25 +1,25 @@
 // wrangler.jsonc carries an all-zero placeholder database_id (ARCH.md §16 #24), which Cloudflare's API rejects —
 // so a bare `wrangler d1 … --remote` can't find the production database. Scripts that reach it from a laptop
 // run wrangler against a gitignored copy of the config holding the real id: D1_DATABASE_ID when it's set; else the
-// config's own, in a copy the Deploy to Cloudflare button made (§16 #101); else the id of the database the config
-// names (`nalanda` here) in the account wrangler is logged in to.
+// config's own when it isn't the placeholder; else the id of the database the config names (`nalanda`) in the account
+// wrangler is logged in to — a household's fork, whose deploys find it the same way (§16 #101).
 //
-// scripts/deploy.mjs does the same with D1_DATABASE_ID or a button copy's own id, but never asks `wrangler d1 list`:
-// in Cloudflare's build, one of those is how the id arrives, and a deploy shouldn't guess.
+// scripts/deploy.mjs does the same, and on a household's first deploy creates the database when there is none yet.
+// This never creates anything: a backup or a hand-run command needs a database that is already there.
 import { execFileSync } from 'node:child_process';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { chooseDatabaseId, configuredDatabase, withDatabaseId } from './database-id.mjs';
+import { chooseDatabaseId, configuredDatabase, findDatabase, withDatabaseId } from './database-id.mjs';
 
 const SOURCE = 'wrangler.jsonc';
 
 /** What scripts pass wrangler's d1 commands: the database's name as wrangler.jsonc gives it — `nalanda` here, and
- *  whatever a copy made with the Deploy button has (§16 #101). Wrangler finds that entry in the config, and its id —
+ *  and in a household's fork (§16 #101). Wrangler finds that entry in the config, and its id —
  *  and every command line this repository's own production scripts run stays exactly what it was. */
 export const DATABASE = configuredDatabase(readFileSync(SOURCE, 'utf8')).name || 'nalanda';
 const RESOLVED = '.wrangler-remote.jsonc';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** D1_DATABASE_ID if set; else a button copy's own id; else the id `wrangler d1 list` gives the one database with the
+/** D1_DATABASE_ID if set; else the config's own id; else the id `wrangler d1 list` gives the one database with the
  *  config's name — or ''. */
 function productionDatabaseId(source) {
   const chosen = chooseDatabaseId(process.env.D1_DATABASE_ID, source);
@@ -30,8 +30,7 @@ function productionDatabaseId(source) {
     const listed = JSON.parse(
       execFileSync('npx', ['wrangler', 'd1', 'list', '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }),
     );
-    const matches = listed.filter((db) => db.name === name);
-    return matches.length === 1 ? matches[0].uuid : '';
+    return findDatabase(listed, name);
   } catch {
     return ''; // not logged in, or no answer
   }

@@ -1,14 +1,13 @@
-// What a deploy runs against (ARCH.md §16 #24, #101): this repository's placeholder database id, D1_DATABASE_ID, and the
-// real id the Deploy to Cloudflare button writes into a person's copy — and what the button's form asks for.
+// What a deploy runs against (ARCH.md §16 #24, #101): this repository's placeholder database id, D1_DATABASE_ID, a real
+// id in a config, and a household's fork, whose database is found by name — and the one secret the example asks for.
 import { describe, expect, it } from 'vitest';
-import { chooseDatabaseId, configuredDatabase, PLACEHOLDER_ID, withDatabaseId } from '../scripts/database-id.mjs';
+import { chooseDatabaseId, configuredDatabase, findDatabase, PLACEHOLDER_ID, withDatabaseId } from '../scripts/database-id.mjs';
 import wrangler from '../wrangler.jsonc?raw';
 import devVarsExample from '../.dev.vars.example?raw';
-import pkg from '../package.json';
 
 const REAL = '0f3c5a1e-8b2d-4c6f-9a7e-1d2b3c4d5e6f';
-// The config as this repository keeps it, and as the button leaves a person's copy. Built from the real file, with its
-// id set either way, so these pass in a copy too: that this repository keeps the placeholder is a CI step (ci.yml).
+// The config as this repository keeps it, and with a real id written in. Built from the real file, with its id set either
+// way, so these pass in a fork that wrote one in too: that this repository keeps the placeholder is a CI step (ci.yml).
 const placeheld = withDatabaseId(wrangler, PLACEHOLDER_ID)!;
 const copied = withDatabaseId(wrangler, REAL)!;
 
@@ -18,7 +17,7 @@ describe('the database a deploy means', () => {
     expect(chooseDatabaseId(REAL, copied)).toEqual({ id: REAL, from: 'env' });
   });
 
-  it('is a button copy’s own id when D1_DATABASE_ID isn’t set, and never the placeholder', () => {
+  it('is the config’s own id when D1_DATABASE_ID isn’t set, and never the placeholder — then a fork’s, found by name', () => {
     expect(chooseDatabaseId(undefined, copied)).toEqual({ id: REAL, from: 'config' });
     expect(chooseDatabaseId('', placeheld)).toEqual({ error: 'no-id' });
   });
@@ -42,19 +41,30 @@ describe('the config', () => {
   });
 });
 
-describe('what the button’s form asks for', () => {
-  const asked = devVarsExample
-    .split('\n')
-    .filter((line) => /^[A-Z_]+=/.test(line))
-    .map((line) => line.split('=') as [string, string]);
+describe('a fork’s database, found by name', () => {
+  const listed = [
+    { uuid: '11111111-2222-4333-8444-555555555555', name: 'nalanda', created_at: '2026-10-03' },
+    { uuid: '66666666-7777-4888-8999-000000000000', name: 'something-else' },
+  ];
 
-  it('is SESSION_SECRET alone, with no value to accept as it stands — the optional tokens stay commented out', () => {
-    expect(asked).toEqual([['SESSION_SECRET', '']]);
+  it('is the one database the config names in `wrangler d1 list`’s answer', () => {
+    expect(findDatabase(listed, configuredDatabase(placeheld).name)).toBe('11111111-2222-4333-8444-555555555555');
   });
 
-  it('says what each secret is for', () => {
-    const bindings = (pkg as { cloudflare: { bindings: Record<string, { description: string }> } }).cloudflare.bindings;
-    for (const [name] of asked) expect(bindings[name]?.description, name).toBeTruthy();
-    expect(Object.keys(bindings)).toEqual(['SESSION_SECRET', 'DB', 'COVERS']);
+  it('is none when there is no such database — the first deploy creates it — or the answer isn’t a list', () => {
+    expect(findDatabase([listed[1]], 'nalanda')).toBe('');
+    expect(findDatabase([], 'nalanda')).toBe('');
+    expect(findDatabase({ error: 'not logged in' }, 'nalanda')).toBe('');
+    expect(findDatabase([{ name: 'nalanda', uuid: 'not-a-uuid' }], 'nalanda')).toBe('');
+  });
+});
+
+describe('the example secrets', () => {
+  it('carry no value for SESSION_SECRET to accept as it stands — the optional tokens stay commented out', () => {
+    const set = devVarsExample
+      .split('\n')
+      .filter((line) => /^[A-Z_]+=/.test(line))
+      .map((line) => line.split('=') as [string, string]);
+    expect(set).toEqual([['SESSION_SECRET', '']]);
   });
 });

@@ -744,12 +744,13 @@ Every authenticated page route returns a full document normally and a partial wh
      config, applies remote migrations, deploys, prints your
      `https://nalanda.<account>.workers.dev` URL. Visit `/setup`, paste the session secret,
      create the admin account, start scanning.
-- **Or one click** (§16 #101): the README's Deploy to Cloudflare button copies the `deploy-site`
-  branch (the latest release) into the person's repository, creates its D1 database and R2 bucket,
-  writes the database's id into that copy's `wrangler.jsonc`, asks for `SESSION_SECRET` alone, and
-  deploys through Workers Builds with `npm run deploy`. That copy's own id is what `deploy.mjs` and
-  the remote scripts use when `D1_DATABASE_ID` is unset (`scripts/database-id.mjs`); this
-  repository keeps its placeholder.
+- **Or from a fork, in the browser** (§16 #101): a household forks the repository and imports the
+  fork in Cloudflare (Workers Builds, production branch `deploy-site`, deploy command
+  `npm run deploy`). With no `D1_DATABASE_ID`, `deploy.mjs` finds the account's `nalanda` database by
+  name, or creates it on the first deploy and migrates it before the Worker goes live; `wrangler
+  deploy` creates the `nalanda-covers` bucket when it's missing. They set `SESSION_SECRET` in the
+  dashboard and open `/setup`. Updates are GitHub's **Sync fork**. This repository keeps its
+  placeholder.
 - **Custom domain** (later): with the zone on Cloudflare, add it to the Worker under
   Settings → Domains & Routes — no code or config change. TLS stays free.
 
@@ -934,7 +935,7 @@ is a section of this document and "#N" another decision.
 | 98 | 2026-10-02 | [Every sign-in is a device session: listed on Account by its browser's name, signed out one at a time, sliding 30 days from its last use (written at most daily); Log out ends this device's, and a cookie from before still works until it expires](docs/decisions/098-device-sessions.md) |
 | 99 | 2026-10-02 | [A device signs in from another one, both ways round: a code a signed-in device shows (once, five minutes, throttled with logins), or a QR the new device shows, approved on a signed-in phone by typing the number it shows (one wrong answer ends it)](docs/decisions/099-device-pairing.md) |
 | 100 | 2026-10-02 | [An admin locked out gets back in with a recovery code shown at setup (once, hashed, used once and replaced as it is used, made again on Account with the password), or with a one-time reset link `npm run reset-admin` makes](docs/decisions/100-admin-recovery.md) |
-| 101 | 2026-10-02 | [A Deploy to Cloudflare button: the release branch copied into a household's own repository, its database and bucket made and its id written there (this repository keeps the placeholder), `SESSION_SECRET` the one secret asked for, the old example value refused, and `/setup` asking for the secret first](docs/decisions/101-deploy-button.md) |
+| 101 | 2026-10-03 | [Self-hosting from a fork, in the browser: a household forks the repository and imports the fork in Cloudflare; the first deploy finds or creates its `nalanda` database by name (this repository keeps the placeholder); updates are Sync fork; `/setup` asks for the `SESSION_SECRET` first, and the old example value is refused. Not the Deploy to Cloudflare button, whose copies can't take updates](docs/decisions/101-self-hosting-from-a-fork.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

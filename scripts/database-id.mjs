@@ -1,9 +1,10 @@
 // Which D1 database a deploy or a remote command means (ARCH.md §16 #24, #101). Pure, so a test can hold it.
 //
-// This repository's wrangler.jsonc carries an all-zero placeholder `database_id`: it names no Cloudflare resource, and
-// deploys take the real id from D1_DATABASE_ID. A copy made with the Deploy to Cloudflare button is different: the
-// button creates the person's database and writes its id into their copy's wrangler.jsonc. So the id is, in order:
-// D1_DATABASE_ID when set; the config's own when it isn't the placeholder; and otherwise none — never a guess.
+// This repository's wrangler.jsonc carries an all-zero placeholder `database_id`: it names no Cloudflare resource. Its
+// own deploys take the real id from D1_DATABASE_ID. A household's fork deploys with no id at all: its database is the one
+// the config names (`nalanda`) in the household's own account, found by that name — or made, on the first deploy
+// (scripts/deploy.mjs). So the id is, in order: D1_DATABASE_ID when set; the config's own when it isn't the placeholder;
+// otherwise the account's database of the config's name.
 
 export const PLACEHOLDER_ID = '00000000-0000-0000-0000-000000000000';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -31,4 +32,11 @@ export function chooseDatabaseId(envValue, source) {
 /** The config with `id` in place of whatever database_id it had — null when it has no such field. */
 export function withDatabaseId(source, id) {
   return ID_FIELD.test(source) ? source.replace(ID_FIELD, `$1${id}$3`) : null;
+}
+
+/** The id of the database called `name` in `wrangler d1 list --json`'s answer, or '' when there is none. */
+export function findDatabase(listed, name) {
+  if (!Array.isArray(listed) || !name) return '';
+  const matches = listed.filter((db) => db && db.name === name && typeof db.uuid === 'string' && UUID.test(db.uuid));
+  return matches.length === 1 ? matches[0].uuid : '';
 }

@@ -74,13 +74,14 @@ works on localhost. Local secrets live in `.dev.vars`: copy `.dev.vars.example` 
 
 ## Running your own
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/isstiaung/nalanda/tree/deploy-site)
+**In the browser, no terminal:** fork this repository, then in Cloudflare **Import a repository**
+and pick your fork (deploy command `npm run deploy`, production branch `deploy-site`). The first
+deploy creates the database and the cover bucket. Set one secret, open `/setup`, and you're done.
+New releases arrive with GitHub's **Sync fork** button. The steps are in
+[runbooks/deploy.md](runbooks/deploy.md#run-your-own-from-a-fork); switch on R2 in Cloudflare
+first (free, but it asks for a card).
 
-The button copies the latest release into a repository of yours and deploys it to your Cloudflare
-account. It creates the database and the cover bucket, and asks for one secret. Then open `/setup`
-on your new address; [runbooks/deploy.md](runbooks/deploy.md#one-click-deploy) has the details,
-and the optional tokens. Or by hand — everything below fits inside Cloudflare's free tier. One-time
-setup:
+**Or from a terminal** — everything below fits inside Cloudflare's free tier. One-time setup:
 
 ```sh
 wrangler d1 create nalanda            # note the id it prints

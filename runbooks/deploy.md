@@ -1,30 +1,40 @@
 # Runbook: Deploy
 
-Two ways to start: the **one-click deploy** below, or the **first deploy** by hand after it. Either
-way, every later deploy is a push (or `npm run deploy`), and updating is in
-[updating.md](updating.md).
+Two ways to start: **from a fork**, all in the browser, below; or the **first deploy** by hand
+after it, from a terminal. Either way, every later deploy is a push (or `npm run deploy`), and
+updating is in [updating.md](updating.md).
 
-## One-click deploy
+## Run your own from a fork
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/isstiaung/nalanda/tree/deploy-site)
+All in the browser, with a free Cloudflare account and a GitHub account (ARCH.md §16 #101). Your
+fork keeps this repository's history, so each new release reaches you with one click: **Sync fork**.
 
-The button (ARCH.md §16 #101) uses a free Cloudflare account and a GitHub (or GitLab) account:
-1. It copies the latest release into a new repository of yours.
-2. It creates your D1 database and R2 bucket.
-3. It asks for one secret, **`SESSION_SECRET`**: any long random value (`openssl rand -hex 32`
-   makes one, as does a password manager's generator). **Keep a copy**: Cloudflare never shows a
-   secret's value again, and `/setup` asks for it.
-4. It builds and deploys, and gives you an address like `https://nalanda.<you>.workers.dev`.
+1. **Switch on R2** in Cloudflare: the dashboard → **R2 Object Storage** → enable it. It's free
+   (10 GB of covers a month cost nothing), but Cloudflare asks for a card or PayPal account to switch
+   it on, and a new account has it off.
+2. **Fork** [isstiaung/nalanda](https://github.com/isstiaung/nalanda): **Fork**, and *untick* "Copy
+   the `main` branch only". Your library runs `deploy-site`, the latest release; `main` is work in
+   progress.
+3. **Import it** in Cloudflare: **Workers & Pages** → **Create** → **Import a repository** → your
+   fork.
+   - **Name: `nalanda`.** It must match the `name` in `wrangler.jsonc`, or every build fails.
+   - **Production branch: `deploy-site`.** If the form doesn't ask, set it straight after, under
+     the Worker → **Settings** → **Build** → **Branch control**, and build again.
+   - **Build command:** leave it empty; there is no build step.
+   - **Deploy command:** `npm run deploy`. It runs the migrations, then deploys.
 
-Every push to your copy deploys again, with its migrations first.
-
-Then:
-1. **Open `<your-address>/setup` straight away.** Paste the session secret, and choose your
-   username and password. The next page shows your **recovery code** once: keep it apart from this
-   device. Lost the secret before setup? Set a new one (the Worker → Settings → Variables and
-   Secrets → `SESSION_SECRET`) and use that.
-2. **Optional tokens**, whenever you like, in the same place (the Worker → Settings → Variables and
-   Secrets → *Add*, type **Secret**):
+   The first deploy creates your database (`nalanda`) and your cover bucket (`nalanda-covers`), and
+   gives you an address like `https://nalanda.<you>.workers.dev`. You set no database id: the deploy
+   finds your account's `nalanda` database by name every time.
+4. **Set `SESSION_SECRET`**: the Worker → **Settings** → **Variables and Secrets** → **Add**, type
+   **Secret**, name `SESSION_SECRET`. Use any long random value (`openssl rand -hex 32` makes one,
+   as does a password manager's generator). **Keep a copy**: Cloudflare never shows a secret's value
+   again, and `/setup` asks for it. Until it's set, the library says *Not ready yet*.
+5. **Open `<your-address>/setup`** and paste the session secret. Then choose your username and
+   password. The next page shows your **recovery code** once: copy or download it, and keep it apart
+   from this device. Lost the secret before setup? Set a new value and use that.
+6. **Optional tokens**, whenever you like, in the same place (**Variables and Secrets** → **Add**,
+   type **Secret**). A secret applies as soon as it is saved.
    - `DISCOGS_TOKEN` (vinyl lookup) and `BGG_TOKEN` (board game search): see
      [API tokens](#api-tokens) for how to get each;
    - `GOOGLE_BOOKS_KEY`: optional, raises the book-lookup quota;
@@ -32,20 +42,16 @@ Then:
    - `FEDERATION_PRIVATE_KEY`: connections with other households, see
      [connections.md](connections.md).
 
-   A secret applies as soon as it is saved.
-3. **Backups** come from a laptop: clone your copy, `npm install`, `npx wrangler login`, then
-   `npm run backup` ([backup-and-restore.md](backup-and-restore.md)). Your copy's `wrangler.jsonc`
-   holds your database's id (the button wrote it in), so the scripts find it without
-   `D1_DATABASE_ID`.
+**Updating:** on GitHub, open your fork, switch to the `deploy-site` branch, and press **Sync fork**
+→ **Update branch**. Cloudflare builds it and deploys, migrations first. Read the release's notes
+first: when they ask for a backup, take it before you sync ([updating.md](updating.md)).
 
-If you renamed the database on the button's form, the runbooks' `wrangler d1 … nalanda` commands
-take your name in place of `nalanda`, or the binding, `DB`. The backup and `reset-admin` scripts
-find it themselves.
+**Backups** come from a laptop: clone your fork, `npm install`, `npx wrangler login`, then
+`npm run backup` ([backup-and-restore.md](backup-and-restore.md)). The scripts find your
+`nalanda` database by name, as the deploys do.
 
-Your copy also carries this repository's GitHub workflows (CI, releases, the demo). They run only in
-`isstiaung/nalanda`, so your copy's Actions stay quiet. It carries `.github/dependabot.yml` too, which
-opens a monthly pull request for dependency updates. Close those, or delete the file, and take updates
-with releases instead ([updating.md](updating.md)).
+A fork doesn't run this repository's GitHub workflows: GitHub leaves Actions off in a fork, and the
+CI, release and demo workflows run only in `isstiaung/nalanda` anyway.
 
 ## First deploy (once)
 
