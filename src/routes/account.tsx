@@ -13,11 +13,16 @@ import {
   setUserLocale,
   signOutOtherDevices,
   userWithTokens,
+  answerPairScan,
+  createPairCode,
+  pairScanFor,
   deleteSession,
   type DeviceRow,
 } from '../db/queries';
 import type { AppEnv } from '../env';
-import { hasSessionSecret, hashApiToken, hashPassword, newApiToken, verifyPassword } from '../lib/auth';
+import { hashLinkToken, hasSessionSecret, hashApiToken, hashPassword, isLinkToken, newApiToken, verifyPassword } from '../lib/auth';
+import { formatPairCode, newPairCode, normalizeDigits, PAIR_MINUTES } from '../lib/pairing';
+import { QR_BLANK } from './shares';
 import { ledgerDate } from '../lib/dates';
 import { clientIp, newSessionFor, setSessionCookie } from './auth';
 import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
@@ -112,11 +117,27 @@ const LanguageForm = ({ locale, household, saved }: { locale: string | null; hou
  * signed in, without an admin. This device stays in — its cookie is re-issued in the new generation. A password
  * change does the same, and an admin's reset signs a member out everywhere, temporary password in hand.
  */
-const DevicesForm = ({ done, devices, current }: { done?: 'out' | 'one'; devices: DeviceRow[]; current: string | null }) => {
+const DevicesForm = ({ done, devices, current, pair }: { done?: 'out' | 'one'; devices: DeviceRow[]; current: string | null; pair?: PairCode | null }) => {
   const { t } = useI18n();
   return (
     <article class="panel form-card account-card" id="devices">
       <p class="eyebrow">{t('account.devices')}</p>
+      {/* a code for another device to sign in with (§16 #99), shown on the response that made it, with its QR */}
+      {pair ? (
+        <div class="notice pair-code">
+          <p>{t('account.pair_code_intro', { url: pair.page })}</p>
+          <p class="pair-digits mono">{pair.code}</p>
+          <div class="share-qr">
+            <img data-qr={pair.url} alt={t('account.pair_qr_alt')} width="512" height="512" src={QR_BLANK} />
+          </div>
+          <script src="/vendor/qrcode.js" defer></script>
+          <script src="/qr.js" defer></script>
+        </div>
+      ) : null}
+      <form method="post" action="/account/pair#devices" class="switch-form">
+        <p class="muted">{t('account.pair_note')}</p>
+        <button type="submit">{t('account.pair_button')}</button>
+      </form>
       {done ? <p class="notice">{t(done === 'one' ? 'account.device_signed_out' : 'account.devices_done')}</p> : null}
       {/* each device signed in (§16 #98): what it is, when it signed in and was last used, and Sign out for any but this one */}
       {devices.length ? (
@@ -225,6 +246,7 @@ const Form = ({
   devicesDone,
   devices,
   current,
+  pair,
   tokens,
   freshToken,
   tokenError,
@@ -241,6 +263,7 @@ const Form = ({
   devicesDone?: 'out' | 'one';
   devices?: DeviceRow[];
   current?: string | null;
+  pair?: PairCode | null;
   tokens?: Array<{ id: number; name: string; createdAt: string }>; // none on a refused password change: the section is below it
   freshToken?: { name: string; token: string } | null;
   tokenError?: string;
@@ -278,7 +301,7 @@ const Form = ({
       </article>
       {mustChange ? null : <DisplayNameForm displayName={displayName ?? null} saved={nameSaved} />}
       {mustChange ? null : <LanguageForm locale={locale ?? null} household={household ?? 'en'} saved={languageSaved} />}
-      {mustChange ? null : <DevicesForm done={devicesDone} devices={devices ?? []} current={current ?? null} />}
+      {mustChange ? null : <DevicesForm done={devicesDone} devices={devices ?? []} current={current ?? null} pair={pair} />}
       {mustChange ? null : <TokensForm tokens={tokens ?? []} fresh={freshToken} error={tokenError} />}
       <p class="muted version-line">
         Nalanda <span class="mono">v{VERSION}</span> ·{' '}
@@ -289,7 +312,7 @@ const Form = ({
 };
 
 /** The Account page, with the member's tokens — and, right after one is made, the token itself, this once (§16 #88). */
-async function accountPage(c: Parameters<typeof page>[0], extras: { freshToken?: { name: string; token: string } | null; tokenError?: string } = {}) {
+async function accountPage(c: Parameters<typeof page>[0], extras: { freshToken?: { name: string; token: string } | null; tokenError?: string; pair?: PairCode } = {}) {
   const user = c.get('user');
   const { displayName, locale, tokens, devices } = await userWithTokens(c.env.DB, user.id); // one call, as getUserById was
   const devicesQuery = c.req.query('devices');
@@ -307,6 +330,7 @@ async function accountPage(c: Parameters<typeof page>[0], extras: { freshToken?:
       devicesDone={devicesQuery === 'out' || devicesQuery === 'one' ? devicesQuery : undefined}
       devices={devices}
       current={c.get('sessionId')}
+      pair={extras.pair ?? null}
       tokens={tokens}
       freshToken={extras.freshToken ?? null}
       tokenError={extras.tokenError}
@@ -396,6 +420,101 @@ account.post('/account/sign-out-others', async (c) => {
   if (!account || !hasSessionSecret(c.env.SESSION_SECRET)) return c.redirect('/login');
   await setSessionCookie(c, c.env.SESSION_SECRET, account, ns.sid);
   return c.redirect('/account?devices=out#devices');
+});
+
+/** A code just made for another device (§16 #99): as shown, the page to type it on, and the address its QR opens. */
+type PairCode = { code: string; page: string; url: string };
+
+/** A code for another device to sign in with (§16 #99): shown here once, its hash kept, for PAIR_MINUTES. */
+account.post('/account/pair', async (c) => {
+  const user = c.get('user');
+  const code = newPairCode();
+  await createPairCode(c.env.DB, user, await hashLinkToken(code), PAIR_MINUTES);
+  const origin = new URL(c.req.url).origin;
+  c.header('cache-control', 'no-store');
+  return accountPage(c, { pair: { code: formatPairCode(code), page: `${origin}/pair`, url: `${origin}/pair?code=${code}` } });
+});
+
+/**
+ * What a phone shows when it scans a new device's QR (§16 #99): which device is asking, a warning, and the number on
+ * that device to type. Declining skips the field's own checks (formnovalidate): it needs no number.
+ */
+const ApprovePage = ({ token, device, name }: { token: string; device: string; name: string }) => {
+  const { t } = useI18n();
+  return (
+    <article class="panel form-card account-card">
+      <h1>{t('pair.approve_title')}</h1>
+      <p>{t('pair.approve_intro', { device: device || t('account.device_unknown'), name })}</p>
+      <p class="notice">{t('pair.approve_warning')}</p>
+      <form method="post" action={`/pair/approve/${token}`}>
+        <label>
+          {t('pair.type_label')}
+          <input name="digits" required inputmode="numeric" pattern="[0-9]{2}" maxlength={2} autocomplete="off" class="mono pair-type" />
+        </label>
+        <div class="pair-answers">
+          <button type="submit">{t('pair.approve')}</button>
+          <button type="submit" name="decline" value="1" formnovalidate class="btn-danger">
+            {t('pair.cancel')}
+          </button>
+        </div>
+      </form>
+    </article>
+  );
+};
+
+/** Where an answered or lapsed request leaves the phone. */
+const ApproveResult = ({ outcome }: { outcome: 'approved' | 'wrong' | 'cancelled' | 'gone' }) => {
+  const { t } = useI18n();
+  const text = { approved: 'pair.approved', wrong: 'pair.wrong', cancelled: 'pair.cancelled', gone: 'pair.gone' } as const;
+  return (
+    <article class="panel form-card account-card">
+      <h1>{t(outcome === 'gone' ? 'pair.gone_title' : 'pair.approve_title')}</h1>
+      {outcome === 'approved' ? (
+        <p>
+          <output aria-live="polite">{t(text[outcome])}</output>
+        </p>
+      ) : (
+        <p role="alert">{t(text[outcome])}</p>
+      )}
+      <p>
+        <a href="/account#devices">{t('pair.to_devices')}</a>
+      </p>
+    </article>
+  );
+};
+
+account.get('/pair/approve/:token', async (c) => {
+  c.header('cache-control', 'no-store');
+  const token = c.req.param('token');
+  const hash = isLinkToken(token) ? await hashLinkToken(token) : '';
+  const found = hash ? await pairScanFor(c.env.DB, hash) : null;
+  const { t } = c.get('i18n');
+  if (!found) {
+    c.status(410);
+    return page(c, t('pair.gone_title'), <ApproveResult outcome="gone" />);
+  }
+  return page(c, t('pair.approve_title'), <ApprovePage token={token} device={found.device} name={c.get('user').username} />);
+});
+
+account.post('/pair/approve/:token', async (c) => {
+  const token = c.req.param('token');
+  const { t } = c.get('i18n');
+  if (!isLinkToken(token)) {
+    c.status(410);
+    return page(c, t('pair.gone_title'), <ApproveResult outcome="gone" />);
+  }
+  const body = await c.req.parseBody();
+  const declined = body['decline'] === '1';
+  const digits = declined ? '' : normalizeDigits(body['digits']);
+  const hash = await hashLinkToken(token);
+  const open = await pairScanFor(c.env.DB, hash);
+  if (!open) {
+    c.status(410);
+    return page(c, t('pair.gone_title'), <ApproveResult outcome="gone" />);
+  }
+  // the right digits approve it for this account; any others, or declining, end the request — nothing is signed in
+  const approved = await answerPairScan(c.env.DB, hash, c.get('user'), digits || null);
+  return page(c, t('pair.approve_title'), <ApproveResult outcome={approved ? 'approved' : declined ? 'cancelled' : 'wrong'} />);
 });
 
 /** Signs one other device out (§16 #98): the member's own session, by its id; that device's cookie signs nobody in after. */

@@ -428,6 +428,13 @@
       "when": 1790947754630,
       "tag": "0060_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "6",
+      "when": 1790948878909,
+      "tag": "0061_device-pairing",
+      "breakpoints": true
     }
   ]
 }

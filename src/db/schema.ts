@@ -425,6 +425,31 @@ export const sessions = sqliteTable(
 export type DeviceSession = typeof sessions.$inferSelect;
 
 /**
+ * Signing in a device from another one (ARCH.md §16 #99), either way round, for a few minutes:
+ * - `code`: a signed-in device shows a short code (and its QR); the new device enters it. The row names the account
+ *   from the start, bound to its key and generation as a session is (#56, #70).
+ * - `scan`: the new device shows a QR and two digits; a signed-in phone scans it, sees which device is asking, picks
+ *   the same two digits and approves — only then does the row name an account. The new device, which holds the
+ *   poll secret in a cookie, claims its session.
+ * Every secret is kept only as a SHA-256; a row is used once, by the batch that starts the new device's session.
+ */
+export const devicePairings = sqliteTable('device_pairings', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  kind: text('kind', { enum: ['code', 'scan'] }).notNull(),
+  userId: integer('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  sessionKey: text('session_key'),
+  generation: integer('generation'),
+  codeHash: text('code_hash').unique(), // `code`: the short code, normalized
+  pollHash: text('poll_hash').unique(), // `scan`: the new device's cookie
+  approveHash: text('approve_hash').unique(), // `scan`: the secret in the QR the phone scans
+  matchDigits: text('match_digits'), // `scan`: the two digits the new device shows and the phone must pick
+  device: text('device').notNull().default(''), // `scan`: the asking device's name, as Account names devices (§16 #98)
+  approvedAt: text('approved_at'),
+  expiresAt: text('expires_at').notNull(),
+  createdAt: text('created_at').notNull().default(now),
+});
+
+/**
  * Failed password checks, for throttling (ARCH.md §8): a row is written before the password is checked, in the one
  * statement that also refuses it once the IP or the account has ten in ten minutes (`recordLoginAttempt()`), and
  * taken back when the password turns out right. `username` is as typed — the account guessed at — so guesses spread

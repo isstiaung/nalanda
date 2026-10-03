@@ -41,7 +41,8 @@ Left out on purpose: `login_attempts` (login throttling, stale within minutes),
 `federation_seen` and `connection_push_counts` (replay and rate bookkeeping, stale within a
 day), `import_in_progress` (holds a row only inside an import's own batch, so it's always
 empty), `sessions` (the devices signed in — a restore signs out every device that signed in since device
-sessions, and each signs in again, ARCH.md §16 #98), and `d1_migrations` (recreated when migrations are applied). The federation private key
+sessions, and each signs in again, ARCH.md §16 #98), `device_pairings` (a request to sign a device in,
+good for five minutes, §16 #99), and `d1_migrations` (recreated when migrations are applied). The federation private key
 isn't in the database at all — it's a secret, so keep your own copy of it.
 This procedure is rehearsed: a 315-item backup restored with every row present and the
 FTS index rebuilt to match.

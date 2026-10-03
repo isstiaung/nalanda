@@ -457,6 +457,13 @@ Multi-user, built into the app (no email infrastructure, no paid services):
   Account lists the devices and signs any other one out; Log out deletes this device's row.
   "Sign out other devices", a password change, a reset, a one-time link and a removal delete every
   row of the account. A cookie from before device sessions names none and works until it expires.
+- **Signing in from another device** (§16 #99), both ways round. Account → Devices shows an
+  eight-character code (and its QR) that the new device types at `/pair`: once, within five
+  minutes, ten wrong an address in ten minutes (a counter apart from logins). Or the new device's log in page shows a QR
+  and two digits; a signed-in phone scans it, sees which device asks, and types that number (one
+  wrong answer ends the request); the new device's htmx poll (204 while it waits) then claims its
+  session in one batch. Codes and requests
+  are kept as hashes, bound to the account's key and generation, in `device_pairings`, never backed up.
 - CSRF: `SameSite=Lax` + an Origin-check middleware on all mutating routes.
 - An htmx request the session middleware turns away (signed out, `/setup`, `must_change_password`)
   gets `HX-Redirect` instead of a 302, so the whole page goes to log in rather than htmx swapping
@@ -572,6 +579,9 @@ portable, and makes share routes trivially public. CF Access remains available l
 GET  /setup                    first-run admin creation (404 once a user exists)
 GET  /login                    POST /auth/login · POST /auth/logout
 GET  /join/:token              a one-time invite or reset link: choose a password, signed in (§16 #97) · POST to set it
+GET  /pair                     sign in with a code from a signed-in device (?code= fills it in) · POST to sign in (§16 #99)
+POST /pair/scan                sign in with your phone: a QR and two digits · GET /pair/scan/status (the poll; claims)
+GET  /pair/approve/:token      signed in: approve a device by typing its number · POST to answer · POST /account/pair (a code)
 GET  /account                  change own password (also the forced first-login flow) · POST /account/display-name
 GET  /goals                    reading goals: your own, or ?member=:id for an admin (§16 #49)
 POST /goals                    set a goal (this year or next) · POST /goals/:id/delete — own, or anyone's for an admin
@@ -904,6 +914,7 @@ is a section of this document and "#N" another decision.
 | 96 | 2026-10-02 | [A household's own display font: one per shipped locale, uploaded by an admin under Members, stored in R2 under a random key, public at `/fonts/<key>`, set in front of Eczar on every page in that language](docs/decisions/096-display-font.md) |
 | 97 | 2026-10-02 | [One-time links let a member in: an invite for a new account, a reset for a forgotten password, each shown once with its QR code, kept as a hash, good for a week and once; no admin ever sees a password](docs/decisions/097-one-time-links.md) |
 | 98 | 2026-10-02 | [Every sign-in is a device session: listed on Account by its browser's name, signed out one at a time, sliding 30 days from its last use (written at most daily); Log out ends this device's, and a cookie from before still works until it expires](docs/decisions/098-device-sessions.md) |
+| 99 | 2026-10-02 | [A device signs in from another one, both ways round: a code a signed-in device shows (once, five minutes, throttled with logins), or a QR the new device shows, approved on a signed-in phone by typing the number it shows (one wrong answer ends it)](docs/decisions/099-device-pairing.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

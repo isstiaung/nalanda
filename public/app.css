@@ -900,7 +900,18 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .auth-card { width: 100%; max-width: 380px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 1.75rem 1.75rem 1.5rem; box-shadow: var(--shadow); }
 .auth-card .brand-name { font-size: 15px; }
 .auth-card .brand { margin-bottom: 1.25rem; padding: 0; }
+/* signing in from another device (§16 #99): the ways below the login form, the code or digits to read off, the three to pick from */
+.pair-ways { display: grid; gap: 0.5rem; justify-items: start; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--line); }
+.pair-digits { font-size: 2.25rem; letter-spacing: 0.12em; text-align: center; margin: 0.75rem 0; }
+.pair-digits-label { text-align: center; margin: 0.75rem 0 0; }
+.pair-digits-label + .pair-digits { margin-top: 0.25rem; }
+.pair-type { font-size: 1.5rem; max-width: 6rem; letter-spacing: 0.12em; }
+.pair-answers { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; }
+.pair-waiting { margin-top: 0.75rem; }
 .auth-card h1 { font-size: 18px; }
+/* a link under an auth card's form ("Back to log in", "Forgot your password?") keeps clear of its submit button: 24px
+   of safe tapping space each (WCAG 2.2 target size) */
+.auth-card form + p { margin-top: 1.25rem; }
 
 /* ── share (public) ───────────────────────────────────────────────────────── */
 

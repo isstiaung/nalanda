@@ -193,6 +193,19 @@ describe('the review’s cases', () => {
     expect((await rows('SELECT id FROM sessions')).length).toBe(20);
     expect(await signedIn(first)).toBe(false);
   });
+
+  it('at 20, signing in again on a device replaces its session and signs no other device out', async () => {
+    await account('ravi');
+    const oldest = await login('ravi', MAC_CHROME);
+    await env.DB.prepare(`UPDATE sessions SET last_seen_at = datetime('now', '-5 days')`).run();
+    let again = '';
+    for (let i = 0; i < 19; i++) again = await login('ravi', IPHONE);
+    const res = await send('/auth/login', again, { form: { username: 'ravi', password: 'a-good-password' }, ua: IPHONE });
+    expect((await rows('SELECT id FROM sessions')).length).toBe(20);
+    expect(await signedIn(oldest)).toBe(true);
+    expect(await signedIn(again)).toBe(false);
+    expect(await signedIn(cookieOf(res)!)).toBe(true);
+  });
 });
 
 describe('a cookie from before device sessions', () => {

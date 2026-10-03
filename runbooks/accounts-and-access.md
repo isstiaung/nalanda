@@ -112,6 +112,26 @@ at most 20 devices: past that, the one used least recently signs out as a new on
 §16 #98). A device that signed in before this list existed isn't named in it until it signs in again;
 *Sign out other devices* ends it too.
 
+## Sign in a device without its password
+
+Two ways, both from a device already signed in (ARCH.md §16 #99):
+
+- **A code.** On the signed-in device, Account → **Devices** → **Sign in another device** shows a
+  code like `ABCD-EFGH` and a QR code. On the new device, Log in → *Sign in with a code from a
+  signed-in device*, and type it, or scan the QR, which opens that page with the code filled in, then
+  *Sign in*. A code works once, within five minutes; making another replaces it. Ten wrong codes in
+  ten minutes from one address get *Too many attempts* — counted apart from wrong passwords, so
+  neither locks the other out; a typo that can't be a code at all doesn't count.
+- **Your phone.** On the new device, Log in → **Sign in with your phone** shows a QR code and a
+  two-digit number. Scan the QR with a phone signed in to the library: it names the device asking and
+  asks for the number. Type the one on the new device's screen and it signs in within a couple of
+  seconds. A wrong number or *Don't sign it in* ends the request; start again on the new device. A
+  phone that isn't signed in is sent to log in first; scan again after. **Never approve a link someone
+  sent you, or type a number someone told you**: approving lets that device into your account.
+
+Either way the new device appears under Devices like any other, and **Sign out** ends it. A device
+on a temporary password can do neither until its password is changed.
+
 ## Sign one person out everywhere
 
 Anyone can do it for themselves: Account → *Sign out other devices*. Every other device of

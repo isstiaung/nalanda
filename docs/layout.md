@@ -34,7 +34,10 @@ src/i18n/          the interface strings (ARCH.md §16 #93): strings.ts the Engl
 src/db/            schema.ts (Drizzle) + queries.ts — the ONLY code touching D1
 src/metadata/      provider.ts + index.ts (chain/merge) + openlibrary, googlebooks, bgg,
                    discogs, itunes, musicbrainz — nothing else calls external APIs
-src/lib/           auth.ts (pbkdf2, signed cookie), share.ts (public whitelist), csv.ts
+src/lib/           auth.ts (pbkdf2, signed cookie), devices.ts (a session's device name from its User-Agent —
+                   ARCH.md §16 #98), pairing.ts (signing in from another device: the code's alphabet, reading it
+                   back, the digits the phone types — §16 #99; the pages in routes/auth.tsx and
+                   routes/account.tsx), share.ts (public whitelist), csv.ts
                    (export + libib, Goodreads, StoryGraph and LibraryThing mappings, whose reads an import brings), covers.ts (with
                    fonts.ts, the only R2 code), fonts.ts (a household's display fonts: the sniffer, the
                    1 KB–2 MB caps, store, delete, serve, the checked face a page's <style> takes — ARCH.md

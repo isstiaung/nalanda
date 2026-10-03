@@ -352,19 +352,24 @@ function startSession(d1: D1Database, ns: NewSession, userIdSql: string, binds: 
   const n = binds.length;
   const who = `(${userIdSql})`;
   return [
-    ...(ns.replaces ? [d1.prepare('DELETE FROM sessions WHERE id = ?1').bind(ns.replaces)] : []),
+    // the session this browser held is left to the last statement, and kept out of the count: it is on its way out
     d1
       .prepare(
-        `DELETE FROM sessions WHERE user_id = ${who} AND (
+        `DELETE FROM sessions WHERE user_id = ${who} AND id <> ?${n + 2} AND (
            last_seen_at <= datetime('now', ?${n + 1})
            OR generation <> (SELECT session_generation FROM users WHERE id = ${who})
            OR session_key <> (SELECT session_key FROM users WHERE id = ${who})
-           OR id NOT IN (SELECT id FROM sessions WHERE user_id = ${who} ORDER BY last_seen_at DESC, created_at DESC LIMIT ${MAX_SESSIONS - 1}))`,
+           OR id NOT IN (SELECT id FROM sessions WHERE user_id = ${who} AND id <> ?${n + 2} ORDER BY last_seen_at DESC, created_at DESC LIMIT ${MAX_SESSIONS - 1}))`,
       )
-      .bind(...binds, `-${SESSION_DAYS} days`),
+      .bind(...binds, `-${SESSION_DAYS} days`, ns.replaces ?? ''),
     d1
       .prepare(`INSERT INTO sessions (id, user_id, session_key, generation, device) SELECT ?${n + 1}, id, session_key, session_generation, ?${n + 2} FROM users WHERE id = ${who}`)
       .bind(...binds, ns.sid, ns.device),
+    // the session this browser held before ends — only once the new one is in: a wrong code, or a claim that finds
+    // nothing, leaves whoever was signed in here signed in
+    ...(ns.replaces
+      ? [d1.prepare('DELETE FROM sessions WHERE id = ?1 AND EXISTS (SELECT 1 FROM sessions WHERE id = ?2)').bind(ns.replaces, ns.sid)]
+      : []),
   ];
 }
 
@@ -372,6 +377,103 @@ function startSession(d1: D1Database, ns: NewSession, userIdSql: string, binds: 
 export async function createSession(d1: D1Database, account: { id: number }, ns: NewSession): Promise<void> {
   await d1.batch(startSession(d1, ns, '?1', [account.id]));
 }
+
+// ---------- signing in a device from another (ARCH.md §16 #99) ----------
+
+/** The account a live code names: still in the key and generation it was made in, and within its minutes. */
+const PAIR_CODE_USER = `SELECT p.user_id FROM device_pairings p JOIN users u ON u.id = p.user_id AND u.session_key = p.session_key AND u.session_generation = p.generation
+  WHERE p.kind = 'code' AND p.code_hash = ?1 AND p.expires_at > datetime('now')`;
+
+/** The account a phone approved for a new device's request: approved, still in that key and generation, within its minutes. */
+const PAIR_SCAN_USER = `SELECT p.user_id FROM device_pairings p JOIN users u ON u.id = p.user_id AND u.session_key = p.session_key AND u.session_generation = p.generation
+  WHERE p.kind = 'scan' AND p.poll_hash = ?1 AND p.approved_at IS NOT NULL AND p.expires_at > datetime('now')`;
+
+/** Pairings past their minutes, anyone's: let go whenever one is made. */
+const expiredPairings = (d1: D1Database) => d1.prepare(`DELETE FROM device_pairings WHERE expires_at <= datetime('now')`);
+
+/** A code for another device to sign in with (§16 #99): the account's only one — a new one replaces it — for `minutes`. */
+export async function createPairCode(d1: D1Database, user: { id: number; sessionKey: string; sessionGeneration: number }, codeHash: string, minutes: number): Promise<void> {
+  await d1.batch([
+    expiredPairings(d1),
+    d1.prepare(`DELETE FROM device_pairings WHERE user_id = ?1 AND kind = 'code'`).bind(user.id),
+    d1
+      .prepare(`INSERT INTO device_pairings (kind, user_id, session_key, generation, code_hash, expires_at) VALUES ('code', ?1, ?2, ?3, ?4, datetime('now', ?5))`)
+      .bind(user.id, user.sessionKey, user.sessionGeneration, codeHash, `+${minutes} minutes`),
+  ]);
+}
+
+/**
+ * A pairing used (§16 #99): the new device's session starts for the account it names, and the pairing goes, in one
+ * batch — so it works once, and of two devices racing for it, one is signed in. The account to sign in, or null.
+ */
+async function usePairing(d1: D1Database, userSql: string, secretHash: string, column: 'code_hash' | 'poll_hash', ns: NewSession, attempt?: LoginAttempt) {
+  const statements = [
+    ...startSession(d1, ns, userSql, [secretHash]),
+    d1.prepare(`DELETE FROM device_pairings WHERE ${column} = ?1`).bind(secretHash),
+    // a code that worked was no failure (as a login takes its row back) — in the batch, so nothing after it can fail
+    ...(attempt ? [d1.prepare('DELETE FROM login_attempts WHERE rowid = ?1 AND EXISTS (SELECT 1 FROM sessions WHERE id = ?2)').bind(attempt.rowid, ns.sid)] : []),
+    d1.prepare('SELECT id, session_key AS sessionKey, session_generation AS sessionGeneration FROM users WHERE id = (SELECT user_id FROM sessions WHERE id = ?1)').bind(ns.sid),
+  ];
+  const results = await d1.batch(statements);
+  const row = (results[statements.length - 1]?.results ?? [])[0] as { id: number; sessionKey: string; sessionGeneration: number } | undefined;
+  return row ?? null;
+}
+
+/** A code entered on a new device (§16 #99): its session, or null for a code that is wrong, used or past its minutes. */
+export const redeemPairCode = (d1: D1Database, codeHash: string, ns: NewSession, attempt: LoginAttempt) =>
+  usePairing(d1, PAIR_CODE_USER, codeHash, 'code_hash', ns, attempt);
+
+/** A new device asking to be signed in by a phone (§16 #99): its poll secret, the QR's secret and the digits, for `minutes`. */
+export async function createPairScan(d1: D1Database, values: { pollHash: string; approveHash: string; matchDigits: string; device: string }, minutes: number): Promise<void> {
+  await d1.batch([
+    expiredPairings(d1),
+    d1
+      .prepare(`INSERT INTO device_pairings (kind, poll_hash, approve_hash, match_digits, device, expires_at) VALUES ('scan', ?1, ?2, ?3, ?4, datetime('now', ?5))`)
+      .bind(values.pollHash, values.approveHash, values.matchDigits, values.device, `+${minutes} minutes`),
+  ]);
+}
+
+/** A request the phone scanned, while it waits: which device is asking — never its digits, which the phone must type. Null once approved, used or expired. */
+export async function pairScanFor(d1: D1Database, approveHash: string): Promise<{ device: string } | null> {
+  return (
+    (await d1
+      .prepare(`SELECT device FROM device_pairings WHERE kind = 'scan' AND approve_hash = ?1 AND approved_at IS NULL AND expires_at > datetime('now')`)
+      .bind(approveHash)
+      .first<{ device: string }>()) ?? null
+  );
+}
+
+/**
+ * The phone's answer (§16 #99): the digits typed match, and the request now names this account — or they don't, or the
+ * member declined, and the request is gone, so one wrong answer ends it and the new device starts again. One batch: the
+ * delete finds nothing once the update has approved it. True only when approved.
+ */
+export async function answerPairScan(d1: D1Database, approveHash: string, user: { id: number; sessionKey: string; sessionGeneration: number }, typed: string | null): Promise<boolean> {
+  const [approved] = await d1.batch([
+    d1
+      .prepare(
+        `UPDATE device_pairings SET user_id = ?2, session_key = ?3, generation = ?4, approved_at = datetime('now')
+         WHERE kind = 'scan' AND approve_hash = ?1 AND approved_at IS NULL AND expires_at > datetime('now') AND match_digits = ?5
+         RETURNING id`,
+      )
+      .bind(approveHash, user.id, user.sessionKey, user.sessionGeneration, typed ?? ''),
+    d1.prepare(`DELETE FROM device_pairings WHERE kind = 'scan' AND approve_hash = ?1 AND approved_at IS NULL`).bind(approveHash),
+  ]);
+  return (approved?.results ?? []).length > 0;
+}
+
+/** Where a new device's request stands, by its poll secret: waiting (with its digits), approved, or gone. */
+export async function pairScanStatus(d1: D1Database, pollHash: string): Promise<{ state: 'waiting'; matchDigits: string } | { state: 'approved' } | { state: 'gone' }> {
+  const row = await d1
+    .prepare(`SELECT match_digits AS matchDigits, approved_at IS NOT NULL AS approved FROM device_pairings WHERE kind = 'scan' AND poll_hash = ?1 AND expires_at > datetime('now')`)
+    .bind(pollHash)
+    .first<{ matchDigits: string; approved: number }>();
+  if (!row) return { state: 'gone' };
+  return row.approved ? { state: 'approved' } : { state: 'waiting', matchDigits: row.matchDigits };
+}
+
+/** The new device claims what the phone approved (§16 #99): its session, or null. */
+export const claimPairScan = (d1: D1Database, pollHash: string, ns: NewSession) => usePairing(d1, PAIR_SCAN_USER, pollHash, 'poll_hash', ns);
 
 /** Signs one device out (§16 #98): the member's own session, by its id. False when there was none of theirs. */
 export async function deleteSession(d1: D1Database, userId: number, sid: string): Promise<boolean> {
@@ -869,8 +971,12 @@ export type LoginAttempt = { rowid: number };
  * addresses count together, and a household's shared address locks out only the accounts guessed at. The hour-old rows
  * are pruned in the same batch, so the table stays tiny without a cron. A right password takes its row back with
  * `forgetLoginAttempt()`: only failures count.
+ *
+ * `username: null` counts by the address alone (a pairing code, §16 #99, names no account): the row's username is '',
+ * which no account has, and nothing a login types can add to the address's count from anywhere else — the address
+ * column is only ever the caller's own (`clientIp()`), never what someone typed.
  */
-export async function recordLoginAttempt(d1: D1Database, ip: string, username: string): Promise<LoginAttempt | null> {
+export async function recordLoginAttempt(d1: D1Database, ip: string, username: string | null): Promise<LoginAttempt | null> {
   const window = `-${LOGIN_ATTEMPT_WINDOW_MINUTES} minutes`;
   const [inserted] = await d1.batch([
     d1
@@ -878,10 +984,10 @@ export async function recordLoginAttempt(d1: D1Database, ip: string, username: s
         `INSERT INTO login_attempts (ip, username)
          SELECT ?1, ?2
          WHERE (SELECT count(*) FROM login_attempts WHERE ip = ?1 AND attempted_at > datetime('now', ?4)) < ?3
-           AND (SELECT count(*) FROM login_attempts WHERE username = ?2 AND attempted_at > datetime('now', ?4)) < ?3
+           AND (?5 = 0 OR (SELECT count(*) FROM login_attempts WHERE username = ?2 AND attempted_at > datetime('now', ?4)) < ?3)
          RETURNING rowid`,
       )
-      .bind(ip, username.slice(0, 200), LOGIN_ATTEMPT_LIMIT, window),
+      .bind(ip, (username ?? '').slice(0, 200), LOGIN_ATTEMPT_LIMIT, window, username === null ? 0 : 1),
     d1.prepare(`DELETE FROM login_attempts WHERE attempted_at < datetime('now', '-1 hour')`),
   ]);
   const row = inserted?.results?.[0] as LoginAttempt | undefined;
