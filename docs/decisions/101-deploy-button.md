@@ -17,7 +17,10 @@ Cloudflare's [Deploy to Cloudflare button](https://developers.cloudflare.com/wor
 - It builds and deploys through Workers Builds with the `deploy` script, as every later push to the
   copy does.
 
-All of it is free.
+All of it is free. R2, though, has to be **switched on in the account first**. It's free (10 GB a
+month), but Cloudflare asks for a card or PayPal account to enable it, and a new account has it off.
+The button then stops with "uses R2 which is only available with an R2 subscription". The runbook
+and the README say so before the click (found in the first test click, 2026-10-03).
 
 **What was decided:**
 - **The button deploys the release branch**, `deploy-site`

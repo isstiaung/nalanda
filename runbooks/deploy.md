@@ -8,13 +8,21 @@ way, every later deploy is a push (or `npm run deploy`), and updating is in
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/isstiaung/nalanda/tree/deploy-site)
 
+**First, switch on R2** in your Cloudflare account: the dashboard → **R2 Object Storage** →
+enable it. It is free: 10 GB of covers a month cost nothing. But Cloudflare asks for a card or
+PayPal account to switch it on, and a new account has it off. Without it the button stops with
+"nalanda uses R2 which is only available with an R2 subscription".
+
 The button (ARCH.md §16 #101) uses a free Cloudflare account and a GitHub (or GitLab) account:
 1. It copies the latest release into a new repository of yours.
 2. It creates your D1 database and R2 bucket.
 3. It asks for one secret, **`SESSION_SECRET`**: any long random value (`openssl rand -hex 32`
    makes one, as does a password manager's generator). **Keep a copy**: Cloudflare never shows a
    secret's value again, and `/setup` asks for it.
-4. It builds and deploys, and gives you an address like `https://nalanda.<you>.workers.dev`.
+4. It builds and deploys, and gives you an address like `https://nalanda.<you>.workers.dev`. Its
+   form leaves the build command empty, which is right: there is no build step. The **deploy
+   command** must be `npm run deploy`, which runs the migrations first. If it shows
+   `npx wrangler deploy`, change it.
 
 Every push to your copy deploys again, with its migrations first.
 

@@ -77,7 +77,8 @@ works on localhost. Local secrets live in `.dev.vars`: copy `.dev.vars.example` 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/isstiaung/nalanda/tree/deploy-site)
 
 The button copies the latest release into a repository of yours and deploys it to your Cloudflare
-account. It creates the database and the cover bucket, and asks for one secret. Then open `/setup`
+account. It creates the database and the cover bucket, and asks for one secret. Switch on R2 in your
+Cloudflare dashboard first: it's free, but Cloudflare asks for a card to enable it. Then open `/setup`
 on your new address; [runbooks/deploy.md](runbooks/deploy.md#one-click-deploy) has the details,
 and the optional tokens. Or by hand — everything below fits inside Cloudflare's free tier. One-time
 setup:
