@@ -1610,6 +1610,6 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .history-value { max-width: 18rem; overflow-wrap: anywhere; font-size: 12.5px; }
 
 /* API tokens (ARCH.md §16 #88): the list on the Account page, and the secret shown once */
-.token-list { list-style: none; margin: 0 0 0.75rem; padding: 0; display: grid; gap: 0.5rem; }
-.token-list li { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.token-list, .device-list { list-style: none; margin: 0 0 0.75rem; padding: 0; display: grid; gap: 0.5rem; }
+.token-list li, .device-list li { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
 .token-secret { display: inline-block; padding: 0.35rem 0.5rem; font-size: 13px; user-select: all; }

@@ -222,7 +222,10 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   `users.session_key` (set in every user insert, never changed); anything that remembers a person
   across time binds `accountIdentity()`, never the bare id. Beside it, `users.session_generation`
   (ARCH.md §16 #70) is which sessions still count: the cookie names it, and "Sign out other
-  devices", a password change and a reset each add one — never rotate the key for that. Login and
+  devices", a password change and a reset each add one — never rotate the key for that. Each sign-in is
+  also a `sessions` row the cookie names (§16 #98): live only in the account's key and generation and
+  within 30 days of its last use (moved at most daily), ended by Log out or Account's per-device Sign out;
+  `signIn()` makes the row, and whatever moves the generation deletes the account's rows in its batch. Login and
   the current-password check are throttled by `recordLoginAttempt()`: ten failures in ten minutes
   per IP and per account, counted in the statement that checks, *before* the password is verified,
   answered 429; an unknown username is checked against `DUMMY_HASH`. A temporary-password session

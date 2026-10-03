@@ -102,6 +102,16 @@ already signed in are unaffected. To free one account without clearing everyone'
 npm run wrangler:remote -- d1 execute nalanda --remote --command "DELETE FROM login_attempts WHERE username = 'the-username'"
 ```
 
+## Sign out one device
+
+Account → **Devices** lists every device signed in to your account: its browser and system
+("Chrome · macOS"), when it signed in and when it was last used. **Sign out** beside any of them
+ends that one at once; it logs in again with your password. This device signs out with **Log out**.
+A device left unused for 30 days is signed out on its own; one in use stays signed in. An account keeps
+at most 20 devices: past that, the one used least recently signs out as a new one signs in (ARCH.md
+§16 #98). A device that signed in before this list existed isn't named in it until it signs in again;
+*Sign out other devices* ends it too.
+
 ## Sign one person out everywhere
 
 Anyone can do it for themselves: Account → *Sign out other devices*. Every other device of

@@ -76,6 +76,10 @@ Please don't file these:
   this repo names no Cloudflare database, bucket, or account. Deploys take the real id from
   `D1_DATABASE_ID` in the environment (`scripts/deploy.mjs`). Even a real D1 id would be
   inert without credentials for the account that owns it — keeping it out is hygiene.
+- **Sessions are listed, and slide.** Every sign-in is a server-side row the signed cookie names,
+  so Account lists each device and signs any one out, and Log out ends that device's session for
+  any copy of its cookie (ARCH.md §16 #98). A session lives 30 days from its last use. Only the
+  browser and system are kept from the User-Agent; no address or location.
 - **No password reset emails.** Deliberate — there is no email infrastructure. An admin
   makes a one-time link instead (ARCH.md §16 #97): 256 random bits in its path, kept only as a
   SHA-256, bound to the account, good for seven days and once. Making a reset link stops the old

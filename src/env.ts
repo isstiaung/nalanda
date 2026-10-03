@@ -41,6 +41,9 @@ export type AppEnv = {
     // The household's default language (site_settings.language, §16 #76), from the same call: what the Account page's
     // "Household default" means, and what Members says the interface follows.
     householdLanguage: string;
+    // The device session this request's cookie names (§16 #98): null for a cookie from before device sessions. Account
+    // marks "This device" by it, and a member signs out any other one.
+    sessionId: string | null;
   };
 };
 

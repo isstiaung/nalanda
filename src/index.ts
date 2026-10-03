@@ -5,13 +5,13 @@ import { countUsers, getShareByToken, sessionAccount } from './db/queries';
 import type { AppEnv } from './env';
 import { resolveLocale, translator } from './i18n';
 import federationRoutes from './federation/routes';
-import { SESSION_COOKIE, sessionMatches, verifySessionToken } from './lib/auth';
+import { hasSessionSecret, SESSION_COOKIE, sessionMatches, verifySessionToken } from './lib/auth';
 import { serveCover } from './lib/covers';
 import { serveFont } from './lib/fonts';
 import accountRoutes from './routes/account';
 import apiRoutes from './routes/api';
 import addRoutes from './routes/add';
-import authRoutes from './routes/auth';
+import authRoutes, { setSessionCookie } from './routes/auth';
 import borrowingRoutes from './routes/borrowing';
 import bulkRoutes from './routes/bulk';
 import commentsRoutes from './routes/comments';
@@ -139,10 +139,14 @@ app.use(async (c, next) => {
   // The same call brings what the page renders in (§16 #93): the household's language, and its own translation and
   // display font (§16 #96) for the locale this member resolves to — one batch, so a translated page costs no call more
   // than an English one.
-  const account = session ? await sessionAccount(c.env.DB, session.userId) : null;
+  // A cookie made since device sessions (§16 #98) names one, and signs in only while that row lives in the account's
+  // key and generation, within its sliding 30 days: signed out on Account, or by logout, it signs nobody in. A cookie from
+  // before names none, and is good until it expires, as it always was.
+  const account = session ? await sessionAccount(c.env.DB, session.userId, session.sid) : null;
   const row = account?.user ?? null;
-  const user = row && sessionMatches(session, row) ? row : null;
-  if (!user || !account) {
+  const deviceLive = !session?.sid || (!!account?.device && !!row && account.device.sessionKey === row.sessionKey && account.device.generation === row.sessionGeneration);
+  const user = row && sessionMatches(session, row) && deviceLive ? row : null;
+  if (!user || !account || !session) {
     if ((await countUsers(c.env.DB)) === 0) return sendTo(c, '/setup', 401, 'Nalanda isn’t set up yet — reload the page.');
     return sendTo(c, '/login', 401, 'Signed out — reload and sign in.');
   }
@@ -157,6 +161,7 @@ app.use(async (c, next) => {
   });
   c.set('i18n', translator(resolveLocale(user, { language: account.language }), account.translation, account.font));
   c.set('householdLanguage', account.language);
+  c.set('sessionId', session.sid ?? null);
   // A temporary password reaches the Account page and the password change, and nothing else — not the display name,
   // not "Sign out other devices", not a token: own-account actions all, but whoever holds the temp password isn't
   // yet shown to be the member, and a display name set here would go out on share pages with names on.
@@ -169,6 +174,9 @@ app.use(async (c, next) => {
   // kept, so Back or a restored tab on a shared device after a logout shows none of it. Share pages, covers, static
   // files and the login page are served before this middleware and cache as they did.
   c.res.headers.set('cache-control', 'no-store');
+  // used for the first time in a day: the session slid, and so does its cookie (§16 #98) — set on the response the
+  // handler made, whatever it is (a page, a redirect, the export's own Response), so no slide goes without its cookie
+  if (session.sid && account.device?.touched && hasSessionSecret(c.env.SESSION_SECRET)) await setSessionCookie(c, c.env.SESSION_SECRET, user, session.sid);
 });
 
 /** What a session that must still change its temporary password may reach (logout is public, before this middleware). */

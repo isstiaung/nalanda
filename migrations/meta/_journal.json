@@ -421,6 +421,13 @@
       "when": 1790946620920,
       "tag": "0059_account-links",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "6",
+      "when": 1790947754630,
+      "tag": "0060_sessions",
+      "breakpoints": true
     }
   ]
 }

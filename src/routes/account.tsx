@@ -13,11 +13,13 @@ import {
   setUserLocale,
   signOutOtherDevices,
   userWithTokens,
+  deleteSession,
+  type DeviceRow,
 } from '../db/queries';
 import type { AppEnv } from '../env';
 import { hasSessionSecret, hashApiToken, hashPassword, newApiToken, verifyPassword } from '../lib/auth';
 import { ledgerDate } from '../lib/dates';
-import { clientIp, signIn } from './auth';
+import { clientIp, newSessionFor, setSessionCookie } from './auth';
 import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
 import { DRAFT_LOCALES, isLocale, LOCALE_NAMES, locales, resolveLocale } from '../i18n';
 import { VERSION } from '../version';
@@ -110,12 +112,34 @@ const LanguageForm = ({ locale, household, saved }: { locale: string | null; hou
  * signed in, without an admin. This device stays in — its cookie is re-issued in the new generation. A password
  * change does the same, and an admin's reset signs a member out everywhere, temporary password in hand.
  */
-const DevicesForm = ({ done }: { done?: boolean }) => {
+const DevicesForm = ({ done, devices, current }: { done?: 'out' | 'one'; devices: DeviceRow[]; current: string | null }) => {
   const { t } = useI18n();
   return (
     <article class="panel form-card account-card" id="devices">
       <p class="eyebrow">{t('account.devices')}</p>
-      {done ? <p class="notice">{t('account.devices_done')}</p> : null}
+      {done ? <p class="notice">{t(done === 'one' ? 'account.device_signed_out' : 'account.devices_done')}</p> : null}
+      {/* each device signed in (§16 #98): what it is, when it signed in and was last used, and Sign out for any but this one */}
+      {devices.length ? (
+        <ul class="device-list">
+          {devices.map((d) => (
+            <li>
+              <span>
+                <strong>{d.device || t('account.device_unknown')}</strong>
+                {d.id === current ? <small class="muted"> · {t('account.this_device')}</small> : null}
+                <br />
+                <small class="muted">{t('account.device_dates', { signedIn: ledgerDate(d.createdAt), used: ledgerDate(d.lastSeenAt) })}</small>
+              </span>
+              {d.id === current ? null : (
+                <form method="post" action={`/account/devices/${d.id}/sign-out`} class="inline-form">
+                  <button type="submit" class="btn" aria-label={t('account.sign_out_device', { device: d.device || t('account.device_unknown'), signedIn: ledgerDate(d.createdAt) })}>
+                    {t('account.sign_out')}
+                  </button>
+                </form>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {/* as every settings panel reads: the explanation, then the action (.switch-form) */}
       <form method="post" action="/account/sign-out-others" class="switch-form">
         <p class="muted">{t('account.devices_note')}</p>
@@ -199,6 +223,8 @@ const Form = ({
   household,
   languageSaved,
   devicesDone,
+  devices,
+  current,
   tokens,
   freshToken,
   tokenError,
@@ -212,7 +238,9 @@ const Form = ({
   locale?: string | null;
   household?: string;
   languageSaved?: boolean;
-  devicesDone?: boolean;
+  devicesDone?: 'out' | 'one';
+  devices?: DeviceRow[];
+  current?: string | null;
   tokens?: Array<{ id: number; name: string; createdAt: string }>; // none on a refused password change: the section is below it
   freshToken?: { name: string; token: string } | null;
   tokenError?: string;
@@ -250,7 +278,7 @@ const Form = ({
       </article>
       {mustChange ? null : <DisplayNameForm displayName={displayName ?? null} saved={nameSaved} />}
       {mustChange ? null : <LanguageForm locale={locale ?? null} household={household ?? 'en'} saved={languageSaved} />}
-      {mustChange ? null : <DevicesForm done={devicesDone} />}
+      {mustChange ? null : <DevicesForm done={devicesDone} devices={devices ?? []} current={current ?? null} />}
       {mustChange ? null : <TokensForm tokens={tokens ?? []} fresh={freshToken} error={tokenError} />}
       <p class="muted version-line">
         Nalanda <span class="mono">v{VERSION}</span> ·{' '}
@@ -263,7 +291,8 @@ const Form = ({
 /** The Account page, with the member's tokens — and, right after one is made, the token itself, this once (§16 #88). */
 async function accountPage(c: Parameters<typeof page>[0], extras: { freshToken?: { name: string; token: string } | null; tokenError?: string } = {}) {
   const user = c.get('user');
-  const { displayName, locale, tokens } = await userWithTokens(c.env.DB, user.id); // one call, as getUserById was
+  const { displayName, locale, tokens, devices } = await userWithTokens(c.env.DB, user.id); // one call, as getUserById was
+  const devicesQuery = c.req.query('devices');
   return page(
     c,
     c.get('i18n').t('account.title'),
@@ -275,7 +304,9 @@ async function accountPage(c: Parameters<typeof page>[0], extras: { freshToken?:
       locale={locale}
       household={c.get('householdLanguage')}
       languageSaved={c.req.query('language') === 'saved'}
-      devicesDone={c.req.query('devices') === 'out'}
+      devicesDone={devicesQuery === 'out' || devicesQuery === 'one' ? devicesQuery : undefined}
+      devices={devices}
+      current={c.get('sessionId')}
       tokens={tokens}
       freshToken={extras.freshToken ?? null}
       tokenError={extras.tokenError}
@@ -351,18 +382,29 @@ account.post('/account/password', async (c) => {
     return page(c, title, <Form mustChange={user.mustChangePassword} error={t('account.mismatch')} errorField="confirm" />);
   }
   // the new password signs every other device out (§16 #70); this one carries on, in the generation the row is in now
-  const account = await setPassword(c.env.DB, user.id, await hashPassword(next), false);
+  const ns = await newSessionFor(c);
+  const account = await setPassword(c.env.DB, user.id, await hashPassword(next), false, ns);
   if (!account || !hasSessionSecret(c.env.SESSION_SECRET)) return c.redirect('/login');
-  await signIn(c, c.env.SESSION_SECRET, account);
+  await setSessionCookie(c, c.env.SESSION_SECRET, account, ns.sid);
   return c.redirect(user.mustChangePassword ? '/' : '/account?ok=1');
 });
 
 /** Signs the account out everywhere but this device (§16 #70): the generation moves on, and this cookie moves with it. */
 account.post('/account/sign-out-others', async (c) => {
-  const account = await signOutOtherDevices(c.env.DB, c.get('user').id);
+  const ns = await newSessionFor(c);
+  const account = await signOutOtherDevices(c.env.DB, c.get('user').id, ns);
   if (!account || !hasSessionSecret(c.env.SESSION_SECRET)) return c.redirect('/login');
-  await signIn(c, c.env.SESSION_SECRET, account);
+  await setSessionCookie(c, c.env.SESSION_SECRET, account, ns.sid);
   return c.redirect('/account?devices=out#devices');
+});
+
+/** Signs one other device out (§16 #98): the member's own session, by its id; that device's cookie signs nobody in after. */
+account.post('/account/devices/:sid/sign-out', async (c) => {
+  const sid = c.req.param('sid');
+  // this device signs out with Log out, which also clears its cookie and cache: not here; and only the member's own,
+  // and only one that was there, says so
+  const ended = sid !== c.get('sessionId') && (await deleteSession(c.env.DB, c.get('user').id, sid));
+  return c.redirect(ended ? '/account?devices=one#devices' : '/account#devices');
 });
 
 export default account;
