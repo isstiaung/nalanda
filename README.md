@@ -83,7 +83,8 @@ works on localhost. Local secrets live in `.dev.vars`: copy `.dev.vars.example` 
 3. In [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) →
    **Create application** → **Import a repository**, pick your fork, and name it `nalanda`. Leave the
    rest as it is. The first deploy creates the database and the cover bucket, and migrates them.
-4. Add the secret `SESSION_SECRET`.
+4. Add the secret `SESSION_SECRET` under the Worker's **Settings** → **Variables and Secrets** (not
+   under Build variables, which the running library never sees), and keep a copy.
 5. Open `/setup`.
 
 New releases then arrive with GitHub's **Sync fork** button.
