@@ -4,14 +4,27 @@
   "private": true,
   "license": "MIT",
   "type": "module",
+  "cloudflare": {
+    "bindings": {
+      "SESSION_SECRET": {
+        "description": "Signs everyone's sign-in cookie. Any long random value: `openssl rand -hex 32` makes one, or a password manager's generator. **Keep a copy** — Cloudflare never shows it again, and `/setup` asks for it once, to show it's you setting the library up. (Lost it before setup? Set a new value for `SESSION_SECRET` in the dashboard and use that.) Optional tokens (Discogs, BoardGameGeek, Google Books) are added later in the dashboard: [how](https://github.com/isstiaung/nalanda/blob/main/runbooks/deploy.md#one-click-deploy)."
+      },
+      "DB": {
+        "description": "The library itself: items, members, reads, loans and history (D1). Its migrations run on every deploy."
+      },
+      "COVERS": {
+        "description": "Cover images (R2)."
+      }
+    }
+  },
   "scripts": {
     "dev": "wrangler dev",
     "dev:demo": "wrangler dev --port 8788 --persist-to .wrangler/demo-state",
     "seed:demo": "node scripts/seed-demo.mjs",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "wrangler d1 migrations apply nalanda --local",
-    "db:migrate:remote": "node scripts/wrangler-remote.mjs d1 migrations apply nalanda --remote",
+    "db:migrate": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "node scripts/wrangler-remote.mjs d1 migrations apply DB --remote",
     "wrangler:remote": "node scripts/wrangler-remote.mjs",
     "deploy": "node scripts/deploy.mjs",
     "backup": "node scripts/backup.mjs",

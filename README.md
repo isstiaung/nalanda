@@ -69,11 +69,18 @@ npm run lint       # accessibility rules over the views; npm run a11y audits eve
 ```
 
 Everything runs offline: local D1 is a real SQLite file, R2 is emulated, and the camera
-works on localhost. Local secrets live in `.dev.vars` (copy `.dev.vars.example`).
+works on localhost. Local secrets live in `.dev.vars`: copy `.dev.vars.example` and set
+`SESSION_SECRET` to any long random value. `/setup` asks for it.
 
 ## Running your own
 
-Everything below fits inside Cloudflare's free tier. One-time setup:
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/isstiaung/nalanda/tree/deploy-site)
+
+The button copies the latest release into a repository of yours and deploys it to your Cloudflare
+account. It creates the database and the cover bucket, and asks for one secret. Then open `/setup`
+on your new address; [runbooks/deploy.md](runbooks/deploy.md#one-click-deploy) has the details,
+and the optional tokens. Or by hand — everything below fits inside Cloudflare's free tier. One-time
+setup:
 
 ```sh
 wrangler d1 create nalanda            # note the id it prints

@@ -1,6 +1,10 @@
 # Copy to .dev.vars for local development (gitignored).
 # Production values are set with `wrangler secret put <NAME>`.
-SESSION_SECRET=change-me-to-anything-long-and-random
+# Only SESSION_SECRET is uncommented: the Deploy to Cloudflare button asks for every secret listed here, and the rest
+# are optional (ARCH.md §16 #101). Set one later in the dashboard: the Worker → Settings → Variables and Secrets.
+# Signs everyone's sign-in cookie: any long random value — `openssl rand -hex 32` makes one. Keep a copy: /setup asks
+# for it once, to show it's you setting the library up. (The app refuses the old example value, which anyone can read.)
+SESSION_SECRET=
 # Discogs personal access token (free account) — enables vinyl barcode/name lookup.
 # DISCOGS_TOKEN=
 # BoardGameGeek application token — board game search needs one since BGG went registration-only.

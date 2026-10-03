@@ -49,9 +49,9 @@ mkdirSync(LOCAL_ENV.XDG_CONFIG_HOME, { recursive: true });
 let server = null;
 const log = (msg) => console.log(`demo: ${msg}`);
 
-function run(cmd, args) {
+function run(cmd, args, env = LOCAL_ENV) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env: LOCAL_ENV });
+    const child = spawn(cmd, args, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], env });
     let out = '';
     child.stdout.on('data', (d) => (out += d));
     child.stderr.on('data', (d) => (out += d));
@@ -59,9 +59,12 @@ function run(cmd, args) {
   });
 }
 
+/** The scratch server's session secret: /setup asks for it (§16 #101), and the seed types it. */
+let secret = '';
+
 async function startServer() {
-  await run(WRANGLER, ['d1', 'migrations', 'apply', 'nalanda', '--local', '--persist-to', stateDir]);
-  const secret = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  await run(WRANGLER, ['d1', 'migrations', 'apply', 'DB', '--local', '--persist-to', stateDir]); // the binding: any copy's name
+  secret = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, '0')).join('');
   const envFile = join(stateDir, 'demo.env');
   // no provider tokens: the seed's vinyl and game covers stay empty, and nothing here could reach BGG or Discogs
   writeFileSync(envFile, [`SESSION_SECRET=${secret}`, 'DISCOGS_TOKEN=', 'BGG_TOKEN=', 'GOOGLE_BOOKS_KEY=', 'HOME_SHARE_TOKEN=', 'FEDERATION_PRIVATE_KEY='].join('\n') + '\n');
@@ -182,7 +185,7 @@ async function main() {
   log(`starting a scratch server on ${BASE_URL} (state in ${stateDir})`);
   await startServer();
   log(`seeding the demo collection${covers ? '' : ' (no covers)'}`);
-  await run(process.execPath, [join(ROOT, 'scripts', 'seed-demo.mjs'), `--url=${BASE_URL}`, ...(covers ? [] : ['--no-covers'])]);
+  await run(process.execPath, [join(ROOT, 'scripts', 'seed-demo.mjs'), `--url=${BASE_URL}`, ...(covers ? [] : ['--no-covers'])], { ...LOCAL_ENV, SESSION_SECRET: secret });
   const cookie = await signIn();
 
   // the login page as the app renders it, with the demo's note and a form the demo's script answers

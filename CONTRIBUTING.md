@@ -22,8 +22,9 @@ npm run a11y       # axe-core on every page in a real browser — its own scratc
 
 Everything runs offline. Local D1 is a real SQLite file and R2 is emulated, so you never need
 a Cloudflare account to develop or to run the tests — CI doesn't have one either. Copy
-`.dev.vars.example` to `.dev.vars` for local secrets. Develop against local D1; `--remote` is
-only for deploying, remote migrations, and backups.
+`.dev.vars.example` to `.dev.vars` for local secrets, and set `SESSION_SECRET` there (`/setup`
+asks for it). Develop against local D1; `--remote` is only for deploying, remote migrations, and
+backups.
 
 ## Read ARCH.md first
 

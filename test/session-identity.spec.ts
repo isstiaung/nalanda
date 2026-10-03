@@ -162,7 +162,7 @@ describe('signing in', () => {
 describe('every way an account is made gives it a key of its own', () => {
   it('setup, an admin adding members, createUser and createFirstAdmin: each key usable and unlike any other', async () => {
     // setup's admin
-    const setup = await send('/setup', { form: { username: 'admin', password: 'correct horse', confirm: 'correct horse' } });
+    const setup = await send('/setup', { form: { secret: env.SESSION_SECRET, username: 'admin', password: 'correct horse', confirm: 'correct horse' } });
     expect(setup.status).toBe(200); // the admin's recovery code (§16 #100)
     const setupCookie = setup.headers.get('set-cookie')!.split(';')[0]!;
     expect((await send('/account', { cookie: setupCookie })).status).toBe(200);
@@ -191,8 +191,8 @@ describe('every way an account is made gives it a key of its own', () => {
 
   it('a racing setup’s winner gets a key, signs in with it, and the loser writes none', async () => {
     const results = await Promise.all([
-      send('/setup', { form: { username: 'ann', password: 'correct horse', confirm: 'correct horse' } }),
-      send('/setup', { form: { username: 'ben', password: 'correct horse', confirm: 'correct horse' } }),
+      send('/setup', { form: { secret: env.SESSION_SECRET, username: 'ann', password: 'correct horse', confirm: 'correct horse' } }),
+      send('/setup', { form: { secret: env.SESSION_SECRET, username: 'ben', password: 'correct horse', confirm: 'correct horse' } }),
     ]);
     const won = results.find((r) => r.status === 200)!;
     const all = await keys();

@@ -421,7 +421,9 @@ Multi-user, built into the app (no email infrastructure, no paid services):
   account (you). The admin and the three starter shelves are one batch (§16 #39), every
   statement guarded inside it by "no user yet", so two setups racing make one admin; the
   loser is sent to login. The same batch makes the admin's recovery code, which the page setup
-  answers with shows once (§16 #100).
+  answers with shows once (§16 #100). Setup asks first for the `SESSION_SECRET`, compared in
+  constant time and throttled, so only whoever deployed the instance makes its admin (§16 #101);
+  the example's old sample value counts as no secret at all.
 - **Admin invites family members** at `/settings/users` with a **one-time link** (§16 #97): the
   account is made with a password nobody knows, and `https://<instance>/join/<secret>` is shown once,
   with its QR code, for the admin to pass on. Opening it, the member chooses their own password and
@@ -740,8 +742,14 @@ Every authenticated page route returns a full document normally and a partial wh
      `BGG_TOKEN` for board game search, and optionally `GOOGLE_BOOKS_KEY`).
   3. `D1_DATABASE_ID=<id> npm run deploy` → resolves the id into a gitignored copy of the
      config, applies remote migrations, deploys, prints your
-     `https://nalanda.<account>.workers.dev` URL. Visit `/setup`, create the admin
-     account, start scanning.
+     `https://nalanda.<account>.workers.dev` URL. Visit `/setup`, paste the session secret,
+     create the admin account, start scanning.
+- **Or one click** (§16 #101): the README's Deploy to Cloudflare button copies the `deploy-site`
+  branch (the latest release) into the person's repository, creates its D1 database and R2 bucket,
+  writes the database's id into that copy's `wrangler.jsonc`, asks for `SESSION_SECRET` alone, and
+  deploys through Workers Builds with `npm run deploy`. That copy's own id is what `deploy.mjs` and
+  the remote scripts use when `D1_DATABASE_ID` is unset (`scripts/database-id.mjs`); this
+  repository keeps its placeholder.
 - **Custom domain** (later): with the zone on Cloudflare, add it to the Worker under
   Settings → Domains & Routes — no code or config change. TLS stays free.
 
@@ -926,6 +934,7 @@ is a section of this document and "#N" another decision.
 | 98 | 2026-10-02 | [Every sign-in is a device session: listed on Account by its browser's name, signed out one at a time, sliding 30 days from its last use (written at most daily); Log out ends this device's, and a cookie from before still works until it expires](docs/decisions/098-device-sessions.md) |
 | 99 | 2026-10-02 | [A device signs in from another one, both ways round: a code a signed-in device shows (once, five minutes, throttled with logins), or a QR the new device shows, approved on a signed-in phone by typing the number it shows (one wrong answer ends it)](docs/decisions/099-device-pairing.md) |
 | 100 | 2026-10-02 | [An admin locked out gets back in with a recovery code shown at setup (once, hashed, used once and replaced as it is used, made again on Account with the password), or with a one-time reset link `npm run reset-admin` makes](docs/decisions/100-admin-recovery.md) |
+| 101 | 2026-10-02 | [A Deploy to Cloudflare button: the release branch copied into a household's own repository, its database and bucket made and its id written there (this repository keeps the placeholder), `SESSION_SECRET` the one secret asked for, the old example value refused, and `/setup` asking for the secret first](docs/decisions/101-deploy-button.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

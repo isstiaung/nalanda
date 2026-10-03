@@ -29,6 +29,7 @@ import {
   hashPassword,
   isLinkToken,
   isSessionKey,
+  isSessionSecret,
   newLinkToken,
   newSessionId,
   SESSION_COOKIE,
@@ -129,7 +130,8 @@ const NoSessionSecret = ({ note }: { note?: string }) => (
     <Brand />
     <h1>Not ready yet</h1>
     <p class="error">
-      This Nalanda has no <code>SESSION_SECRET</code>, so nobody can sign in.{note ? ` ${note}` : ''}
+      This Nalanda has no usable <code>SESSION_SECRET</code> — none, or the example's placeholder, which anyone can read
+      — so nobody can sign in.{note ? ` ${note}` : ''}
     </p>
     <p class="eyebrow">Whoever runs it sets one</p>
     <p>
@@ -619,16 +621,21 @@ auth.post('/recover', async (c) => {
   return page(c, t('recovery.title'), <RecoveryCodePage code={next} after="recovered" />);
 });
 
-type SetupField = 'username' | 'password' | 'confirm';
+type SetupField = 'secret' | 'username' | 'password' | 'confirm';
 
-/** `wrong`: the fields the error is about, which point at it. */
-const SetupForm = ({ error, wrong = [] }: { error?: string; wrong?: SetupField[] }) => {
+/**
+ * `wrong`: the fields the error is about, which point at it. The session secret comes first (§16 #101): a new library's
+ * address is easy to guess, and whoever opens /setup first would otherwise make the admin — the secret shows it's whoever
+ * deployed it. It is never filled back in.
+ */
+const SetupForm = ({ error, wrong = [], username }: { error?: string; wrong?: SetupField[]; username?: string }) => {
   const { t } = useI18n();
   return (
     <article class="auth-card">
       <Brand />
       <h1>{t('setup.welcome')}</h1>
       <p class="muted">{t('setup.intro')}</p>
+      <p class="muted">{t('setup.secret_note')}</p>
       {error ? (
         <p class="error" role="alert" id="setup-error">
           {error}
@@ -636,9 +643,13 @@ const SetupForm = ({ error, wrong = [] }: { error?: string; wrong?: SetupField[]
       ) : null}
       <form method="post" action="/setup">
         <label>
-          {t('login.username')}
+          {t('setup.secret')}
           {/* eslint-disable-next-line no-restricted-syntax -- setup is one form, on a fresh instance: its first field is where everyone starts */}
-          <input name="username" required autofocus autocomplete="username" {...invalid(wrong.includes('username') && error, 'setup-error')} />
+          <input type="password" name="secret" required autofocus autocomplete="off" {...invalid(wrong.includes('secret') && error, 'setup-error')} />
+        </label>
+        <label>
+          {t('login.username')}
+          <input name="username" value={username ?? ''} required autocomplete="username" {...invalid(wrong.includes('username') && error, 'setup-error')} />
         </label>
         <label>
           {t('login.password')} <small>{t('setup.password_hint')}</small>
@@ -671,13 +682,20 @@ auth.post('/setup', async (c) => {
   const username = String(body['username'] ?? '').trim();
   const password = String(body['password'] ?? '');
   const confirm = String(body['confirm'] ?? '');
+  const typed = String(body['secret'] ?? '');
   const { t } = await i18nOf(c);
-  if (!username || password.length < 8) {
-    return page(c, t('setup.title'), <SetupForm error={t('setup.invalid')} wrong={['username', 'password']} />);
+  const form = (error: string, wrong: SetupField[]) => page(c, t('setup.title'), <SetupForm error={error} wrong={wrong} username={username} />);
+  if (!username || password.length < 8) return form(t('setup.invalid'), ['username', 'password']);
+  if (password !== confirm) return form(t('setup.mismatch'), ['confirm']);
+  // then the session secret (§16 #101): a guess at it is counted first, ten an address in ten minutes, on a counter of
+  // its own; the right one takes its try back
+  const attempt = await recordLoginAttempt(c.env.DB, `#setup:${clientIp(c)}`, null);
+  if (!attempt) {
+    c.status(429);
+    return form(t('login.too_many', { minutes: LOGIN_ATTEMPT_WINDOW_MINUTES }), []);
   }
-  if (password !== confirm) {
-    return page(c, t('setup.title'), <SetupForm error={t('setup.mismatch')} wrong={['confirm']} />);
-  }
+  if (!(await isSessionSecret(typed, secret))) return form(t('setup.wrong_secret'), ['secret']);
+  await forgetLoginAttempt(c.env.DB, attempt);
   // The count above only saves hashing on a closed setup. The batch decides: of two setups racing, one wins. The
   // loser goes to login, which says why: usually it's the second click of a double-click, whose response is the
   // page the browser shows, and the password just chosen works there.

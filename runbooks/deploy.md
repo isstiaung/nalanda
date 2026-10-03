@@ -1,5 +1,52 @@
 # Runbook: Deploy
 
+Two ways to start: the **one-click deploy** below, or the **first deploy** by hand after it. Either
+way, every later deploy is a push (or `npm run deploy`), and updating is in
+[updating.md](updating.md).
+
+## One-click deploy
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/isstiaung/nalanda/tree/deploy-site)
+
+The button (ARCH.md §16 #101) uses a free Cloudflare account and a GitHub (or GitLab) account:
+1. It copies the latest release into a new repository of yours.
+2. It creates your D1 database and R2 bucket.
+3. It asks for one secret, **`SESSION_SECRET`**: any long random value (`openssl rand -hex 32`
+   makes one, as does a password manager's generator). **Keep a copy**: Cloudflare never shows a
+   secret's value again, and `/setup` asks for it.
+4. It builds and deploys, and gives you an address like `https://nalanda.<you>.workers.dev`.
+
+Every push to your copy deploys again, with its migrations first.
+
+Then:
+1. **Open `<your-address>/setup` straight away.** Paste the session secret, and choose your
+   username and password. The next page shows your **recovery code** once: keep it apart from this
+   device. Lost the secret before setup? Set a new one (the Worker → Settings → Variables and
+   Secrets → `SESSION_SECRET`) and use that.
+2. **Optional tokens**, whenever you like, in the same place (the Worker → Settings → Variables and
+   Secrets → *Add*, type **Secret**):
+   - `DISCOGS_TOKEN` (vinyl lookup) and `BGG_TOKEN` (board game search): see
+     [API tokens](#api-tokens) for how to get each;
+   - `GOOGLE_BOOKS_KEY`: optional, raises the book-lookup quota;
+   - `HOME_SHARE_TOKEN`: a front door, below;
+   - `FEDERATION_PRIVATE_KEY`: connections with other households, see
+     [connections.md](connections.md).
+
+   A secret applies as soon as it is saved.
+3. **Backups** come from a laptop: clone your copy, `npm install`, `npx wrangler login`, then
+   `npm run backup` ([backup-and-restore.md](backup-and-restore.md)). Your copy's `wrangler.jsonc`
+   holds your database's id (the button wrote it in), so the scripts find it without
+   `D1_DATABASE_ID`.
+
+If you renamed the database on the button's form, the runbooks' `wrangler d1 … nalanda` commands
+take your name in place of `nalanda`, or the binding, `DB`. The backup and `reset-admin` scripts
+find it themselves.
+
+Your copy also carries this repository's GitHub workflows (CI, releases, the demo). They run only in
+`isstiaung/nalanda`, so your copy's Actions stay quiet. It carries `.github/dependabot.yml` too, which
+opens a monthly pull request for dependency updates. Close those, or delete the file, and take updates
+with releases instead ([updating.md](updating.md)).
+
 ## First deploy (once)
 
 1. **Create the cloud resources** (free tier):
@@ -51,7 +98,8 @@
    > fails with `D1 binding 'DB' references database '00000000-…'`.
 
 4. **Create your account**: open `<your-url>/setup` immediately — it creates the admin
-   account and disables itself once a user exists. If it says `SESSION_SECRET` isn't set,
+   account and disables itself once a user exists. It asks first for the `SESSION_SECRET` you
+   set in step 2, to show it's you (ARCH.md §16 #101). If it says `SESSION_SECRET` isn't set,
    step 2 didn't take: set it and reload. Nothing is saved until then. The next page shows
    your **recovery code**, once: keep it apart from this device (written down, or in a password
    manager). It is how you get back in if you forget your password ([accounts](accounts-and-access.md#admin-lockout-you-forgot-the-admin-password)).
