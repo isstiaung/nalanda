@@ -50,10 +50,10 @@ If you renamed the database on the button's form, the runbooks' `wrangler d1 …
 take your name in place of `nalanda`, or the binding, `DB`. The backup and `reset-admin` scripts
 find it themselves.
 
-Your copy also carries this repository's GitHub workflows (CI, releases, the demo). They run only in
-`isstiaung/nalanda`, so your copy's Actions stay quiet. It carries `.github/dependabot.yml` too, which
-opens a monthly pull request for dependency updates. Close those, or delete the file, and take updates
-with releases instead ([updating.md](updating.md)).
+Your copy is one commit ("source repo import") without this repository's GitHub workflows:
+Cloudflare's import leaves out `.github/workflows`. It keeps `.github/dependabot.yml`, though, and
+Dependabot's monthly run then fails, with nothing there to update. **Delete `.github/dependabot.yml`
+from your copy**, and take updates with releases ([updating.md](updating.md)).
 
 ## First deploy (once)
 

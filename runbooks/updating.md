@@ -36,16 +36,18 @@ npm test
 
 If you've never changed the code, `git checkout v1.2.0` works just as well.
 
-**Deployed with the button?** Your repository is a copy of a release, and its `wrangler.jsonc` holds
-your database's id (ARCH.md §16 #101). If `git merge` says it is *refusing to merge unrelated
-histories*, your copy doesn't share this repository's history. Take the release's files instead,
-keeping your config:
+**Deployed with the button?** Your repository is a copy of a release made in one commit ("source repo
+import"), so it shares none of this repository's history and `git merge` refuses it (*unrelated
+histories*). Its `wrangler.jsonc` holds your database's id and your Worker's name (ARCH.md §16 #101).
+Take the release's files instead, keeping your config and leaving out `.github` (this repository's
+workflows and Dependabot, which a copy doesn't run):
 
 ```sh
 git fetch https://github.com/isstiaung/nalanda.git --tags
-git checkout v1.2.0 -- . ':(exclude)wrangler.jsonc'   # every file as released, but your own wrangler.jsonc
-git diff HEAD v1.2.0 -- wrangler.jsonc                 # anything new in the release's config? copy it in, keeping your id
+git checkout v1.2.0 -- . ':(exclude)wrangler.jsonc' ':(exclude).github'   # the release's files, but your own config
+git diff HEAD v1.2.0 -- wrangler.jsonc   # anything new in the release's config? copy it in, keeping your id and name
 git commit -m "Update to v1.2.0"
+git push                                 # Workers Builds deploys it, migrations first
 ```
 
 A file the release removed stays behind in your copy. The notes say so when one matters.

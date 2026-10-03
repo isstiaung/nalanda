@@ -55,17 +55,30 @@ and the README say so before the click (found in the first test click, 2026-10-0
   - Lost it? Set a new one in the dashboard and use that: a secret's value can't be read back, only
     replaced.
   - This applies to every instance not yet set up, by button or by hand.
-- **A copy's own Actions run none of this repository's workflows.** CI, the releases and the demo run
-  only in `isstiaung/nalanda`; a fork's pull request still runs CI, since for `pull_request` the
-  repository is this one. A household's copy holds its own database id and maybe another database
+- **A copy's own Actions run none of this repository's workflows.** Cloudflare's import leaves
+  `.github/workflows` out of a copy altogether (found in the test click). Besides, CI, the releases and
+  the demo are guarded to run only in `isstiaung/nalanda`, in case a copy ever gets them; a fork's pull
+  request still runs CI, since for `pull_request` the repository is this one. The import keeps
+  `.github/dependabot.yml`, whose run then fails in a copy with no workflows to update, so the runbook
+  says to delete it. A household's copy holds its own database id and maybe another database
   name, so this repository's checks don't apply to it. So the rule that *this* repository's
   `wrangler.jsonc` keeps the placeholder (#24) is a CI step, not a test: the tests pass in a copy too.
 - **The button reaches only what is on `deploy-site`.** A change to what the button needs (the
   example, the deploy script, the setup check) reaches new households with the release that moves
   `deploy-site`, not with the merge. So the README's button and the release go out together:
   **release right after merging anything the button depends on.**
-- **Updating a copy** is merging a release tag from this repository and pushing. Workers Builds
-  deploys it, and its migrations run first, as they always do (`runbooks/updating.md`).
+- **Updating a copy** is taking a release's files from this repository, keeping the copy's own
+  `wrangler.jsonc` and leaving out `.github`, then pushing. A copy is one commit ("source repo
+  import") with none of this repository's history, so `git merge` refuses it. Workers Builds deploys
+  the push, and its migrations run first, as they always do (`runbooks/updating.md`).
+
+**What the first test click showed** (2026-10-03, in a separate account):
+- The form asks for `SESSION_SECRET` with an empty field, and won't go on until one is typed.
+- R2 must be switched on in the account first (above).
+- The build command is empty, which is right, and the deploy command is the `deploy` script.
+- The copy's `wrangler.jsonc` keeps its comments, gets the real `database_id`, and takes the Worker
+  name chosen on the form (`name`) and a `preview_bucket_name`. `database_name` stays as it was.
+- The copy is a single commit by `cloudflare[bot]`, without `.github/workflows`.
 
 **What it rules out:**
 - **Generating the session secret in the app**, stored in D1: a backup would then hold what forges
