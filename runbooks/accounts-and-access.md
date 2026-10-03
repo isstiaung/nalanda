@@ -72,7 +72,8 @@ and the purchase links on those books, stay.
 
 Three ways back, easiest first (ARCH.md §16 #100):
 
-1. **Your recovery code.** Setup showed it once; Account → *Recovery code* makes a new one (it
+1. **Your recovery code.** Setup showed it once, with **Copy code** and **Download as a text
+   file** beside it. Account → *Recovery code* makes a new one (it
    asks for your password). On the log in page, *Forgot your password?* → your username, the code
    (any case, dashes or not) and a new password. Every other device signs out, and the page shows your
    **next** code: the one you used no longer works. Keep the new one. (If the page instead says the code

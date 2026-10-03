@@ -17,6 +17,12 @@ auth relook **the owner decided** on both: **a recovery code shown at setup**, a
   - It is kept only as its SHA-256 (`recovery_codes`, migration 0062), one per account, bound to
     the account's key (#56). Removing the admin deletes it.
   - The page says to keep it apart from the device: written down, or in a password manager.
+  - Wherever a code is shown (setup, `/recover`, Account), **Copy code** puts it on the clipboard,
+    shown by `public/recovery.js` and saying "Copied." in a live region. **Download as a text file**
+    saves `nalanda-recovery-code.txt`, in the household's language: the code, the library's address,
+    the username, and where to use it. The download is a plain link to a `data:` address, so it needs
+    no script and the server keeps nothing. The owner asked for both after the first test click
+    (2026-10-03), "similar to how other websites do it".
 - **Used at `/recover`**, linked from the log in page as *Forgot your password?*. The form takes a
   username, the code — read back as typed, in any case, with or without its dashes — and a new
   password twice.

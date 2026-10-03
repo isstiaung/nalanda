@@ -278,6 +278,40 @@ describe('a double-click', () => {
   });
 });
 
+describe('keeping the code', () => {
+  /** The code's Copy button and Download link on a page, and the text file the link saves. */
+  function keeping(html: string) {
+    const copy = /<button type="button" class="btn" data-copy-code="([A-Z2-9-]{24})"[^>]*hidden/.exec(html)?.[1] ?? null;
+    const link = /<a class="btn" href="data:text\/plain;charset=utf-8,([^"]*)" download="nalanda-recovery-code\.txt"/.exec(html)?.[1] ?? null;
+    return { copy, file: link === null ? null : decodeURIComponent(link.replaceAll('&amp;', '&')) };
+  }
+
+  it('offers Copy (shown by a script) and Download as a text file on Account and after /recover', async () => {
+    const { cookie, code } = await setUp();
+    const pages = [await (await makeAnother(cookie, 'first-password')).text()];
+    const used = codeOn(pages[0]!)!;
+    pages.push(await (await recover({ code: used })).text());
+    for (const html of pages) {
+      const shown = codeOn(html)!;
+      const { copy, file } = keeping(html);
+      expect(copy).toBe(shown);
+      expect(html).toContain('<script src="/recovery.js" defer');
+      expect(file).toContain(shown);
+      expect(file).toContain('Account: admin');
+      expect(file).toContain('http://nalanda.test/recover');
+    }
+    expect(code).not.toBe(used);
+  });
+
+  it('is offered on the page setup answers with', async () => {
+    const res = await send('/setup', { form: { secret: env.SESSION_SECRET, username: 'admin', password: 'first-password', confirm: 'first-password' } });
+    const html = await res.text();
+    const { copy, file } = keeping(html);
+    expect(copy).toBe(codeOn(html));
+    expect(file).toMatch(/^Nalanda recovery code\nLibrary: http:\/\/nalanda\.test\nAccount: admin\n\n[A-Z2-9-]{24}\n/);
+  });
+});
+
 describe('the code', () => {
   it('is read back as typed, and nothing else passes', () => {
     expect(normalizeRecoveryCode('abcd efgh-jkmn pqrs tuvw')).toBe('ABCDEFGHJKMNPQRSTUVW');

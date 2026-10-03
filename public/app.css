@@ -909,6 +909,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .pair-answers { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; }
 .pair-waiting { margin-top: 0.75rem; }
 /* an admin's recovery code (§16 #100), the once it is shown: selected whole with one tap, wrapping between its fours */
+.recovery-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin: 0 0 0.25rem; }
+.recovery-copied { display: block; text-align: center; min-height: 1.4em; font-size: 13px; }
 .recovery-digits { font-size: 1.35rem; letter-spacing: 0.06em; text-align: center; margin: 0.25rem 0 0.75rem; user-select: all; overflow-wrap: break-word; }
 .auth-card h1 { font-size: 18px; }
 /* a link under an auth card's form ("Back to log in", "Forgot your password?") keeps clear of its submit button: 24px
