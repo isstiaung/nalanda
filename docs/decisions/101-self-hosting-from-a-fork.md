@@ -112,6 +112,16 @@ this repository's own deploys still take `D1_DATABASE_ID`. An instance whose `SE
 example's old sample value stops signing anyone in until it is changed; nobody should have one. In
 local development, set `SESSION_SECRET` in `.dev.vars`; `npm run seed:demo` reads it from there.
 
+**Tried for real** (2026-10-03/04, the owner, in a separate Cloudflare account):
+- A fresh fork (all branches, the test branch as default), imported with **Cloudflare's own deploy
+  command** and build variables `NALANDA_BRANCH` and `D1_LOCATION`. The first build made the database
+  and the bucket, migrated, and deployed.
+- `SESSION_SECRET`, added as a runtime secret, then `/setup` asking for it first: working. Added as a
+  build variable it was never seen, so the runbook now says where it goes.
+- **Sync fork** brought a later commit (the recovery code's Copy and Download) to the fork. The
+  build reused the database and deployed, and the new buttons were there.
+- The default build token reached D1: no extra permission was needed in this account.
+
 **Tests:**
 - `test/deploy-config.spec.ts` covers:
   - this repository's config: no `database_id`, the placeholder only as `preview_database_id`, and
