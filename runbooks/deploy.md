@@ -47,7 +47,9 @@ fork keeps this repository's history, so each new release reaches you with one c
    ([troubleshooting](troubleshooting.md#deploys--database)).
 4. **Set `SESSION_SECRET`**: [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) → **nalanda** → **Settings** → **Variables and
    Secrets** → **Add**, type **Secret**, name `SESSION_SECRET`
-   ([secrets](https://developers.cloudflare.com/workers/configuration/secrets/)). Use any long random value (`openssl rand -hex 32` makes one,
+   ([secrets](https://developers.cloudflare.com/workers/configuration/secrets/)). **Not** under
+   **Settings** → **Build** → *Build variables*: those exist only while a build runs, and the library
+   never sees them (it stays *Not ready yet*). Use any long random value (`openssl rand -hex 32` makes one,
    as does a password manager's generator). **Keep a copy**: Cloudflare never shows a secret's value
    again, and `/setup` asks for it. Until it's set, the library says *Not ready yet*. Still *Not
    ready yet* after saving it? **nalanda** → **Deployments** → deploy the latest version.
