@@ -36,10 +36,12 @@ npm test
 
 If you've never changed the code, `git checkout v1.2.0` works just as well.
 
-**Running from a fork in the browser?** ([deploy.md](deploy.md#run-your-own-from-a-fork)) Take the
-backup first if the notes ask for one (step 3). Then on GitHub, open your fork, switch to the
+**Running from a fork in the browser?** ([deploy.md](deploy.md#run-your-own-from-a-fork)) Before every
+sync, download **Import / export** → **Export** (your catalogue as a CSV, from the browser), and take
+the backup too if the notes ask for one (step 3). Then on GitHub, open your fork, switch to the
 `deploy-site` branch and press **Sync fork** → **Update branch**. That is the whole update: Cloudflare
-builds it and deploys, migrations first (step 4 happens by itself).
+builds it and deploys, migrations first (step 4 happens by itself). A sync gone wrong can be undone
+for 7 days with D1 [Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/), from a laptop (see [Going back](#going-back)).
 
 ## 3. Back up, when the notes say so
 
@@ -104,3 +106,10 @@ which is everyone's either way.
   migrations, and a release's notes say when rolling back past it isn't safe.
 - **Data:** restore the backup from step 3 ([backup-and-restore.md](backup-and-restore.md)). That also
   undoes anything changed since the backup, so do it soon or not at all.
+- **Data, with no backup:** D1 keeps every database restorable to any minute of the last 7 days
+  ([Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/)), with nothing to switch
+  on. From a laptop logged in with `npx wrangler login`:
+  `npx wrangler d1 time-travel restore nalanda --timestamp=<unix time before the update>`.
+  It overwrites the database in place, undoing everything since that minute, and prints a bookmark
+  you can restore to undo the restore itself. A fork's Sync fork applies migrations at once, so this
+  is its undo.

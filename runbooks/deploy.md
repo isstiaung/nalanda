@@ -65,8 +65,16 @@ fork keeps this repository's history, so each new release reaches you with one c
 
 **Updating:** on GitHub, open your fork, switch to the `deploy-site` branch, and press **Sync fork**
 → **Update branch**
-([how](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork)). Cloudflare builds it and deploys, migrations first. Read the release's notes
-first: when they ask for a backup, take it before you sync ([updating.md](updating.md)).
+([how](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork)).
+Cloudflare builds it and deploys, migrations first: a release's database changes apply the moment
+you sync. So read the release's notes first, and before every sync, keep a copy from the browser:
+**Import / export** → **Export**, which downloads your whole catalogue as a CSV
+([updating.md](updating.md)).
+
+If an update ever goes wrong, Cloudflare keeps every D1 database restorable to any minute of the
+last **7 days** on its own ([Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/)). Restoring takes one command from a laptop:
+`npx wrangler d1 time-travel restore nalanda --timestamp=<a time before the sync>`. It overwrites
+the database in place, and prints a bookmark that undoes the restore.
 
 **Backups** come from a laptop, the one thing here that needs a terminal: `git clone -b deploy-site
 <your fork>` (and `git pull` before each later backup, so the backup script matches the release you
