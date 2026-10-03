@@ -36,19 +36,12 @@ npm test
 
 If you've never changed the code, `git checkout v1.2.0` works just as well.
 
-**Deployed with the button?** Your repository is a copy of a release, and its `wrangler.jsonc` holds
-your database's id (ARCH.md §16 #101). If `git merge` says it is *refusing to merge unrelated
-histories*, your copy doesn't share this repository's history. Take the release's files instead,
-keeping your config:
-
-```sh
-git fetch https://github.com/isstiaung/nalanda.git --tags
-git checkout v1.2.0 -- . ':(exclude)wrangler.jsonc'   # every file as released, but your own wrangler.jsonc
-git diff HEAD v1.2.0 -- wrangler.jsonc                 # anything new in the release's config? copy it in, keeping your id
-git commit -m "Update to v1.2.0"
-```
-
-A file the release removed stays behind in your copy. The notes say so when one matters.
+**Running from a fork in the browser?** ([deploy.md](deploy.md#run-your-own-from-a-fork)) Before every
+sync, download **Import / export** → **Export** (your catalogue as a CSV, from the browser), and take
+the backup too if the notes ask for one (step 3). Then on GitHub, open your fork, switch to the
+`deploy-site` branch and press **Sync fork** → **Update branch**. That is the whole update: Cloudflare
+builds it and deploys, migrations first (step 4 happens by itself). A sync gone wrong can be undone
+for 7 days with D1 [Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/), from a laptop (see [Going back](#going-back)).
 
 ## 3. Back up, when the notes say so
 
@@ -66,8 +59,8 @@ Upgrading notes in order.
 The same way as always ([deploy.md](deploy.md)):
 
 - **From your machine:** `npm run deploy`. It applies the migrations first, then the new code.
-- **With Cloudflare's git integration:** push the updated branch it builds from. A copy made with the
-  button is set up this way: push, and Workers Builds deploys.
+- **With Cloudflare's git integration:** push the updated branch it builds from, or sync it, for a
+  fork run from the browser: Workers Builds deploys.
 
 Deploy when nobody is editing if the notes mention a data migration. For a few seconds the migration
 has run while the old code is still serving.
@@ -113,3 +106,10 @@ which is everyone's either way.
   migrations, and a release's notes say when rolling back past it isn't safe.
 - **Data:** restore the backup from step 3 ([backup-and-restore.md](backup-and-restore.md)). That also
   undoes anything changed since the backup, so do it soon or not at all.
+- **Data, with no backup:** D1 keeps every database restorable to any minute of the last 7 days
+  ([Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/)), with nothing to switch
+  on. From a laptop logged in with `npx wrangler login`:
+  `npx wrangler d1 time-travel restore nalanda --timestamp=<unix time before the update>`.
+  It overwrites the database in place, undoing everything since that minute, and prints a bookmark
+  you can restore to undo the restore itself. A fork's Sync fork applies migrations at once, so this
+  is its undo.

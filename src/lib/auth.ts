@@ -55,7 +55,7 @@ export async function verifyPassword(password: string, stored: string): Promise<
 export const DUMMY_HASH = 'pbkdf2$100000$DMuk-QhtQIG9za9uqBwsKw$nG2uIPkg5UIX9fpsow2Uo5ZXFGjISmFUkisGOwKrKew';
 
 /** Values this repository has published as an example SESSION_SECRET: anyone can read them, so they sign nothing. A
- *  one-click deploy (§16 #101) asks for the secret on a form, and a value copied from the example must not pass. */
+ *  household setting up from a fork (§16 #101) may copy the example, and a value copied from it must not pass. */
 const PUBLISHED_SECRETS = new Set(['change-me-to-anything-long-and-random']);
 
 /**

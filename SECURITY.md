@@ -72,16 +72,17 @@ Please don't file these:
 - **Share pages are cached in-isolate for an hour.** After rotating or removing a share, an
   untouched isolate can keep serving the old page for up to 1 hour (ARCH.md §16 #19). It's a
   burst shield with a known, accepted lag.
-- **The all-zero `database_id` in `wrangler.jsonc`.** A placeholder, not a real resource:
-  this repo names no Cloudflare database, bucket, or account. Deploys take the real id from
-  `D1_DATABASE_ID` in the environment (`scripts/deploy.mjs`). Even a real D1 id would be
+- **No `database_id` in `wrangler.jsonc`**, and an all-zero `preview_database_id` that only keys
+  local dev: this repo names no Cloudflare database, bucket, or account. Deploys take the real id from
+  `D1_DATABASE_ID` in the environment (`scripts/deploy.mjs`); a household's fork, building in
+  Cloudflare, uses its own account's `nalanda` database by name. Even a real D1 id would be
   inert without credentials for the account that owns it — keeping it out is hygiene.
 - **Sessions are listed, and slide.** Every sign-in is a server-side row the signed cookie names,
   so Account lists each device and signs any one out, and Log out ends that device's session for
   any copy of its cookie (ARCH.md §16 #98). A session lives 30 days from its last use. Only the
   browser and system are kept from the User-Agent; no address or location.
 - **Setting up a new instance** (ARCH.md §16 #101). Until its first admin exists, anyone who reaches
-  `/setup` could make one, and a one-click deploy's address is easy to guess. So `/setup` asks first
+  `/setup` could make one, and a new library's address (`nalanda.<account>.workers.dev`) is easy to guess. So `/setup` asks first
   for the `SESSION_SECRET` that whoever deployed it set: compared in constant time, throttled, and
   never echoed back. The value this repository once published as an example counts as no secret at
   all, and nobody can sign in with it.

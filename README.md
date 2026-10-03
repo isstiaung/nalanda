@@ -74,13 +74,21 @@ works on localhost. Local secrets live in `.dev.vars`: copy `.dev.vars.example` 
 
 ## Running your own
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/isstiaung/nalanda/tree/deploy-site)
+**In the browser, no terminal** (backups aside), in
+[five steps](runbooks/deploy.md#run-your-own-from-a-fork):
+1. Switch on [R2](https://dash.cloudflare.com/?to=/:account/r2/overview) in Cloudflare (free, but it
+   asks for a card).
+2. [Fork this repository](https://github.com/isstiaung/nalanda/fork) with all its branches, and make
+   `deploy-site` your fork's default branch.
+3. In [Workers & Pages](https://dash.cloudflare.com/?to=/:account/workers-and-pages) →
+   **Create application** → **Import a repository**, pick your fork, and name it `nalanda`. Leave the
+   rest as it is. The first deploy creates the database and the cover bucket, and migrates them.
+4. Add the secret `SESSION_SECRET`.
+5. Open `/setup`.
 
-The button copies the latest release into a repository of yours and deploys it to your Cloudflare
-account. It creates the database and the cover bucket, and asks for one secret. Then open `/setup`
-on your new address; [runbooks/deploy.md](runbooks/deploy.md#one-click-deploy) has the details,
-and the optional tokens. Or by hand — everything below fits inside Cloudflare's free tier. One-time
-setup:
+New releases then arrive with GitHub's **Sync fork** button.
+
+**Or from a terminal** — everything below fits inside Cloudflare's free tier. One-time setup:
 
 ```sh
 wrangler d1 create nalanda            # note the id it prints
@@ -94,9 +102,9 @@ wrangler secret put FEDERATION_PRIVATE_KEY  # optional — turns on connections;
 D1_DATABASE_ID=<the id> npm run deploy   # remote migrations, then wrangler deploy
 ```
 
-The repo names no Cloudflare resource of its own: `database_id` in `wrangler.jsonc` is an
-all-zero placeholder the deploy fills from `D1_DATABASE_ID`, so a fresh clone works offline with
-nothing to edit. From there `npm run deploy` is every update; releases are numbered, and each one's
+The repo names no Cloudflare resource of its own: `wrangler.jsonc` has no `database_id` (the
+deploy writes the real one from `D1_DATABASE_ID` into a temporary copy), and local dev keys its
+database by an all-zero `preview_database_id`, so a fresh clone works offline with nothing to edit. From there `npm run deploy` is every update; releases are numbered, and each one's
 notes ([GitHub Releases](https://github.com/isstiaung/nalanda/releases), [CHANGELOG.md](CHANGELOG.md))
 say what it changes and whether to back up first. Dashboard git integration, custom domains, rollback
 and moving your data are in [runbooks/deploy.md](runbooks/deploy.md).

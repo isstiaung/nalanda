@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   release:
-    # this repository's releases only: a copy made with the Deploy to Cloudflare button carries this file too (§16 #101)
+    # this repository's releases only: a household's fork carries this file too (§16 #101)
     if: github.repository == 'isstiaung/nalanda'
     runs-on: ubuntu-latest
     steps:

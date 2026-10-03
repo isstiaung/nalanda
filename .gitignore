@@ -1,6 +1,7 @@
 node_modules
 .wrangler/
 .wrangler-deploy.jsonc
+.wrangler-build.jsonc
 .wrangler-remote*.jsonc
 .dev.vars
 backups/

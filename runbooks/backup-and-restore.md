@@ -14,7 +14,7 @@ A second backup on the same day goes to `remote-<date>-2`, then `-3`, and so on.
 the first, which is usually the one taken before a deploy: the one you'd restore.
 
 A production backup needs the database's real id, which this repo doesn't carry —
-`wrangler.jsonc` holds a placeholder. The script uses `D1_DATABASE_ID` when it's set and
+`wrangler.jsonc` has no `database_id`. The script uses `D1_DATABASE_ID` when it's set and
 otherwise looks the id up by name with `wrangler d1 list`, so being logged in to wrangler
 (`npx wrangler login`) is enough. It exports through a temporary, gitignored copy of the
 config and deletes it afterwards. Every other command aimed at production goes the same

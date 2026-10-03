@@ -108,7 +108,7 @@ describe.each([
   ['empty', ''],
   ['whitespace-only', ' \t\n '],
   ['missing', undefined],
-  // the value .dev.vars.example once carried: anyone can read it, so a one-click deploy that kept it signs nothing (§16 #101)
+  // the value .dev.vars.example once carried: anyone can read it, so an instance that kept it signs nothing (§16 #101)
   ['the example this repository once published', 'change-me-to-anything-long-and-random'],
 ])('an instance whose SESSION_SECRET is %s', (_label, secret) => {
   const bindings = without(secret);

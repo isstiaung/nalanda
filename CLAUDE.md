@@ -162,11 +162,11 @@ npm run a11y               # axe-core WCAG 2.2 A/AA, every page, both themes, 12
                            # never 8787 or your dev DB, never Discogs or BGG (ARCH.md §18);
                            # `npx playwright install chromium` once
 npm run db:generate        # drizzle-kit generate — schema.ts → migrations/*.sql
-npm run db:migrate         # wrangler d1 migrations apply DB --local (the binding: any copy's name)
+npm run db:migrate         # wrangler d1 migrations apply DB --local (the binding, whatever the database is called)
 npm run db:migrate:remote  # same, against production (via wrangler:remote)
 npm run wrangler:remote -- <args>  # any wrangler command against production D1 (real id → temp config)
-npm run deploy             # needs D1_DATABASE_ID in the env (or a button copy's own id), never in
-                           # this repo; migrates, deploys
+npm run deploy             # D1_DATABASE_ID from the env, never in this repo (a household's fork finds
+                           # or creates its `nalanda` database by name); migrates, deploys
 npm run backup             # per-table data-only export → backups/remote-<date>/ (D1 can't dump
                            # FTS5; schema comes from migrations/ — backup runbook)
 npm run backup:local       # same, for the local dev database
@@ -240,7 +240,10 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   answered 429; an unknown username is checked against `DUMMY_HASH`. A temporary-password session
   reaches only `GET /account` and `POST /account/password` (`mustChangeMayReach()`).
 - Never hand-edit drizzle-generated migrations (hand-written SQL goes in `--custom` ones); never
-  edit a migration that has been applied anywhere.
+  edit a migration that has been applied anywhere. **Migrations are additive only** from 0063 on
+  (ARCH.md §16 #102): create, add columns, insert, re-create indexes, triggers and the FTS index —
+  never drop a table or column, rename, or update, delete or replace rows (a fork's Sync fork applies
+  them unattended). `test/migrations-additive.spec.ts` enforces it.
 - Barcode routing (`src/metadata/index.ts`): EAN-13 `978`/`979` → book providers (merged); an
   ISBN-10 (nine digits and a check digit, `X` allowed) likewise, kept as `isbn10Upc` with its ISBN-13
   derived (`isbn13Of()`) unless Google Books names one; any other EAN/UPC → Discogs. Tags are
@@ -280,10 +283,13 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   production database sets `FEDERATION_OFFLINE=1` (a plain variable, never a secret, never in
   production) before its first page load, or it contacts the real households (§16 #92;
   runbooks/backup-and-restore.md).
-- **No Cloudflare resource ids in the repo** (ARCH.md §16 #24): `database_id` stays the all-zero
-  placeholder, deploys supply `D1_DATABASE_ID`. Don't "helpfully" fill it in — miniflare keys
-  local D1 state by it, so editing it orphans the local database (§16 #20). The Deploy to Cloudflare
-  button (§16 #101) writes a real id into a *household's own copy*; `scripts/database-id.mjs` takes it
-  when `D1_DATABASE_ID` is unset — never in this repository. `.dev.vars.example` lists only required
-  secrets uncommented (the button asks for each), `SESSION_SECRET` with no value; `/setup` asks for it.
+- **No Cloudflare resource ids in the repo** (ARCH.md §16 #24): `wrangler.jsonc` has no `database_id`;
+  deploys supply `D1_DATABASE_ID`. Don't "helpfully" add one, or change the all-zero
+  `preview_database_id` — miniflare keys local D1 state by it, so editing it orphans the local
+  database (§16 #20). A household's **fork**
+  (§16 #101) deploys with no id anywhere and Cloudflare's own deploy command: the custom build
+  (`scripts/workers-build.mjs`) finds the account's `nalanda` database by name, or creates it, and
+  migrates it — in Workers Builds only, only on the library's branch. Any other publish but
+  `npm run deploy` is refused by that hook: never a plain `wrangler deploy`. `.dev.vars.example`
+  leaves `SESSION_SECRET` empty, the app refuses its old sample value, and `/setup` asks for the secret.
 - Keep this file, docs/ and ARCH.md current as commands and decisions evolve.
