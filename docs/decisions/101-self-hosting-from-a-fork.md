@@ -120,7 +120,9 @@ local development, set `SESSION_SECRET` in `.dev.vars`; `npm run seed:demo` read
   build variable it was never seen, so the runbook now says where it goes.
 - **Sync fork** brought a later commit (the recovery code's Copy and Download) to the fork. The
   build reused the database and deployed, and the new buttons were there.
-- The default build token reached D1: no extra permission was needed in this account.
+- The build token reached D1. It was the one made in the earlier button test, so whether a token
+  the import form makes fresh includes D1 is still unproven; if it doesn't, the build says how to
+  fix it.
 
 **Tests:**
 - `test/deploy-config.spec.ts` covers:
