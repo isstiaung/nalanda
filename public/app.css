@@ -909,6 +909,9 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .pair-answers { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 0.5rem; }
 .pair-waiting { margin-top: 0.75rem; }
 .auth-card h1 { font-size: 18px; }
+/* a link under an auth card's form ("Back to log in", "Forgot your password?") keeps clear of its submit button: 24px
+   of safe tapping space each (WCAG 2.2 target size) */
+.auth-card form + p { margin-top: 1.25rem; }
 
 /* ── share (public) ───────────────────────────────────────────────────────── */
 
