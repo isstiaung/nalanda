@@ -27,7 +27,7 @@ import { formatPairCode, newPairCode, normalizeDigits, PAIR_MINUTES } from '../l
 import { newRecoveryCode } from '../lib/recovery';
 import { QR_BLANK } from './shares';
 import { ledgerDate } from '../lib/dates';
-import { clientIp, newSessionFor, RecoveryCodeBox, setSessionCookie } from './auth';
+import { clientIp, newSessionFor, RecoveryCodeBox, type RecoveryFor, setSessionCookie } from './auth';
 import { MAX_DISPLAY_NAME, normalizeDisplayName } from '../lib/names';
 import { DRAFT_LOCALES, isLocale, LOCALE_NAMES, locales, resolveLocale } from '../i18n';
 import { VERSION } from '../version';
@@ -238,13 +238,13 @@ const TokensForm = ({ tokens, fresh, error }: { tokens: Array<{ id: number; name
  * it — and a new one in its place, for the account's password: whoever holds only a session can't make one, since a code
  * outlives a password change and "Sign out other devices".
  */
-type RecoveryPanel = { made: string | null; tag: string; fresh?: string | null; notice?: string; error?: string };
-const RecoveryForm = ({ made, tag, fresh, notice, error }: RecoveryPanel) => {
+type RecoveryPanel = { made: string | null; tag: string; owner: RecoveryFor; fresh?: string | null; notice?: string; error?: string };
+const RecoveryForm = ({ made, tag, owner, fresh, notice, error }: RecoveryPanel) => {
   const { t } = useI18n();
   return (
     <article class="panel form-card account-card" id="recovery">
       <p class="eyebrow">{t('recovery.title')}</p>
-      {fresh ? <RecoveryCodeBox code={fresh} /> : null}
+      {fresh ? <RecoveryCodeBox code={fresh} owner={owner} /> : null}
       {notice ? <p class="notice">{notice}</p> : null}
       <p class="muted">{fresh ? t('recovery.fresh') : made ? t('recovery.made', { date: ledgerDate(made) }) : t('recovery.none')}</p>
       {error ? (
@@ -388,6 +388,7 @@ async function accountPage(
           ? {
               made: recoveryMade,
               tag: extras.recovery?.tag ?? storedTag,
+              owner: { username: user.username, address: new URL(c.req.url).origin },
               fresh: extras.recovery?.code ?? null,
               notice: recoveryNotice,
               error: extras.recoveryError,
