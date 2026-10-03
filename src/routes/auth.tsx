@@ -509,27 +509,45 @@ auth.get('/pair/scan/status', async (c) => {
 
 // ---- an admin's recovery code (ARCH.md §16 #100): shown at setup, used at /recover, made again on Account ----
 
-/** A recovery code, the once it is shown: easy to select whole, and to read back in fours. */
-export const RecoveryCodeBox = ({ code }: { code: string }) => {
+/** Whose a recovery code is, and where: what its text file says, so a copy found in a drawer a year on still makes sense. */
+export type RecoveryFor = { username: string; address: string };
+
+/**
+ * A recovery code, the once it is shown: easy to select whole and to read back in fours, with Copy (a script shows it)
+ * and Download as a text file (a plain link to a `data:` address — no script, and nothing kept on the server).
+ */
+export const RecoveryCodeBox = ({ code, owner }: { code: string; owner: RecoveryFor }) => {
   const { t } = useI18n();
+  const shown = formatRecoveryCode(code);
+  const file = t('recovery.file', { code: shown, address: owner.address, username: owner.username });
   return (
     <div class="notice recovery-code">
       {/* a <div>, not a <p>: large and alone, a paragraph would read to assistive tech as a heading made by hand */}
-      <div class="recovery-digits mono">{formatRecoveryCode(code)}</div>
+      <div class="recovery-digits mono">{shown}</div>
+      <div class="recovery-actions">
+        <button type="button" class="btn" data-copy-code={shown} data-copied={t('recovery.copied')} data-copy-failed={t('recovery.copy_failed')} hidden>
+          {t('recovery.copy')}
+        </button>
+        <a class="btn" href={`data:text/plain;charset=utf-8,${encodeURIComponent(file)}`} download="nalanda-recovery-code.txt">
+          {t('recovery.download')}
+        </a>
+      </div>
+      <output class="recovery-copied" aria-live="polite"></output>
       <p>{t('recovery.keep')}</p>
+      <script src="/recovery.js" defer></script>
     </div>
   );
 };
 
 /** After setup, and after a recovery code was used: the code to keep, and on into the app. */
-const RecoveryCodePage = ({ code, after }: { code: string; after: 'setup' | 'recovered' }) => {
+const RecoveryCodePage = ({ code, after, owner }: { code: string; after: 'setup' | 'recovered'; owner: RecoveryFor }) => {
   const { t } = useI18n();
   return (
     <article class="auth-card">
       <Brand />
       <h1>{t('recovery.title')}</h1>
       <p>{t(after === 'setup' ? 'recovery.after_setup' : 'recovery.after_recover')}</p>
-      <RecoveryCodeBox code={code} />
+      <RecoveryCodeBox code={code} owner={owner} />
       <p>
         <a href="/" class="btn">
           {t('recovery.continue')}
@@ -618,7 +636,7 @@ auth.post('/recover', async (c) => {
   const account = await recoverWithCode(c.env.DB, { username, codeHash, passwordHash: await hashPassword(password), nextCodeHash: await hashLinkToken(next) }, ns, attempt);
   if (!account) return form(t('recover.just_used'), []); // found a moment ago, gone now: a use racing this one won
   await setSessionCookie(c, secret, account, ns.sid);
-  return page(c, t('recovery.title'), <RecoveryCodePage code={next} after="recovered" />);
+  return page(c, t('recovery.title'), <RecoveryCodePage code={next} after="recovered" owner={{ username, address: new URL(c.req.url).origin }} />);
 });
 
 type SetupField = 'secret' | 'username' | 'password' | 'confirm';
@@ -711,7 +729,7 @@ auth.post('/setup', async (c) => {
   if (admin === null) return c.redirect('/login?raced=1');
   await setSessionCookie(c, secret, admin, ns.sid);
   c.header('cache-control', 'no-store');
-  return page(c, t('recovery.title'), <RecoveryCodePage code={recovery} after="setup" />);
+  return page(c, t('recovery.title'), <RecoveryCodePage code={recovery} after="setup" owner={{ username, address: new URL(c.req.url).origin }} />);
 });
 
 export default auth;
