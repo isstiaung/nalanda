@@ -240,7 +240,10 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   answered 429; an unknown username is checked against `DUMMY_HASH`. A temporary-password session
   reaches only `GET /account` and `POST /account/password` (`mustChangeMayReach()`).
 - Never hand-edit drizzle-generated migrations (hand-written SQL goes in `--custom` ones); never
-  edit a migration that has been applied anywhere.
+  edit a migration that has been applied anywhere. **Migrations are additive only** from 0063 on
+  (ARCH.md §16 #102): create, add columns, insert, re-create indexes, triggers and the FTS index —
+  never drop a table or column, rename, or update, delete or replace rows (a fork's Sync fork applies
+  them unattended). `test/migrations-additive.spec.ts` enforces it.
 - Barcode routing (`src/metadata/index.ts`): EAN-13 `978`/`979` → book providers (merged); an
   ISBN-10 (nine digits and a check digit, `X` allowed) likewise, kept as `isbn10Upc` with its ISBN-13
   derived (`isbn13Of()`) unless Google Books names one; any other EAN/UPC → Discogs. Tags are

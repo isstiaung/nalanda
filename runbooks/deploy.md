@@ -69,7 +69,7 @@ fork keeps this repository's history, so each new release reaches you with one c
 → **Update branch**
 ([how](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork)).
 Cloudflare builds it and deploys, migrations first: a release's database changes apply the moment
-you sync. So read the release's notes first, and before every sync, keep a copy from the browser:
+you sync. They only ever add (ARCH.md §16 #102): no release removes or rewrites what you have. So read the release's notes first, and before every sync, keep a copy from the browser:
 **Import / export** → **Export**, which downloads your whole catalogue as a CSV
 ([updating.md](updating.md)).
 

@@ -94,6 +94,13 @@ constraints bullets.
 
 - Never hand-edit drizzle-generated migrations; hand-written SQL goes in `--custom`
   migrations. Migrations are append-only — never edit one that has been applied anywhere.
+- **Migrations are additive only**, from 0063 on (ARCH.md §16 #102). A household's fork applies them
+  the moment it syncs, unattended. So a migration creates tables, indexes, triggers and views, adds
+  columns (nullable or with a default), and inserts rows. It may drop and re-create an index, a
+  trigger, a view or the FTS index, which hold no data of their own. It never drops a table or a
+  column, renames, or updates, deletes or replaces rows, and that rules out Drizzle's table rebuild
+  for a changed column type. Instead, add a nullable column the code fills or derives, or a new
+  table copied into, leaving the old one in place. `test/migrations-additive.spec.ts` enforces it.
 - The FTS5 index and its three sync triggers (`items_fts_ai`/`_ad`/`_au`) are custom migrations —
   0001, 0032, 0045, 0054 — since Drizzle's DSL can't express them. The update trigger lists the
   six indexed columns (`AFTER UPDATE OF …`): an update that touches none of them writes no index

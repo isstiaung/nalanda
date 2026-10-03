@@ -939,6 +939,7 @@ is a section of this document and "#N" another decision.
 | 99 | 2026-10-02 | [A device signs in from another one, both ways round: a code a signed-in device shows (once, five minutes, throttled with logins), or a QR the new device shows, approved on a signed-in phone by typing the number it shows (one wrong answer ends it)](docs/decisions/099-device-pairing.md) |
 | 100 | 2026-10-02 | [An admin locked out gets back in with a recovery code shown at setup (once, hashed, used once and replaced as it is used, made again on Account with the password), or with a one-time reset link `npm run reset-admin` makes](docs/decisions/100-admin-recovery.md) |
 | 101 | 2026-10-02 | [Self-hosting from a fork, in the browser: a household forks the repository and imports the fork in Cloudflare; the first deploy finds or creates its `nalanda` database by name (this repository keeps the placeholder); updates are Sync fork; `/setup` asks for the `SESSION_SECRET` first, and the old example value is refused. Not the Deploy to Cloudflare button, whose copies can't take updates](docs/decisions/101-self-hosting-from-a-fork.md) |
+| 102 | 2026-10-04 | [Migrations are additive only from 0063 on: create, add columns, insert, re-create derived indexes, triggers and the FTS index — never drop, rename, update, delete or replace, since a fork's Sync fork applies them unattended; enforced by a test](docs/decisions/102-migrations-additive-only.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
