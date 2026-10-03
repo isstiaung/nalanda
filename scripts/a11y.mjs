@@ -1265,7 +1265,7 @@ async function pairing(admin, variant) {
         await axe(phone, 'Pair: approve on the phone', variant.name);
         if (variant.scheme === 'light') await keyboard(phone, 'Pair: approve on the phone', variant.name);
         await phone.getByLabel('The number shown on that device').fill(String(((Number(asked.digits) - 10 + 1) % 90) + 10));
-        await phone.getByRole('button', { name: 'Sign it in' }).click();
+        await phone.getByRole('button', { name: 'Sign it in', exact: true }).click();
         await reload(phone, 'Pair → the wrong number (phone)');
         await open(phone, asked.approve, 410);
         await axe(phone, 'Pair: a request no longer open (phone)', variant.name);
@@ -1278,7 +1278,7 @@ async function pairing(admin, variant) {
       await withVariant(admin, variant, async (phone) => {
         await open(phone, again.approve);
         await phone.getByLabel('The number shown on that device').fill(again.digits);
-        await phone.getByRole('button', { name: 'Sign it in' }).click();
+        await phone.getByRole('button', { name: 'Sign it in', exact: true }).click();
         await reload(phone, 'Pair → approved (phone)');
       });
       await device.waitForURL(`${BASE}/`, { timeout: 10_000 });

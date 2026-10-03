@@ -514,7 +514,8 @@ export const RecoveryCodeBox = ({ code }: { code: string }) => {
   const { t } = useI18n();
   return (
     <div class="notice recovery-code">
-      <p class="recovery-digits mono">{formatRecoveryCode(code)}</p>
+      {/* a <div>, not a <p>: large and alone, a paragraph would read to assistive tech as a heading made by hand */}
+      <div class="recovery-digits mono">{formatRecoveryCode(code)}</div>
       <p>{t('recovery.keep')}</p>
     </div>
   );

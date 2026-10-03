@@ -911,6 +911,9 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 /* an admin's recovery code (§16 #100), the once it is shown: selected whole with one tap, wrapping between its fours */
 .recovery-digits { font-size: 1.35rem; letter-spacing: 0.06em; text-align: center; margin: 0.25rem 0 0.75rem; user-select: all; overflow-wrap: break-word; }
 .auth-card h1 { font-size: 18px; }
+/* a link under an auth card's form ("Back to log in", "Forgot your password?") keeps clear of its submit button: 24px
+   of safe tapping space each (WCAG 2.2 target size) */
+.auth-card form + p { margin-top: 1.25rem; }
 
 /* ── share (public) ───────────────────────────────────────────────────────── */
 
