@@ -78,7 +78,7 @@ npm run db:migrate:remote
 
 # 2. data, in FK-safe order — the order `npm run backup` prints, TABLES in scripts/backup.mjs
 #    (the files set defer_foreign_keys themselves; a table with no rows is an empty file)
-for t in users acting api_tokens libraries shares saved_views site_settings custom_fields translations display_fonts \
+for t in users acting api_tokens account_links libraries shares saved_views site_settings custom_fields translations display_fonts \
         series items editions \
         reads reading_progress reviews plays reading_goals wants purchase_links tags item_tags loans \
         borrows item_history federation_settings connection_invites connections connection_views \

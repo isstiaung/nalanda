@@ -210,9 +210,25 @@ export async function hashApiToken(token: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** Unambiguous alphabet (no 0/O/1/l/I) for admin-issued temp passwords. */
-export function tempPassword(): string {
-  const alphabet = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
-  const bytes = crypto.getRandomValues(new Uint8Array(12));
-  return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
+/** How long a one-time link to an account stays good (§16 #97): a week to pass it on and open it. */
+export const LINK_DAYS = 7;
+
+/** A one-time link's secret (§16 #97): 32 random bytes, base64url, in the link's path — shown once, kept as a hash. */
+export function newLinkToken(): string {
+  return b64url.encode(crypto.getRandomValues(new Uint8Array(32)));
+}
+
+const LINK_TOKEN = /^[A-Za-z0-9_-]{43}$/;
+export const isLinkToken = (raw: string): boolean => LINK_TOKEN.test(raw);
+
+/** A link's secret as stored and looked up: its SHA-256, hex, as an API token's is. */
+export const hashLinkToken = hashApiToken;
+
+/**
+ * A password hash nobody knows the password to: what an invited account holds until its link is used, and what a reset
+ * leaves until then — so the old password stops working the moment an admin resets it. Made like any other hash, from
+ * 32 random bytes kept nowhere, so checking a guess against it costs what a real check does.
+ */
+export async function unusablePasswordHash(): Promise<string> {
+  return hashPassword(b64url.encode(crypto.getRandomValues(new Uint8Array(32))));
 }

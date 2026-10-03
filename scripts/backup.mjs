@@ -24,6 +24,8 @@ export const TABLES = [
   'users',
   'acting', // the writing member's marker (ARCH.md §16 #84): empty between batches, listed so the backup names every table
   'api_tokens', // members' read-only API tokens, as hashes (ARCH.md §16 #88): after users
+  'account_links', // one-time invite and reset links, as hashes (ARCH.md §16 #97): after users. An invite's row is also
+  // what says an account never joined, so a restore keeps it
   'libraries',
   'shares',
   'saved_views', // a shelf's named filter sets (ARCH.md §16 #81): after libraries and users, which it references

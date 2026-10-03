@@ -8,7 +8,9 @@ import {
   isSessionKey,
   newSessionKey,
   sessionMatches,
-  tempPassword,
+  isLinkToken,
+  newLinkToken,
+  unusablePasswordHash,
   verifyPassword,
   verifySessionToken,
 } from '../src/lib/auth';
@@ -125,11 +127,20 @@ describe('session keys', () => {
   });
 });
 
-describe('temp passwords', () => {
-  it('generates 12 unambiguous characters', () => {
-    const p = tempPassword();
-    expect(p).toHaveLength(12);
-    expect(/^[a-zA-Z2-9]+$/.test(p)).toBe(true);
-    expect(/[0O1lI]/.test(p)).toBe(false);
+describe('one-time link secrets', () => {
+  it('are 32 random bytes as base64url — 43 characters, never the same twice', () => {
+    const a = newLinkToken();
+    expect(isLinkToken(a)).toBe(true);
+    expect(a).toHaveLength(43);
+    expect(newLinkToken()).not.toBe(a);
+    expect(isLinkToken('nal_' + a)).toBe(false);
+  });
+
+  it('leave an account a password nobody knows: a real hash, which no guess verifies', async () => {
+    const hash = await unusablePasswordHash();
+    expect(hash).toMatch(/^pbkdf2\$100000\$/);
+    expect(await verifyPassword('', hash)).toBe(false);
+    expect(await verifyPassword('password', hash)).toBe(false);
+    expect(await unusablePasswordHash()).not.toBe(hash);
   });
 });

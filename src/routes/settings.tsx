@@ -1,10 +1,12 @@
 import { Hono, type Context } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { CustomField, User } from '../db/schema';
+import type { PendingLink } from '../db/queries';
 import { CUSTOM_KINDS } from '../db/schema';
 import {
   createCustomField,
-  createUser,
+  createInvitedUser,
+  ensureSessionKey,
   deleteCustomField,
   deleteDisplayFont,
   deleteTranslation,
@@ -14,14 +16,14 @@ import {
   membersSettings,
   setDisplayFont,
   setDisplayName,
-  setPassword,
+  resetWithLink,
   setTranslation,
   updateCustomField,
   updateSiteSettings,
   type DisplayFontRow,
 } from '../db/queries';
 import type { AppEnv } from '../env';
-import { hashPassword, tempPassword } from '../lib/auth';
+import { hashLinkToken, isSessionKey, LINK_DAYS, newLinkToken, unusablePasswordHash } from '../lib/auth';
 import { cleanCustomName, CUSTOM_FIELD_LIMIT, isCustomKind, MAX_CUSTOM_NAME } from '../lib/custom';
 import { cleanFontName, deleteFont, FONT_MAX_BYTES, FONT_MIN_BYTES, sniffFontType, storeFont } from '../lib/fonts';
 import { currencyCodes, currencyName, isCurrencyCode } from '../lib/money';
@@ -33,6 +35,7 @@ import { ledgerDate } from '../lib/dates';
 import { isLocale, LOCALE_NAMES, locales, MAX_TRANSLATION_BYTES, parseTranslation, resolveLocale } from '../i18n';
 import { Fill, useI18n } from '../views/i18n';
 import { writerOf } from './items';
+import { QR_BLANK } from './shares';
 
 const settings = new Hono<AppEnv>();
 
@@ -204,9 +207,43 @@ const CustomFieldsSection = ({ fields, error, errorField }: { fields: CustomFiel
 
 type TranslationRow = { locale: string; count: number; updatedAt: string };
 
+/**
+ * A link just made (§16 #97), shown on this response alone: its address to copy or send, and its QR code — drawn in the
+ * browser by /qr.js, as Shared links draws a share's — so a member can scan it from the admin's screen.
+ */
+const MintedLink = ({ minted, expiresAt }: { minted: { username: string; link: string; purpose: 'invite' | 'reset' }; expiresAt: string | null }) => {
+  const { t } = useI18n();
+  const date = expiresAt ? ledgerDate(expiresAt) : '';
+  return (
+    <article class="notice minted-link">
+      <p>
+        <strong>{t(minted.purpose === 'invite' ? 'members.invite_link_for' : 'members.reset_link_for', { name: minted.username, date })}</strong>
+      </p>
+      <p>
+        <a href={minted.link} class="mono break-anywhere">
+          {minted.link}
+        </a>
+      </p>
+      <div class="share-qr">
+        <img data-qr={minted.link} alt={t('members.link_qr', { name: minted.username })} width="512" height="512" src={QR_BLANK} />
+      </div>
+      <p class="muted">
+        <small>
+          {minted.purpose === 'reset' ? `${t('members.reset_signed_out')} ` : ''}
+          {t('members.link_shown_once')}
+        </small>
+      </p>
+      {/* the QR library first, as Shared links loads it: /qr.js draws nothing without it */}
+      <script src="/vendor/qrcode.js" defer></script>
+      <script src="/qr.js" defer></script>
+    </article>
+  );
+};
+
 const UsersPage = ({
   users,
   self,
+  links,
   minted,
   error,
   currency,
@@ -223,7 +260,8 @@ const UsersPage = ({
 }: {
   users: User[];
   self: number;
-  minted?: { username: string; password: string };
+  links: PendingLink[];
+  minted?: { username: string; link: string; purpose: 'invite' | 'reset' };
   error?: string;
   currency: string | null;
   currencyError?: string;
@@ -238,6 +276,7 @@ const UsersPage = ({
   fontNotice?: 'saved' | 'removed';
 }) => {
   const { t, n } = useI18n();
+  const linkOf = new Map(links.map((l) => [l.userId, l]));
   return (
     <>
       <div class="page-head">
@@ -247,13 +286,7 @@ const UsersPage = ({
         </div>
       </div>
       {error ? <p class="error" role="alert">{error}</p> : null}
-      {minted ? (
-        <article class="notice">
-          <strong>{t('members.temp_password_for', { name: minted.username })}</strong> <code>{minted.password}</code>
-          <br />
-          <small class="muted">{t('members.shown_once')}</small>
-        </article>
-      ) : null}
+      {minted ? <MintedLink minted={minted} expiresAt={linkOf.get(users.find((u) => u.username === minted.username)?.id ?? -1)?.expiresAt ?? null} /> : null}
       <div class="data-table cards">
         <table>
           <thead>
@@ -271,7 +304,17 @@ const UsersPage = ({
                 <td>
                   <strong>{u.username}</strong>
                   {u.id === self ? <small class="muted"> {t('members.you')}</small> : null}
-                  {u.mustChangePassword ? (
+                  {/* a link out (§16 #97), or — from before links — a temporary password still to change */}
+                  {linkOf.has(u.id) ? (
+                    <>
+                      {' '}
+                      <span class={linkOf.get(u.id)!.expired ? 'pill' : 'pill progress'}>
+                        {linkOf.get(u.id)!.expired
+                          ? t(linkOf.get(u.id)!.purpose === 'invite' ? 'members.invite_expired' : 'members.reset_expired')
+                          : t(linkOf.get(u.id)!.purpose === 'invite' ? 'members.invited_until' : 'members.reset_until', { date: ledgerDate(linkOf.get(u.id)!.expiresAt) })}
+                      </span>
+                    </>
+                  ) : u.mustChangePassword ? (
                     <>
                       {' '}
                       <span class="pill progress">{t('members.temp_password')}</span>
@@ -308,7 +351,7 @@ const UsersPage = ({
                   ) : (
                     <form method="post" action={`/settings/users/${u.id}/reset`} class="inline">
                       <button class="btn" type="submit">
-                        {t('members.reset_password')}
+                        {t(linkOf.get(u.id)?.purpose === 'invite' ? 'members.new_invite_link' : 'members.reset_password')}
                       </button>
                     </form>
                   )}{' '}
@@ -366,12 +409,13 @@ type UsersPageExtras = Partial<
  * refusal shown on it.
  */
 async function membersPage(c: Context<AppEnv>, extras: UsersPageExtras = {}, status?: ContentfulStatusCode) {
-  const [users, { settings: site, customFields: fields, translations, fonts }] = await Promise.all([listUsers(c.env.DB), membersSettings(c.env.DB)]);
+  const [users, { settings: site, customFields: fields, translations, fonts, links }] = await Promise.all([listUsers(c.env.DB), membersSettings(c.env.DB)]);
   if (status) c.status(status);
   return page(c, c.get('i18n').t('members.title'), (
     <UsersPage
       users={users}
       self={c.get('user').id}
+      links={links}
       currency={site.currency}
       language={site.language}
       fields={fields}
@@ -723,22 +767,20 @@ settings.post('/settings/users', async (c) => {
   const username = String(body['username'] ?? '').trim();
   const role = body['role'] === 'admin' ? 'admin' : 'member';
   const { t } = c.get('i18n');
-  const render = (opts: { minted?: { username: string; password: string }; error?: string }) => membersPage(c, opts);
+  const render = (opts: UsersPageExtras) => membersPage(c, opts);
 
   if (!username) return render({ error: t('members.username_required') });
-  const temp = tempPassword();
-  try {
-    await createUser(c.env.DB, {
-      username,
-      passwordHash: await hashPassword(temp),
-      role,
-      mustChangePassword: true,
-    });
-  } catch {
+  // the account and its invite in one batch (§16 #97): a password nobody knows until the link is used, and only the
+  // link's hash kept — the link itself is shown on this response, once
+  const token = newLinkToken();
+  if (!(await createInvitedUser(c.env.DB, { username, role, passwordHash: await unusablePasswordHash() }, await hashLinkToken(token), LINK_DAYS))) {
     return render({ error: t('members.username_taken', { name: username }) });
   }
-  return render({ minted: { username, password: temp } });
+  return render({ minted: { username, link: linkUrl(c, token), purpose: 'invite' } });
 });
+
+/** A one-time link's full address, on this instance's own origin (§16 #97). */
+const linkUrl = (c: Context<AppEnv>, token: string) => `${new URL(c.req.url).origin}/join/${token}`;
 
 settings.post('/settings/users/:id/reset', async (c) => {
   const id = Number(c.req.param('id'));
@@ -747,9 +789,14 @@ settings.post('/settings/users/:id/reset', async (c) => {
   if (id === c.get('user').id) return c.text('Change your own password under Account — a reset would sign this device out.', 400);
   const user = await getUserById(c.env.DB, id);
   if (!user) return c.notFound();
-  const temp = tempPassword();
-  await setPassword(c.env.DB, id, await hashPassword(temp), true);
-  return membersPage(c, { minted: { username: user.username, password: temp } });
+  // an account without a session key yet — restored from an older backup, or added by hand — gets one first, as its
+  // next login would give it (§16 #56): the link is bound to the key, and signing in on the far side needs one
+  if (!isSessionKey(user.sessionKey)) await ensureSessionKey(c.env.DB, id);
+  // their password stops working and they are signed out everywhere, in the batch that makes the link (§16 #97)
+  const token = newLinkToken();
+  const purpose = await resetWithLink(c.env.DB, id, await unusablePasswordHash(), await hashLinkToken(token), LINK_DAYS);
+  if (!purpose) return c.notFound();
+  return membersPage(c, { minted: { username: user.username, link: linkUrl(c, token), purpose } });
 });
 
 settings.post('/settings/users/:id/display-name', async (c) => {

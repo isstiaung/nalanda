@@ -3,9 +3,14 @@
 ## Add a family member
 
 1. Log in as admin → **Settings** (`/settings/users`).
-2. Enter a username, pick a role (`member` for everyone except co-admins), **Create**.
-3. A temporary password is shown **once** — send it to them however you like.
-4. They log in with it and are forced to set their own password before doing anything else.
+2. Enter a username, pick a role (`member` for everyone except co-admins), **Create account**.
+3. An **invite link** is shown **once**, with its QR code — send them the link however you like, or
+   let them scan the code from your screen. It works once, for seven days (ARCH.md §16 #97).
+4. They open it, choose their own password, and are signed in. You never see their password.
+
+The Members table says *Invited · until <date>* while the link is out, and *Invite expired* once the
+week has passed. If it expired or went astray, **New invite link** beside their name makes another and
+the old one stops working.
 
 Members can do everything except manage users, publish or rotate share links, and **delete items
 in bulk**. Bulk edit's other actions (tag, untag, move to a shelf, owned, not owned) are open to
@@ -44,11 +49,11 @@ may use on a website. Keep the file — unlike covers, nothing can fetch it agai
 
 ## Someone forgot their password
 
-Settings → *Reset password* next to their name → a new one-time temp password is shown.
-The reset takes effect immediately — their old password stops working the moment you click,
-they are signed out on every device at the same moment, and they set their own password again
-at next login. So a reset is also the remedy for a member's lost phone: reset, hand them the
-temporary password, and the phone's session is dead. Your own row offers no reset — it would
+Settings → *Reset password* next to their name → a **reset link** is shown once, with its QR code.
+The reset takes effect immediately — their old password stops working the moment you click, they
+are signed out on every device at the same moment, and their API tokens are revoked. They open the
+link, choose a new password, and are signed in. So a reset is also the remedy for a member's lost
+phone: reset, send them the link, and the phone's session is dead. Your own row offers no reset — it would
 sign out the device you are on — and points at **Account**, where you change your own password
 (which signs out your other devices and keeps this one).
 

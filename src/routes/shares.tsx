@@ -24,7 +24,7 @@ import { page } from '../views/layout';
 import { ledgerDate } from '../lib/dates';
 
 /** What a share link's QR image shows until /qr.js draws it: a blank palm-leaf square, nothing fetched. */
-const QR_BLANK = "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3Crect width='1' height='1' fill='%23f6f2e7'/%3E%3C/svg%3E";
+export const QR_BLANK = "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3Crect width='1' height='1' fill='%23f6f2e7'/%3E%3C/svg%3E";
 
 const shares = new Hono<AppEnv>();
 

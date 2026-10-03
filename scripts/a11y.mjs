@@ -428,9 +428,10 @@ async function furnish(admin, member) {
   }
 
   // a second member — the reading and review sections then name people
+  // invited with a one-time link (§16 #97): the member's context opens it and chooses a password, below
   const minted = await (await post(admin, '/settings/users', { username: 'ravi', role: 'member' })).text();
-  const temp = minted.match(/<code>([^<]+)<\/code>/)?.[1];
-  if (!temp) throw new Error('No temporary password shown for the new member');
+  const join = minted.match(/\/join\/[A-Za-z0-9_-]{43}/)?.[0];
+  if (!join) throw new Error('No invite link shown for the new member');
   // each member's display-name form: its action's id, and the name its field is labelled with
   const people = new Map(
     [...(await html(admin, '/settings/users')).matchAll(/action="\/settings\/users\/(\d+)\/display-name"[\s\S]*?aria-label="Display name for ([^"]+)"/g)].map((m) => [m[2], Number(m[1])]),
@@ -538,7 +539,7 @@ async function furnish(admin, member) {
   // a saved view (ARCH.md §16 #81) on the books shelf — the admin's context is the one signed in at this point
   const viewId = Number((await post(admin, `/libraries/${shelves.books}/views`, { name: 'Unread audit', params: 'status=not_started&sort=title' })).headers().location?.match(/saved=(\d+)/)?.[1]);
   if (!viewId) throw new Error('Could not save a view on the books shelf');
-  return { shelves, wishlist, seriesId, creator, publisher, book, game, record, reading, reread, overdue, temp, shares, giftToken, wanted, raviId, member, viewId };
+  return { shelves, wishlist, seriesId, creator, publisher, book, game, record, reading, reread, overdue, join, shares, giftToken, wanted, raviId, member, viewId };
 }
 
 // ── pages ─────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1167,10 +1168,10 @@ async function interactions(context, ids, variant) {
     await step('Members → add a member', async () => {
       const username = `guest-${variant.scheme}-${variant.width}`;
       await open(page, '/settings/users');
-      await submitted('Members → a new member\'s temporary password', async () => {
+      await submitted('Members → a new member\'s invite link', async () => {
         await page.getByLabel('Username').fill(username);
         await page.getByRole('button', { name: 'Create account' }).click();
-        await page.locator('article.notice code').waitFor({ timeout: 10_000 });
+        await page.locator('article.minted-link').waitFor({ timeout: 10_000 });
       });
       await submitted('Members → refused, username taken', async () => {
         await page.getByLabel('Username').fill(username);
@@ -1408,38 +1409,42 @@ async function main() {
   const member = await browser.newContext();
   const ids = await furnish(admin, member);
 
-  // the member signs in with the temporary password: the forced password change is a page of its own
-  {
-    const page = await member.newPage();
-    await page.goto(`${BASE}/login`);
-    await page.getByLabel('Username').fill('ravi');
-    await page.getByLabel('Password').fill(ids.temp);
-    await page.getByRole('button', { name: 'Log in' }).click();
-    await page.waitForURL(/\/account$/);
-    await page.close();
-  }
-
   const pages = pageList(ids);
   pages.push(...(await shareItemPages(admin, ids.shares)));
 
-  // the member's forced password change, in every variant, then the change itself: after it, the app as a member
-  // sees it (other people's reads without their forms, a shelf without the share panel)
+  // the invite link's page (§16 #97), in every variant — opening it changes nothing — then the member uses it, choosing
+  // a password and landing signed in; after that the app as a member sees it (other people's reads without their
+  // forms, a shelf without the share panel), and the used link's own page says it no longer works
   for (const variant of VARIANTS) {
-    if (!chosen('member')) break;
+    if (!chosen('Join')) break;
     await withVariant(member, variant, async (page) => {
-      await open(page, '/account');
-      await axe(page, 'Member: must change password', variant.name);
+      await open(page, ids.join);
+      await axe(page, 'Join: choose a password', variant.name);
+      await keyboard(page, 'Join', variant.name);
+      await page.locator('input[name="password"]').fill('short');
+      await page.locator('input[name="confirm"]').fill('short');
+      await page.locator('form').evaluate((f) => (f.noValidate = true));
+      await page.getByRole('button', { name: 'Set password and sign in' }).click();
+      await page.waitForLoadState('load');
+      await page.addScriptTag({ content: AXE });
+      await axe(page, 'Join → refused', variant.name);
     });
   }
   {
     const page = await member.newPage();
-    await page.goto(`${BASE}/account`);
-    await page.getByLabel('Current password').fill(ids.temp);
-    await page.getByLabel(/^New password/).fill('member-password');
-    await page.getByLabel('Confirm new password').fill('member-password');
-    await page.getByRole('button', { name: 'Change password' }).click();
+    await page.goto(`${BASE}${ids.join}`);
+    await page.locator('input[name="password"]').fill('member-password');
+    await page.locator('input[name="confirm"]').fill('member-password');
+    await page.getByRole('button', { name: 'Set password and sign in' }).click();
     await page.waitForURL(`${BASE}/`);
     await page.close();
+  }
+  for (const variant of VARIANTS) {
+    if (!chosen('Join')) break;
+    await withVariant(anon, variant, async (page) => {
+      await open(page, ids.join, 410);
+      await axe(page, 'Join: link no longer works', variant.name);
+    });
   }
   // the member wants a book too, so their list isn't empty when the admin looks at it
   await post(member, `/items/${ids.book}/want`, { want: '1' });
