@@ -746,8 +746,9 @@ Every authenticated page route returns a full document normally and a partial wh
      create the admin account, start scanning.
 - **Or from a fork, in the browser** (§16 #101): a household forks the repository and imports the
   fork in Cloudflare (Workers Builds, production branch `deploy-site`, deploy command
-  `npm run deploy`). With no `D1_DATABASE_ID`, `deploy.mjs` finds the account's `nalanda` database by
-  name, or creates it on the first deploy and migrates it before the Worker goes live; `wrangler
+  `npm run deploy`). With no `D1_DATABASE_ID`, in Workers Builds only, `deploy.mjs` finds the
+  account's `nalanda` database by name, or creates it (near `D1_LOCATION`) and migrates it before the
+  Worker goes live; a build of `main` is refused, and a laptop with no id refuses as before; `wrangler
   deploy` creates the `nalanda-covers` bucket when it's missing. They set `SESSION_SECRET` in the
   dashboard and open `/setup`. Updates are GitHub's **Sync fork**. This repository keeps its
   placeholder.
@@ -935,7 +936,7 @@ is a section of this document and "#N" another decision.
 | 98 | 2026-10-02 | [Every sign-in is a device session: listed on Account by its browser's name, signed out one at a time, sliding 30 days from its last use (written at most daily); Log out ends this device's, and a cookie from before still works until it expires](docs/decisions/098-device-sessions.md) |
 | 99 | 2026-10-02 | [A device signs in from another one, both ways round: a code a signed-in device shows (once, five minutes, throttled with logins), or a QR the new device shows, approved on a signed-in phone by typing the number it shows (one wrong answer ends it)](docs/decisions/099-device-pairing.md) |
 | 100 | 2026-10-02 | [An admin locked out gets back in with a recovery code shown at setup (once, hashed, used once and replaced as it is used, made again on Account with the password), or with a one-time reset link `npm run reset-admin` makes](docs/decisions/100-admin-recovery.md) |
-| 101 | 2026-10-03 | [Self-hosting from a fork, in the browser: a household forks the repository and imports the fork in Cloudflare; the first deploy finds or creates its `nalanda` database by name (this repository keeps the placeholder); updates are Sync fork; `/setup` asks for the `SESSION_SECRET` first, and the old example value is refused. Not the Deploy to Cloudflare button, whose copies can't take updates](docs/decisions/101-self-hosting-from-a-fork.md) |
+| 101 | 2026-10-02 | [Self-hosting from a fork, in the browser: a household forks the repository and imports the fork in Cloudflare; the first deploy finds or creates its `nalanda` database by name (this repository keeps the placeholder); updates are Sync fork; `/setup` asks for the `SESSION_SECRET` first, and the old example value is refused. Not the Deploy to Cloudflare button, whose copies can't take updates](docs/decisions/101-self-hosting-from-a-fork.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 

@@ -162,7 +162,7 @@ npm run a11y               # axe-core WCAG 2.2 A/AA, every page, both themes, 12
                            # never 8787 or your dev DB, never Discogs or BGG (ARCH.md §18);
                            # `npx playwright install chromium` once
 npm run db:generate        # drizzle-kit generate — schema.ts → migrations/*.sql
-npm run db:migrate         # wrangler d1 migrations apply DB --local (the binding: any copy's name)
+npm run db:migrate         # wrangler d1 migrations apply DB --local (the binding, whatever the database is called)
 npm run db:migrate:remote  # same, against production (via wrangler:remote)
 npm run wrangler:remote -- <args>  # any wrangler command against production D1 (real id → temp config)
 npm run deploy             # D1_DATABASE_ID from the env, never in this repo (a household's fork finds
@@ -283,7 +283,7 @@ Long forms in [docs/conventions.md](docs/conventions.md).
 - **No Cloudflare resource ids in the repo** (ARCH.md §16 #24): `database_id` stays the all-zero
   placeholder, deploys supply `D1_DATABASE_ID`. Don't "helpfully" fill it in — miniflare keys
   local D1 state by it, so editing it orphans the local database (§16 #20). A household's **fork**
-  (§16 #101) deploys with no id anywhere: `deploy.mjs` finds the account's database by the config's
-  name (`nalanda`), or creates it on the first deploy (`scripts/database-id.mjs`). `.dev.vars.example`
+  (§16 #101) deploys with no id anywhere: in Workers Builds only, `deploy.mjs` finds the account's
+  database by the config's name (`nalanda`), or creates it; never on a laptop, never for `main`. `.dev.vars.example`
   leaves `SESSION_SECRET` empty, the app refuses its old sample value, and `/setup` asks for the secret.
 - Keep this file, docs/ and ARCH.md current as commands and decisions evolve.

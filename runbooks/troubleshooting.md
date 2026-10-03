@@ -92,12 +92,17 @@ time and reports "N added, M already here, P maybe already here, K not found" ([
 
 ## Deploys & database
 
-- **`D1_DATABASE_ID is not set`** during a Cloudflare build, while the dashboard clearly
-  shows it set: it's under **runtime** secrets rather than **Build** settings. Runtime
-  secrets are bound into the Worker at request time and are invisible to the build
-  container. Move it to the Worker's Build variables/secrets. Deploying by hand instead:
-  `D1_DATABASE_ID=$(npx wrangler d1 list | grep nalanda) npm run deploy`, or just
-  `D1_DATABASE_ID=<id> npm run deploy`.
+- **A Cloudflare build says "Deploying with this account's D1 database "nalanda"" when you set
+  `D1_DATABASE_ID`**: it's under **runtime** secrets rather than **Build** settings. Runtime secrets
+  are bound into the Worker at request time and are invisible to the build container, which then
+  takes a fork's path (ARCH.md §16 #101). Move it to the Worker's Build variables/secrets.
+- **`D1_DATABASE_ID is not set`** from `npm run deploy` on a laptop:
+  `D1_DATABASE_ID=<id> npm run deploy` (`npx wrangler d1 list` shows the id).
+- **A fork's build: "Couldn't list this account's D1 databases"**: the build's API token can't reach
+  D1. The Worker → **Settings** → **Build** → **API token**: give it **D1 Edit** (or make a new
+  token with Workers Scripts, R2 and D1 edit), then build again.
+- **A fork's build: "This build is of `main`"**: set the Worker's production branch to `deploy-site`
+  (**Settings** → **Build** → **Branch control**), and your fork's default branch on GitHub too.
 - **`D1 binding 'DB' references database '00000000-0000-0000-0000-000000000000'`**: the
   build ran a bare `wrangler deploy` instead of `npm run deploy`, so the placeholder in
   `wrangler.jsonc` was never substituted and remote migrations never ran. Set the Worker's

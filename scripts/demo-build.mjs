@@ -63,7 +63,7 @@ function run(cmd, args, env = LOCAL_ENV) {
 let secret = '';
 
 async function startServer() {
-  await run(WRANGLER, ['d1', 'migrations', 'apply', 'DB', '--local', '--persist-to', stateDir]); // the binding: any copy's name
+  await run(WRANGLER, ['d1', 'migrations', 'apply', 'DB', '--local', '--persist-to', stateDir]); // the binding, whatever the database is called
   secret = [...crypto.getRandomValues(new Uint8Array(24))].map((b) => b.toString(16).padStart(2, '0')).join('');
   const envFile = join(stateDir, 'demo.env');
   // no provider tokens: the seed's vinyl and game covers stay empty, and nothing here could reach BGG or Discogs

@@ -24,17 +24,34 @@ arrive. **The owner chose to build the fork flow before releasing** (2026-10-03)
 **What was decided:**
 - **A household forks this repository and imports the fork in Cloudflare**: Workers & Pages → Create
   → Import a repository (Workers Builds).
-  - **Name `nalanda`:** Workers Builds fails when the Worker's name and the config's `name` differ.
+  - **Name `nalanda`**, the config's `name`. With another name, Workers Builds fails or overrides it
+    and offers to change the fork's config.
   - **Production branch `deploy-site`**, the latest release, as this repository's own instance
-    runs. The fork must include it: untick "Copy the `main` branch only".
+    runs. The fork must include it: untick "Copy the `main` branch only". It must also be **the
+    fork's default branch**, set before importing, because Cloudflare builds the default branch the
+    moment a repository is imported.
   - **Deploy command `npm run deploy`**, with an empty build command (there is no build step).
+  - **Builds for non-production branches off.**
 - **The first deploy makes everything, with nothing to set.** This repository keeps its all-zero
   placeholder `database_id` (#24), so local dev and the tests are untouched. `deploy.mjs` takes the
   id, in order, from:
   1. `D1_DATABASE_ID` (this repository's own deploys, exactly as before);
   2. the config's own id when it isn't the placeholder;
-  3. otherwise the deploying account's database of the config's name, `nalanda`, found with
-     `wrangler d1 list`, or **created** (`wrangler d1 create nalanda`) on the first deploy.
+  3. otherwise, **in Workers Builds only** (`WORKERS_CI=1`), the deploying account's database of the
+     config's name, `nalanda`, found with `wrangler d1 list`, or **created** (`wrangler d1 create
+     nalanda`, never rewriting the config) when there is none.
+
+  Some cases are refused:
+  - **On a laptop** with no id, the deploy refuses as it always has: it never guesses at which
+    database a terminal means, and an interactive `d1 create` would rewrite `wrangler.jsonc`.
+  - **A build of `main`** is refused before anything is touched (`WORKERS_CI_BRANCH`). A household
+    runs releases, and `main` may carry migrations no release has.
+  - **The location.** A database's location is fixed when it is made, near whoever made it: here,
+    Cloudflare's build machine. So an optional **`D1_LOCATION`** build variable (`apac`, `weur`, …,
+    validated) is passed as `--location`, and the runbook says to set it at import.
+  - **A failed create** (two builds racing) is checked against the account again before giving up.
+  - **A build token that can't reach D1.** Cloudflare's default build token lists no D1 permission,
+    so the deploy says to give the token D1 Edit rather than failing with a stack trace.
 
   It then migrates and deploys with that id. The migrations always run before the code, the first
   deploy included: a new database is made and migrated before the Worker that needs it goes live.
@@ -56,8 +73,12 @@ arrive. **The owner chose to build the fork flow before releasing** (2026-10-03)
   - The error says how to replace a lost secret: a value can't be read back, only replaced.
   - This applies to every instance not yet set up.
 - **Updates are GitHub's Sync fork** on `deploy-site`: Workers Builds deploys it, migrations first.
-  A release whose notes ask for a backup is still backed up first, from a laptop: the scripts find
-  the household's `nalanda` database by name, as the deploys do.
+  A release whose notes ask for a backup is still backed up first, from a laptop: a clone of
+  `deploy-site`, pulled before each backup so its backup script matches the running release, finds
+  the household's `nalanda` database by name, as the deploys do. That is the one step that needs a
+  terminal.
+- **A secret saved in the dashboard** may only upload a version. If the library still says *Not
+  ready yet*, the runbook says to deploy the latest version from **Deployments**.
 - **A fork runs none of this repository's workflows.** GitHub leaves Actions off in a fork, and CI,
   the releases and the demo are guarded to run only in `isstiaung/nalanda` besides. That a
   repository's `wrangler.jsonc` keeps the placeholder (#24) is a CI step, not a test.
@@ -90,6 +111,11 @@ local development, set `SESSION_SECRET` in `.dev.vars`; `npm run seed:demo` read
   - a secret ending in a newline still matching.
 - `scripts/deploy.mjs` was run against a fake `wrangler` that records each call and the config it is
   given:
-  - with `D1_DATABASE_ID` set, every call and config is byte-identical to before;
-  - a fork with a database uses it;
-  - a fork's first deploy creates the database, migrates it, then deploys.
+  - with `D1_DATABASE_ID` set, in Workers Builds or not, every call and config is byte-identical to
+    before;
+  - a laptop with no id refuses and touches nothing;
+  - a fork build with a database uses it;
+  - a fork's first build creates the database (with `--location` when `D1_LOCATION` is set, and
+    `--update-config=false`), migrates it, then deploys;
+  - a build of `main`, a bad `D1_LOCATION` and an unreadable `d1 list` each stop with a sentence;
+  - a create that loses a race carries on with the database the other build made.

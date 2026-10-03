@@ -74,8 +74,8 @@ works on localhost. Local secrets live in `.dev.vars`: copy `.dev.vars.example` 
 
 ## Running your own
 
-**In the browser, no terminal:** fork this repository, then in Cloudflare **Import a repository**
-and pick your fork (deploy command `npm run deploy`, production branch `deploy-site`). The first
+**In the browser, no terminal** (backups aside): fork this repository, then in Cloudflare **Import a repository**
+and pick your fork (default and production branch `deploy-site`, deploy command `npm run deploy`). The first
 deploy creates the database and the cover bucket. Set one secret, open `/setup`, and you're done.
 New releases arrive with GitHub's **Sync fork** button. The steps are in
 [runbooks/deploy.md](runbooks/deploy.md#run-your-own-from-a-fork); switch on R2 in Cloudflare

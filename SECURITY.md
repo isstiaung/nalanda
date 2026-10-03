@@ -74,7 +74,8 @@ Please don't file these:
   burst shield with a known, accepted lag.
 - **The all-zero `database_id` in `wrangler.jsonc`.** A placeholder, not a real resource:
   this repo names no Cloudflare database, bucket, or account. Deploys take the real id from
-  `D1_DATABASE_ID` in the environment (`scripts/deploy.mjs`). Even a real D1 id would be
+  `D1_DATABASE_ID` in the environment (`scripts/deploy.mjs`); a household's fork, building in
+  Cloudflare, uses its own account's `nalanda` database by name. Even a real D1 id would be
   inert without credentials for the account that owns it — keeping it out is hygiene.
 - **Sessions are listed, and slide.** Every sign-in is a server-side row the signed cookie names,
   so Account lists each device and signs any one out, and Log out ends that device's session for

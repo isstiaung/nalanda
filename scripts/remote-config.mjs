@@ -12,8 +12,8 @@ import { chooseDatabaseId, configuredDatabase, findDatabase, withDatabaseId } fr
 
 const SOURCE = 'wrangler.jsonc';
 
-/** What scripts pass wrangler's d1 commands: the database's name as wrangler.jsonc gives it — `nalanda` here, and
- *  and in a household's fork (§16 #101). Wrangler finds that entry in the config, and its id —
+/** What scripts pass wrangler's d1 commands: the database's name as wrangler.jsonc gives it — `nalanda`, here and in a
+ *  household's fork (§16 #101). Wrangler finds that entry in the config, and its id —
  *  and every command line this repository's own production scripts run stays exactly what it was. */
 export const DATABASE = configuredDatabase(readFileSync(SOURCE, 'utf8')).name || 'nalanda';
 const RESOLVED = '.wrangler-remote.jsonc';
