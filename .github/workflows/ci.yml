@@ -51,7 +51,8 @@ jobs:
       # this repository names no Cloudflare resource (ARCH.md §16 #24): its database_id is the all-zero placeholder,
       # which the Deploy button overwrites in a household's own copy (§16 #101) — so the check is here, not in the tests
       - name: wrangler.jsonc keeps the placeholder database id
-        run: grep -q '"database_id": "00000000-0000-0000-0000-000000000000"' wrangler.jsonc
+        run: |
+          grep -q '"database_id": "00000000-0000-0000-0000-000000000000"' wrangler.jsonc
 
       # eslint-plugin-jsx-a11y only: the static half of the accessibility audit (ARCH.md §18)
       - run: npm run lint
