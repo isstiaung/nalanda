@@ -1,4 +1,4 @@
-// Small vanilla helpers: add-page tabs, mobile sidebar, and table column choices — and, first, the installed app's
+// Small vanilla helpers: add-page tabs, mobile sidebar, a shelf's Filters on a phone, and table column choices — and, first, the installed app's
 // service worker and whose offline scans this device holds.
 
 // ── the day it is here (ARCH.md §16 #69) ──
@@ -108,6 +108,18 @@ document.addEventListener('DOMContentLoaded', () => {
     },
     true, // toggle doesn't bubble
   );
+
+  // A shelf's filters: folded behind one button at every width (CSS folds them only with html.js, set in the <head>),
+  // opened and closed here. aria-expanded says which, wherever the button shows.
+  document.querySelectorAll('.filters-toggle[aria-controls]').forEach((button) => {
+    const group = document.getElementById(button.getAttribute('aria-controls'));
+    if (!group) return;
+    button.addEventListener('click', () => {
+      const open = !group.classList.contains('open');
+      group.classList.toggle('open', open);
+      button.setAttribute('aria-expanded', String(open));
+    });
+  });
 
   // Filter dropdowns close when clicking anywhere else (incl. opening another one).
   document.addEventListener('click', (e) => {

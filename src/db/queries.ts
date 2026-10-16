@@ -4540,6 +4540,74 @@ export async function playCount(d1: D1Database, itemId: number): Promise<number>
   return row?.n ?? 0;
 }
 
+// ---------- now reading & playing (ARCH.md §16 #104) ----------
+
+export type NowReading = {
+  readId: number;
+  readerId: number | null;
+  beganOn: string | null;
+  id: number;
+  title: string;
+  creators: string | null;
+  coverKey: string | null;
+  mediaType: MediaType;
+  length: number | null;
+  /** the read's latest page, and when it was recorded; null before any */
+  page: number | null;
+  pageAt: string | null;
+};
+export type NowPlayed = { id: number; title: string; creators: string | null; coverKey: string | null; mediaType: MediaType; lastPlayed: string; plays: number };
+
+/** How many of each the Now page lists: every open read a household has fits the first; the second is "lately". */
+export const NOW_READING_LIMIT = 100;
+export const NOW_PLAYED_LIMIT = 24;
+
+/**
+ * What the household has open, for the Now page, in one D1 call: every book being read — each open read with its
+ * reader, its start and its latest page, the viewer's own first, then the most recently touched — and the board games
+ * and records played on or after `since`, the most recently played first, with how many plays since then. A read's
+ * own status is compared here (one open read per person per item), never `items.status`. Who reads what is the
+ * household's to see inside the app — the Read by filter shows the same — and nothing here leaves it.
+ */
+export async function nowReadingAndPlaying(
+  d1: D1Database,
+  viewerId: number,
+  since: string,
+): Promise<{ reading: NowReading[]; played: NowPlayed[]; people: Array<{ id: number; username: string }> }> {
+  const [reading, played, people] = await d1.batch([
+    d1
+      .prepare(
+        `SELECT r.id AS readId, r.reader_id AS readerId, r.began_on AS beganOn,
+                i.id AS id, i.title AS title, i.creators AS creators, i.cover_key AS coverKey, i.media_type AS mediaType,
+                i.length AS length,
+                (SELECT p.page FROM reading_progress p WHERE p.read_id = r.id ORDER BY p.at DESC, p.id DESC LIMIT 1) AS page,
+                (SELECT max(p.at) FROM reading_progress p WHERE p.read_id = r.id) AS pageAt
+         FROM reads r JOIN items i ON i.id = r.item_id
+         WHERE r.status = 'in_progress' AND i.media_type = 'book'
+         ORDER BY r.reader_id IS ?1 DESC, coalesce(pageAt, r.began_on, r.created_at) DESC, r.id DESC
+         LIMIT ?2`,
+      )
+      .bind(viewerId, NOW_READING_LIMIT),
+    d1
+      .prepare(
+        `SELECT i.id AS id, i.title AS title, i.creators AS creators, i.cover_key AS coverKey, i.media_type AS mediaType,
+                x.lastPlayed AS lastPlayed, x.plays AS plays
+         FROM (SELECT item_id, max(played_on) AS lastPlayed, count(*) AS plays FROM plays WHERE played_on >= ?1 GROUP BY item_id) x
+         JOIN items i ON i.id = x.item_id
+         WHERE i.media_type IN (${PLAYABLE_SQL})
+         ORDER BY x.lastPlayed DESC, i.id DESC
+         LIMIT ?2`,
+      )
+      .bind(since, NOW_PLAYED_LIMIT),
+    d1.prepare('SELECT id, username FROM users ORDER BY username, id'),
+  ]);
+  return {
+    reading: (reading?.results ?? []) as NowReading[],
+    played: (played?.results ?? []) as NowPlayed[],
+    people: (people?.results ?? []) as Array<{ id: number; username: string }>,
+  };
+}
+
 /**
  * Logs a play of a board game or a record on `playedOn`, by `loggedBy`. The statement checks for itself that the item
  * takes plays and has room for one more, so a hand-made request for a book logs nothing. True when a play was logged.

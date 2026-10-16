@@ -22,4 +22,6 @@ centred, so a row of controls sets its words on one level line (Chromium rounds 
 control's baseline on its own, and differing heights, sizes or line-heights put them a
 pixel apart). Every dropdown shares one chevron, `--chevron`. Pills, tags and the filter
 count trim their line box to cap height (`text-box`) and centre their capitals. The owner
-chose 32px and 13px over 30px and 12.5px.
+chose 32px and 13px over 30px and 12.5px. *Amended 2026-10-16 (#103):* at 880px and under — a touch
+screen's widths — the one size is 40px tall with 16px text (under 16px, Safari on a phone zooms into a field);
+the rule of one size for a row is unchanged.

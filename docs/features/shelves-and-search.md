@@ -15,12 +15,16 @@ is out on loan and the newest additions.
 ## The filter bar
 
 Every shelf has the same bar ([#22](../decisions/022-shelf-filters-any-checkbox-groups.md)): a
-search box over title, author and location; **Type**; **Status** — Not started, In progress,
+search box over title, author and location, and one **Filters** button — with the number of filters
+in use on it — that opens a panel of every filter's choices in sight, then **Apply** and **Clear
+filters** ([#103](../decisions/103-a-phone-sized-pass.md)). The panel offers what could match: the
+types the shelf holds (none to choose between on a shelf of one type) and the formats those types
+come in, plus anything already ticked. The filters: **Type**; **Status** — Not started, In progress,
 Completed, Abandoned, with a book being re-read under In progress and Completed both; **Holding** —
 Owned, Logged — not owned, Borrowed from someone; **Format**; **Read by**, once the household has
 more than one member — me, not me, a member by name, anyone, or being read now; and a sort — newest
-first, title A–Z, author A–Z, highest rated, date completed. Within a menu the choices are any-of;
-between menus, all must hold. Sixty items a page, as a table or as covers, with a **Play tonight**
+first, title A–Z, author A–Z, highest rated, date completed. Within a filter the choices are any-of;
+between filters, all must hold. Sixty items a page, as a table or as covers, with a **Play tonight**
 button on a shelf showing board games.
 
 **Author A–Z** sorts by the first creator's surname — "Le Guin, Ursula K." and "Ursula K. Le Guin"
@@ -86,7 +90,7 @@ publisher on an item's page link to theirs. Inside the app only; share pages sho
 
 ## The sidebar
 
-Overview, Add items and Search stay at the top; everything else folds into sections by what you
+Overview, Now reading & playing, Add items and Search stay at the top; everything else folds into sections by what you
 came to do — Library, Shelves, Reading, Lending, Sharing & connections, Settings
 ([#62](../decisions/062-sidebar-folds-into-sections-what.md)). The section holding the page you're
 on is open; the ones you open stay open on that device. A closed section's header counts what's

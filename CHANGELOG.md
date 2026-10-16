@@ -12,6 +12,7 @@ Each release's notes are a file of their own in [changelog/](changelog/), linked
 
 ## Releases
 
+- [**1.11.0**](changelog/v1.11.0.md) — 2026-10-16 — Nalanda made for a phone — thumb-sized controls, a shelf that lists its items and keeps every filter behind one Filters button, an item page that opens on its cover and title — and Now reading & playing, pinned in the sidebar, where tonight's page or last night's game is one tap away.
 - [**1.10.0**](changelog/v1.10.0.md) — 2026-10-04 — Members sign in without anyone handing around a password — one-time invite and reset links, every device listed and signed out one by one, a new device signed in from one you hold — a way back in for a locked-out admin, and running your own Nalanda from a fork, all in the browser, updated with one click.
 - [**1.9.0**](changelog/v1.9.0.md) — 2026-10-02 — Custom fields, the interface in Hindi and Tamil or your own translation, a display font per language, scanning a whole shelf in one go, a read-only demo on GitHub Pages, and the features documented page by page.
 - [**1.8.0**](changelog/v1.8.0.md) — 2026-10-02 — Borrowing from friends, item history for admins, a read-only API with tokens of your own, imports from StoryGraph and LibraryThing that date each book by when it joined your collection, author A–Z, QR codes and feeds for share links — and every fix from a two-pass bug hunt across the app.

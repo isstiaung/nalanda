@@ -58,3 +58,8 @@ export function todayIn(zone: string, at: number = Date.now()): string {
 
 /** Today for the device a request comes from: its `tz` cookie's zone, else UTC. */
 export const todayFor = (cookie: string | undefined): string => todayIn(zoneOf(cookie));
+
+/** "2026-08-17": the calendar day `days` before `day` (a YYYY-MM-DD) — calendar arithmetic, no zone in it. */
+export function daysBefore(day: string, days: number): string {
+  return new Date(Date.parse(`${day}T00:00:00Z`) - days * 86_400_000).toISOString().slice(0, 10);
+}

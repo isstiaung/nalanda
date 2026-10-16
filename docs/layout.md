@@ -12,7 +12,9 @@ src/routes/        pages + htmx partials + /api/lookup, /api/import; share.tsx (
                    token API, /api/v1/…, ARCH.md §16 #88, mounted before the session middleware — a
                    token, never a cookie); discover.tsx (new from your authors, ARCH.md §16 #78);
                    trash.tsx (what was deleted in the last 30 days, admin-only; the snapshot and
-                   restore are trashItems()/restoreFromTrash() in db/queries.ts, ARCH.md §16 #74)
+                   restore are trashItems()/restoreFromTrash() in db/queries.ts, ARCH.md §16 #74);
+                   now.tsx (Now reading & playing: every open read and the games and records played
+                   lately, pinned in the sidebar; its one call is nowReadingAndPlaying() — ARCH.md §16 #104)
 src/views/         hono/jsx layout + components (page() helper wraps Layout + doctype)
 src/routes/        pages + htmx partials + /api/lookup, /api/import + discover.tsx (new from your
                    api.tsx is the read-only token API (/api/v1/…, ARCH.md §16 #88), mounted before the session

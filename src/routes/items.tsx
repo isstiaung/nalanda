@@ -834,18 +834,22 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
     c,
     item.title,
     <article class="item-detail">
-      <div class="item-detail-cover">
-        <Cover coverKey={item.coverKey} title={item.title} mediaType={item.mediaType} />
-        <CoverPhotoForm itemId={item.id} hasCover={!!item.coverKey} error={c.req.query('cover') === 'refused'} />
-      </div>
-      <div class="item-detail-body">
+      {/* The item's head: what it is, Edit, its tags and want — first in the article, so the title is what Tab and a
+          screen reader meet first; the grid draws it beside the cover at every width (app.css, §16 #103). */}
+      <header class="item-head">
         <hgroup>
           <h1>{item.title}</h1>
           {item.originalTitle ? <p class="original-title muted">{item.originalTitle}</p> : null}
           {item.creators ? <CreatorLinks creators={item.creators} /> : null}
         </hgroup>
+        {/* a <div>, not a <p>: a paragraph holding only a bold button reads to axe as a heading styled by hand */}
+        <div class="item-head-actions">
+          <a href={`/items/${item.id}/edit`} class="btn">
+            {t('item.edit')}
+          </a>
+        </div>
         {tags.length ? (
-          <p>
+          <p class="item-tags">
             {tags.map((t) => (
               <a href={`/tags/${encodeURIComponent(t)}`} class="tag">
                 {t}
@@ -854,7 +858,12 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           </p>
         ) : null}
         <WantBar item={item} wanters={log.want.wanters} viewer={viewer} />
-
+      </header>
+      <div class="item-detail-cover">
+        <Cover coverKey={item.coverKey} title={item.title} mediaType={item.mediaType} />
+        <CoverPhotoForm itemId={item.id} hasCover={!!item.coverKey} error={c.req.query('cover') === 'refused'} />
+      </div>
+      <div class="item-detail-body">
         <dl class="props">
           <dt>{t('item.accession')}</dt>
           <dd class="mono">{accNo(item.id)}</dd>
@@ -1117,10 +1126,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
 
         {recommending}
 
+        {/* Edit is in the head; deleting stays down here, away from everything used every day */}
         <div class="actions">
-          <a href={`/items/${item.id}/edit`} class="btn">
-            {t('item.edit')}
-          </a>
           {/* data-confirm, never an inline handler: a translated sentence is text, and the head's listener reads it (§16 #93) */}
           <form method="post" action={`/items/${item.id}/delete`} class="inline" data-confirm={t('item.delete_confirm', { days: TRASH_DAYS })}>
             <button type="submit" class="btn-danger">
@@ -1189,8 +1196,15 @@ items.get('/items/:id/edit', async (c) => {
  * already saved when this reads it back, so a failed read-back reloads the page rather than failing the request:
  * a retry would record the page, or add the read, twice (§16 #39).
  */
-async function readingResponse(c: Context<AppEnv>, id: number, error?: string) {
-  if (!c.req.header('HX-Request')) return c.redirect(`/items/${id}`);
+/**
+ * Where a page or a play posted without htmx lands: the Now page when it came from there (`back=now`, §16 #104) —
+ * with which item was refused and a fixed code for why, which the page says in its own words — else the item's page.
+ */
+export type NowRefusal = 'page' | 'full' | 'closed' | 'date' | 'plays';
+const landing = (id: number, back: unknown, why?: NowRefusal) => (back === 'now' ? (why ? `/now?refused=${id}&why=${why}` : '/now') : `/items/${id}`);
+
+async function readingResponse(c: Context<AppEnv>, id: number, error?: string, back?: unknown, why?: NowRefusal) {
+  if (!c.req.header('HX-Request')) return c.redirect(landing(id, back, why));
   let item: Item | null;
   let log: Awaited<ReturnType<typeof readingLog>>;
   let people: Person[];
@@ -1249,7 +1263,8 @@ items.post('/items/:id/progress', async (c) => {
   if (!item) return c.notFound();
   if (item.mediaType !== 'book') return c.text('Reading progress is for books', 400);
 
-  const raw = ((await c.req.parseBody())['page'] ?? '').toString().trim();
+  const body = await c.req.parseBody();
+  const raw = (body['page'] ?? '').toString().trim();
   const page = Number(raw);
   const invalid = !/^\d+$/.test(raw) || !Number.isSafeInteger(page) || page < 1 || page > MAX_PROGRESS_PAGE;
   // a finished or stopped book has no open read to record into: reading it again starts with "Read again"; a read
@@ -1266,6 +1281,8 @@ items.post('/items/:id/progress', async (c) => {
         : !recorded
           ? 'This book isn’t being read now. Start a new read first, then record its pages.'
           : undefined,
+    body['back'],
+    invalid ? 'page' : full ? 'full' : !recorded ? 'closed' : undefined,
   );
 });
 
@@ -1506,8 +1523,8 @@ items.post('/items/:id/reviews/:reviewId/move', async (c) => {
  * already saved, so a failed read-back reloads the page rather than failing the request — a retry would log the play
  * twice.
  */
-async function playsResponse(c: Context<AppEnv>, id: number, error?: string) {
-  if (!c.req.header('HX-Request')) return c.redirect(`/items/${id}`);
+async function playsResponse(c: Context<AppEnv>, id: number, error?: string, back?: unknown, why?: NowRefusal) {
+  if (!c.req.header('HX-Request')) return c.redirect(landing(id, back, why));
   let item: Item | null;
   let plays: Awaited<ReturnType<typeof playLog>>;
   let people: Person[];
@@ -1526,11 +1543,12 @@ items.post('/items/:id/plays', async (c) => {
   const item = await getItem(c.env.DB, Number(c.req.param('id')));
   if (!item) return c.notFound();
   if (!isPlayable(item.mediaType)) return c.text('Plays are for board games and records. A book has reads.', 400);
-  const playedOn = formDate((await c.req.parseBody())['date']) ?? todayOf(c);
+  const body = await c.req.parseBody();
+  const playedOn = formDate(body['date']) ?? todayOf(c);
   const problem = playDateProblem(playedOn);
-  if (problem) return playsResponse(c, item.id, problem);
+  if (problem) return playsResponse(c, item.id, problem, body['back'], 'date');
   const logged = await logPlay(c.env.DB, item.id, playedOn, c.get('user').id);
-  return playsResponse(c, item.id, logged ? undefined : 'This has as many plays as it can hold.');
+  return playsResponse(c, item.id, logged ? undefined : 'This has as many plays as it can hold.', body['back'], logged ? undefined : 'plays');
 });
 
 /** Every play of an item, a page at a time — where a play older than the item page lists can be removed. */

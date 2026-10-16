@@ -3,6 +3,15 @@
 The reading life around the catalog: everyone's own reads and reviews, with one household summary
 wherever a book is filtered or published.
 
+## Now reading & playing
+
+**Now reading & playing**, pinned in the sidebar under Overview, is what the household has open
+([#104](../decisions/104-now-reading-and-playing.md)). It lists every book being read, your own
+first, each with its reader (once there is more than one of you), when it was started, and how far
+it has got. Your own read takes a page right there. It also lists the board games and records played
+in the last 60 days, the latest first, with how many plays and a **Played today** button. Both
+actions bring you back to the page.
+
 ## Everyone's own reads
 
 Each read of a book is kept — its status, start and end dates, and the pages recorded during it —

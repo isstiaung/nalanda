@@ -13,11 +13,11 @@ npm run seed:demo   # terminal 2 — twenty items, one loan, one published share
 The demo instance is fully separate from `npm run dev`: a different port and a different
 `--persist-to` directory, so seeding can't touch your own local database.
 
-Shots are 1280px wide, light mode except `shelf-dark.png`. Headless browsers inherit the
-system appearance, so capturing light mode on a dark-themed machine means neutralising the
-`@media (prefers-color-scheme: dark)` block in `public/app.css` before the screenshot.
-`columns-menu.png` has its dropdown forced open by stamping the `open` attribute
-server-side, since headless can't click.
+Shots are 1280px wide, light mode except `shelf-dark.png`; `phone.png` is a shelf and an item page side by side at
+390px (device scale 2, halved), joined with ImageMagick's `+append`. Playwright's Chromium (the one `npm run a11y`
+uses) takes them: its `colorScheme` option picks the theme, whatever the machine's appearance, a click opens
+`columns-menu.png`'s dropdown, and `localStorage['nalanda:hidden-columns'] = ''` before load shows every column (a
+window under 1400px otherwise starts without Tags).
 
 The cover art visible in these images was fetched by the app from Open Library, Google
 Books, and Discogs at seed time. It remains the property of the respective publishers and

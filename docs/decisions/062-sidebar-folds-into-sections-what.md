@@ -8,7 +8,8 @@ Shelves, Data — with Account in the foot, too long for a phone's drawer and gr
 things lived rather than what someone came to do. **The owner decided** the groups and how
 they behave:
 
-- **Pinned**, in no section and always in view: Overview, Add items, Search.
+- **Pinned**, in no section and always in view: Overview, Add items, Search. *Amended 2026-10-16 (#104):* and Now
+  reading & playing, under Overview.
 - **Library**: Tags, Series. **Shelves**: one link per shelf with its count, as before.
   **Reading**: Want list, Reading goals, Year in review (#59). **Lending**: Loans, Borrowed
   (connections only). **Sharing & connections**: Shared links (admins), Feed, Notifications,

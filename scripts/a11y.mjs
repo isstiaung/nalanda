@@ -552,6 +552,8 @@ function pageList(ids) {
   const s = ids.shelves;
   const list = [
     ['Overview', '/'],
+    ['Now reading & playing', '/now'], // a read in progress with pages, plays (§16 #104)
+    ['Now: a page refused', `/now?refused=${ids.reading}&why=page`], // the alert naming the item
     ['Shelf: books, table', `/libraries/${s.books}`],
     ['Shelf: books, covers', `/libraries/${s.books}?view=grid`],
     ['Shelf: games, table', `/libraries/${s.games}`],
@@ -995,9 +997,22 @@ async function interactions(context, ids, variant) {
 
     // the Holding toggle, on a shelf's table
     await step('Shelf → Holding toggle', async () => {
-      await open(page, `/libraries/${ids.shelves.books}`);
       const toggle = `button[hx-post="/items/${ids.book}/mark-not-owned"]`;
       const back = `button[hx-post="/items/${ids.book}/mark-owned"]`;
+      if (variant.width < 641) {
+        // A phone's list leaves an owned item's toggle out (#103), so the book goes to Not owned from its own page, and
+        // comes back from the list — where a not-owned item's toggle shows, and stays in sight once it says Owned.
+        await open(page, `/items/${ids.book}`);
+        await htmxDone(page, back, () => page.locator(toggle).press('Enter'));
+        await axe(page, where('Item → Holding toggled to Not owned'), variant.name);
+        await focusKept(page, where('Item → Holding toggle'));
+        await open(page, `/libraries/${ids.shelves.books}`);
+        await htmxDone(page, toggle, () => page.locator(back).press('Enter'));
+        await axe(page, where('Shelf → Holding toggled back to Owned'), variant.name);
+        await focusKept(page, where('Shelf → Holding toggle'));
+        return;
+      }
+      await open(page, `/libraries/${ids.shelves.books}`);
       await htmxDone(page, back, () => page.locator(toggle).press('Enter'));
       await axe(page, where('Shelf → Holding toggled to Not owned'), variant.name);
       await focusKept(page, where('Shelf → Holding toggle'));
@@ -1563,6 +1578,7 @@ async function main() {
   await post(member, `/items/${ids.book}/want`, { want: '1' });
   const memberPages = [
     ['Member: overview', '/'],
+    ['Member: now reading & playing', '/now'], // the admin's read in progress listed, with no Record form for them
     ['Member: item, book being read', `/items/${ids.reading}`],
     ['Member: item, book read twice', `/items/${ids.reread}`],
     ['Member: shelf', `/libraries/${ids.shelves.books}`],
@@ -1635,6 +1651,13 @@ async function main() {
         await axe(page, name, variant.name);
         // the keyboard walk once per width, in light: focus styles are the same tokens in both themes
         if (variant.scheme === 'light') await keyboard(page, name, variant.name);
+        // A shelf's filters fold behind its Filters button (§16 #103): pressed, as a person would, so the panel and its
+        // choices are audited open with the closed sections below, and walked from the keyboard.
+        const filters = page.locator('.filters-toggle');
+        if (await filters.isVisible().catch(() => false)) {
+          await filters.click();
+          if ((await filters.getAttribute('aria-expanded')) !== 'true') failures.push(`interaction · ${name} [${variant.name}]: Filters didn't open its group`);
+        }
         // What a closed <details> holds (shelf settings, a read's Edit form, the toolbar's filter menus) is hidden
         // from axe until it opens. Panels all open together; the toolbar menus drop down over each other, so
         // those open one at a time, as a person opens them.

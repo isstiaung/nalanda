@@ -376,14 +376,19 @@ const CloseReadForms: FC<{ item: Item; read: ReadingRead; today: string; rereadi
   );
 };
 
-/** Where a read in progress has got to: "p. 120 of 300 · 40%", and the bar. */
-const ProgressLine: FC<{ page: number; length: number | null; percent: number | null }> = ({ page, length, percent }) => (
+/** Where a read in progress has got to: "p. 120 of 300 · 40%", and the bar. The item page's, and the Now page's. */
+export const ProgressLine: FC<{ page: number; length: number | null; percent: number | null }> = ({ page, length, percent }) => {
+  const { t } = useI18n();
+  return (
   <>
     <p>
-      <span class="mono">p. {page}</span>
+      <span class="mono">
+        {t('progress.page')} {page}
+      </span>
       {length ? (
         <>
-          {' of '}
+          {' '}
+          {t('progress.of')}{' '}
           <span class="mono">{length}</span>
         </>
       ) : null}
@@ -400,7 +405,8 @@ const ProgressLine: FC<{ page: number; length: number | null; percent: number | 
       </div>
     ) : null}
   </>
-);
+  );
+};
 
 /**
  * A read in a history: its number, dates and outcome, and — for whoever may change it — the forms to correct it,
@@ -1203,7 +1209,8 @@ export const ItemTable: FC<{
   const i18n = useI18n();
   const { t } = i18n;
   return (
-  <div class="data-table">
+  // item-table: on a phone each row becomes a line of the list — cover, title, then its pills under it (app.css)
+  <div class={selectable ? 'data-table item-table selectable' : 'data-table item-table'}>
     <table>
       <thead>
         <tr>
@@ -1212,7 +1219,7 @@ export const ItemTable: FC<{
               <PickAll />
             </th>
           ) : null}
-          <th>{t('column.title')}</th>
+          <th class="col-title">{t('column.title')}</th>
           <th class="col-type">{t('column.type')}</th>
           {libraryNames ? <th class="hide-sm col-shelf">{t('column.shelf')}</th> : null}
           <th class="hide-sm col-year">{t('column.year')}</th>
@@ -1232,7 +1239,7 @@ export const ItemTable: FC<{
                 <PickBox id={item.id} title={item.title} />
               </td>
             ) : null}
-            <td>
+            <td class="col-title">
               <span class="cell-title">
                 {item.coverKey ? (
                   <img class="thumb" src={`/covers/${item.coverKey}`} alt="" loading="lazy" data-fallback={MEDIA_ICON[item.mediaType]} />
@@ -1265,7 +1272,9 @@ export const ItemTable: FC<{
               <StatusPills item={item} />{' '}
               {onLoanIds?.has(item.id) ? <span class="pill lent">{t('pill.lent')}</span> : null}
             </td>
-            <td class="col-holding">
+            {/* owned-only: a phone's list leaves this cell out (§16 #103) — decided here, as rendered, so a toggle
+                swapped in by a tap stays in sight with focus on it */}
+            <td class={item.copies === 1 ? 'col-holding owned-only' : 'col-holding'}>
               <HoldingPill item={item} />
               {item.copies === 0 && wantedIds?.has(item.id) ? (
                 <>

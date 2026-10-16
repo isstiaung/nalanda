@@ -19,6 +19,7 @@ import connectionsRoutes from './routes/connections';
 import dashboardRoutes from './routes/dashboard';
 import feedRoutes from './routes/feed';
 import goalRoutes from './routes/goals';
+import nowRoutes from './routes/now';
 import importExportRoutes from './routes/importexport';
 import itemRoutes from './routes/items';
 import libraryRoutes from './routes/libraries';
@@ -186,6 +187,7 @@ function mustChangeMayReach(method: string, path: string): boolean {
 
 app.route('/', dashboardRoutes);
 app.route('/', goalRoutes);
+app.route('/', nowRoutes); // what's being read and played, in the app only (§16 #104)
 app.route('/', yearReviewRoutes); // in the app only: never on share pages or to connections (§16 #59)
 app.route('/', playRoutes);
 app.route('/', libraryRoutes);

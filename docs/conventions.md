@@ -163,6 +163,19 @@ constraints bullets.
   headstroke (śirorekhā) — that rule lives in `.brand-rule` only. Extend with the
   existing tokens/components (`.pill`, `.data-table`, `.props`, `.eyebrow`) — don't add
   frameworks.
+- **Filters are one button and one panel, at every width** (ARCH.md §16 #103). A page that filters a
+  list puts a search box and a single **Filters** button in its toolbar — the button counts the filters
+  in use — and the button opens a panel (`.toolbar-filters`, toggled by app.js through `aria-controls`
+  and `aria-expanded`, folded only under `html.js`) placed after the toolbar's row in the markup. Inside
+  it, each filter is a `<fieldset class="filter-group">` whose choices are in sight (`.filter-options`:
+  a pill per choice with its checkbox inside) — never a dropdown inside the panel. Then any selects
+  (`.filter-field`), then Apply (primary) and Clear. Offer only choices that could match, plus whatever
+  is already ticked. A dropdown (`details.filter`) is for a display setting beside the toolbar, such as
+  Columns, never for a filter.
+- **On a phone** (ARCH.md §16 #103): at 880px and under controls are 40px with 16px text (Safari zooms
+  into a field under 16px) — set by `--control-h` and `--control-text`, never per component. A table of
+  items re-lays its cells as a list at 640px and under rather than scrolling sideways; a new page
+  checks it has nothing wider than 320px.
 
 ## Tests
 

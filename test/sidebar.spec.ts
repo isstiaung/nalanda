@@ -54,12 +54,12 @@ async function sidebar(instance: Instance, path: string, cookie: string) {
 // ---------- the groups ----------
 
 describe('sections', () => {
-  it('pins Overview, Add items and Search outside every section, and groups the rest by what you are doing', async () => {
+  it('pins Overview, Now reading & playing, Add items and Search outside every section, and groups the rest by what you are doing', async () => {
     const admin = await person('admin');
     const shelf = await createLibrary(env.DB, 'Books');
     const bar = await sidebar(fed, '/', admin.cookie);
 
-    expect(bar.pinned).toEqual(['/', '/add', '/search']);
+    expect(bar.pinned).toEqual(['/', '/now', '/add', '/search']); // Now: a daily stop, never folded away (§16 #104)
     expect(bar.sections.map((s) => [s.id, s.links])).toEqual([
       ['library', ['/tags', '/series', '/creators', '/publishers']],
       ['shelves', [`/libraries/${shelf.id}`]],
@@ -68,7 +68,7 @@ describe('sections', () => {
       ['sharing', ['/shares', '/feed', '/notifications', '/recommendations', '/connections']],
       ['settings', ['/import', '/settings/users', '/trash', '/account']],
     ]);
-    for (const s of bar.sections) for (const href of ['/', '/add', '/search']) expect(s.links, s.id).not.toContain(href);
+    for (const s of bar.sections) for (const href of ['/', '/now', '/add', '/search']) expect(s.links, s.id).not.toContain(href);
     // each header is the section's eyebrow, named for people
     expect(bar.sections.map((s) => s.summary.match(/<span class="nav-eyebrow">([^<]*)<\/span>/)![1])).toEqual([
       'Library', 'Shelves', 'Reading', 'Lending', 'Sharing &amp; connections', 'Settings',

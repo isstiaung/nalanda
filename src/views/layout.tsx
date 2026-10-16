@@ -62,10 +62,12 @@ const Head: FC<{ title: string }> = ({ title }) => (
     {/* Before paint, not in app.js (which is deferred): a deferred script would let
         the full table render first and then visibly drop columns. Until someone picks columns on this device,
         a window under 1400px wide starts without Tags, so the table fits beside the sidebar; Columns shows it
-        again (app.js keeps the same default). */}
+        again (app.js keeps the same default). It also marks <html class="js">: what folds away on a phone — a shelf's
+        filters — folds only where a script is there to unfold it, and is folded from the first paint. */}
     <script
       dangerouslySetInnerHTML={{
         __html:
+          "document.documentElement.classList.add('js');" +
           "var h=null;try{h=localStorage.getItem('nalanda:hidden-columns');}catch(e){}" +
           "if(h===null&&window.matchMedia&&matchMedia('(max-width: 1399px)').matches)h='tags';" +
           "if(h)document.documentElement.setAttribute('data-hide-cols',h);",
@@ -110,6 +112,13 @@ export const Brand: FC = () => {
     </a>
   );
 };
+
+/** A line icon for the phone's bar: one stroked path in the text's colour, hidden from assistive tech — its control is named. */
+const Icon: FC<{ d: string }> = ({ d }) => (
+  <svg class="icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+    <path d={d} fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+  </svg>
+);
 
 const isActive = (href: string, path: string, exact?: boolean) =>
   exact ? path === href : path === href || path.startsWith(`${href}/`);
@@ -286,6 +295,9 @@ const Sidebar: FC<{
         {/* pinned: always in view, in no section */}
         <div class="nav-pinned">
           <NavLink href="/" label={t('nav.overview')} path={path} exact />
+          {/* what's open now — the books being read, the games and records played lately (§16 #104): a daily stop,
+              so it's pinned rather than folded into Reading */}
+          <NavLink href="/now" label={t('nav.now')} path={path} />
           <NavLink href="/add" label={t('nav.add')} path={path} />
           <NavLink href="/search" label={t('nav.search')} path={path} />
         </div>
@@ -339,23 +351,32 @@ export const Layout: FC<
             <div>
               <header class="mobile-bar">
                 <button type="button" id="nav-toggle" class="btn-quiet" aria-label={t('nav.menu')} aria-controls="sidebar" aria-expanded="false">
-                  ☰
+                  <Icon d="M4 7h16M4 12h16M4 17h16" />
                 </button>
                 {/* the wordmark hangs from its headstroke here too — the rule lives in .brand-rule, as in the sidebar */}
-                <div class="mobile-brand">
+                <a href="/" class="mobile-brand">
                   <div class="brand-rule"></div>
                   <div class="brand-name">Nalanda</div>
+                </a>
+                <div class="mobile-actions">
+                  {/* the sidebar folds away on a phone, taking its badges with it — so the bar carries the one that matters */}
+                  {unread.notifications ? (
+                    <a href="/notifications" class="nav-unread mobile-unread" aria-label={t('nav.unread_notifications', { count: unread.notifications })}>
+                      {unread.notifications > 99 ? '99+' : unread.notifications}
+                    </a>
+                  ) : unread.feed ? (
+                    <a href="/feed" class="nav-unread mobile-unread" aria-label={t('nav.new_in_feed', { count: unread.feed })}>
+                      {unread.feed > 99 ? '99+' : unread.feed}
+                    </a>
+                  ) : null}
+                  {/* what a phone is reached for most — finding something and adding something — one tap from any page */}
+                  <a href="/search" class="mobile-action" aria-label={t('nav.search')} aria-current={path === '/search' ? 'page' : undefined}>
+                    <Icon d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.2 15.2 20 20" />
+                  </a>
+                  <a href="/add" class="mobile-action" aria-label={t('nav.add')} aria-current={path === '/add' ? 'page' : undefined}>
+                    <Icon d="M12 5v14M5 12h14" />
+                  </a>
                 </div>
-                {/* the sidebar folds away on a phone, taking its badges with it — so the bar carries the one that matters */}
-                {unread.notifications ? (
-                  <a href="/notifications" class="nav-unread mobile-unread" aria-label={t('nav.unread_notifications', { count: unread.notifications })}>
-                    {unread.notifications > 99 ? '99+' : unread.notifications}
-                  </a>
-                ) : unread.feed ? (
-                  <a href="/feed" class="nav-unread mobile-unread" aria-label={t('nav.new_in_feed', { count: unread.feed })}>
-                    {unread.feed > 99 ? '99+' : unread.feed}
-                  </a>
-                ) : null}
               </header>
               {/* tabindex=-1: the skip link moves focus here in every browser, not only where following a link does */}
               <main class="content" id="main" tabindex={-1}>

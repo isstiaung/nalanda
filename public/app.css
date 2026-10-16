@@ -126,7 +126,8 @@
 /* display rules on .btn/.tab etc. must never defeat the hidden attribute */
 [hidden] { display: none !important; }
 
-html { -webkit-text-size-adjust: 100%; }
+/* a tap flashes in the working accent's tint, not the browser's own blue-grey */
+html { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: var(--accent-tint); }
 
 body {
   margin: 0;
@@ -138,12 +139,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3, h4 { margin: 0 0 0.5rem; line-height: 1.25; }
-h1 { font-family: var(--serif); font-size: 22px; font-weight: 600; letter-spacing: 0; }
+h1, h2, h3, h4 { margin: 0 0 0.5rem; line-height: 1.25; text-wrap: balance; } /* a title on two lines breaks evenly, not one word over */
+h1 { font-family: var(--serif); font-size: 26px; font-weight: 600; letter-spacing: 0; }
 h2 { font-size: 14px; font-weight: 600; }
 h3 { font-size: 13.5px; font-weight: 600; }
 h4 { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
-p { margin: 0 0 0.75rem; }
+p { margin: 0 0 0.75rem; text-wrap: pretty; } /* no word left alone on a paragraph's last line */
 a { color: var(--accent); text-decoration: none; }
 a:hover { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }
 /* A link inside running text is underlined: indigo against ink is too close to tell apart by colour alone. */
@@ -222,7 +223,7 @@ table { border-collapse: collapse; }
 /* the narrow sidebar needs a slightly denser sub-line to stay on one line */
 .sidebar .brand-sub { font-size: 9.5px; letter-spacing: 0.08em; }
 
-/* Navigation (ARCH.md §16 #62): three pinned links, then sections that fold. Each section is a <details> whose
+/* Navigation (ARCH.md §16 #62): four pinned links (#104), then sections that fold. Each section is a <details> whose
    <summary> is its eyebrow, with a chevron that turns as it opens; it opts out of the global details frame. */
 .nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-pinned, .nav-links { display: flex; flex-direction: column; gap: 1px; }
@@ -298,8 +299,15 @@ table { border-collapse: collapse; }
 
 section { margin-bottom: 2rem; }
 
-/* topbar (mobile only) */
+/* topbar (mobile only): the menu, the wordmark (home), and Search and Add at the right */
 .mobile-bar { display: none; }
+.mobile-brand { display: block; color: var(--ink); text-decoration: none; }
+.mobile-brand:hover { color: var(--ink); text-decoration: none; }
+.mobile-actions { margin-left: auto; margin-right: -10px; display: flex; align-items: center; gap: 0.15rem; }
+.mobile-action { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--radius-sm); color: var(--ink-2); }
+.mobile-action:hover { background: var(--surface-2); color: var(--ink); text-decoration: none; }
+.mobile-action[aria-current='page'] { background: var(--accent-tint); color: var(--accent-strong); }
+.icon { display: block; flex: none; }
 
 /* ── buttons ──────────────────────────────────────────────────────────────── */
 
@@ -325,6 +333,8 @@ section { margin-bottom: 2rem; }
 }
 .btn:hover, button:hover, [role='button']:hover { background: var(--surface-2); text-decoration: none; color: var(--ink); }
 .btn:disabled, button:disabled { opacity: 0.45; cursor: not-allowed; }
+/* pressed, a control settles a pixel: a touch screen has no hover to say it was hit */
+.btn:active:not(:disabled), button:active:not(:disabled), .mobile-action:active { translate: 0 1px; }
 
 button[type='submit'], .btn-primary {
   background: var(--accent);
@@ -406,7 +416,7 @@ input[inputmode='numeric'], input.mono, .money-input input { text-box: trim-both
    above it, half the time each. A pixel of padding above them moves them down the half, level at every position
    measured; Safari lays its date fields out otherwise, and is unmoved by it. */
 input[type='date']::-webkit-datetime-edit { padding-top: 1px; }
-input[type='file'] { height: auto; padding: 0.25rem; }
+input[type='file'] { height: auto; padding: 0.25rem; max-width: 100%; } /* never wider than its form: "No file chosen" at a phone's 16px is wider than a 320px screen */
 input[type='file']::file-selector-button {
   font: 600 12.5px var(--sans);
   height: 24px;
@@ -569,8 +579,8 @@ p.error { font-size: 12.5px; color: color-mix(in srgb, var(--stamp) 85%, var(--i
 /* max-width caps the title column under auto table layout so a long title
    truncates with an ellipsis instead of crowding every other column out */
 .cell-title { display: flex; align-items: center; gap: 0.65rem; min-width: 0; max-width: 20rem; } /* a long title ellipsizes (its link's title says it whole) rather than pushing the table past a 1280px window */
-.cell-title .thumb { flex: none; width: 26px; height: 39px; border-radius: 3px; object-fit: cover; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); }
-.cell-title .thumb-fallback { flex: none; width: 26px; height: 39px; border-radius: 3px; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; justify-content: center; font-size: 13px; }
+.cell-title .thumb { flex: none; width: 28px; height: 42px; border-radius: 3px; object-fit: cover; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); }
+.cell-title .thumb-fallback { flex: none; width: 28px; height: 42px; border-radius: 3px; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; justify-content: center; font-size: 13px; }
 .cell-title .t { min-width: 0; }
 .cell-title .t a { color: var(--ink); font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cell-title .t a:hover { color: var(--accent); }
@@ -661,6 +671,51 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 
 .toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
 .toolbar select { width: auto; margin: 0; }
+/* A shelf's filters fold behind one Filters button beside the search box, at every width. The button shows only with
+   script (html.js, set in the <head> before paint), which is what opens it; without, the panel is simply open. The
+   panel takes the toolbar's last row: each filter a fieldset of choices in sight — a ruled pill per choice, its own
+   checkbox inside, so a choice is ticked in more than colour — then Read by and the sort, then Apply and Clear. */
+.filters-toggle { display: none; }
+html.js .filters-toggle { display: inline-flex; }
+html.js .filters-toggle[aria-expanded='true'] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+html.js .toolbar-filters:not(.open) { display: none; }
+.toolbar-filters {
+  flex: 1 1 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 1.1rem 1.75rem;
+  padding: 1rem 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+}
+.filter-group { min-width: 0; margin: 0; padding: 0; border: none; }
+/* a filter's name, and a select's in the panel: the registrar's eyebrow */
+.filter-group legend, .filter-field > span { float: left; width: 100%; padding: 0; margin: 0 0 0.5rem; font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
+.filter-options { clear: both; display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.filter-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 30px;
+  margin: 0;
+  padding: 0 0.7rem 0 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.filter-options label:hover { border-color: var(--accent); color: var(--ink); }
+.filter-options label:has(input:checked) { border-color: var(--accent); background: var(--accent-tint); color: var(--accent-strong); }
+.filter-options input[type='checkbox'] { margin: 0; }
+.filter-fields { display: grid; gap: 0.9rem; align-content: start; }
+.filter-field { display: block; margin: 0; }
+.toolbar .filter-field select { width: 100%; margin: 0; }
+.filter-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding-top: 0.9rem; border-top: 1px solid var(--line); }
 
 /* filter dropdowns: a <details> disguised as a select, holding any-of checkboxes.
    Opts out of the global details panel/manuscript-frame treatment — it's a
@@ -726,7 +781,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 }
 .filter-menu label { display: flex; align-items: center; gap: 0.45rem; margin: 0; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
 .filter-menu input[type='checkbox'] { width: auto; height: auto; margin: 0; accent-color: var(--accent); }
-.toolbar input[type='search'] { flex: 1 1 150px; width: auto; max-width: 190px; margin: 0; } /* gives way before the row wraps: a 13px Table/Covers toggle made a 1280 shelf's bar 16px too long for one line */
+.toolbar input[type='search'] { flex: 0 1 20rem; width: auto; min-width: 0; margin: 0; } /* the row's one field, now the filters are folded: room for a title and an author */
 /* Columns and the view toggle: pushed to the row's end, and onto the next line together when the row wraps */
 .toolbar-end { margin-left: auto; display: inline-flex; align-items: center; gap: 0.5rem; }
 
@@ -738,16 +793,31 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .view-toggle a.active { background: var(--accent-tint); color: var(--accent-strong); font-weight: 600; }
 .view-toggle a:hover { text-decoration: none; color: var(--ink); }
 
-.pagination { display: flex; justify-content: space-between; align-items: center; margin: 1rem 0; font-family: var(--mono); font-size: 11.5px; }
+.pagination { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin: 1rem 0; font-family: var(--mono); font-size: 11.5px; }
+/* Previous and Next: buttons to press, not words to find — the page count between them stays the registrar's mono */
+.pagination a { display: inline-flex; align-items: center; height: var(--control-h); padding: 0 0.8rem; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font-family: var(--sans); font-size: var(--control-text); font-weight: 600; line-height: normal; }
+.pagination a:hover { background: var(--surface-2); color: var(--ink); text-decoration: none; }
 
 /* ── item detail ──────────────────────────────────────────────────────────── */
 
-.item-detail { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 1.75rem; align-items: start; }
+.item-detail { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 0 1.75rem; align-items: start; }
 .item-detail-cover { position: sticky; top: 1.5rem; }
+/* The item page's head comes first in the article, so Tab and a screen reader meet the title first (§16 #103); the
+   grid draws it beside the cover, above the body. A share page's article has no head: its body takes the first row. */
+.item-detail > .item-head { grid-column: 2; grid-row: 1; }
+.item-head ~ .item-detail-cover { grid-column: 1; grid-row: 1 / span 2; }
+.item-head ~ .item-detail-body { grid-column: 2; }
 .item-detail-cover .cover-img, .item-detail-cover .cover-fallback { border-radius: var(--radius); box-shadow: var(--shadow), 0 0 0 1px var(--line); width: 100%; aspect-ratio: 2 / 3; font-size: 3.5rem; background: var(--surface-2); }
-.item-detail-body hgroup { margin-bottom: 0.4rem; }
-.item-detail-body hgroup h1 { font-size: 24px; }
-.item-detail-body hgroup p { color: var(--ink-2); font-size: 14px; margin: 0.15rem 0 0; }
+/* the item's head: title, creators, tags and want down the left, Edit at the top right — as a page's head sets its
+   actions beside its title */
+.item-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 1rem; align-items: start; }
+.item-head > * { grid-column: 1; }
+.item-head > .item-head-actions { grid-column: 2; grid-row: 1; margin: 0.2rem 0 0; }
+.item-tags { margin: 0.1rem 0 0.4rem; }
+/* the title, in the item page's head or a share page's body */
+:is(.item-head, .item-detail-body) hgroup { margin-bottom: 0.5rem; }
+:is(.item-head, .item-detail-body) hgroup h1 { font-size: 30px; line-height: 1.15; margin-bottom: 0.35rem; overflow-wrap: break-word; }
+:is(.item-head, .item-detail-body) hgroup p { color: var(--ink-2); font-size: 14.5px; margin: 0.15rem 0 0; }
 
 .props { display: grid; grid-template-columns: 130px minmax(0, 1fr); border-top: 1px solid var(--line); margin: 1rem 0; }
 .props dt {
@@ -768,6 +838,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .props-group { display: contents; }
 
 .detail-section { margin-top: 1.4rem; }
+/* the item page's prose — description, review, notes — keeps a reading measure on a wide screen */
+.item-detail-body .prewrap { max-width: 72ch; }
 .detail-section .eyebrow { margin-bottom: 0.35rem; }
 
 /* Reading progress: indigo, because it is a working state — vermilion stays reserved
@@ -969,11 +1041,34 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 /* ── responsive ───────────────────────────────────────────────────────────── */
 
 @media (max-width: 880px) {
+  /* A touch screen's sizes. Every control is a thumb's target, 40px tall, and sets its text at 16px — under 16px,
+     Safari on a phone zooms the whole page into a field when it's tapped. The rule of one size for a row of controls
+     (§16 #16) holds here as on a wide screen, at these sizes; running text and the ledger's data step up with them. */
+  :root { --control-h: 40px; --control-text: 16px; }
+  body { font-size: 15px; }
+  h1 { font-size: 24px; }
+  .notice, p.error { font-size: 14px; }
+  .data-table td { font-size: 14px; }
+  .props dd { font-size: 14px; }
+  label { font-size: 13px; }
+  .tab-bar .tab { height: var(--control-h); font-size: 12px; }
+  .view-toggle a { font-size: 13px; }
+  .filter-menu { gap: 0.4rem; padding: 0.4rem 0.6rem 0.5rem; }
+  .filter-menu label { min-height: 36px; font-size: 15px; }
+  .filter-menu input[type='checkbox'] { width: 18px; height: 18px; }
+  /* the Filters panel's choices are controls too: the same 40px, a phone's reading size, a thumb's checkbox */
+  .filter-options label { min-height: var(--control-h); padding: 0 0.85rem 0 0.7rem; font-size: 15px; }
+  .filter-options input[type='checkbox'] { width: 18px; height: 18px; }
+  .pagination { font-size: 13px; }
+  /* a link to a section lands below the sticky bar, not under it */
+  [id] { scroll-margin-top: 4.5rem; }
+
   .app { grid-template-columns: 1fr; }
   .sidebar {
     position: fixed;
     inset: 0 auto 0 0;
-    width: min(78vw, var(--sidebar-w));
+    width: min(84vw, 288px);
+    padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));
     z-index: 40;
     transform: translateX(-102%);
     /* closed, it's out of the tab order and the accessibility tree — hidden only once the slide has finished */
@@ -982,13 +1077,17 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
     box-shadow: var(--shadow);
   }
   body.nav-open .sidebar { transform: translateX(0); visibility: visible; transition: transform 160ms ease, visibility 0s; }
-  /* a section header is tapped with a thumb in the drawer: a taller target than the pointer needs */
-  .nav-summary { min-height: 34px; }
+  /* the drawer is tapped with a thumb: every row a 40px target, its words at a phone's reading size */
+  .nav-summary { min-height: 40px; padding: 0 0.6rem; }
+  .nav-eyebrow { font-size: 11px; }
+  .nav-link, button.linklike { min-height: 40px; padding: 0.4rem 0.6rem; font-size: 15px; }
+  .nav-count { font-size: 11.5px; }
   .mobile-bar {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    padding: 0.6rem 1rem;
+    padding: 0.4rem 1rem;
+    padding-top: calc(0.4rem + env(safe-area-inset-top, 0px));
     border-bottom: 1px solid var(--line);
     background: var(--surface);
     position: sticky;
@@ -996,19 +1095,30 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
     z-index: 30;
   }
   .mobile-bar .brand-name { font-size: 14px; }
-  /* A 36px target, pulled left by its own slack so the ☰ ink sits on the 16px gutter with the page title below
-     (the glyph is ~12px wide: (36 − 12) / 2 = 12px of air on each side). */
-  #nav-toggle { font-size: 18px; width: 36px; height: 36px; padding: 0; margin-left: -12px; color: var(--ink); }
+  /* A 40px target, pulled left by its own slack so the menu's lines sit on the 16px gutter with the page title below
+     (the icon's lines are 16px wide: (40 − 16) / 2 = 12px of air on each side). */
+  #nav-toggle { width: 40px; height: 40px; padding: 0; margin-left: -12px; color: var(--ink); }
   /* the open drawer dims the page behind it; a tap there closes it (app.js) */
   body.nav-open::after { content: ''; position: fixed; inset: 0; background: rgba(23, 19, 16, 0.35); z-index: 35; }
-  .mobile-bar .mobile-unread { margin-left: auto; text-decoration: none; }
+  .mobile-bar .mobile-unread { margin-right: 0.35rem; text-decoration: none; }
   .content { padding: 1.1rem 1rem 3rem; }
   .app-status { margin-inline: 1rem; } /* the phone's 16px gutter, as the content's */
   /* one phone gutter everywhere: public share pages and the login card sit on the same 16px line as the app */
   .share-shell, .offline-shell { padding: 1.25rem 1rem 3rem; }
   .auth-shell { padding: 1rem; }
-  .item-detail { grid-template-columns: 1fr; }
-  .item-detail-cover { position: static; max-width: 190px; }
+  /* The item page opens on the item: its cover beside its title, creators, tags and Edit, as a card in the catalogue
+     drawer; everything else under the two, the page's width. The cover's own column and the body's add no box here —
+     their children are the grid's — so nothing moves in the order a screen reader or the Tab key takes. */
+  .item-detail { grid-template-columns: 160px minmax(0, 1fr); gap: 0 1.25rem; }
+  .item-detail-cover, .item-detail-body { display: contents; }
+  .item-detail-cover > :not(.cover-photo) { grid-column: 1; grid-row: 1; }
+  .item-detail-cover > .cover-photo { grid-column: 1 / -1; grid-row: 2; }
+  /* the head: the item page's, or — on a share page and a connected household's item, which have none — the title */
+  .item-head, .item-detail-body > hgroup { grid-column: 2; grid-row: 1; display: block; min-width: 0; }
+  .item-detail-body > :not(.item-head, hgroup) { grid-column: 1 / -1; }
+  .item-detail-body > hgroup + * { margin-top: 0.75rem; }
+  :is(.item-head, .item-detail-body) hgroup h1 { font-size: 26px; }
+  .item-head > .item-head-actions { margin: 0 0 0.5rem; }
   .data-table .hide-sm { display: none; }
   .stat-row { grid-template-columns: repeat(2, 1fr); }
   /* two-column reflow for any stat count (the not-owned stat is conditional) */
@@ -1555,8 +1665,17 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .names-filter { margin: 0 0 1rem; }
 .names-filter input[type='search'] { max-width: 20rem; }
 .names-group + .names-group { margin-top: 1.5rem; }
-/* a cover from the camera (ARCH.md §16 #73): the small form under an item's cover */
-.cover-photo { margin-top: 0.75rem; display: grid; gap: 0.5rem; }
+/* a cover from the camera (ARCH.md §16 #73): the small form under an item's cover, folded behind one quiet line —
+   no frame, the nav's turning chevron before its words */
+.cover-photo { margin: 0.6rem 0 0; padding: 0; border: none; border-radius: 0; background: none; }
+.cover-photo::after { content: none; }
+.cover-photo > summary { display: inline-flex; align-items: center; gap: 0.45rem; min-height: 24px; font-size: 12px; font-weight: 500; color: var(--ink-2); list-style: none; }
+.cover-photo > summary::-webkit-details-marker { display: none; }
+.cover-photo > summary::before { content: ''; flex: none; width: 5px; height: 5px; margin-left: 2px; border-right: 1.5px solid var(--ink-3); border-bottom: 1.5px solid var(--ink-3); transform: rotate(-45deg); transition: transform 120ms ease; }
+.cover-photo[open] > summary::before { transform: rotate(45deg); }
+.cover-photo > summary:hover { color: var(--ink); }
+.cover-photo[open] > summary { margin-bottom: 0.5rem; }
+.cover-photo form { display: grid; gap: 0.5rem; }
 .cover-photo label { font-size: 12.5px; margin: 0; }
 .cover-photo input[type='file'] { font-size: 12.5px; max-width: 100%; }
 .cover-photo-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
@@ -1607,7 +1726,7 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .views .eyebrow { margin: 0 0.25rem 0 0; }
 .views .pill, .shelf-views .pill { display: inline-flex; align-items: center; min-height: 24px; text-decoration: none; }
 .views .pill.active { border-color: var(--accent); color: var(--accent); }
-.views .inline-form { margin-left: auto; }
+.views .inline-form { margin-left: auto; flex-wrap: nowrap; }
 .views .inline-form input { flex: 0 1 14rem; min-width: 0; }
 .shelf-views { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.3rem; }
 
@@ -1628,3 +1747,92 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 .token-list, .device-list { list-style: none; margin: 0 0 0.75rem; padding: 0; display: grid; gap: 0.5rem; }
 .token-list li, .device-list li { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
 .token-secret { display: inline-block; padding: 0.35rem 0.5rem; font-size: 13px; user-select: all; }
+
+/* ── now reading & playing (ARCH.md §16 #104) ────────────────────────────────
+   A card a read or a played game or record, its cover beside it as a want list's; two to a row where there's room.
+   Its one action — record a page, log a play — at the foot of the card. */
+.now-section { margin-bottom: 2rem; }
+.now-section > h2.eyebrow { margin-bottom: 0.75rem; }
+.now-list { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); gap: 0.75rem; }
+.now-card { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 0.9rem; padding: 0.8rem 0.9rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.now-cover { display: block; width: 64px; aspect-ratio: 2 / 3; border-radius: var(--radius-sm); overflow: hidden; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); }
+.now-cover .cover-fallback { font-size: 1.6rem; }
+.now-body { min-width: 0; display: flex; flex-direction: column; gap: 0.1rem; }
+.now-title { color: var(--ink); font-weight: 600; font-size: 14px; line-height: 1.3; overflow-wrap: anywhere; }
+.now-title:hover { color: var(--accent); }
+.now-creators { color: var(--ink-2); font-size: 12px; overflow-wrap: anywhere; }
+.now-body .mline { display: flex; flex-wrap: wrap; gap: 0.15rem 0.6rem; align-items: baseline; margin-top: 0.15rem; }
+.now-body .mline small { font-size: 11.5px; }
+/* whose read: the working accent, a name not a state */
+.now-reader { font-weight: 600; color: var(--accent-strong); }
+.now-body > p { margin: 0.35rem 0 0; font-size: 12.5px; }
+.now-body > .progress-track { margin: 0.3rem 0 0; }
+.now-action { margin-top: 0.6rem; }
+.now-action input[name='page'] { width: 6.5rem; }
+
+/* ── phones (640px and under) ────────────────────────────────────────────────
+   Last in the file, so these win over the wide screen's rules of the same weight wherever they meet. */
+@media (max-width: 640px) {
+  /* A shelf's toolbar: the search box and Filters on one row, Columns and the view toggle on the next, the panel
+     under them while open — one column of filters, their choices a thumb's size, Read by and the sort side by side. */
+  .toolbar input[type='search'] { flex: 1 1 8rem; }
+  .toolbar-filters { grid-template-columns: minmax(0, 1fr); gap: 1rem; padding: 0.85rem 0.85rem 0.9rem; }
+  .filter-fields { grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; }
+  .filter-actions button[type='submit'] { flex: 1 1 auto; }
+  .toolbar-end { flex: 1 1 100%; margin-left: 0; }
+  .toolbar-end .view-toggle { margin-left: auto; }
+  /* a saved view's name and Save view: their own row, the field taking what's left of it */
+  .views .inline-form { flex: 1 1 100%; min-width: 0; margin-left: 0; }
+  .views .inline-form input { flex: 1 1 auto; }
+
+  /* The item table becomes a list: no table to scroll sideways under the thumb. Each row is a line — its checkbox,
+     its cover, the title and creators, and under them whichever of rating, status and holding Columns leaves showing.
+     The header keeps select-all. Only the layout changes: every cell is where it was, in the same order. */
+  .item-table { --pick-w: 0px; --thumb-w: 40px; }
+  .item-table.selectable { --pick-w: 34px; }
+  .data-table.item-table table, .item-table thead, .item-table tbody { display: block; }
+  .item-table thead tr { display: flex; align-items: center; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--line); }
+  /* the header row draws select-all and Title; the other columns' names are moved off screen, not removed, so a
+     screen reader still says which column a cell is in (a column hidden by Columns or the phone stays hidden) */
+  .data-table.item-table thead th { padding: 0; border: none; }
+  .data-table.item-table thead th:not(.col-pick, .col-title) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .data-table.item-table thead th.col-pick { width: var(--pick-w); }
+  .item-table tbody tr {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    align-content: center;
+    gap: 0.35rem 0.4rem;
+    min-height: calc(var(--thumb-w) * 1.5 + 1.3rem);
+    padding: 0.65rem 0.75rem 0.65rem calc(0.75rem + var(--pick-w) + var(--thumb-w) + 0.75rem);
+    border-bottom: 1px solid var(--line);
+  }
+  .item-table tbody tr:last-child { border-bottom: none; }
+  /* no display here: a flex row's cells are blocks already, and hidden columns (a phone's, or Columns') stay hidden */
+  .data-table.item-table td, .data-table.item-table td.col-title { width: auto; padding: 0; border: none; }
+  .data-table.item-table td.col-pick { position: absolute; left: 0.75rem; top: 50%; translate: 0 -50%; }
+  .item-table .col-pick input { width: 20px; height: 20px; }
+  .data-table.item-table td.col-title { flex: 1 1 100%; min-width: 0; }
+  .item-table .cell-title { max-width: none; }
+  .item-table .cell-title :is(.thumb, .thumb-fallback) { position: absolute; left: calc(0.75rem + var(--pick-w)); top: 0.65rem; width: var(--thumb-w); height: calc(var(--thumb-w) * 1.5); }
+  .item-table .cell-title .t a { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 15px; line-height: 1.3; }
+  .item-table .cell-title .t small { font-size: 13px; }
+  /* a list line says only what sets the item apart: no "—" for a rating never given, no Owned for what is owned */
+  .item-table td.col-rating:not(:has(.rating)) { display: none; }
+  .item-table td.col-holding.owned-only { display: none; } /* marked as rendered: a toggle a tap swaps in stays in sight */
+  .item-table tbody tr:hover > td:first-child, .item-table tbody tr:has(.bulk-pick:checked) > td:first-child { box-shadow: none; }
+  .item-table tbody tr:hover { box-shadow: inset 2px 0 0 var(--accent); }
+  .item-table tbody tr:has(.bulk-pick:checked) { box-shadow: inset 3px 0 0 var(--accent); }
+
+  /* the item page's head: a phone's narrower cover beside the title (the layout is the 880px rules') */
+  .item-detail { grid-template-columns: 104px minmax(0, 1fr); gap: 0 1rem; }
+  .item-detail-cover > :not(.cover-photo) { font-size: 2.25rem; }
+  :is(.item-head, .item-detail-body) hgroup h1 { font-size: 22px; }
+  :is(.item-head, .item-detail-body) hgroup p { font-size: 14px; }
+
+  /* covers three to a row, so the Overview's latest twenty aren't a page of posters */
+  .item-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 1rem 0.75rem; }
+  .item-meta strong { font-size: 13px; }
+  .item-meta small { font-size: 12px; }
+}
