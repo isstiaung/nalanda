@@ -109,6 +109,18 @@ document.addEventListener('DOMContentLoaded', () => {
     true, // toggle doesn't bubble
   );
 
+  // A shelf's filters on a phone: folded behind one button (CSS folds them only at that width, with html.js set in the
+  // <head>), opened and closed here. aria-expanded says which, wherever the button shows.
+  document.querySelectorAll('.filters-toggle[aria-controls]').forEach((button) => {
+    const group = document.getElementById(button.getAttribute('aria-controls'));
+    if (!group) return;
+    button.addEventListener('click', () => {
+      const open = !group.classList.contains('open');
+      group.classList.toggle('open', open);
+      button.setAttribute('aria-expanded', String(open));
+    });
+  });
+
   // Filter dropdowns close when clicking anywhere else (incl. opening another one).
   document.addEventListener('click', (e) => {
     document.querySelectorAll('details.filter[open]').forEach((d) => {

@@ -192,8 +192,21 @@ describe('mobile bar', () => {
   it('hangs the wordmark from its headstroke, as the sidebar brand does', async () => {
     const html = await (await instanceA(env).get('/', await sessionCookie('member'))).text();
     const bar = html.slice(html.indexOf('<header class="mobile-bar">'), html.indexOf('</header>'));
-    expect(bar).toContain('<div class="mobile-brand"><div class="brand-rule"></div><div class="brand-name">Nalanda</div></div>');
+    expect(bar).toContain('<a href="/" class="mobile-brand"><div class="brand-rule"></div><div class="brand-name">Nalanda</div></a>');
     expect(html.match(/class="brand-rule"/g)).toHaveLength(2); // the sidebar's and the bar's, nowhere else
+  });
+
+  it('carries Search and Add, each named, the one for the page being shown marked current', async () => {
+    const cookie = await sessionCookie('member');
+    const bar = (html: string) => html.slice(html.indexOf('<header class="mobile-bar">'), html.indexOf('</header>'));
+    const home = bar(await (await instanceA(env).get('/', cookie)).text());
+    expect(home).toContain('<a href="/search" class="mobile-action" aria-label="Search">');
+    expect(home).toContain('<a href="/add" class="mobile-action" aria-label="Add items">');
+    expect(home).not.toContain('aria-current');
+    // the icons are drawings, hidden: each link's name is its label
+    expect(home.match(/<svg class="icon"[^>]*aria-hidden="true"/g)).toHaveLength(3);
+    const add = bar(await (await instanceA(env).get('/add', cookie)).text());
+    expect(add).toContain('<a href="/add" class="mobile-action" aria-label="Add items" aria-current="page">');
   });
 
   it('starts the menu button collapsed and names the drawer it controls (app.js keeps aria-expanded in step)', async () => {
@@ -377,6 +390,79 @@ describe('404 pages', () => {
     const res = await plain.get(`/share/${token}`);
     expect(res.status).toBe(200);
     expect(await res.text()).toContain('<h1>Public view</h1>');
+  });
+});
+
+describe('a shelf on a phone', () => {
+  const plain = instanceA(env);
+
+  it('folds its filters into one group the Filters button names, the search box outside it, the count of menus in use on it', async () => {
+    const shelf = await createLibrary(env.DB, 'Books');
+    await createItem(env.DB, { libraryId: shelf.id, title: 'Piranesi', copies: 1 });
+    const cookie = await sessionCookie('member');
+    const html = await (await plain.get(`/libraries/${shelf.id}?type=book&type=vinyl&owned=1`, cookie)).text();
+    const toggle = html.indexOf('<button type="button" class="btn filters-toggle" aria-controls="shelf-filters" aria-expanded="false">');
+    const group = html.indexOf('<div class="toolbar-filters" id="shelf-filters">');
+    expect(toggle).toBeGreaterThan(html.indexOf('name="q"')); // after the search box, which stays in sight
+    expect(group).toBeGreaterThan(toggle);
+    // two menus in use (Type with two choices counts once), said on the button
+    expect(html.slice(toggle, group)).toContain('Filters<span class="filter-count">2</span></button>');
+    // every menu, the sort and Apply are inside the group; Columns and the view toggle after it
+    const inside = html.slice(group, html.indexOf('<span class="toolbar-end">'));
+    for (const part of ['name="type"', 'name="status"', 'name="owned"', 'name="format"', 'name="sort"', '>Apply</button>']) expect(inside).toContain(part);
+    expect(inside.endsWith('</div>')).toBe(true);
+
+    const bare = await (await plain.get(`/libraries/${shelf.id}`, cookie)).text();
+    expect(bare).toContain('aria-expanded="false">Filters</button>'); // nothing in use: no count
+  });
+
+  it('marks <html class="js"> before paint, so the group folds only where app.js can open it', async () => {
+    const html = await (await plain.get('/', await sessionCookie('member'))).text();
+    const head = html.slice(0, html.indexOf('</head>'));
+    expect(head).toContain("document.documentElement.classList.add('js');");
+    const js = await (await env.ASSETS.fetch('http://assets/app.js')).text();
+    expect(js).toContain(".filters-toggle[aria-controls]");
+    const css = await (await env.ASSETS.fetch('http://assets/app.css')).text();
+    // every rule that folds the group needs the script that unfolds it
+    const folding = [...css.matchAll(/([^{}]*)\{[^}]*display:\s*none/g)].map((m) => (m[1] ?? '').trim()).filter((sel) => sel.includes('toolbar-filters'));
+    expect(folding).toEqual(['html.js .toolbar-filters:not(.open)']);
+  });
+
+  it('lays its items out as a list there: the table is marked for it, with its title column named', async () => {
+    const shelf = await createLibrary(env.DB, 'Books');
+    await createItem(env.DB, { libraryId: shelf.id, title: 'Piranesi', copies: 1 });
+    const html = await (await plain.get(`/libraries/${shelf.id}`, await sessionCookie('member'))).text();
+    expect(html).toContain('<div class="data-table item-table selectable">');
+    expect(html).toContain('<th class="col-title">Title</th>');
+    expect(html).toContain('<td class="col-title"><span class="cell-title">');
+  });
+});
+
+describe('an item page’s head', () => {
+  const plain = instanceA(env);
+
+  it('puts Edit beside the title and leaves Delete at the foot, alone', async () => {
+    const shelf = await createLibrary(env.DB, 'Books');
+    const item = await createItem(env.DB, { libraryId: shelf.id, title: 'Piranesi', creators: 'Susanna Clarke', copies: 1 });
+    const html = await (await plain.get(`/items/${item.id}`, await sessionCookie('admin'))).text();
+    const head = html.slice(html.indexOf('<header class="item-head">'), html.indexOf('</header>', html.indexOf('<header class="item-head">')));
+    expect(head).toContain('<h1>Piranesi</h1>');
+    expect(head).toContain(`<p class="item-head-actions"><a href="/items/${item.id}/edit" class="btn">Edit</a></p>`);
+    expect(html.match(new RegExp(`href="/items/${item.id}/edit"`, 'g'))).toHaveLength(1);
+    const foot = html.slice(html.indexOf('<div class="actions">'));
+    expect(foot).toContain(`action="/items/${item.id}/delete"`);
+    expect(foot).not.toContain('/edit');
+  });
+
+  it('folds the cover photo form behind one line, opening it only to show why a photo was refused', async () => {
+    const shelf = await createLibrary(env.DB, 'Books');
+    const item = await createItem(env.DB, { libraryId: shelf.id, title: 'Piranesi', copies: 1 });
+    const cookie = await sessionCookie('member');
+    const html = await (await plain.get(`/items/${item.id}`, cookie)).text();
+    expect(html).toContain('<details class="cover-photo"><summary>Add a cover</summary><form method="post"');
+    const refused = await (await plain.get(`/items/${item.id}?cover=refused`, cookie)).text();
+    expect(refused).toContain('<details class="cover-photo" open=""><summary>Add a cover</summary>');
+    expect(refused).toContain('role="alert" id="cover-photo-error"');
   });
 });
 

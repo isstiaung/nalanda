@@ -266,6 +266,7 @@ export const hi: Pack = {
     'sort.rating': 'सबसे ऊँची रेटिंग',
     'sort.completed': 'पूरा होने की तिथि',
     'shelf.apply': 'लागू करें',
+    'shelf.filters': 'फ़िल्टर',
     'shelf.table': 'तालिका',
     'shelf.covers': 'कवर',
     'columns.label': 'कॉलम',

@@ -1203,7 +1203,8 @@ export const ItemTable: FC<{
   const i18n = useI18n();
   const { t } = i18n;
   return (
-  <div class="data-table">
+  // item-table: on a phone each row becomes a line of the list — cover, title, then its pills under it (app.css)
+  <div class={selectable ? 'data-table item-table selectable' : 'data-table item-table'}>
     <table>
       <thead>
         <tr>
@@ -1212,7 +1213,7 @@ export const ItemTable: FC<{
               <PickAll />
             </th>
           ) : null}
-          <th>{t('column.title')}</th>
+          <th class="col-title">{t('column.title')}</th>
           <th class="col-type">{t('column.type')}</th>
           {libraryNames ? <th class="hide-sm col-shelf">{t('column.shelf')}</th> : null}
           <th class="hide-sm col-year">{t('column.year')}</th>
@@ -1232,7 +1233,7 @@ export const ItemTable: FC<{
                 <PickBox id={item.id} title={item.title} />
               </td>
             ) : null}
-            <td>
+            <td class="col-title">
               <span class="cell-title">
                 {item.coverKey ? (
                   <img class="thumb" src={`/covers/${item.coverKey}`} alt="" loading="lazy" data-fallback={MEDIA_ICON[item.mediaType]} />

@@ -1635,6 +1635,13 @@ async function main() {
         await axe(page, name, variant.name);
         // the keyboard walk once per width, in light: focus styles are the same tokens in both themes
         if (variant.scheme === 'light') await keyboard(page, name, variant.name);
+        // On a phone a shelf's filters fold behind its Filters button: pressed, as a person would, so the group is
+        // audited open below and its menus open from it one at a time, as at every other width.
+        const filters = page.locator('.filters-toggle');
+        if (await filters.isVisible().catch(() => false)) {
+          await filters.click();
+          if ((await filters.getAttribute('aria-expanded')) !== 'true') failures.push(`interaction · ${name} [${variant.name}]: Filters didn't open its group`);
+        }
         // What a closed <details> holds (shelf settings, a read's Edit form, the toolbar's filter menus) is hidden
         // from axe until it opens. Panels all open together; the toolbar menus drop down over each other, so
         // those open one at a time, as a person opens them.

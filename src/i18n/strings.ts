@@ -269,6 +269,7 @@ export const en = {
   'sort.rating': 'Highest rated',
   'sort.completed': 'Date completed',
   'shelf.apply': 'Apply',
+  'shelf.filters': 'Filters',
   'shelf.table': 'Table',
   'shelf.covers': 'Covers',
   'columns.label': 'Columns',

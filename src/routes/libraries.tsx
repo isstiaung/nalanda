@@ -316,6 +316,8 @@ libraries.get('/libraries/:id', async (c) => {
   const showStatus = statuses.length > 0 || (mediaTypes.length ? mediaTypes : typesHere).some((t) => !isPlayable(t));
   // everything on the shelf, whatever the filters: what deleting it takes with it
   const shelfCount = lib.itemCount;
+  // how many of the folded menus are in use, for the phone's Filters button: one a dimension, as each menu counts its own
+  const filterCount = [mediaTypes, statuses, ownedSel, formatsSel].filter((s) => s.length > 0).length + (readBy ? 1 : 0);
 
   const query = shelfQueryString(q);
   const makeHref = (p: number, v = view) => {
@@ -373,6 +375,15 @@ libraries.get('/libraries/:id', async (c) => {
             placeholder={t('shelf.filter_placeholder')}
             aria-label={t('shelf.filter_label')}
           />
+          {/* On a phone the filters fold behind this button, so the shelf starts under one row of controls, not three.
+              CSS shows it only there and only with script (the <head> marks <html class="js"> before paint); app.js
+              opens and closes the group. Without script it stays hidden and every filter stays in the row. */}
+          <button type="button" class="btn filters-toggle" aria-controls="shelf-filters" aria-expanded="false">
+            {t('shelf.filters')}
+            {filterCount ? <span class="filter-count">{filterCount}</span> : null}
+          </button>
+          {/* display: contents beside a wide screen's search box: the menus stay items of the toolbar's own row */}
+          <div class="toolbar-filters" id="shelf-filters">
           <FilterMenu label={t('filter.type')} name="type" options={MEDIA_TYPES.map((type) => [type, mediaLabel(i18n, type)] as const)} selected={mediaTypes} />
           {showStatus ? (
             <FilterMenu
@@ -415,6 +426,7 @@ libraries.get('/libraries/:id', async (c) => {
           <button type="submit" class="btn">
             {t('shelf.apply')}
           </button>
+          </div>
           {/* Columns and the view toggle stay together at the row's end, and wrap as one */}
           <span class="toolbar-end">
             {/* Display-only, and only meaningful in the table: its checkboxes carry no

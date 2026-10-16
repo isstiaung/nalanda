@@ -839,21 +839,29 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
         <CoverPhotoForm itemId={item.id} hasCover={!!item.coverKey} error={c.req.query('cover') === 'refused'} />
       </div>
       <div class="item-detail-body">
-        <hgroup>
-          <h1>{item.title}</h1>
-          {item.originalTitle ? <p class="original-title muted">{item.originalTitle}</p> : null}
-          {item.creators ? <CreatorLinks creators={item.creators} /> : null}
-        </hgroup>
-        {tags.length ? (
-          <p>
-            {tags.map((t) => (
-              <a href={`/tags/${encodeURIComponent(t)}`} class="tag">
-                {t}
-              </a>
-            ))}
+        {/* the item's head: what it is, its tags and want, and Edit within reach — beside the cover on a phone */}
+        <header class="item-head">
+          <hgroup>
+            <h1>{item.title}</h1>
+            {item.originalTitle ? <p class="original-title muted">{item.originalTitle}</p> : null}
+            {item.creators ? <CreatorLinks creators={item.creators} /> : null}
+          </hgroup>
+          {tags.length ? (
+            <p class="item-tags">
+              {tags.map((t) => (
+                <a href={`/tags/${encodeURIComponent(t)}`} class="tag">
+                  {t}
+                </a>
+              ))}
+            </p>
+          ) : null}
+          <WantBar item={item} wanters={log.want.wanters} viewer={viewer} />
+          <p class="item-head-actions">
+            <a href={`/items/${item.id}/edit`} class="btn">
+              {t('item.edit')}
+            </a>
           </p>
-        ) : null}
-        <WantBar item={item} wanters={log.want.wanters} viewer={viewer} />
+        </header>
 
         <dl class="props">
           <dt>{t('item.accession')}</dt>
@@ -1117,10 +1125,8 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
 
         {recommending}
 
+        {/* Edit is in the head; deleting stays down here, away from everything used every day */}
         <div class="actions">
-          <a href={`/items/${item.id}/edit`} class="btn">
-            {t('item.edit')}
-          </a>
           {/* data-confirm, never an inline handler: a translated sentence is text, and the head's listener reads it (§16 #93) */}
           <form method="post" action={`/items/${item.id}/delete`} class="inline" data-confirm={t('item.delete_confirm', { days: TRASH_DAYS })}>
             <button type="submit" class="btn-danger">
