@@ -513,7 +513,7 @@ describe('an item page’s head', () => {
     expect(head).toContain('<h1>Piranesi</h1>');
     // Edit straight after the title, where it is drawn; the head first in the article, before the cover and its form,
     // so Tab and a screen reader meet the title first
-    expect(head).toContain(`</hgroup><p class="item-head-actions"><a href="/items/${item.id}/edit" class="btn">Edit</a></p>`);
+    expect(head).toContain(`</hgroup><div class="item-head-actions"><a href="/items/${item.id}/edit" class="btn">Edit</a></div>`);
     expect(html).toContain('<article class="item-detail"><header class="item-head">');
     expect(html.indexOf('<div class="item-detail-cover">')).toBeGreaterThan(html.indexOf('</header>', html.indexOf('<header class="item-head">')));
     expect(html.match(new RegExp(`href="/items/${item.id}/edit"`, 'g'))).toHaveLength(1);

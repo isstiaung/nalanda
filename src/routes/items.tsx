@@ -842,11 +842,12 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
           {item.originalTitle ? <p class="original-title muted">{item.originalTitle}</p> : null}
           {item.creators ? <CreatorLinks creators={item.creators} /> : null}
         </hgroup>
-        <p class="item-head-actions">
+        {/* a <div>, not a <p>: a paragraph holding only a bold button reads to axe as a heading styled by hand */}
+        <div class="item-head-actions">
           <a href={`/items/${item.id}/edit`} class="btn">
             {t('item.edit')}
           </a>
-        </p>
+        </div>
         {tags.length ? (
           <p class="item-tags">
             {tags.map((t) => (
