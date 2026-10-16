@@ -106,9 +106,24 @@ describe('a page or a play from the Now page', () => {
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('/now');
     expect(await rows('SELECT page FROM reading_progress WHERE item_id = ?1', it.id)).toEqual([{ page: 42 }]);
-    const refused = await as(asha, `/items/${it.id}/progress`, { body: { page: 'lots', back: 'now' } });
-    expect(refused.headers.get('location')).toBe('/now?refused=1');
-    expect(await html(asha, '/now?refused=1')).toContain('<p class="error" role="alert">That wasn’t recorded. Open the item to see why.</p>');
+    // refused: back to the page, naming the item and why, in fixed words — a page out of range, or no read open
+    for (const page of ['lots', '0', '100001']) {
+      const refused = await as(asha, `/items/${it.id}/progress`, { body: { page, back: 'now' } });
+      expect(refused.headers.get('location'), page).toBe(`/now?refused=${it.id}&why=page`);
+    }
+    expect(await html(asha, `/now?refused=${it.id}&why=page`)).toContain(
+      `<p class="error" role="alert">Nothing was recorded for <a href="/items/${it.id}">Reading</a>: a page is a whole number from 1 to 100,000.</p>`,
+    );
+    // finished, so no read is open (a book never read takes a page as its first read starting)
+    const shut = await book(asha, { title: 'Not open' });
+    await startRead(env.DB, shut.id, '2026-08-01', asha.id);
+    await closeRead(env.DB, shut.id, await openReadOf(shut.id, asha), 'completed', '2026-08-20', actor(asha));
+    expect((await as(asha, `/items/${shut.id}/progress`, { body: { page: '5', back: 'now' } })).headers.get('location')).toBe(`/now?refused=${shut.id}&why=closed`);
+    expect(await html(asha, `/now?refused=${shut.id}&why=closed`)).toContain('it isn’t being read now.');
+    // only the fixed codes say anything, and only an item's own title is shown (negative controls)
+    expect(await html(asha, `/now?refused=${it.id}&why=%3Cscript%3E`)).not.toContain('role="alert"');
+    expect(await html(asha, '/now?refused=999999&why=page')).toContain('<p class="error" role="alert">That wasn’t recorded.</p>');
+    expect(await html(asha, '/now')).not.toContain('role="alert"');
     // without back=now, the item page as before (negative control); and any other back is not a place to go
     expect((await as(asha, `/items/${it.id}/progress`, { body: { page: '43' } })).headers.get('location')).toBe(`/items/${it.id}`);
     expect((await as(asha, `/items/${it.id}/progress`, { body: { page: '44', back: 'https://example.com' } })).headers.get('location')).toBe(`/items/${it.id}`);
@@ -123,5 +138,8 @@ describe('a page or a play from the Now page', () => {
     expect(res.headers.get('location')).toBe('/now');
     expect(await rows('SELECT played_on AS playedOn, logged_by AS loggedBy FROM plays WHERE item_id = ?1', game.id)).toEqual([{ playedOn: today(), loggedBy: asha.id }]);
     expect((await as(asha, `/items/${game.id}/plays`, { body: {} })).headers.get('location')).toBe(`/items/${game.id}`);
+    const badDay = await as(asha, `/items/${game.id}/plays`, { body: { back: 'now', date: '2026-02-30' } });
+    expect(badDay.headers.get('location')).toBe(`/now?refused=${game.id}&why=date`);
+    expect(await html(asha, `/now?refused=${game.id}&why=date`)).toContain(`No play was logged for <a href="/items/${game.id}">Azul</a>`);
   });
 });

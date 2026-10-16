@@ -21,10 +21,12 @@ in the middle of?" in one place. The owner asked for it "in the sidebar in a log
   played first, up to 24. Each card gives its type, the last play's date, how many plays in those 60
   days, and a **Played today** button. Days are the device's (#69).
 - **The actions are the item's own routes.** Record posts to `/items/:id/progress` and Played today
-  to `/items/:id/plays`, with `back=now`. Without htmx those routes land back on `/now`, or on
-  `/now?refused=1` when the route refused, which says so in fixed words; the item's page says why.
-  Any other `back` value is no place to go: the item page, as before. With htmx, both swap the item
-  page's section as they always did.
+  to `/items/:id/plays`, with `back=now`. Without htmx those routes land back on `/now`. When the
+  route refused, they land on `/now?refused=<item id>&why=<code>`, and the page names the item (a link to
+  it) and says why in fixed words. The codes are `page` (not a whole number from 1 to 100,000), `full`,
+  `closed` (not being read now), `date` and `plays`; nothing from the URL is shown but the item's own
+  title. Any other `back` value is no place to go: the item page, as before. With htmx, both swap the
+  item page's section as they always did. The page field takes 1 to 100,000 only (`pattern`).
 - **One D1 call:** the reads with their latest pages, the plays grouped by item, and the household's
   people, in one batch (`nowReadingAndPlaying()`).
 

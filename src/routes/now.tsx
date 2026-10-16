@@ -5,16 +5,20 @@
 // route with back=now, which brings you back here (routes/items.tsx).
 import { Hono } from 'hono';
 import type { FC } from 'hono/jsx';
-import { nowReadingAndPlaying, type NowPlayed, type NowReading } from '../db/queries';
+import { getItem, nowReadingAndPlaying, type NowPlayed, type NowReading } from '../db/queries';
 import type { AppEnv } from '../env';
 import { daysBefore } from '../lib/dates';
 import { progressPercent } from '../lib/progress';
 import { Cover, personName, ProgressLine } from '../views/components';
 import { Fill, mediaLabel, useI18n } from '../views/i18n';
 import { page, todayOf } from '../views/layout';
+import type { NowRefusal } from './items';
 
 /** How far back "Played lately" reaches, in days. */
 export const PLAYED_LATELY_DAYS = 60;
+
+/** Why a page or a play posted from here was refused: only these codes, each said in the page's own fixed words. */
+const REFUSALS: readonly NowRefusal[] = ['page', 'full', 'closed', 'date', 'plays'];
 
 const now = new Hono<AppEnv>();
 
@@ -38,7 +42,11 @@ const ReadingCard: FC<{ read: NowReading; me: number; people: Array<{ id: number
         {read.creators ? <small class="now-creators">{read.creators}</small> : null}
         <span class="mline">
           {/* whose read: only once there is more than one person to tell apart */}
-          {people.length > 1 ? <small class="now-reader">{mine ? t('now.you') : personName(people, read.readerId)}</small> : null}
+          {people.length > 1 ? (
+            <small class="now-reader">
+              {mine ? t('now.you') : people.some((p) => p.id === read.readerId) ? personName(people, read.readerId) : t('now.former_member')}
+            </small>
+          ) : null}
           {read.beganOn ? <small class="mono muted">{t('now.since', { date: read.beganOn })}</small> : null}
         </span>
         {read.page ? <ProgressLine page={read.page} length={read.length} percent={progressPercent(read.page, read.length)} /> : null}
@@ -49,7 +57,7 @@ const ReadingCard: FC<{ read: NowReading; me: number; people: Array<{ id: number
             <input
               name="page"
               inputmode="numeric"
-              pattern="[0-9]+"
+              pattern="[1-9][0-9]{0,4}|100000"
               class="mono"
               size={6}
               placeholder={t('now.page')}
@@ -98,7 +106,13 @@ const PlayedCard: FC<{ item: NowPlayed }> = ({ item }) => {
 
 now.get('/now', async (c) => {
   const user = c.get('user');
-  const { reading, played, people } = await nowReadingAndPlaying(c.env.DB, user.id, daysBefore(todayOf(c), PLAYED_LATELY_DAYS));
+  // a refusal names its item by id and its reason by a fixed code (routes/items.tsx): anything else is no refusal
+  const refusedId = Number(c.req.query('refused'));
+  const why = REFUSALS.find((r) => r === c.req.query('why'));
+  const [{ reading, played, people }, refused] = await Promise.all([
+    nowReadingAndPlaying(c.env.DB, user.id, daysBefore(todayOf(c), PLAYED_LATELY_DAYS)),
+    why && Number.isSafeInteger(refusedId) && refusedId > 0 ? getItem(c.env.DB, refusedId) : null,
+  ]);
   const { t } = c.get('i18n');
   return page(
     c,
@@ -110,8 +124,12 @@ now.get('/now', async (c) => {
           <span class="sub">{t('now.sub', { reading: String(reading.length), played: String(played.length) }).toUpperCase()}</span>
         </div>
       </div>
-      {/* a page or a play posted from here and refused: the item's own page says why */}
-      {c.req.query('refused') === '1' ? (
+      {/* a page or a play posted from here and refused: which, and why, in fixed words — the item a link to it */}
+      {why && refused ? (
+        <p class="error" role="alert">
+          <Fill text={t(`now.refused_${why}`)} with={{ item: <a href={`/items/${refused.id}`}>{refused.title}</a> }} />
+        </p>
+      ) : why ? (
         <p class="error" role="alert">
           {t('now.refused')}
         </p>

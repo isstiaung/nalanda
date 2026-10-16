@@ -553,6 +553,7 @@ function pageList(ids) {
   const list = [
     ['Overview', '/'],
     ['Now reading & playing', '/now'], // a read in progress with pages, plays (§16 #104)
+    ['Now: a page refused', `/now?refused=${ids.reading}&why=page`], // the alert naming the item
     ['Shelf: books, table', `/libraries/${s.books}`],
     ['Shelf: books, covers', `/libraries/${s.books}?view=grid`],
     ['Shelf: games, table', `/libraries/${s.games}`],
@@ -1577,7 +1578,7 @@ async function main() {
   await post(member, `/items/${ids.book}/want`, { want: '1' });
   const memberPages = [
     ['Member: overview', '/'],
-    ['Member: now reading & playing', '/now'], // their own read takes a page; another's doesn't
+    ['Member: now reading & playing', '/now'], // the admin's read in progress listed, with no Record form for them
     ['Member: item, book being read', `/items/${ids.reading}`],
     ['Member: item, book read twice', `/items/${ids.reread}`],
     ['Member: shelf', `/libraries/${ids.shelves.books}`],

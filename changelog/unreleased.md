@@ -29,3 +29,9 @@ for what a host must do; link runbooks as ../runbooks/…); a release commit ren
 - A lighter polish everywhere: page titles at 26px with balanced line breaks, **Previous** and
   **Next** as buttons, the Overview's covers three to a row on a phone, an item's description and
   review at a reading width, and larger cover thumbnails in tables.
+
+### Fixed
+
+- On a shelf's **Unread for years** or **Not played lately** view, pressing Apply (to sort, say) or searching
+  no longer quietly drops "added years ago" or "not played lately": both are kept, counted on the Filters
+  button, and cleared by **Clear filters**.

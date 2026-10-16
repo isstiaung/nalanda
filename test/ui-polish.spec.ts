@@ -424,6 +424,25 @@ describe('a shelf’s Filters', () => {
     expect(bare).not.toContain('Clear filters'); // and nothing to clear
   });
 
+  it('counts the decluttering filters, keeps them through Apply, and offers Clear whenever anything filters', async () => {
+    const shelf = await createLibrary(env.DB, 'Books');
+    await createItem(env.DB, { libraryId: shelf.id, title: 'Piranesi', copies: 1 });
+    const cookie = await sessionCookie('member');
+    // "Unread for years": owned, not started, and added three years ago or more — three filters, one of them panel-less
+    const unread = await (await plain.get(`/libraries/${shelf.id}?owned=1&status=not_started&addedYears=3`, cookie)).text();
+    expect(unread).toContain('Filters<span class="filter-count">3</span></button>');
+    const form = unread.slice(unread.indexOf('class="toolbar"'), unread.indexOf('</form>', unread.indexOf('class="toolbar"')));
+    expect(form).toContain('<input type="hidden" name="addedYears" value="3"/>'); // Apply and the search box keep it
+    expect(form).toContain('>Clear filters</a>');
+    const lately = await (await plain.get(`/libraries/${shelf.id}?unplayedMonths=12`, cookie)).text();
+    expect(lately).toContain('Filters<span class="filter-count">1</span></button>');
+    expect(lately).toContain('<input type="hidden" name="unplayedMonths" value="12"/>');
+    expect(lately).toContain('>Clear filters</a>');
+    const bare = await (await plain.get(`/libraries/${shelf.id}`, cookie)).text();
+    expect(bare).not.toContain('name="addedYears"'); // negative control: nothing carried that isn't applied
+    expect(bare).not.toContain('name="unplayedMonths"');
+  });
+
   it('offers what could match: the types the shelf holds and their forms, plus anything already ticked', async () => {
     const shelf = await createLibrary(env.DB, 'Books');
     await createItem(env.DB, { libraryId: shelf.id, title: 'Piranesi', copies: 1 });

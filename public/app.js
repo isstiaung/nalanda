@@ -109,8 +109,8 @@ document.addEventListener('DOMContentLoaded', () => {
     true, // toggle doesn't bubble
   );
 
-  // A shelf's filters on a phone: folded behind one button (CSS folds them only at that width, with html.js set in the
-  // <head>), opened and closed here. aria-expanded says which, wherever the button shows.
+  // A shelf's filters: folded behind one button at every width (CSS folds them only with html.js, set in the <head>),
+  // opened and closed here. aria-expanded says which, wherever the button shows.
   document.querySelectorAll('.filters-toggle[aria-controls]').forEach((button) => {
     const group = document.getElementById(button.getAttribute('aria-controls'));
     if (!group) return;

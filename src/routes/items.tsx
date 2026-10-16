@@ -1197,12 +1197,13 @@ items.get('/items/:id/edit', async (c) => {
  */
 /**
  * Where a page or a play posted without htmx lands: the Now page when it came from there (`back=now`, §16 #104) —
- * saying so when it was refused, since the reason is the item's to show — else the item's page.
+ * with which item was refused and a fixed code for why, which the page says in its own words — else the item's page.
  */
-const landing = (id: number, back: unknown, error?: string) => (back === 'now' ? (error ? '/now?refused=1' : '/now') : `/items/${id}`);
+export type NowRefusal = 'page' | 'full' | 'closed' | 'date' | 'plays';
+const landing = (id: number, back: unknown, why?: NowRefusal) => (back === 'now' ? (why ? `/now?refused=${id}&why=${why}` : '/now') : `/items/${id}`);
 
-async function readingResponse(c: Context<AppEnv>, id: number, error?: string, back?: unknown) {
-  if (!c.req.header('HX-Request')) return c.redirect(landing(id, back, error));
+async function readingResponse(c: Context<AppEnv>, id: number, error?: string, back?: unknown, why?: NowRefusal) {
+  if (!c.req.header('HX-Request')) return c.redirect(landing(id, back, why));
   let item: Item | null;
   let log: Awaited<ReturnType<typeof readingLog>>;
   let people: Person[];
@@ -1280,6 +1281,7 @@ items.post('/items/:id/progress', async (c) => {
           ? 'This book isn’t being read now. Start a new read first, then record its pages.'
           : undefined,
     body['back'],
+    invalid ? 'page' : full ? 'full' : !recorded ? 'closed' : undefined,
   );
 });
 
@@ -1520,8 +1522,8 @@ items.post('/items/:id/reviews/:reviewId/move', async (c) => {
  * already saved, so a failed read-back reloads the page rather than failing the request — a retry would log the play
  * twice.
  */
-async function playsResponse(c: Context<AppEnv>, id: number, error?: string, back?: unknown) {
-  if (!c.req.header('HX-Request')) return c.redirect(landing(id, back, error));
+async function playsResponse(c: Context<AppEnv>, id: number, error?: string, back?: unknown, why?: NowRefusal) {
+  if (!c.req.header('HX-Request')) return c.redirect(landing(id, back, why));
   let item: Item | null;
   let plays: Awaited<ReturnType<typeof playLog>>;
   let people: Person[];
@@ -1543,9 +1545,9 @@ items.post('/items/:id/plays', async (c) => {
   const body = await c.req.parseBody();
   const playedOn = formDate(body['date']) ?? todayOf(c);
   const problem = playDateProblem(playedOn);
-  if (problem) return playsResponse(c, item.id, problem, body['back']);
+  if (problem) return playsResponse(c, item.id, problem, body['back'], 'date');
   const logged = await logPlay(c.env.DB, item.id, playedOn, c.get('user').id);
-  return playsResponse(c, item.id, logged ? undefined : 'This has as many plays as it can hold.', body['back']);
+  return playsResponse(c, item.id, logged ? undefined : 'This has as many plays as it can hold.', body['back'], logged ? undefined : 'plays');
 });
 
 /** Every play of an item, a page at a time — where a play older than the item page lists can be removed. */

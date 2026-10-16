@@ -314,7 +314,12 @@ libraries.get('/libraries/:id', async (c) => {
   // everything on the shelf, whatever the filters: what deleting it takes with it
   const shelfCount = lib.itemCount;
   // how many filters are in use, for the Filters button: one a dimension, however many of its choices are ticked
-  const filterCount = [mediaTypes, statuses, ownedSel, formatsSel].filter((s) => s.length > 0).length + (readBy ? 1 : 0);
+  // the decluttering filters (§16 #81: added years ago, not played lately) count too — the presets and saved views apply them
+  const filterCount =
+    [mediaTypes, statuses, ownedSel, formatsSel].filter((s) => s.length > 0).length +
+    (readBy ? 1 : 0) +
+    (q.addedYears !== undefined ? 1 : 0) +
+    (q.unplayedMonths !== undefined ? 1 : 0);
   // The panel offers what could match: the types this shelf holds, and the forms those types come in — a shelf of books
   // isn't offered Cassette. Whatever is already ticked stays offered, so it can be unticked. A shelf whose totals say
   // nothing (none read) is offered everything.
@@ -374,6 +379,9 @@ libraries.get('/libraries/:id', async (c) => {
           <ViewsBar libraryId={id} views={savedViews} active={active} query={query} playable={typesHere.some(isPlayable)} />
           <form method="get" action={`/libraries/${id}`} class="toolbar">
           {view !== 'table' ? <input type="hidden" name="view" value={view} /> : null}
+          {/* the decluttering filters have no control in the panel: carried, so Apply and a search keep them (Clear drops them) */}
+          {q.addedYears !== undefined ? <input type="hidden" name="addedYears" value={String(q.addedYears)} /> : null}
+          {q.unplayedMonths !== undefined ? <input type="hidden" name="unplayedMonths" value={String(q.unplayedMonths)} /> : null}
           <input
             type="search"
             name="q"
@@ -460,7 +468,7 @@ libraries.get('/libraries/:id', async (c) => {
             </div>
             <div class="filter-actions">
               <button type="submit">{t('shelf.apply')}</button>
-              {filterCount || name ? (
+              {filtered ? (
                 <a href={`/libraries/${id}${view !== 'table' ? `?view=${view}` : ''}`} class="btn btn-quiet">
                   {t('shelf.clear_filters')}
                 </a>

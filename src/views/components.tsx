@@ -377,13 +377,18 @@ const CloseReadForms: FC<{ item: Item; read: ReadingRead; today: string; rereadi
 };
 
 /** Where a read in progress has got to: "p. 120 of 300 · 40%", and the bar. The item page's, and the Now page's. */
-export const ProgressLine: FC<{ page: number; length: number | null; percent: number | null }> = ({ page, length, percent }) => (
+export const ProgressLine: FC<{ page: number; length: number | null; percent: number | null }> = ({ page, length, percent }) => {
+  const { t } = useI18n();
+  return (
   <>
     <p>
-      <span class="mono">p. {page}</span>
+      <span class="mono">
+        {t('progress.page')} {page}
+      </span>
       {length ? (
         <>
-          {' of '}
+          {' '}
+          {t('progress.of')}{' '}
           <span class="mono">{length}</span>
         </>
       ) : null}
@@ -400,7 +405,8 @@ export const ProgressLine: FC<{ page: number; length: number | null; percent: nu
       </div>
     ) : null}
   </>
-);
+  );
+};
 
 /**
  * A read in a history: its number, dates and outcome, and — for whoever may change it — the forms to correct it,

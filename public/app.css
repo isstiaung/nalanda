@@ -1056,6 +1056,9 @@ html.js .toolbar-filters:not(.open) { display: none; }
   .filter-menu { gap: 0.4rem; padding: 0.4rem 0.6rem 0.5rem; }
   .filter-menu label { min-height: 36px; font-size: 15px; }
   .filter-menu input[type='checkbox'] { width: 18px; height: 18px; }
+  /* the Filters panel's choices are controls too: the same 40px, a phone's reading size, a thumb's checkbox */
+  .filter-options label { min-height: var(--control-h); padding: 0 0.85rem 0 0.7rem; font-size: 15px; }
+  .filter-options input[type='checkbox'] { width: 18px; height: 18px; }
   .pagination { font-size: 13px; }
   /* a link to a section lands below the sticky bar, not under it */
   [id] { scroll-margin-top: 4.5rem; }
@@ -1774,8 +1777,6 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
      under them while open — one column of filters, their choices a thumb's size, Read by and the sort side by side. */
   .toolbar input[type='search'] { flex: 1 1 8rem; }
   .toolbar-filters { grid-template-columns: minmax(0, 1fr); gap: 1rem; padding: 0.85rem 0.85rem 0.9rem; }
-  .filter-options label { min-height: 36px; font-size: 14px; }
-  .filter-options input[type='checkbox'] { width: 17px; height: 17px; }
   .filter-fields { grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; }
   .filter-actions button[type='submit'] { flex: 1 1 auto; }
   .toolbar-end { flex: 1 1 100%; margin-left: 0; }
