@@ -1057,8 +1057,19 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   /* one phone gutter everywhere: public share pages and the login card sit on the same 16px line as the app */
   .share-shell, .offline-shell { padding: 1.25rem 1rem 3rem; }
   .auth-shell { padding: 1rem; }
-  .item-detail { grid-template-columns: 1fr; }
-  .item-detail-cover { position: static; max-width: 190px; }
+  /* The item page opens on the item: its cover beside its title, creators, tags and Edit, as a card in the catalogue
+     drawer; everything else under the two, the page's width. The cover's own column and the body's add no box here —
+     their children are the grid's — so nothing moves in the order a screen reader or the Tab key takes. */
+  .item-detail { grid-template-columns: 160px minmax(0, 1fr); gap: 0 1.25rem; }
+  .item-detail-cover, .item-detail-body { display: contents; }
+  .item-detail-cover > :not(.cover-photo) { grid-column: 1; grid-row: 1; }
+  .item-detail-cover > .cover-photo { grid-column: 1 / -1; grid-row: 2; }
+  /* the head: the item page's, or — on a share page and a connected household's item, which have none — the title */
+  .item-head, .item-detail-body > hgroup { grid-column: 2; grid-row: 1; display: block; min-width: 0; }
+  .item-detail-body > :not(.item-head, hgroup) { grid-column: 1 / -1; }
+  .item-detail-body > hgroup + * { margin-top: 0.75rem; }
+  .item-detail-body hgroup h1 { font-size: 26px; }
+  .item-head > .item-head-actions { margin: 0.6rem 0 0; }
   .data-table .hide-sm { display: none; }
   .stat-row { grid-template-columns: repeat(2, 1fr); }
   /* two-column reflow for any stat count (the not-owned stat is conditional) */
@@ -1750,20 +1761,11 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
   .item-table tbody tr:hover { box-shadow: inset 2px 0 0 var(--accent); }
   .item-table tbody tr:has(.bulk-pick:checked) { box-shadow: inset 3px 0 0 var(--accent); }
 
-  /* The item page opens on the item: its cover beside its title, creators, tags and Edit, as a card in the catalogue
-     drawer; everything else under the two, the page's width. The cover's own column and the body's add no box here —
-     their children are the grid's — so nothing moves in the order a screen reader or the Tab key takes. */
+  /* the item page's head: a phone's narrower cover beside the title (the layout is the 880px rules') */
   .item-detail { grid-template-columns: 104px minmax(0, 1fr); gap: 0 1rem; }
-  .item-detail-cover, .item-detail-body { display: contents; }
-  .item-detail-cover > :not(.cover-photo) { grid-column: 1; grid-row: 1; font-size: 2.25rem; }
-  .item-detail-cover > .cover-photo { grid-column: 1 / -1; grid-row: 2; }
-  /* the head: the item page's, or — on a share page and a connected household's item, which have none — the title */
-  .item-head, .item-detail-body > hgroup { grid-column: 2; grid-row: 1; display: block; min-width: 0; }
-  .item-detail-body > :not(.item-head, hgroup) { grid-column: 1 / -1; }
-  .item-detail-body > hgroup + * { margin-top: 0.75rem; }
+  .item-detail-cover > :not(.cover-photo) { font-size: 2.25rem; }
   .item-detail-body hgroup h1 { font-size: 22px; }
   .item-detail-body hgroup p { font-size: 14px; }
-  .item-head > .item-head-actions { margin: 0.6rem 0 0; }
 
   /* covers three to a row, so the Overview's latest twenty aren't a page of posters */
   .item-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 1rem 0.75rem; }

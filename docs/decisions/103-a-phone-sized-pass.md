@@ -26,8 +26,8 @@ which Safari on a phone zooms the page into a field when it is tapped.
   Owned toggle on an owned one are left out of the line, since there they say nothing (and the toggle
   was a target under a scrolling thumb). The header keeps select-all.
 - **An item's page opens on its head:** title, creators, tags, Want and Edit, in a `<header
-  class="item-head">`. On a wide screen Edit sits top right, as a page's actions do. On a phone the
-  head sits beside a 104px cover. Delete stays at the foot, alone. Replacing the cover is folded
+  class="item-head">`. On a wide screen Edit sits top right, as a page's actions do. At 880px and
+  under the head sits beside the cover (160px wide, 104px on a phone). Delete stays at the foot, alone. Replacing the cover is folded
   behind one quiet "Change cover" line, which opens itself when a photo was refused, so the error is
   seen. Share pages and a connected household's item page get the same cover-beside-title layout from
   CSS alone (their `<hgroup>` is the head). Their HTML is unchanged, byte for byte.
