@@ -940,7 +940,7 @@ is a section of this document and "#N" another decision.
 | 100 | 2026-10-02 | [An admin locked out gets back in with a recovery code shown at setup (once, hashed, used once and replaced as it is used, made again on Account with the password), or with a one-time reset link `npm run reset-admin` makes](docs/decisions/100-admin-recovery.md) |
 | 101 | 2026-10-02 | [Self-hosting from a fork, in the browser: a household forks the repository and imports the fork in Cloudflare; the first deploy finds or creates its `nalanda` database by name (this repository keeps the placeholder); updates are Sync fork; `/setup` asks for the `SESSION_SECRET` first, and the old example value is refused. Not the Deploy to Cloudflare button, whose copies can't take updates](docs/decisions/101-self-hosting-from-a-fork.md) |
 | 102 | 2026-10-04 | [Migrations are additive only from 0063 on: create, add columns, insert, re-create derived indexes, triggers and the FTS index — never drop, rename, update, delete or replace, since a fork's Sync fork applies them unattended; enforced by a test](docs/decisions/102-migrations-additive-only.md) |
-| 103 | 2026-10-16 | [A phone-sized pass: at 880px and under controls are 40px with 16px text; on a phone a shelf's filters fold behind one Filters button (only where script can unfold them), its items become a list from the same table, and an item's page opens on its head — cover beside title, tags, Want and Edit — with the cover photo form folded and Delete alone at the foot; the bar carries Search and Add](docs/decisions/103-a-phone-sized-pass.md) |
+| 103 | 2026-10-16 | [A phone-sized pass: at 880px and under controls are 40px with 16px text; a shelf's filters fold behind one Filters button at every width (only where script can unfold them) into a panel of each filter's choices in sight; on a phone its items become a list from the same table, and an item's page opens on its head — cover beside title, tags, Want and Edit — with the cover photo form folded and Delete alone at the foot; the bar carries Search and Add](docs/decisions/103-a-phone-sized-pass.md) |
 
 ## 17. Appendix: why SSR + htmx and not Next.js / Vite + React
 
@@ -1005,11 +1005,11 @@ pages have no repeated navigation to skip); keyboard focus survives an htmx swap
   WCAG 2.0 / 2.1 / 2.2 A and AA rules, its best-practice rules and the two experimental WCAG ones
   (label in name, bold-paragraph headings), in both themes at 1280 and 390 wide. On a phone it also
   fails a page that scrolls sideways (reflow, which axe doesn't test). It opens every closed
-  `<details>` and looks again (the toolbar's menus one at a time); performs the htmx interactions
+  `<details>` and looks again (the toolbar's Columns menu on its own); performs the htmx interactions
   from the keyboard and audits what comes back, failing one that drops focus to `<body>`; submits the
   refused and one-time forms (a temporary password, an invitation link, a bulk delete's
   confirmation, a bulk action's notice); loads the Add page with scans held offline, and
-  `/offline.html`; opens the phone menu, and presses a shelf's Filters before opening its menus at phone width (#103); drives the Refresh from Discogs and Refresh from BGG buttons
+  `/offline.html`; opens the phone menu; presses a shelf's Filters and audits its panel open (#103); drives the Refresh from Discogs and Refresh from BGG buttons
   (#55, #60) on a second scratch server (:8819) with placeholder provider tokens — the main one keeps
   none, since a token would send its Add-page lookups to Discogs — where the browser answers each
   refresh itself (a fill in the handler's shape, a dropped connection, a 500) or lets it reach a Worker

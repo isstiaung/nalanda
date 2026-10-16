@@ -671,11 +671,51 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 
 .toolbar { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
 .toolbar select { width: auto; margin: 0; }
-/* A shelf's filters — the menus, Read by, the sort and Apply — are one group, so a phone can fold them behind its
-   Filters button (the phone rules below). Wider than that the group adds no box: its controls stay items of the
-   toolbar's own row, and the button isn't shown. */
-.toolbar-filters { display: contents; }
+/* A shelf's filters fold behind one Filters button beside the search box, at every width. The button shows only with
+   script (html.js, set in the <head> before paint), which is what opens it; without, the panel is simply open. The
+   panel takes the toolbar's last row: each filter a fieldset of choices in sight — a ruled pill per choice, its own
+   checkbox inside, so a choice is ticked in more than colour — then Read by and the sort, then Apply and Clear. */
 .filters-toggle { display: none; }
+html.js .filters-toggle { display: inline-flex; }
+html.js .filters-toggle[aria-expanded='true'] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+html.js .toolbar-filters:not(.open) { display: none; }
+.toolbar-filters {
+  flex: 1 1 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 1.1rem 1.75rem;
+  padding: 1rem 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+}
+.filter-group { min-width: 0; margin: 0; padding: 0; border: none; }
+/* a filter's name, and a select's in the panel: the registrar's eyebrow */
+.filter-group legend, .filter-field > span { float: left; width: 100%; padding: 0; margin: 0 0 0.5rem; font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
+.filter-options { clear: both; display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.filter-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 30px;
+  margin: 0;
+  padding: 0 0.7rem 0 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.filter-options label:hover { border-color: var(--accent); color: var(--ink); }
+.filter-options label:has(input:checked) { border-color: var(--accent); background: var(--accent-tint); color: var(--accent-strong); }
+.filter-options input[type='checkbox'] { margin: 0; }
+.filter-fields { display: grid; gap: 0.9rem; align-content: start; }
+.filter-field { display: block; margin: 0; }
+.toolbar .filter-field select { width: 100%; margin: 0; }
+.filter-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; padding-top: 0.9rem; border-top: 1px solid var(--line); }
 
 /* filter dropdowns: a <details> disguised as a select, holding any-of checkboxes.
    Opts out of the global details panel/manuscript-frame treatment — it's a
@@ -741,7 +781,7 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 }
 .filter-menu label { display: flex; align-items: center; gap: 0.45rem; margin: 0; font-size: 12.5px; white-space: nowrap; cursor: pointer; }
 .filter-menu input[type='checkbox'] { width: auto; height: auto; margin: 0; accent-color: var(--accent); }
-.toolbar input[type='search'] { flex: 1 1 150px; width: auto; max-width: 190px; margin: 0; } /* gives way before the row wraps: a 13px Table/Covers toggle made a 1280 shelf's bar 16px too long for one line */
+.toolbar input[type='search'] { flex: 0 1 20rem; width: auto; min-width: 0; margin: 0; } /* the row's one field, now the filters are folded: room for a title and an author */
 /* Columns and the view toggle: pushed to the row's end, and onto the next line together when the row wraps */
 .toolbar-end { margin-left: auto; display: inline-flex; align-items: center; gap: 0.5rem; }
 
@@ -1702,21 +1742,14 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
 /* ── phones (640px and under) ────────────────────────────────────────────────
    Last in the file, so these win over the wide screen's rules of the same weight wherever they meet. */
 @media (max-width: 640px) {
-  /* A shelf's toolbar: the search box and Filters on one row, the folded group under them while open, then Columns
-     and the view toggle. Folded only with script (html.js, set before paint), which is what unfolds it; without, the
-     group shows as it would open. Open, it is a framed panel: the menus two to a row, Apply the width of the panel. */
-  .toolbar input[type='search'] { flex: 1 1 8rem; max-width: none; }
-  html.js .filters-toggle { display: inline-flex; }
-  html.js .filters-toggle[aria-expanded='true'] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
-  html.js .toolbar-filters:not(.open) { display: none; }
-  .toolbar-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; flex: 1 1 100%; padding: 0.65rem; background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius); }
-  .toolbar .toolbar-filters select { width: 100%; min-width: 0; }
-  .toolbar .toolbar-filters .filter summary { display: flex; width: 100%; }
-  .toolbar .toolbar-filters .filter summary::after { margin-left: auto; }
-  .toolbar-filters .filter-menu { min-width: 100%; }
-  /* Apply is what the open panel is for: the width of the panel, in the working accent */
-  .toolbar-filters button.btn[type='submit'] { grid-column: 1 / -1; background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  .toolbar-filters button.btn[type='submit']:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--accent-ink); }
+  /* A shelf's toolbar: the search box and Filters on one row, Columns and the view toggle on the next, the panel
+     under them while open — one column of filters, their choices a thumb's size, Read by and the sort side by side. */
+  .toolbar input[type='search'] { flex: 1 1 8rem; }
+  .toolbar-filters { grid-template-columns: minmax(0, 1fr); gap: 1rem; padding: 0.85rem 0.85rem 0.9rem; }
+  .filter-options label { min-height: 36px; font-size: 14px; }
+  .filter-options input[type='checkbox'] { width: 17px; height: 17px; }
+  .filter-fields { grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; }
+  .filter-actions button[type='submit'] { flex: 1 1 auto; }
   .toolbar-end { flex: 1 1 100%; margin-left: 0; }
   .toolbar-end .view-toggle { margin-left: auto; }
   /* a saved view's name and Save view: their own row, the field taking what's left of it */

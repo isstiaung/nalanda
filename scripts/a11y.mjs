@@ -1635,8 +1635,8 @@ async function main() {
         await axe(page, name, variant.name);
         // the keyboard walk once per width, in light: focus styles are the same tokens in both themes
         if (variant.scheme === 'light') await keyboard(page, name, variant.name);
-        // On a phone a shelf's filters fold behind its Filters button: pressed, as a person would, so the group is
-        // audited open below and its menus open from it one at a time, as at every other width.
+        // A shelf's filters fold behind its Filters button (§16 #103): pressed, as a person would, so the panel and its
+        // choices are audited open with the closed sections below, and walked from the keyboard.
         const filters = page.locator('.filters-toggle');
         if (await filters.isVisible().catch(() => false)) {
           await filters.click();

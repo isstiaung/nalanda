@@ -167,7 +167,7 @@ describe('the item table at 1280px', () => {
 });
 
 describe('games and records have no reading status', () => {
-  const statusFilter = (page: string) => page.includes('<summary>Status');
+  const statusFilter = (page: string) => page.includes('<legend>Status</legend>'); // the Filters panel's group (§16 #103)
 
   it('show no status pill in a table, on their page, or as a shelf filter — the data kept', async () => {
     const asha = await member('asha', 'admin');

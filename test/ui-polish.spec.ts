@@ -99,7 +99,7 @@ describe('primary and secondary buttons', () => {
     expect(await (await plain.get(`/items/${book.id}`, admin)).text()).toContain('<button type="submit">Record</button>');
     const shelfPage = await (await plain.get(`/libraries/${shelf.id}`, admin)).text();
     expect(shelfPage).toContain('<button type="submit">Rename</button>');
-    expect(shelfPage).toMatch(/<button type="submit" class="btn">\s*Apply/); // the toolbar's Apply stays secondary
+    expect(shelfPage).toContain('<button type="submit">Apply</button>'); // the Filters panel's one action (§16 #103)
     expect(await (await plain.get('/shares', admin)).text()).toContain('<button type="submit">Save</button>');
 
     const { a } = await connected();
@@ -393,37 +393,59 @@ describe('404 pages', () => {
   });
 });
 
-describe('a shelf on a phone', () => {
+describe('a shelf’s Filters', () => {
   const plain = instanceA(env);
 
-  it('folds its filters into one group the Filters button names, the search box outside it, the count of menus in use on it', async () => {
+  it('folds every filter into one panel the Filters button names, the search box, Columns and the view toggle outside it', async () => {
     const shelf = await createLibrary(env.DB, 'Books');
     await createItem(env.DB, { libraryId: shelf.id, title: 'Piranesi', copies: 1 });
     const cookie = await sessionCookie('member');
     const html = await (await plain.get(`/libraries/${shelf.id}?type=book&type=vinyl&owned=1`, cookie)).text();
     const toggle = html.indexOf('<button type="button" class="btn filters-toggle" aria-controls="shelf-filters" aria-expanded="false">');
-    const group = html.indexOf('<div class="toolbar-filters" id="shelf-filters">');
-    expect(toggle).toBeGreaterThan(html.indexOf('name="q"')); // after the search box, which stays in sight
-    expect(group).toBeGreaterThan(toggle);
-    // two menus in use (Type with two choices counts once), said on the button
-    expect(html.slice(toggle, group)).toContain('Filters<span class="filter-count">2</span></button>');
-    // every menu, the sort and Apply are inside the group; Columns and the view toggle after it
-    const inside = html.slice(group, html.indexOf('<span class="toolbar-end">'));
-    for (const part of ['name="type"', 'name="status"', 'name="owned"', 'name="format"', 'name="sort"', '>Apply</button>']) expect(inside).toContain(part);
-    expect(inside.endsWith('</div>')).toBe(true);
+    const end = html.indexOf('<span class="toolbar-end">');
+    const panel = html.indexOf('<div class="toolbar-filters" id="shelf-filters">');
+    // in the order the eye meets them: the search box, Filters, Columns and the toggle, then the panel under that row
+    expect(toggle).toBeGreaterThan(html.indexOf('name="q"'));
+    expect(end).toBeGreaterThan(toggle);
+    expect(panel).toBeGreaterThan(end);
+    // two filters in use (Type with two choices counts once), said on the button
+    expect(html.slice(toggle, end)).toContain('Filters<span class="filter-count">2</span></button>');
+    // every filter is a fieldset of choices in the panel, then the sort, Apply and Clear; nothing named outside it but the search
+    const inside = html.slice(panel, html.indexOf('</form>', panel));
+    for (const part of ['<legend>Type</legend>', '<legend>Status</legend>', '<legend>Holding</legend>', '<legend>Format</legend>', 'name="sort"', '<button type="submit">Apply</button>', '>Clear filters</a>'])
+      expect(inside).toContain(part);
+    expect(inside).toMatch(/name="type" value="book" checked/);
+    expect(inside).toMatch(/name="owned" value="1" checked/);
+    expect(html.slice(html.indexOf('class="toolbar"'), panel).match(/ name="/g)).toHaveLength(1); // q alone
+    expect(html).not.toContain('<details class="filter"><summary>Type'); // no dropdowns left inside a dropdown
 
     const bare = await (await plain.get(`/libraries/${shelf.id}`, cookie)).text();
     expect(bare).toContain('aria-expanded="false">Filters</button>'); // nothing in use: no count
+    expect(bare).not.toContain('Clear filters'); // and nothing to clear
   });
 
-  it('marks <html class="js"> before paint, so the group folds only where app.js can open it', async () => {
+  it('offers what could match: the types the shelf holds and their forms, plus anything already ticked', async () => {
+    const shelf = await createLibrary(env.DB, 'Books');
+    await createItem(env.DB, { libraryId: shelf.id, title: 'Piranesi', copies: 1 });
+    const cookie = await sessionCookie('member');
+    const books = await (await plain.get(`/libraries/${shelf.id}`, cookie)).text();
+    expect(books).not.toContain('<legend>Type</legend>'); // one type here: nothing to choose between
+    expect(books).toContain('name="format" value="paperback"');
+    expect(books).not.toContain('name="format" value="cassette"');
+    // a choice already made stays offered, so it can be unticked (negative control for the narrowing)
+    const ticked = await (await plain.get(`/libraries/${shelf.id}?format=cassette&type=vinyl`, cookie)).text();
+    expect(ticked).toMatch(/name="format" value="cassette" checked/);
+    expect(ticked).toMatch(/name="type" value="vinyl" checked/);
+  });
+
+  it('marks <html class="js"> before paint, so the panel folds only where app.js can open it', async () => {
     const html = await (await plain.get('/', await sessionCookie('member'))).text();
     const head = html.slice(0, html.indexOf('</head>'));
     expect(head).toContain("document.documentElement.classList.add('js');");
     const js = await (await env.ASSETS.fetch('http://assets/app.js')).text();
     expect(js).toContain(".filters-toggle[aria-controls]");
     const css = await (await env.ASSETS.fetch('http://assets/app.css')).text();
-    // every rule that folds the group needs the script that unfolds it
+    // every rule that folds the panel needs the script that unfolds it
     const folding = [...css.matchAll(/([^{}]*)\{[^}]*display:\s*none/g)].map((m) => (m[1] ?? '').trim()).filter((sel) => sel.includes('toolbar-filters'));
     expect(folding).toEqual(['html.js .toolbar-filters:not(.open)']);
   });

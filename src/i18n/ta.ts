@@ -267,6 +267,7 @@ export const ta: Pack = {
     'sort.completed': 'முடித்த தேதி',
     'shelf.apply': 'பொருத்து',
     'shelf.filters': 'வடிகட்டிகள்',
+    'shelf.clear_filters': 'வடிகட்டிகளை அழி',
     'shelf.table': 'அட்டவணை',
     'shelf.covers': 'அட்டைகள்',
     'columns.label': 'நெடுவரிசைகள்',

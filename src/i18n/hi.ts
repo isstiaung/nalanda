@@ -267,6 +267,7 @@ export const hi: Pack = {
     'sort.completed': 'पूरा होने की तिथि',
     'shelf.apply': 'लागू करें',
     'shelf.filters': 'फ़िल्टर',
+    'shelf.clear_filters': 'फ़िल्टर हटाएँ',
     'shelf.table': 'तालिका',
     'shelf.covers': 'कवर',
     'columns.label': 'कॉलम',

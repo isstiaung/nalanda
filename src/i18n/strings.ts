@@ -270,6 +270,7 @@ export const en = {
   'sort.completed': 'Date completed',
   'shelf.apply': 'Apply',
   'shelf.filters': 'Filters',
+  'shelf.clear_filters': 'Clear filters',
   'shelf.table': 'Table',
   'shelf.covers': 'Covers',
   'columns.label': 'Columns',

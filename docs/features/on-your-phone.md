@@ -40,7 +40,7 @@ signed-in page tells the browser not to cache it either, so Back after a logout 
 
 The sidebar folds into a drawer, and the bar above every page carries **Search** and **Add items**.
 Controls are thumb-sized (40px, with 16px text, so the phone never zooms into a field). A shelf opens
-on its search box and one **Filters** button, which unfolds the menus; its items are a list, each
+on its search box and one **Filters** button, which opens every filter's choices; its items are a list, each
 with its cover, title, creators and what sets it apart (rating, status, Not owned). An item's page
 opens on its cover beside its title, tags and **Edit**; **Change cover** is folded away, and
 **Delete** stays at the foot. Tables you act on — Shared links, Members, Loans, Borrowed — become

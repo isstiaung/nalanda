@@ -39,21 +39,18 @@ import {
 import { BulkBar, BulkNotice } from '../views/bulk';
 import { Fill, mediaLabel, statusLabel, useI18n, visibilityLabel } from '../views/i18n';
 import { page, todayOf } from '../views/layout';
-import { ALL_FORMATS } from '../lib/formats';
+import { ALL_FORMATS, FORMATS } from '../lib/formats';
 
-/** A toolbar dropdown of any-of checkboxes — one per filter dimension. */
-const FilterMenu: FC<{
+/** One of a shelf's filters inside its Filters panel: its name, and its any-of checkboxes in sight as a row of choices. */
+const FilterGroup: FC<{
   label: string;
   name: string;
   options: readonly (readonly [string, string])[];
   selected: readonly string[];
 }> = ({ label, name, options, selected }) => (
-  <details class="filter">
-    <summary>
-      {label}
-      {selected.length ? <span class="filter-count">{selected.length}</span> : null}
-    </summary>
-    <div class="filter-menu">
+  <fieldset class="filter-group">
+    <legend>{label}</legend>
+    <div class="filter-options">
       {options.map(([value, text]) => (
         <label>
           <input type="checkbox" name={name} value={value} checked={selected.includes(value)} />
@@ -61,7 +58,7 @@ const FilterMenu: FC<{
         </label>
       ))}
     </div>
-  </details>
+  </fieldset>
 );
 
 /**
@@ -316,8 +313,17 @@ libraries.get('/libraries/:id', async (c) => {
   const showStatus = statuses.length > 0 || (mediaTypes.length ? mediaTypes : typesHere).some((t) => !isPlayable(t));
   // everything on the shelf, whatever the filters: what deleting it takes with it
   const shelfCount = lib.itemCount;
-  // how many of the folded menus are in use, for the phone's Filters button: one a dimension, as each menu counts its own
+  // how many filters are in use, for the Filters button: one a dimension, however many of its choices are ticked
   const filterCount = [mediaTypes, statuses, ownedSel, formatsSel].filter((s) => s.length > 0).length + (readBy ? 1 : 0);
+  // The panel offers what could match: the types this shelf holds, and the forms those types come in — a shelf of books
+  // isn't offered Cassette. Whatever is already ticked stays offered, so it can be unticked. A shelf whose totals say
+  // nothing (none read) is offered everything.
+  const typeChoices = MEDIA_TYPES.filter((type) => !typesHere.length || typesHere.includes(type) || mediaTypes.includes(type));
+  const formatTypes = mediaTypes.length ? mediaTypes : typesHere;
+  // in each type's own order (a game's Boxed before its Digital), once each, the ticked ones after
+  const formatChoices = formatTypes.length
+    ? [...new Map([...formatTypes.flatMap((type) => FORMATS[type]), ...ALL_FORMATS.filter((f) => formatsSel.includes(f.code))].map((f) => [f.code, f])).values()]
+    : ALL_FORMATS;
 
   const query = shelfQueryString(q);
   const makeHref = (p: number, v = view) => {
@@ -375,58 +381,13 @@ libraries.get('/libraries/:id', async (c) => {
             placeholder={t('shelf.filter_placeholder')}
             aria-label={t('shelf.filter_label')}
           />
-          {/* On a phone the filters fold behind this button, so the shelf starts under one row of controls, not three.
-              CSS shows it only there and only with script (the <head> marks <html class="js"> before paint); app.js
-              opens and closes the group. Without script it stays hidden and every filter stays in the row. */}
+          {/* Every filter folds behind this one button, so a shelf opens under one row of controls: CSS shows it only with
+              script (the <head> marks <html class="js"> before paint), and app.js opens and closes the panel. Without
+              script there is no button, and the panel is simply open. */}
           <button type="button" class="btn filters-toggle" aria-controls="shelf-filters" aria-expanded="false">
             {t('shelf.filters')}
             {filterCount ? <span class="filter-count">{filterCount}</span> : null}
           </button>
-          {/* display: contents beside a wide screen's search box: the menus stay items of the toolbar's own row */}
-          <div class="toolbar-filters" id="shelf-filters">
-          <FilterMenu label={t('filter.type')} name="type" options={MEDIA_TYPES.map((type) => [type, mediaLabel(i18n, type)] as const)} selected={mediaTypes} />
-          {showStatus ? (
-            <FilterMenu
-              label={t('filter.status')}
-              name="status"
-              options={ITEM_STATUSES.map((st) => [st, statusLabel(i18n, st)] as const)}
-              selected={statuses}
-            />
-          ) : null}
-          <FilterMenu
-            label={t('filter.holding')}
-            name="owned"
-            options={[
-              ['1', t('filter.owned')],
-              ['0', t('filter.logged')],
-              ['b', t('filter.borrowed')],
-            ]}
-            selected={ownedSel}
-          />
-          <FilterMenu label={t('filter.format')} name="format" options={ALL_FORMATS.map((f) => [f.code, f.label] as const)} selected={formatsSel} />
-          {/* "Read by" is reading too: not for a view of games and records only, unless it is already applied */}
-          {(people.length > 1 && showStatus) || reader ? <ReadByMenu value={readBy} me={user.id} people={people} /> : null}
-          <select name="sort" aria-label={t('sort.label')}>
-            <option value="added" selected={sort === 'added'}>
-              {t('sort.added')}
-            </option>
-            <option value="title" selected={sort === 'title'}>
-              {t('sort.title')}
-            </option>
-            <option value="author" selected={sort === 'author'}>
-              {t('sort.author')}
-            </option>
-            <option value="rating" selected={sort === 'rating'}>
-              {t('sort.rating')}
-            </option>
-            <option value="completed" selected={sort === 'completed'}>
-              {t('sort.completed')}
-            </option>
-          </select>
-          <button type="submit" class="btn">
-            {t('shelf.apply')}
-          </button>
-          </div>
           {/* Columns and the view toggle stay together at the row's end, and wrap as one */}
           <span class="toolbar-end">
             {/* Display-only, and only meaningful in the table: its checkboxes carry no
@@ -446,6 +407,66 @@ libraries.get('/libraries/:id', async (c) => {
               </a>
             </span>
           </span>
+          {/* The panel, under the toolbar's row and after its last control, so Tab meets it where the eye does: each
+              filter a group of choices in sight, then Read by and the sort, then Apply — and Clear, while any is in use. */}
+          <div class="toolbar-filters" id="shelf-filters">
+            {typeChoices.length > 1 || mediaTypes.length ? (
+              <FilterGroup label={t('filter.type')} name="type" options={typeChoices.map((type) => [type, mediaLabel(i18n, type)] as const)} selected={mediaTypes} />
+            ) : null}
+            {showStatus ? (
+              <FilterGroup label={t('filter.status')} name="status" options={ITEM_STATUSES.map((st) => [st, statusLabel(i18n, st)] as const)} selected={statuses} />
+            ) : null}
+            <FilterGroup
+              label={t('filter.holding')}
+              name="owned"
+              options={[
+                ['1', t('filter.owned')],
+                ['0', t('filter.logged')],
+                ['b', t('filter.borrowed')],
+              ]}
+              selected={ownedSel}
+            />
+            {formatChoices.length ? (
+              <FilterGroup label={t('filter.format')} name="format" options={formatChoices.map((f) => [f.code, f.label] as const)} selected={formatsSel} />
+            ) : null}
+            <div class="filter-fields">
+              {/* "Read by" is reading too: not for a view of games and records only, unless it is already applied */}
+              {(people.length > 1 && showStatus) || reader ? (
+                <label class="filter-field">
+                  <span>{t('readby.label')}</span>
+                  <ReadByMenu value={readBy} me={user.id} people={people} />
+                </label>
+              ) : null}
+              <label class="filter-field">
+                <span>{t('sort.label')}</span>
+                <select name="sort" aria-label={t('sort.label')}>
+                  <option value="added" selected={sort === 'added'}>
+                    {t('sort.added')}
+                  </option>
+                  <option value="title" selected={sort === 'title'}>
+                    {t('sort.title')}
+                  </option>
+                  <option value="author" selected={sort === 'author'}>
+                    {t('sort.author')}
+                  </option>
+                  <option value="rating" selected={sort === 'rating'}>
+                    {t('sort.rating')}
+                  </option>
+                  <option value="completed" selected={sort === 'completed'}>
+                    {t('sort.completed')}
+                  </option>
+                </select>
+              </label>
+            </div>
+            <div class="filter-actions">
+              <button type="submit">{t('shelf.apply')}</button>
+              {filterCount || name ? (
+                <a href={`/libraries/${id}${view !== 'table' ? `?view=${view}` : ''}`} class="btn btn-quiet">
+                  {t('shelf.clear_filters')}
+                </a>
+              ) : null}
+            </div>
+          </div>
           </form>
         </>
       )}
