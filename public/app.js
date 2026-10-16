@@ -1,4 +1,4 @@
-// Small vanilla helpers: add-page tabs, mobile sidebar, and table column choices — and, first, the installed app's
+// Small vanilla helpers: add-page tabs, mobile sidebar, a shelf's Filters on a phone, and table column choices — and, first, the installed app's
 // service worker and whose offline scans this device holds.
 
 // ── the day it is here (ARCH.md §16 #69) ──

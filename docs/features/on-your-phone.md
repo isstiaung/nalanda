@@ -38,8 +38,13 @@ signed-in page tells the browser not to cache it either, so Back after a logout 
 
 ## On a small screen
 
-The sidebar folds into a drawer; tables you act on — Shared links, Members, Loans, Borrowed — become
-cards; nothing scrolls sideways. Every page meets WCAG 2.2 AA in both themes at phone width
+The sidebar folds into a drawer, and the bar above every page carries **Search** and **Add items**.
+Controls are thumb-sized (40px, with 16px text, so the phone never zooms into a field). A shelf opens
+on its search box and one **Filters** button, which unfolds the menus; its items are a list, each
+with its cover, title, creators and what sets it apart (rating, status, Not owned). An item's page
+opens on its cover beside its title, tags and **Edit**; **Change cover** is folded away, and
+**Delete** stays at the foot. Tables you act on — Shared links, Members, Loans, Borrowed — become
+cards; nothing scrolls sideways ([#103](../decisions/103-a-phone-sized-pass.md)). Every page meets WCAG 2.2 AA in both themes at phone width
 ([ARCH.md §18](../../ARCH.md)). Scanner trouble — the camera never opening, a decode that never
 comes, an old icon — is in
 [runbooks/troubleshooting.md → Scanner](../../runbooks/troubleshooting.md#scanner).
