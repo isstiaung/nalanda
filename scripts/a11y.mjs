@@ -995,9 +995,22 @@ async function interactions(context, ids, variant) {
 
     // the Holding toggle, on a shelf's table
     await step('Shelf → Holding toggle', async () => {
-      await open(page, `/libraries/${ids.shelves.books}`);
       const toggle = `button[hx-post="/items/${ids.book}/mark-not-owned"]`;
       const back = `button[hx-post="/items/${ids.book}/mark-owned"]`;
+      if (variant.width < 641) {
+        // A phone's list leaves an owned item's toggle out (#103), so the book goes to Not owned from its own page, and
+        // comes back from the list — where a not-owned item's toggle shows, and stays in sight once it says Owned.
+        await open(page, `/items/${ids.book}`);
+        await htmxDone(page, back, () => page.locator(toggle).press('Enter'));
+        await axe(page, where('Item → Holding toggled to Not owned'), variant.name);
+        await focusKept(page, where('Item → Holding toggle'));
+        await open(page, `/libraries/${ids.shelves.books}`);
+        await htmxDone(page, toggle, () => page.locator(back).press('Enter'));
+        await axe(page, where('Shelf → Holding toggled back to Owned'), variant.name);
+        await focusKept(page, where('Shelf → Holding toggle'));
+        return;
+      }
+      await open(page, `/libraries/${ids.shelves.books}`);
       await htmxDone(page, back, () => page.locator(toggle).press('Enter'));
       await axe(page, where('Shelf → Holding toggled to Not owned'), variant.name);
       await focusKept(page, where('Shelf → Holding toggle'));

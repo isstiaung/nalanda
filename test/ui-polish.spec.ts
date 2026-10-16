@@ -458,6 +458,29 @@ describe('a shelf’s Filters', () => {
     expect(html).toContain('<th class="col-title">Title</th>');
     expect(html).toContain('<td class="col-title"><span class="cell-title">');
   });
+
+  it('leaves out an owned item’s toggle as rendered, never by what a tap swaps in later', async () => {
+    const shelf = await createLibrary(env.DB, 'Books');
+    const owned = await createItem(env.DB, { libraryId: shelf.id, title: 'Owned', copies: 1 });
+    const logged = await createItem(env.DB, { libraryId: shelf.id, title: 'Logged', copies: 0 });
+    const two = await createItem(env.DB, { libraryId: shelf.id, title: 'Two copies', copies: 2 });
+    const html = await (await plain.get(`/libraries/${shelf.id}`, await sessionCookie('member'))).text();
+    const cell = (id: number) => html.slice(html.lastIndexOf('<td class="col-holding', html.indexOf(`id="holding-${id}"`)), html.indexOf(`id="holding-${id}"`));
+    expect(cell(owned.id)).toContain('<td class="col-holding owned-only">');
+    expect(cell(logged.id)).toContain('<td class="col-holding">'); // Not owned: it says something, and is a toggle to keep
+    expect(html).toContain('<td class="col-holding"><span class="pill" title="'); // two copies: a count, kept
+    expect(two.copies).toBe(2);
+    const css = await (await env.ASSETS.fetch('http://assets/app.css')).text();
+    expect(css).toContain('.item-table td.col-holding.owned-only { display: none; }');
+    expect(css).not.toMatch(/col-holding:has\(/); // a live :has() hid the toggle a tap had just swapped in, focus and all
+  });
+
+  it('keeps every column’s header for a screen reader in the phone list, moved off screen rather than removed', async () => {
+    const css = await (await env.ASSETS.fetch('http://assets/app.css')).text();
+    expect(css).toContain('.data-table.item-table thead th:not(.col-pick, .col-title) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%);');
+    const hiding = [...css.matchAll(/([^{}]*)\{[^}]*display:\s*none/g)].map((m) => (m[1] ?? '').trim()).filter((sel) => /item-table/.test(sel) && /\bth\b/.test(sel));
+    expect(hiding).toEqual([]);
+  });
 });
 
 describe('an item page’s head', () => {
@@ -469,7 +492,11 @@ describe('an item page’s head', () => {
     const html = await (await plain.get(`/items/${item.id}`, await sessionCookie('admin'))).text();
     const head = html.slice(html.indexOf('<header class="item-head">'), html.indexOf('</header>', html.indexOf('<header class="item-head">')));
     expect(head).toContain('<h1>Piranesi</h1>');
-    expect(head).toContain(`<p class="item-head-actions"><a href="/items/${item.id}/edit" class="btn">Edit</a></p>`);
+    // Edit straight after the title, where it is drawn; the head first in the article, before the cover and its form,
+    // so Tab and a screen reader meet the title first
+    expect(head).toContain(`</hgroup><p class="item-head-actions"><a href="/items/${item.id}/edit" class="btn">Edit</a></p>`);
+    expect(html).toContain('<article class="item-detail"><header class="item-head">');
+    expect(html.indexOf('<div class="item-detail-cover">')).toBeGreaterThan(html.indexOf('</header>', html.indexOf('<header class="item-head">')));
     expect(html.match(new RegExp(`href="/items/${item.id}/edit"`, 'g'))).toHaveLength(1);
     const foot = html.slice(html.indexOf('<div class="actions">'));
     expect(foot).toContain(`action="/items/${item.id}/delete"`);

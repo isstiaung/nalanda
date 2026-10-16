@@ -800,8 +800,13 @@ html.js .toolbar-filters:not(.open) { display: none; }
 
 /* ── item detail ──────────────────────────────────────────────────────────── */
 
-.item-detail { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 1.75rem; align-items: start; }
+.item-detail { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 0 1.75rem; align-items: start; }
 .item-detail-cover { position: sticky; top: 1.5rem; }
+/* The item page's head comes first in the article, so Tab and a screen reader meet the title first (§16 #103); the
+   grid draws it beside the cover, above the body. A share page's article has no head: its body takes the first row. */
+.item-detail > .item-head { grid-column: 2; grid-row: 1; }
+.item-head ~ .item-detail-cover { grid-column: 1; grid-row: 1 / span 2; }
+.item-head ~ .item-detail-body { grid-column: 2; }
 .item-detail-cover .cover-img, .item-detail-cover .cover-fallback { border-radius: var(--radius); box-shadow: var(--shadow), 0 0 0 1px var(--line); width: 100%; aspect-ratio: 2 / 3; font-size: 3.5rem; background: var(--surface-2); }
 /* the item's head: title, creators, tags and want down the left, Edit at the top right — as a page's head sets its
    actions beside its title */
@@ -809,9 +814,10 @@ html.js .toolbar-filters:not(.open) { display: none; }
 .item-head > * { grid-column: 1; }
 .item-head > .item-head-actions { grid-column: 2; grid-row: 1; margin: 0.2rem 0 0; }
 .item-tags { margin: 0.1rem 0 0.4rem; }
-.item-detail-body hgroup { margin-bottom: 0.5rem; }
-.item-detail-body hgroup h1 { font-size: 30px; line-height: 1.15; margin-bottom: 0.35rem; overflow-wrap: break-word; }
-.item-detail-body hgroup p { color: var(--ink-2); font-size: 14.5px; margin: 0.15rem 0 0; }
+/* the title, in the item page's head or a share page's body */
+:is(.item-head, .item-detail-body) hgroup { margin-bottom: 0.5rem; }
+:is(.item-head, .item-detail-body) hgroup h1 { font-size: 30px; line-height: 1.15; margin-bottom: 0.35rem; overflow-wrap: break-word; }
+:is(.item-head, .item-detail-body) hgroup p { color: var(--ink-2); font-size: 14.5px; margin: 0.15rem 0 0; }
 
 .props { display: grid; grid-template-columns: 130px minmax(0, 1fr); border-top: 1px solid var(--line); margin: 1rem 0; }
 .props dt {
@@ -1108,8 +1114,8 @@ html.js .toolbar-filters:not(.open) { display: none; }
   .item-head, .item-detail-body > hgroup { grid-column: 2; grid-row: 1; display: block; min-width: 0; }
   .item-detail-body > :not(.item-head, hgroup) { grid-column: 1 / -1; }
   .item-detail-body > hgroup + * { margin-top: 0.75rem; }
-  .item-detail-body hgroup h1 { font-size: 26px; }
-  .item-head > .item-head-actions { margin: 0.6rem 0 0; }
+  :is(.item-head, .item-detail-body) hgroup h1 { font-size: 26px; }
+  .item-head > .item-head-actions { margin: 0 0 0.5rem; }
   .data-table .hide-sm { display: none; }
   .stat-row { grid-template-columns: repeat(2, 1fr); }
   /* two-column reflow for any stat count (the not-owned stat is conditional) */
@@ -1763,9 +1769,11 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
   .item-table.selectable { --pick-w: 34px; }
   .data-table.item-table table, .item-table thead, .item-table tbody { display: block; }
   .item-table thead tr { display: flex; align-items: center; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--line); }
-  .data-table.item-table thead th { display: none; padding: 0; border: none; }
-  .data-table.item-table thead th.col-pick { display: block; width: var(--pick-w); }
-  .data-table.item-table thead th.col-title { display: block; }
+  /* the header row draws select-all and Title; the other columns' names are moved off screen, not removed, so a
+     screen reader still says which column a cell is in (a column hidden by Columns or the phone stays hidden) */
+  .data-table.item-table thead th { padding: 0; border: none; }
+  .data-table.item-table thead th:not(.col-pick, .col-title) { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .data-table.item-table thead th.col-pick { width: var(--pick-w); }
   .item-table tbody tr {
     position: relative;
     display: flex;
@@ -1789,7 +1797,7 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
   .item-table .cell-title .t small { font-size: 13px; }
   /* a list line says only what sets the item apart: no "—" for a rating never given, no Owned for what is owned */
   .item-table td.col-rating:not(:has(.rating)) { display: none; }
-  .item-table td.col-holding:has(> button.pill.done:only-child) { display: none; }
+  .item-table td.col-holding.owned-only { display: none; } /* marked as rendered: a toggle a tap swaps in stays in sight */
   .item-table tbody tr:hover > td:first-child, .item-table tbody tr:has(.bulk-pick:checked) > td:first-child { box-shadow: none; }
   .item-table tbody tr:hover { box-shadow: inset 2px 0 0 var(--accent); }
   .item-table tbody tr:has(.bulk-pick:checked) { box-shadow: inset 3px 0 0 var(--accent); }
@@ -1797,8 +1805,8 @@ a.want-note { text-decoration: underline; text-underline-offset: 2px; }
   /* the item page's head: a phone's narrower cover beside the title (the layout is the 880px rules') */
   .item-detail { grid-template-columns: 104px minmax(0, 1fr); gap: 0 1rem; }
   .item-detail-cover > :not(.cover-photo) { font-size: 2.25rem; }
-  .item-detail-body hgroup h1 { font-size: 22px; }
-  .item-detail-body hgroup p { font-size: 14px; }
+  :is(.item-head, .item-detail-body) hgroup h1 { font-size: 22px; }
+  :is(.item-head, .item-detail-body) hgroup p { font-size: 14px; }
 
   /* covers three to a row, so the Overview's latest twenty aren't a page of posters */
   .item-grid { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 1rem 0.75rem; }

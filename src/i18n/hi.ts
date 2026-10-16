@@ -172,6 +172,8 @@ export const hi: Pack = {
     'pill.mark_owned': 'अपने पास चिह्नित करें',
     'pill.mark_not_owned': 'अपने पास नहीं चिह्नित करें',
     'cover.alt': '{title} का कवर',
+    'cover.change': 'कवर बदलें',
+    'cover.add': 'कवर जोड़ें',
     'visibility.private': 'निजी',
     'visibility.shared': 'साझा',
     'visibility.shared_links': 'साझा · {count} लिंक',

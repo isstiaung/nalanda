@@ -172,6 +172,8 @@ export const ta: Pack = {
     'pill.mark_owned': 'கைவசம் எனக் குறி',
     'pill.mark_not_owned': 'கைவசம் இல்லை எனக் குறி',
     'cover.alt': '{title} அட்டை',
+    'cover.change': 'அட்டையை மாற்று',
+    'cover.add': 'அட்டையைச் சேர்',
     'visibility.private': 'தனிப்பட்டது',
     'visibility.shared': 'பகிரப்பட்டது',
     'visibility.shared_links': 'பகிரப்பட்டது · {count} இணைப்புகள்',

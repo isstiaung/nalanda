@@ -834,35 +834,35 @@ async function itemPage(c: Context<AppEnv>, id: number, reviewError?: string, li
     c,
     item.title,
     <article class="item-detail">
+      {/* The item's head: what it is, Edit, its tags and want — first in the article, so the title is what Tab and a
+          screen reader meet first; the grid draws it beside the cover at every width (app.css, §16 #103). */}
+      <header class="item-head">
+        <hgroup>
+          <h1>{item.title}</h1>
+          {item.originalTitle ? <p class="original-title muted">{item.originalTitle}</p> : null}
+          {item.creators ? <CreatorLinks creators={item.creators} /> : null}
+        </hgroup>
+        <p class="item-head-actions">
+          <a href={`/items/${item.id}/edit`} class="btn">
+            {t('item.edit')}
+          </a>
+        </p>
+        {tags.length ? (
+          <p class="item-tags">
+            {tags.map((t) => (
+              <a href={`/tags/${encodeURIComponent(t)}`} class="tag">
+                {t}
+              </a>
+            ))}
+          </p>
+        ) : null}
+        <WantBar item={item} wanters={log.want.wanters} viewer={viewer} />
+      </header>
       <div class="item-detail-cover">
         <Cover coverKey={item.coverKey} title={item.title} mediaType={item.mediaType} />
         <CoverPhotoForm itemId={item.id} hasCover={!!item.coverKey} error={c.req.query('cover') === 'refused'} />
       </div>
       <div class="item-detail-body">
-        {/* the item's head: what it is, its tags and want, and Edit within reach — beside the cover on a phone */}
-        <header class="item-head">
-          <hgroup>
-            <h1>{item.title}</h1>
-            {item.originalTitle ? <p class="original-title muted">{item.originalTitle}</p> : null}
-            {item.creators ? <CreatorLinks creators={item.creators} /> : null}
-          </hgroup>
-          {tags.length ? (
-            <p class="item-tags">
-              {tags.map((t) => (
-                <a href={`/tags/${encodeURIComponent(t)}`} class="tag">
-                  {t}
-                </a>
-              ))}
-            </p>
-          ) : null}
-          <WantBar item={item} wanters={log.want.wanters} viewer={viewer} />
-          <p class="item-head-actions">
-            <a href={`/items/${item.id}/edit`} class="btn">
-              {t('item.edit')}
-            </a>
-          </p>
-        </header>
-
         <dl class="props">
           <dt>{t('item.accession')}</dt>
           <dd class="mono">{accNo(item.id)}</dd>

@@ -173,6 +173,8 @@ export const en = {
   'pill.mark_owned': 'Mark as owned',
   'pill.mark_not_owned': 'Mark as not owned',
   'cover.alt': 'Cover of {title}',
+  'cover.change': 'Change cover',
+  'cover.add': 'Add a cover',
   'visibility.private': 'Private',
   'visibility.shared': 'Shared',
   'visibility.shared_links': 'Shared · {count} links',

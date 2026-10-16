@@ -1266,7 +1266,9 @@ export const ItemTable: FC<{
               <StatusPills item={item} />{' '}
               {onLoanIds?.has(item.id) ? <span class="pill lent">{t('pill.lent')}</span> : null}
             </td>
-            <td class="col-holding">
+            {/* owned-only: a phone's list leaves this cell out (§16 #103) — decided here, as rendered, so a toggle
+                swapped in by a tap stays in sight with focus on it */}
+            <td class={item.copies === 1 ? 'col-holding owned-only' : 'col-holding'}>
               <HoldingPill item={item} />
               {item.copies === 0 && wantedIds?.has(item.id) ? (
                 <>

@@ -1,6 +1,7 @@
 // A cover from the camera (ARCH.md §16 #73): the form under an item's cover, and the field on the item form. The
 // browser shrinks the picture before it's sent (public/app.js, data-resize); the Worker stores the bytes as they come.
 import type { FC } from 'hono/jsx';
+import { useI18n } from './i18n';
 
 export const PHOTO_MAX_MB = 4;
 
@@ -26,7 +27,7 @@ export const PHOTO_REFUSED = `That file isn’t a picture Nalanda can keep: a JP
  */
 export const CoverPhotoForm: FC<{ itemId: number; hasCover: boolean; error?: boolean }> = ({ itemId, hasCover, error }) => (
   <details class="cover-photo" open={error}>
-    <summary>{hasCover ? 'Change cover' : 'Add a cover'}</summary>
+    <summary>{useI18n().t(hasCover ? 'cover.change' : 'cover.add')}</summary>
     <form method="post" action={`/items/${itemId}/cover`} enctype="multipart/form-data">
       {error ? (
         <p class="error" role="alert" id="cover-photo-error">
