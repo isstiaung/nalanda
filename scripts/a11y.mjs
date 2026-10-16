@@ -552,6 +552,7 @@ function pageList(ids) {
   const s = ids.shelves;
   const list = [
     ['Overview', '/'],
+    ['Now reading & playing', '/now'], // a read in progress with pages, plays (§16 #104)
     ['Shelf: books, table', `/libraries/${s.books}`],
     ['Shelf: books, covers', `/libraries/${s.books}?view=grid`],
     ['Shelf: games, table', `/libraries/${s.games}`],
@@ -1576,6 +1577,7 @@ async function main() {
   await post(member, `/items/${ids.book}/want`, { want: '1' });
   const memberPages = [
     ['Member: overview', '/'],
+    ['Member: now reading & playing', '/now'], // their own read takes a page; another's doesn't
     ['Member: item, book being read', `/items/${ids.reading}`],
     ['Member: item, book read twice', `/items/${ids.reread}`],
     ['Member: shelf', `/libraries/${ids.shelves.books}`],

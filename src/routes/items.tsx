@@ -1195,8 +1195,14 @@ items.get('/items/:id/edit', async (c) => {
  * already saved when this reads it back, so a failed read-back reloads the page rather than failing the request:
  * a retry would record the page, or add the read, twice (§16 #39).
  */
-async function readingResponse(c: Context<AppEnv>, id: number, error?: string) {
-  if (!c.req.header('HX-Request')) return c.redirect(`/items/${id}`);
+/**
+ * Where a page or a play posted without htmx lands: the Now page when it came from there (`back=now`, §16 #104) —
+ * saying so when it was refused, since the reason is the item's to show — else the item's page.
+ */
+const landing = (id: number, back: unknown, error?: string) => (back === 'now' ? (error ? '/now?refused=1' : '/now') : `/items/${id}`);
+
+async function readingResponse(c: Context<AppEnv>, id: number, error?: string, back?: unknown) {
+  if (!c.req.header('HX-Request')) return c.redirect(landing(id, back, error));
   let item: Item | null;
   let log: Awaited<ReturnType<typeof readingLog>>;
   let people: Person[];
@@ -1255,7 +1261,8 @@ items.post('/items/:id/progress', async (c) => {
   if (!item) return c.notFound();
   if (item.mediaType !== 'book') return c.text('Reading progress is for books', 400);
 
-  const raw = ((await c.req.parseBody())['page'] ?? '').toString().trim();
+  const body = await c.req.parseBody();
+  const raw = (body['page'] ?? '').toString().trim();
   const page = Number(raw);
   const invalid = !/^\d+$/.test(raw) || !Number.isSafeInteger(page) || page < 1 || page > MAX_PROGRESS_PAGE;
   // a finished or stopped book has no open read to record into: reading it again starts with "Read again"; a read
@@ -1272,6 +1279,7 @@ items.post('/items/:id/progress', async (c) => {
         : !recorded
           ? 'This book isn’t being read now. Start a new read first, then record its pages.'
           : undefined,
+    body['back'],
   );
 });
 
@@ -1512,8 +1520,8 @@ items.post('/items/:id/reviews/:reviewId/move', async (c) => {
  * already saved, so a failed read-back reloads the page rather than failing the request — a retry would log the play
  * twice.
  */
-async function playsResponse(c: Context<AppEnv>, id: number, error?: string) {
-  if (!c.req.header('HX-Request')) return c.redirect(`/items/${id}`);
+async function playsResponse(c: Context<AppEnv>, id: number, error?: string, back?: unknown) {
+  if (!c.req.header('HX-Request')) return c.redirect(landing(id, back, error));
   let item: Item | null;
   let plays: Awaited<ReturnType<typeof playLog>>;
   let people: Person[];
@@ -1532,11 +1540,12 @@ items.post('/items/:id/plays', async (c) => {
   const item = await getItem(c.env.DB, Number(c.req.param('id')));
   if (!item) return c.notFound();
   if (!isPlayable(item.mediaType)) return c.text('Plays are for board games and records. A book has reads.', 400);
-  const playedOn = formDate((await c.req.parseBody())['date']) ?? todayOf(c);
+  const body = await c.req.parseBody();
+  const playedOn = formDate(body['date']) ?? todayOf(c);
   const problem = playDateProblem(playedOn);
-  if (problem) return playsResponse(c, item.id, problem);
+  if (problem) return playsResponse(c, item.id, problem, body['back']);
   const logged = await logPlay(c.env.DB, item.id, playedOn, c.get('user').id);
-  return playsResponse(c, item.id, logged ? undefined : 'This has as many plays as it can hold.');
+  return playsResponse(c, item.id, logged ? undefined : 'This has as many plays as it can hold.', body['back']);
 });
 
 /** Every play of an item, a page at a time — where a play older than the item page lists can be removed. */

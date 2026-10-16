@@ -3,6 +3,13 @@
 <!-- Each pull request adds its entries here (### Added, ### Changed, ### Fixed, and ### Upgrading
 for what a host must do; link runbooks as ../runbooks/…); a release commit renames this file to vX.Y.Z.md and starts a fresh one (ARCH.md §16 #42). -->
 
+### Added
+
+- **Now reading & playing**, pinned in the sidebar under Overview (ARCH.md §16 #104): every book the
+  household is reading, your own first, with who is reading it and how far they've got, and the board
+  games and records played in the last 60 days. Record tonight's page, or press **Played today**, right
+  there.
+
 ### Changed
 
 - **On a phone, Nalanda is built for a thumb** (ARCH.md §16 #103). Controls are 40px tall with 16px

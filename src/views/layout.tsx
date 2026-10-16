@@ -295,6 +295,9 @@ const Sidebar: FC<{
         {/* pinned: always in view, in no section */}
         <div class="nav-pinned">
           <NavLink href="/" label={t('nav.overview')} path={path} exact />
+          {/* what's open now — the books being read, the games and records played lately (§16 #104): a daily stop,
+              so it's pinned rather than folded into Reading */}
+          <NavLink href="/now" label={t('nav.now')} path={path} />
           <NavLink href="/add" label={t('nav.add')} path={path} />
           <NavLink href="/search" label={t('nav.search')} path={path} />
         </div>

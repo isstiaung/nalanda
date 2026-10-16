@@ -376,8 +376,8 @@ const CloseReadForms: FC<{ item: Item; read: ReadingRead; today: string; rereadi
   );
 };
 
-/** Where a read in progress has got to: "p. 120 of 300 · 40%", and the bar. */
-const ProgressLine: FC<{ page: number; length: number | null; percent: number | null }> = ({ page, length, percent }) => (
+/** Where a read in progress has got to: "p. 120 of 300 · 40%", and the bar. The item page's, and the Now page's. */
+export const ProgressLine: FC<{ page: number; length: number | null; percent: number | null }> = ({ page, length, percent }) => (
   <>
     <p>
       <span class="mono">p. {page}</span>

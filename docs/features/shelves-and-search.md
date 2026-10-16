@@ -90,7 +90,7 @@ publisher on an item's page link to theirs. Inside the app only; share pages sho
 
 ## The sidebar
 
-Overview, Add items and Search stay at the top; everything else folds into sections by what you
+Overview, Now reading & playing, Add items and Search stay at the top; everything else folds into sections by what you
 came to do — Library, Shelves, Reading, Lending, Sharing & connections, Settings
 ([#62](../decisions/062-sidebar-folds-into-sections-what.md)). The section holding the page you're
 on is open; the ones you open stay open on that device. A closed section's header counts what's
