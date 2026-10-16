@@ -50,6 +50,12 @@ And a lamp-lit dark mode that follows the system setting:
 
 ![The same shelf in dark mode — warm blacks, pigments glowing](docs/screenshots/shelf-dark.png)
 
+On a phone it is built for a thumb: a shelf opens on its search box and one Filters button, its
+items a list; an item opens on its cover beside its title, with Edit in reach; Search and Add are
+in the bar on every page:
+
+![On a phone: a shelf as a list of covers and titles under a search box and a Filters button, and an item page with its cover beside the title, tags and Edit](docs/screenshots/phone.png)
+
 The design system is hand-written — "the manuscript ledger", grounded in Nalanda's Pala-era
 scriptorium: palm-leaf paper, indigo and vermilion, Devanagari-first display type, no CSS
 framework (ARCH.md §16 #16). Screenshots come from seeded demo data — `npm run dev:demo` and
