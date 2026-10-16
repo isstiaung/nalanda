@@ -126,7 +126,8 @@
 /* display rules on .btn/.tab etc. must never defeat the hidden attribute */
 [hidden] { display: none !important; }
 
-html { -webkit-text-size-adjust: 100%; }
+/* a tap flashes in the working accent's tint, not the browser's own blue-grey */
+html { -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: var(--accent-tint); }
 
 body {
   margin: 0;
@@ -138,12 +139,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3, h4 { margin: 0 0 0.5rem; line-height: 1.25; }
-h1 { font-family: var(--serif); font-size: 22px; font-weight: 600; letter-spacing: 0; }
+h1, h2, h3, h4 { margin: 0 0 0.5rem; line-height: 1.25; text-wrap: balance; } /* a title on two lines breaks evenly, not one word over */
+h1 { font-family: var(--serif); font-size: 26px; font-weight: 600; letter-spacing: 0; }
 h2 { font-size: 14px; font-weight: 600; }
 h3 { font-size: 13.5px; font-weight: 600; }
 h4 { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
-p { margin: 0 0 0.75rem; }
+p { margin: 0 0 0.75rem; text-wrap: pretty; } /* no word left alone on a paragraph's last line */
 a { color: var(--accent); text-decoration: none; }
 a:hover { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }
 /* A link inside running text is underlined: indigo against ink is too close to tell apart by colour alone. */
@@ -332,6 +333,8 @@ section { margin-bottom: 2rem; }
 }
 .btn:hover, button:hover, [role='button']:hover { background: var(--surface-2); text-decoration: none; color: var(--ink); }
 .btn:disabled, button:disabled { opacity: 0.45; cursor: not-allowed; }
+/* pressed, a control settles a pixel: a touch screen has no hover to say it was hit */
+.btn:active:not(:disabled), button:active:not(:disabled), .mobile-action:active { translate: 0 1px; }
 
 button[type='submit'], .btn-primary {
   background: var(--accent);
@@ -576,8 +579,8 @@ p.error { font-size: 12.5px; color: color-mix(in srgb, var(--stamp) 85%, var(--i
 /* max-width caps the title column under auto table layout so a long title
    truncates with an ellipsis instead of crowding every other column out */
 .cell-title { display: flex; align-items: center; gap: 0.65rem; min-width: 0; max-width: 20rem; } /* a long title ellipsizes (its link's title says it whole) rather than pushing the table past a 1280px window */
-.cell-title .thumb { flex: none; width: 26px; height: 39px; border-radius: 3px; object-fit: cover; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); }
-.cell-title .thumb-fallback { flex: none; width: 26px; height: 39px; border-radius: 3px; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; justify-content: center; font-size: 13px; }
+.cell-title .thumb { flex: none; width: 28px; height: 42px; border-radius: 3px; object-fit: cover; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); }
+.cell-title .thumb-fallback { flex: none; width: 28px; height: 42px; border-radius: 3px; background: var(--surface-2); box-shadow: 0 0 0 1px var(--line); display: flex; align-items: center; justify-content: center; font-size: 13px; }
 .cell-title .t { min-width: 0; }
 .cell-title .t a { color: var(--ink); font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cell-title .t a:hover { color: var(--accent); }
@@ -750,7 +753,10 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .view-toggle a.active { background: var(--accent-tint); color: var(--accent-strong); font-weight: 600; }
 .view-toggle a:hover { text-decoration: none; color: var(--ink); }
 
-.pagination { display: flex; justify-content: space-between; align-items: center; margin: 1rem 0; font-family: var(--mono); font-size: 11.5px; }
+.pagination { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin: 1rem 0; font-family: var(--mono); font-size: 11.5px; }
+/* Previous and Next: buttons to press, not words to find — the page count between them stays the registrar's mono */
+.pagination a { display: inline-flex; align-items: center; height: var(--control-h); padding: 0 0.8rem; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink); font-family: var(--sans); font-size: var(--control-text); font-weight: 600; line-height: normal; }
+.pagination a:hover { background: var(--surface-2); color: var(--ink); text-decoration: none; }
 
 /* ── item detail ──────────────────────────────────────────────────────────── */
 
@@ -786,6 +792,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
 .props-group { display: contents; }
 
 .detail-section { margin-top: 1.4rem; }
+/* the item page's prose — description, review, notes — keeps a reading measure on a wide screen */
+.item-detail-body .prewrap { max-width: 72ch; }
 .detail-section .eyebrow { margin-bottom: 0.35rem; }
 
 /* Reading progress: indigo, because it is a working state — vermilion stays reserved
@@ -1003,7 +1011,8 @@ a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration
   .filter-menu label { min-height: 36px; font-size: 15px; }
   .filter-menu input[type='checkbox'] { width: 18px; height: 18px; }
   .pagination { font-size: 13px; }
-  .pagination a { display: inline-flex; align-items: center; min-height: var(--control-h); padding: 0 0.25rem; }
+  /* a link to a section lands below the sticky bar, not under it */
+  [id] { scroll-margin-top: 4.5rem; }
 
   .app { grid-template-columns: 1fr; }
   .sidebar {
