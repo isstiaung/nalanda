@@ -47,7 +47,7 @@
     "playwright": "^1.63.0",
     "qrcode-generator": "^2.0.4",
     "typescript": "^7.0.2",
-    "vitest": "~4.1.11",
+    "vitest": "~4.1.12",
     "wrangler": "^4.142.0",
     "zxing-wasm": "^3.1.4"
   },
