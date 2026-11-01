@@ -43,7 +43,7 @@ jobs:
       # where Pages will serve the site: under /<repo>/ on github.io, or at the root of a custom domain — the build
       # writes every link and asset for that base, so the same workflow serves both
       - id: pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       # …and its origin, for the addresses the app writes in full (a share's, its QR code's, a feed's entries)
       - run: npm run demo:build -- --base=${{ steps.pages.outputs.base_path }} --origin=${{ steps.pages.outputs.origin }}
