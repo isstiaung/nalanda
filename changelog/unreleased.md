@@ -10,3 +10,6 @@ for what a host must do; link runbooks as ../runbooks/…); a release commit ren
   The `overrides` pin in `package.json` moves from 0.35.4 to 0.35.5 (ARCH.md §16 #30).
 - **Vitest 4.1.12** (two `@vitest/mocker` advisories, Dependabot). The test runner only: it never ships
   in the Worker, so nothing changes for a running instance.
+- **undici 7.30.1** (five Dependabot advisories: TLS validation, renegotiation and WebSocket DoS,
+  redirect cache poisoning, content-encoding DoS). It reaches the tree only through miniflare (local dev
+  and tests), never the Worker bundle; the `overrides` pin in `package.json` moves from 7.29.1 to 7.30.1.
