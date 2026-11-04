@@ -48,7 +48,7 @@ jobs:
       # …and its origin, for the addresses the app writes in full (a share's, its QR code's, a feed's entries)
       - run: npm run demo:build -- --base=${{ steps.pages.outputs.base_path }} --origin=${{ steps.pages.outputs.origin }}
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: demo
 
