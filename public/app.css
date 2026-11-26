@@ -1160,14 +1160,14 @@ html.js .toolbar-filters:not(.open) { display: none; }
    second. */
 :is(button, .btn, .pill)[aria-busy='true'] {
   cursor: progress;
-  background-image: linear-gradient(100deg, transparent 0 30%, color-mix(in srgb, currentColor 22%, transparent) 50%, transparent 70% 100%) !important;
+  background-image: linear-gradient(100deg, transparent 0 30%, color-mix(in srgb, currentColor 14%, transparent) 50%, transparent 70% 100%) !important;
   background-size: 250% 100% !important;
   background-repeat: no-repeat !important;
   animation: pending 1.2s linear 150ms infinite backwards; /* the animation places the sheen: offscreen through the delay */
 }
 form[aria-busy='true']:not(:has([aria-busy='true'])) :is(button[type='submit'], button:not([type])) {
   cursor: progress;
-  background-image: linear-gradient(100deg, transparent 0 30%, color-mix(in srgb, currentColor 22%, transparent) 50%, transparent 70% 100%) !important;
+  background-image: linear-gradient(100deg, transparent 0 30%, color-mix(in srgb, currentColor 14%, transparent) 50%, transparent 70% 100%) !important;
   background-size: 250% 100% !important;
   background-repeat: no-repeat !important;
   animation: pending 1.2s linear 150ms infinite backwards; /* the animation places the sheen: offscreen through the delay */
@@ -1186,9 +1186,13 @@ form[aria-busy='true']:not(:has([aria-busy='true'])) :is(button[type='submit'], 
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
-  /* no sheen to move: a still one, in the middle, says the same */
-  :is(button, .btn, .pill)[aria-busy='true'] { background-position: 50% 0 !important; }
-  form[aria-busy='true']:not(:has([aria-busy='true'])) :is(button[type='submit'], button:not([type])) { background-position: 50% 0 !important; }
+  /* no sheen to move — and a still one would sit behind the words for the whole wait — so a dotted ring instead */
+  :is(button, .btn, .pill)[aria-busy='true'] { background-image: none !important; outline: 2px dotted currentColor; outline-offset: 2px; }
+  form[aria-busy='true']:not(:has([aria-busy='true'])) :is(button[type='submit'], button:not([type])) {
+    background-image: none !important;
+    outline: 2px dotted currentColor;
+    outline-offset: 2px;
+  }
 }
 
 /* ── connections ──────────────────────────────────────────────────────────── */
