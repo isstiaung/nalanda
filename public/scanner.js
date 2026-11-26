@@ -72,13 +72,22 @@
     }
     if (!failedAt) say('Loading barcode decoder…');
     const zxing = await import('/vendor/zxing/reader/index.js');
-    zxing.prepareZXingModule({
-      overrides: {
-        // serve the wasm from our own origin, never zxing-wasm's default CDN
-        locateFile: (path, prefix) =>
-          path.endsWith('.wasm') ? '/vendor/zxing/zxing_reader.wasm' : prefix + path,
-      },
-    });
+    // fireImmediately: the promise is the WASM itself — fetched and instantiated — not just this small module, so
+    // "loading" lasts as long as the 1 MB download and a failed download is a failed load. zxing keeps a failed
+    // instance for the page, so it is purged first and every retry is a real one.
+    try {
+      await zxing.prepareZXingModule({
+        overrides: {
+          // serve the wasm from our own origin, never zxing-wasm's default CDN
+          locateFile: (path, prefix) =>
+            path.endsWith('.wasm') ? '/vendor/zxing/zxing_reader.wasm' : prefix + path,
+        },
+        fireImmediately: true,
+      });
+    } catch (err) {
+      zxing.purgeZXingModule();
+      throw err;
+    }
     if (state === 'live') say(hint()); // the loading line was news; the camera's own line comes back
     return { kind: 'zxing', impl: zxing };
   }
@@ -249,6 +258,7 @@
   async function start() {
     if (state !== 'idle') return; // a second tap while the camera is starting, or already on
     const mine = ++attempt;
+    failedAt = 0; // each Start tries the decoder afresh, and says so
     enter('starting');
     say('Starting the camera…');
     tune(); // inside the click, so the beep is allowed
@@ -284,7 +294,9 @@
       await video.play();
     } catch { /* autoplay refused or interrupted: frames still arrive for a muted inline video */ }
     if (!current(mine)) return;
+    const hadFocus = document.activeElement === startBtn;
     enter('live');
+    if (hadFocus) stopBtn?.focus(); // Start is hidden now: its focus goes to Stop, not <body>
     say(hint());
     tick(mine);
   }
@@ -314,5 +326,9 @@
   enter('idle');
   startBtn.addEventListener('click', start);
   stopBtn?.addEventListener('click', () => { stop(); say(''); });
-  window.addEventListener('pagehide', stop);
+  // leaving the page stops the camera, and the line about it: back from the page cache, nothing claims it is on
+  window.addEventListener('pagehide', () => {
+    stop();
+    say('');
+  });
 })();
