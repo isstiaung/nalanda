@@ -30,7 +30,7 @@
   "dependencies": {
     "drizzle-orm": "^0.45.4",
     "fast-xml-parser": "^5.11.2",
-    "hono": "^4.13.14"
+    "hono": "^4.13.16"
   },
   "devDependencies": {
     "@babel/core": "^8.0.9",
