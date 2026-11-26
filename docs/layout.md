@@ -68,6 +68,9 @@ src/lib/           auth.ts (pbkdf2, signed cookie), devices.ts (a session's devi
                    condition.ts (a record's grades and their fixed scale), pressing.ts (what an add
                    and "Refresh from Discogs" may write into a record's details, and reading it back),
                    goals.ts (a reading goal's pace and limits; what counts is goalCountSql in queries.ts),
+                   lifecycles.ts (every status column that moves, as data: its states and each move's from and to —
+                   borrow requests, recommendations, connections; src/db takes them from here, docs/state-machines.md
+                   draws them, ARCH.md §16 #105),
                    links.ts (purchase links: the http(s) check, the export's want and link cells — §16 #53),
                    dates.ts (how every page writes a date: 2026-09-28, and 2026-09-28 18:28 with a time —
                    display only; public/scan-review.js writes a scan's time the same way — and today

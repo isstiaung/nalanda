@@ -446,7 +446,7 @@ borrowing.post('/borrow-requests/:id/withdraw', async (c) => {
   const request = await getBorrowRequest(c.env.DB, Number(c.req.param('id')));
   if (!request || request.incoming) return c.redirect('/borrowed');
   const connection = await getConnection(c.env.DB, request.connectionId);
-  await moveAndTell(c, ctx, request, 'withdrawn', connection, borrowWithdraw(ctx.settings.baseUrl, request.activityId));
+  await moveAndTell(c, ctx, request, 'withdraw', connection, borrowWithdraw(ctx.settings.baseUrl, request.activityId));
   return c.redirect('/borrowed');
 });
 
@@ -473,7 +473,7 @@ borrowing.post('/borrow-requests/:id/decline', async (c) => {
   const request = await getBorrowRequest(c.env.DB, Number(c.req.param('id')));
   if (!request?.incoming) return c.redirect('/loans');
   const connection = await getConnection(c.env.DB, request.connectionId);
-  await moveAndTell(c, ctx, request, 'declined', connection, borrowDecline(ctx.settings.baseUrl, request.activityId));
+  await moveAndTell(c, ctx, request, 'decline', connection, borrowDecline(ctx.settings.baseUrl, request.activityId));
   return c.redirect('/loans');
 });
 
@@ -485,15 +485,15 @@ async function moveAndTell(
   c: Context<AppEnv>,
   ctx: Enabled,
   request: BorrowRequestRow,
-  status: 'withdrawn' | 'declined',
+  event: 'withdraw' | 'decline',
   connection: Connection | null,
   message: DirectedMessage,
 ): Promise<void> {
   if (connection?.status !== 'active') {
-    await setRequestStatus(c.env.DB, request.id, status, ['pending']);
+    await setRequestStatus(c.env.DB, request.id, event);
     return;
   }
-  if (await setRequestStatus(c.env.DB, request.id, status, ['pending'], { send: { connectionId: connection.id, message } })) {
+  if (await setRequestStatus(c.env.DB, request.id, event, { send: { connectionId: connection.id, message } })) {
     pushQueued(c, ctx.identity, ctx.settings, connection, message);
   }
 }

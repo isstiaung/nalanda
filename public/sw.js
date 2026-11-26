@@ -11,7 +11,7 @@
 // STATIC or this file's behaviour changes: installing the new worker fills a fresh cache, and activating it
 // deletes every older one.
 
-const VERSION = 2; // 2: the Devanagari Eczar and Tiro Tamil faces joined STATIC (§16 #93)
+const VERSION = 3; // 3: the scanner's states (§16 #105); 2: the Devanagari Eczar and Tiro Tamil faces joined STATIC (§16 #93)
 const CACHE = `nalanda-static-v${VERSION}`;
 
 // Every one of these is a file in public/. A test fetches each (test/pwa.spec.ts), since one missing file fails

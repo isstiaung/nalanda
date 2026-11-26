@@ -443,8 +443,14 @@ const ReadLine: FC<{
                 Reading now
               </option>
             </select>
-            <input type="date" name="beganOn" value={r.beganOn ?? ''} aria-label="Began" class="mono" />
-            <input type="date" name="endedOn" value={r.endedOn ?? ''} aria-label="Ended" class="mono" />
+            {/* labelled where they can be seen, as the Lend form's Due is: two bare date fields side by side on a phone
+                read "dd/mm/yyyy" twice, with nothing to say which is which */}
+            <label class="read-date">
+              Began <input type="date" name="beganOn" value={r.beganOn ?? ''} class="mono" />
+            </label>
+            <label class="read-date">
+              Ended <input type="date" name="endedOn" value={r.endedOn ?? ''} class="mono" />
+            </label>
             <button type="submit">Save</button>
           </form>
           <form
@@ -567,8 +573,12 @@ export const ReadingSection: FC<{
             <option value="completed">Finished</option>
             <option value="abandoned">Stopped</option>
           </select>
-          <input type="date" name="beganOn" aria-label="Began" class="mono" />
-          <input type="date" name="endedOn" aria-label="Ended" class="mono" />
+          <label class="read-date">
+            Began <input type="date" name="beganOn" class="mono" />
+          </label>
+          <label class="read-date">
+            Ended <input type="date" name="endedOn" class="mono" />
+          </label>
           <button type="submit">Add</button>
         </form>
       </details>
