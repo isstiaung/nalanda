@@ -6,7 +6,7 @@ for what a host must do; link runbooks as ../runbooks/…); a release commit ren
 ### Changed
 
 - **Every request shows it is on its way.** The button or form that sent it carries `aria-busy` with a moving
-  sheen until the answer is in, so a tap on a slow connection no longer looks like nothing happened. A plain form
+  sheen (a dotted ring with reduced motion) until the answer is in, so a tap on a slow connection no longer looks like nothing happened. A plain form
   (Save, Lend, Add) refuses a second submit while the first is out (ARCH.md §16 #105).
 - **The status columns that move are declared as state machines** in `src/lib/lifecycles.ts`: borrow requests,
   recommendations and connections. Every statement takes its moves from there, and
@@ -21,6 +21,10 @@ for what a host must do; link runbooks as ../runbooks/…); a release commit ren
   when the camera answers after the 8-second timeout, or after Stop. On a slow connection it loads the barcode
   decoder once, not once per frame, and reads one frame at a time. Its message says why the camera didn't start:
   permission refused, timed out, or no HTTPS.
+  A decoder download that fails no longer leaves the scanner dead for the page and still saying "Loading": it says
+  it couldn't load and tries again. Focus on Start moves to Stop when the camera goes live.
+- **A double tap on the Add page's Look up or Search** no longer asks the providers twice (htmx queued the repeat
+  and sent it after the first). A new search while one is out still goes.
 - **The Add page's review list** no longer misses a barcode held while it was already reading the device's queue
   (scanning fast with Keep scanning on).
 

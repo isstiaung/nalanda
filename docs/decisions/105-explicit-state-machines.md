@@ -32,12 +32,15 @@ connection found these:
 - **One "pending" state for every request.** The form or button a request went out from carries
   `aria-busy="true"` until its answer is in (`public/app.js`). For htmx, that is from `htmx:beforeRequest` to
   `htmx:afterRequest`. For a plain POST form, it lasts until the next page, and a second submit meanwhile is
-  refused. It is released by bfcache and, as a backstop, after 20 s. The stylesheet draws a sheen across the busy
-  button after 150 ms, at a specificity above the `:hover` rules, since a tapped button on a phone stays `:hover`.
-  With reduced motion the sheen is still. aria-busy, not `disabled`: a disabled button drops focus, and the request
+  refused. It is released by bfcache and, as a backstop, after 20 s. htmx does not drop a repeat itself: its default
+  queues one and sends it after the first, so a double tap on Look up asked the providers twice. The same request
+  again while pending (the same form values, or the same button) is dropped at `htmx:confirm`; a form sent with new
+  values still goes. The stylesheet draws a sheen across the busy button after 150 ms. Its background longhands are
+  `!important`, since a tapped button on a phone stays `:hover` and every hover rule sets the `background`
+  shorthand. With reduced motion there is no sheen, which would sit still behind the label; a dotted ring shows instead. aria-busy, not `disabled`: a disabled button drops focus, and the request
   is not refused, only waiting.
 - **The scanner's states are idle, starting and live**, held in one variable and mirrored as `data-scanner` on its
-  section. Start acts only when idle and is `disabled` and `aria-busy` while starting. Each Start is a numbered
+  section. Start acts only when idle and is `aria-disabled` and `aria-busy` while starting (not `disabled`, which drops keyboard focus); when the camera goes live, focus on Start moves to Stop. The decoder's promise is the WASM itself (`fireImmediately`), purged when it fails, so a retry is real. Each Start is a numbered
   attempt, which Stop and leaving the page end; a camera that answers for an ended attempt is closed on arrival.
   Frames are read one at a time, each scheduled after the last. The decoder is one shared promise, forgotten if it
   fails. The refusal says why in words someone can act on: no HTTPS (`isSecureContext`, not a hostname check),

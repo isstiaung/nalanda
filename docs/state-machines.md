@@ -88,7 +88,7 @@ delete the row, so no status ends a connection.
 
 | Machine | States | Held in | Shown as |
 | --- | --- | --- | --- |
-| A request on its way (`public/app.js`) | idle · pending | htmx's request events; a POST form's submit, until the next page arrives | `aria-busy="true"` on the form or button, and a moving sheen on its button (`app.css`). A plain form refuses a second submit while pending |
-| The camera scanner (`public/scanner.js`) | idle · starting · live | `state`, plus an attempt number that Stop and leaving the page end | `data-scanner` on the scan section; Start is `disabled` and `aria-busy` while starting. A camera that answers for an ended attempt is closed at once; frames are read one at a time; the decoder loads once |
+| A request on its way (`public/app.js`) | idle · pending | htmx's request events; a POST form's submit, until the next page arrives | `aria-busy="true"` on the form or button, and a moving sheen on its button (`app.css`; a dotted ring with reduced motion). While pending, the same request again is dropped: an htmx one at `htmx:confirm` (htmx would otherwise queue it), a plain form's second submit |
+| The camera scanner (`public/scanner.js`) | idle · starting · live | `state`, plus an attempt number that Stop and leaving the page end | `data-scanner` on the scan section; Start is `aria-disabled` and `aria-busy` while starting (not `disabled`, which would drop focus). A camera that answers for an ended attempt is closed at once; frames are read one at a time; the decoder loads once |
 | The review list (`public/scan-review.js`) | idle · loading · loading with another load asked for | `loading`, `reloadAsked` | the list and its count. A barcode held during a load is read by one more pass |
 | Add all (`public/scan-review.js`) | idle · adding | `addingAll` | the button disabled, and the status line counting |

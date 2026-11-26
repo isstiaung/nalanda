@@ -64,11 +64,16 @@ describe('statements in src/db', () => {
     const found: string[] = [];
     for (const [file, source] of Object.entries(dbSources)) {
       if (file.endsWith('/schema.ts')) continue;
-      // drizzle: .update(s.connections).set({ status: 'active' …
-      for (const m of source.matchAll(/\.update\(s\.(\w+)\)\s*\.set\(\{\s*status:\s*'([a-z_]+)'/g)) found.push(`${file}: ${m[1]} → '${m[2]}'`);
-      // raw SQL: UPDATE borrow_requests SET status = 'accepted' …
-      for (const m of source.matchAll(/UPDATE\s+(\w+)\s+SET\s+status\s*=\s*'([a-z_]+)'/gi)) {
-        if (tables.includes(m[1]!)) found.push(`${file}: ${m[1]} → '${m[2]}'`);
+      // drizzle: .update(s.connections).set({ …, status: 'active' | someVariable, … })
+      for (const m of source.matchAll(/\.update\(s\.(\w+)\)\s*\.set\(\{([^}]*)\}/g)) {
+        const status = /\bstatus:\s*([^,\n}]+)/.exec(m[2]!)?.[1]?.trim();
+        if (status && !/^[A-Z_]+\.moves\.\w+\.to$|^(move|lend|confirmed|theyLent|want)\.to$/.test(status)) found.push(`${file}: ${m[1]} → ${status}`);
+      }
+      // raw SQL: UPDATE borrow_requests SET …, status = 'accepted' | ?n …
+      for (const m of source.matchAll(/UPDATE\s+(\w+)\s+SET\s+([^`;]*?)\bWHERE\b/gi)) {
+        if (!tables.includes(m[1]!)) continue;
+        const status = /\bstatus\s*=\s*('[^']*'|\?\d*|\$\{[^}]*\})/.exec(m[2]!)?.[1];
+        if (status && !/^'\$\{\w+\.to\}'$/.test(status)) found.push(`${file}: ${m[1]} → ${status}`);
       }
     }
     expect(found).toEqual([]);
