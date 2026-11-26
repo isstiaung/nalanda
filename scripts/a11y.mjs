@@ -1141,6 +1141,183 @@ async function interactions(context, ids, variant) {
       await page.evaluate(() => window.nalandaScanQueue.clear());
     });
 
+    // ── the browser's state machines (ARCH.md §16 #105, docs/state-machines.md) ──
+    // Behaviour, not looks, so once per run — in the phone variant — each on a page of its own, so the routes and the
+    // stand-in camera below never reach another step. The browser answers the requests itself: nothing is saved and
+    // no provider is asked.
+    if (variant.name === 'light 390') {
+      const ownPage = async (fn) => {
+        const p = await context.newPage();
+        await p.setViewportSize({ width: variant.width, height: variant.height });
+        await p.emulateMedia({ colorScheme: variant.scheme, reducedMotion: 'reduce' });
+        p.on('pageerror', (err) => failures.push(`script error on ${p.url()}: ${err.message}`));
+        try {
+          await fn(p);
+        } finally {
+          await p.close();
+        }
+      };
+      const fail = (name, msg) => failures.push(`state · ${name} [${variant.name}]: ${msg}`);
+
+      // A plain POST form is pending from its submit until the next page: aria-busy on it and on the button pressed,
+      // and a second submit meanwhile is refused. The goal form, whose field named `target` once hid form.target.
+      await step('Pending → a plain form', async () => {
+        await ownPage(async (p) => {
+          let posts = 0;
+          await p.route('**/goals*', async (route) => {
+            if (route.request().method() !== 'POST') return route.continue();
+            posts++;
+            await new Promise((r) => setTimeout(r, 1500));
+            await route.fulfill({ status: 303, headers: { location: '/goals' } }); // answered here: nothing saved
+          });
+          await open(p, '/goals');
+          await p.evaluate(() => {
+            const form = document.querySelector('form.goal-form');
+            const button = form.querySelector('button[type="submit"]');
+            let n = 0; // after app.js's listener, so it sees what that one decided
+            window.addEventListener('submit', (e) => sessionStorage.setItem(`a11y-submit-${n++}`, JSON.stringify({ prevented: e.defaultPrevented })));
+            setTimeout(() => {
+              sessionStorage.setItem('a11y-busy', JSON.stringify({ form: form.getAttribute('aria-busy'), button: button.getAttribute('aria-busy') }));
+              form.requestSubmit(button); // the double tap
+            }, 200);
+            form.requestSubmit(button);
+          });
+          await p.waitForURL(/\/goals/, { waitUntil: 'load' });
+          await p.waitForTimeout(2000);
+          const seen = await p.evaluate(() => ({
+            busy: JSON.parse(sessionStorage.getItem('a11y-busy') || '{}'),
+            submits: Object.keys(sessionStorage).filter((k) => k.startsWith('a11y-submit-')).sort().map((k) => JSON.parse(sessionStorage.getItem(k))),
+          }));
+          const name = 'Pending → a plain form';
+          if (seen.busy.form !== 'true' || seen.busy.button !== 'true') fail(name, `while pending, the form and its button aren't aria-busy (${JSON.stringify(seen.busy)})`);
+          if (seen.submits[1]?.prevented !== true) fail(name, 'a second submit while pending was not refused');
+          if (posts !== 1) fail(name, `${posts} POSTs went for a double submit, not 1`);
+        });
+      });
+
+      // An htmx form is pending from htmx:beforeRequest to htmx:afterRequest. htmx queues a repeat rather than drop
+      // it, so the same request again while pending is dropped by app.js; one with new values still goes.
+      await step('Pending → an htmx form', async () => {
+        await ownPage(async (p) => {
+          const asked = [];
+          await p.route('**/add/results?**', async (route) => {
+            asked.push(new URL(route.request().url()).searchParams.get('barcode'));
+            await new Promise((r) => setTimeout(r, 800));
+            await route.fulfill({ status: 200, contentType: 'text/html', body: '<p class="notice">answered</p>' });
+          });
+          await open(p, '/add');
+          const name = 'Pending → an htmx form';
+          const form = p.locator('form[hx-get="/add/results"]').first();
+          await form.locator('input[name="barcode"]').fill('9780441478125');
+          await form.locator('button').click();
+          await p.waitForTimeout(100);
+          const busy = await form.evaluate((f) => f.getAttribute('aria-busy'));
+          if (busy !== 'true') fail(name, `while pending, the form isn't aria-busy (${busy})`);
+          if (variant.scheme === 'light') await axe(p, where('Add → a lookup pending'), variant.name);
+          await form.locator('button').click(); // the double tap: the same request
+          await p.waitForTimeout(2200);
+          if (asked.length !== 1) fail(name, `a double tap asked ${asked.length} times, not once`);
+          if ((await form.evaluate((f) => f.getAttribute('aria-busy'))) !== null) fail(name, 'still aria-busy after its answer');
+          asked.length = 0;
+          await form.locator('button').click();
+          await p.waitForTimeout(100);
+          await form.locator('input[name="barcode"]').fill('9780316029186');
+          await form.locator('button').click(); // a new barcode while the first is out: it goes too
+          await p.waitForTimeout(2500);
+          if (asked.length !== 2) fail(name, `a new barcode while one was out asked ${asked.length} times, not twice`);
+        });
+      });
+
+      // The camera scanner: idle → starting → live → idle. A stand-in camera (a canvas stream, answering after
+      // `delay`), since a CI runner has none.
+      const fakeCamera = (delay) => async (p) => {
+        await p.addInitScript((ms) => {
+          window.__a11yStreams = [];
+          const fake = async () => {
+            await new Promise((r) => setTimeout(r, ms));
+            const canvas = document.createElement('canvas');
+            canvas.width = 320;
+            canvas.height = 240;
+            const g = canvas.getContext('2d');
+            setInterval(() => g.fillRect(0, 0, 320, 240), 100);
+            const stream = canvas.captureStream(10);
+            window.__a11yStreams.push(stream);
+            return stream;
+          };
+          Object.defineProperty(MediaDevices.prototype, 'getUserMedia', { value: fake, configurable: true, writable: true });
+        }, delay);
+      };
+      const liveTracks = (p) => p.evaluate(() => window.__a11yStreams.flatMap((s) => s.getTracks()).filter((t) => t.readyState === 'live').length);
+
+      await step('Scanner → Start, a second tap, Stop', async () => {
+        await ownPage(async (p) => {
+          await fakeCamera(600)(p);
+          await open(p, '/add');
+          const name = 'Scanner → Start, a second tap, Stop';
+          const section = p.locator('#tab-scan');
+          await p.locator('#scanner-start').click();
+          const starting = await p.evaluate(() => {
+            const b = document.getElementById('scanner-start');
+            return { state: document.getElementById('tab-scan').dataset.scanner, busy: b.getAttribute('aria-busy'), off: b.getAttribute('aria-disabled') };
+          });
+          if (starting.state !== 'starting' || starting.busy !== 'true' || starting.off !== 'true') fail(name, `starting isn't shown: ${JSON.stringify(starting)}`);
+          if (variant.scheme === 'light') await axe(p, where('Add → the camera starting'), variant.name);
+          await p.locator('#scanner-start').click({ force: true }); // a second tap while it starts
+          await p.locator('#scanner-stop').waitFor({ state: 'visible', timeout: 5000 }); // live: Stop shows
+          if ((await section.getAttribute('data-scanner')) !== 'live') fail(name, `live, but data-scanner says ${await section.getAttribute('data-scanner')}`);
+          const opened = await p.evaluate(() => window.__a11yStreams.length);
+          if (opened !== 1) fail(name, `a second tap on Start opened ${opened} cameras, not 1`);
+          const focus = await p.evaluate(() => document.activeElement?.id);
+          if (focus !== 'scanner-stop') fail(name, `focus is on ${focus || 'nothing'} once live, not Stop`);
+          await p.locator('#scanner-stop').click();
+          if ((await section.getAttribute('data-scanner')) !== 'idle') fail(name, 'not idle after Stop');
+          const left = await liveTracks(p);
+          if (left) fail(name, `${left} camera track(s) still on after Stop`);
+        });
+      });
+
+      await step('Scanner → a camera answering too late', async () => {
+        await ownPage(async (p) => {
+          await fakeCamera(8600)(p); // the scanner gives up at 8 s
+          await open(p, '/add');
+          const name = 'Scanner → a camera answering too late';
+          await p.locator('#scanner-start').click();
+          await p.waitForTimeout(9500);
+          const after = await p.evaluate(() => ({ state: document.getElementById('tab-scan').dataset.scanner, said: document.getElementById('scanner-status').textContent }));
+          if (after.state !== 'idle') fail(name, `${after.state} after giving up, not idle`);
+          if (!/8 seconds/.test(after.said)) fail(name, `the status says "${after.said}", not that it timed out`);
+          const left = await liveTracks(p);
+          if (left) fail(name, `the late camera was left on (${left} track(s) live)`);
+        });
+      });
+
+      // The review list: a barcode held while it was already reading the queue is listed by one more pass.
+      await step('Add → a scan held during a load', async () => {
+        await ownPage(async (p) => {
+          await open(p, '/add');
+          const seen = await p.evaluate(async () => {
+            const q = window.nalandaScanQueue;
+            await q.clear();
+            const list = q.list.bind(q);
+            q.list = async () => {
+              const got = await list();
+              await new Promise((r) => setTimeout(r, 300)); // a slow phone's IndexedDB
+              return got;
+            };
+            document.dispatchEvent(new CustomEvent('nalanda:held', { detail: await q.hold('9780441478125') }));
+            await new Promise((r) => setTimeout(r, 50));
+            document.dispatchEvent(new CustomEvent('nalanda:held', { detail: await q.hold('9780316029186') }));
+            await new Promise((r) => setTimeout(r, 1500));
+            const shown = document.querySelectorAll('#scan-review-list .review-entry[data-barcode]').length;
+            q.list = list;
+            await q.clear();
+            return shown;
+          });
+          if (seen !== 2) fail('Add → a scan held during a load', `the list shows ${seen} of 2 held barcodes`);
+        });
+      });
+    }
+
     // the phone drawer: open, it's the page's navigation; Escape closes it and hands focus back
     if (variant.width < 881) {
       await step('Phone menu', async () => {

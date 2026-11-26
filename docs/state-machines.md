@@ -12,6 +12,8 @@ Every place in Nalanda where something moves from one state to another, and wher
   status column that could disagree with the dates.
 - **Browser states**: a page's own machines, each held in one variable in its script and mirrored on the page as an
   attribute. The stylesheet, a screen reader, a test and an agent driving the page all read that same attribute.
+  `scripts/a11y.mjs` drives each in a real browser in CI (its `Pending →`, `Scanner →` and "a scan held during a
+  load" steps, once per run, in the phone variant), and fails on the old behaviour.
 
 ## Declared lifecycles
 
