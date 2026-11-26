@@ -30,7 +30,7 @@ export async function receiveBorrowing(d1: D1Database, connection: Connection, m
       if (!request) return { status: 404, body: { error: 'no such request' } };
       // each notification is recorded with its change, and only when the change happens: a repeated message
       // notifies once, and a pull that runs short between the two can't keep one without the other
-      await setRequestStatus(d1, request.id, 'withdrawn', ['pending'], {
+      await setRequestStatus(d1, request.id, 'withdraw', {
         notice: { kind: 'borrow_withdrawn', householdName: connection.householdName, subject: request.itemTitle, href: '/loans' },
       });
       return { status: 200, body: { status: 'withdrawn' } };
@@ -55,7 +55,7 @@ export async function receiveBorrowing(d1: D1Database, connection: Connection, m
     case 'BorrowDecline': {
       const request = await requestByActivity(d1, connection.id, message.request, false);
       if (!request) return { status: 404, body: { error: 'no such request' } };
-      await setRequestStatus(d1, request.id, 'declined', ['pending'], {
+      await setRequestStatus(d1, request.id, 'decline', {
         notice: { kind: 'borrow_declined', householdName: connection.householdName, subject: request.itemTitle, href: '/borrowed' },
       });
       return { status: 200, body: { status: 'declined' } };

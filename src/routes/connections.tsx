@@ -718,7 +718,7 @@ connections.post('/connections/:id/confirm', async (c) => {
   if (res.status < 200 || res.status >= 300) {
     return render(c, { error: `${row.householdName} didn’t accept the confirmation (HTTP ${res.status}). Nothing changed.` });
   }
-  await activateConnection(c.env.DB, row.id, 'awaiting_us');
+  await activateConnection(c.env.DB, row.id);
   forgetPeer(row.baseUrl);
   return c.redirect('/connections');
 });
