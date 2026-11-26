@@ -1,8 +1,9 @@
 // All D1 access for connections between instances (docs/proposals/connections.md). Its own
 // module so queries.ts stays untouched, while src/db/ remains the only code touching D1.
-import { and, asc, count, desc, eq, gt, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 import { SQLiteAsyncDialect } from 'drizzle-orm/sqlite-core';
+import { BORROW_REQUEST, CONNECTION, fromSql, RECOMMENDATION, type BorrowEvent } from '../lib/lifecycles';
 import { matchesStatus } from '../lib/reads';
 import { listItems, statusWhere, wantStatement } from './queries';
 import * as s from './schema';
@@ -220,12 +221,13 @@ export async function createConnection(
   return row;
 }
 
-/** Moves a connection to active, only from the state the caller expects. False if it wasn't in that state. */
-export async function activateConnection(d1: D1Database, id: number, from: ConnectionStatus): Promise<boolean> {
+/** An admin here confirms them (CONNECTION.moves.confirm): to active, only from waiting on us. False if it wasn't. */
+export async function activateConnection(d1: D1Database, id: number): Promise<boolean> {
+  const move = CONNECTION.moves.confirm;
   const rows = await db(d1)
     .update(s.connections)
-    .set({ status: 'active', confirmedAt: sql`(datetime('now'))` })
-    .where(and(eq(s.connections.id, id), eq(s.connections.status, from)))
+    .set({ status: move.to, confirmedAt: sql`(datetime('now'))` })
+    .where(and(eq(s.connections.id, id), inArray(s.connections.status, [...move.from])))
     .returning({ id: s.connections.id });
   return rows.length === 1;
 }
@@ -254,10 +256,11 @@ export async function applyConnectionMessage(
 ): Promise<boolean> {
   const dbi = db(d1);
   const unseen = sql`NOT EXISTS (SELECT 1 FROM federation_seen WHERE activity_id = ${activityId})`;
-  // activation only from waiting on them, so a repeat notifies nothing
+  // activation only from waiting on them (CONNECTION.moves.confirmed), so a repeat notifies nothing
+  const confirmed = CONNECTION.moves.confirmed;
   const target =
     change === 'activate'
-      ? and(eq(s.connections.id, connectionId), eq(s.connections.status, 'awaiting_them'))
+      ? and(eq(s.connections.id, connectionId), inArray(s.connections.status, [...confirmed.from]))
       : eq(s.connections.id, connectionId);
   const notification = notifyIf(dbi, notice, sql`${unseen} AND EXISTS (SELECT 1 FROM connections WHERE ${target})`);
   const marker = dbi
@@ -271,7 +274,7 @@ export async function applyConnectionMessage(
           notification,
           dbi
             .update(s.connections)
-            .set({ status: 'active', confirmedAt: sql`(datetime('now'))` })
+            .set({ status: confirmed.to, confirmedAt: sql`(datetime('now'))` })
             .where(and(target, unseen)),
           marker,
         ])
@@ -1786,8 +1789,14 @@ export async function hasPendingOutgoing(d1: D1Database, connectionId: number, t
 const declineOwn = (dbi: ReturnType<typeof db>, activityId: string) =>
   dbi
     .update(s.borrowRequests)
-    .set({ status: 'declined', respondedAt: sql`(datetime('now'))` })
-    .where(and(eq(s.borrowRequests.activityId, activityId), eq(s.borrowRequests.incoming, false), eq(s.borrowRequests.status, 'pending')));
+    .set({ status: BORROW_REQUEST.moves.decline.to, respondedAt: sql`(datetime('now'))` })
+    .where(
+      and(
+        eq(s.borrowRequests.activityId, activityId),
+        eq(s.borrowRequests.incoming, false),
+        inArray(s.borrowRequests.status, [...BORROW_REQUEST.moves.decline.from]),
+      ),
+    );
 
 /**
  * One of our items, only if it is inside a connection view — one query, so an unknown item and an unshared one
@@ -1825,15 +1834,14 @@ export async function countPendingIncoming(d1: D1Database, connectionId: number)
 }
 
 /**
- * Moves a request to `status` only from one of `from`, so a repeat or a race changes nothing. A `notice` is
- * recorded only when it moves, in the same batch; so is a message to `send` to the connection, queued only
- * when it moves.
+ * Makes one of BORROW_REQUEST's moves — only from the states it starts from, so a repeat or a race changes nothing. A
+ * `notice` is recorded only when it moves, in the same batch; so is a message to `send` to the connection, queued only
+ * when it moves. True when it moved.
  */
 export async function setRequestStatus(
   d1: D1Database,
   id: number,
-  status: BorrowStatus,
-  from: BorrowStatus[],
+  event: Extract<BorrowEvent, 'withdraw' | 'decline'>,
   {
     dueOn = null,
     notice,
@@ -1841,11 +1849,12 @@ export async function setRequestStatus(
   }: { dueOn?: string | null; notice?: NewNotification; send?: { connectionId: number; message: { id: string } } } = {},
 ): Promise<boolean> {
   const dbi = db(d1);
-  const movable = and(eq(s.borrowRequests.id, id), sql`${s.borrowRequests.status} IN (SELECT value FROM json_each(${JSON.stringify(from)}))`);
+  const move = BORROW_REQUEST.moves[event];
+  const movable = and(eq(s.borrowRequests.id, id), inArray(s.borrowRequests.status, [...move.from]));
   const moveWhere = (also?: SQL) =>
     dbi
       .update(s.borrowRequests)
-      .set({ status, dueOn, respondedAt: sql`(datetime('now'))` })
+      .set({ status: move.to, dueOn, respondedAt: sql`(datetime('now'))` })
       .where(and(movable, also))
       .returning({ id: s.borrowRequests.id });
   if (send) {
@@ -1918,7 +1927,8 @@ export async function lendToConnection(
 ): Promise<number | null> {
   const itemId = request.ourItemId;
   if (itemId === null) return null;
-  const lendable = sql`EXISTS (SELECT 1 FROM borrow_requests WHERE id = ${request.id} AND incoming = 1 AND status = 'pending')
+  const lend = BORROW_REQUEST.moves.lend;
+  const lendable = sql`EXISTS (SELECT 1 FROM borrow_requests WHERE id = ${request.id} AND incoming = 1 AND status IN ${sql.raw(fromSql(lend))})
     AND (SELECT copies FROM items WHERE id = ${itemId}) > (SELECT count(*) FROM loans WHERE item_id = ${itemId} AND returned_on IS NULL)`;
   const go = queued(message); // decided once, by the queue statements, before the loan changes what "free" means
   const results = await queueWith(
@@ -1940,7 +1950,7 @@ export async function lendToConnection(
         d1,
         db(d1)
           .update(s.borrowRequests)
-          .set({ status: 'accepted', dueOn, respondedAt: sql`(datetime('now'))` })
+          .set({ status: lend.to, dueOn, respondedAt: sql`(datetime('now'))` })
           .where(and(eq(s.borrowRequests.id, request.id), go)),
       ),
     ],
@@ -1963,19 +1973,21 @@ export async function acceptOwnRequest(
   dueOn: string | null,
   notice?: NewNotification,
 ): Promise<boolean> {
+  const theyLent = BORROW_REQUEST.moves.theyLent;
+  const from = fromSql(theyLent);
   const statements = [
     d1
       .prepare(
         `INSERT INTO borrowed_items (connection_id, request_activity_id, their_item_id, title, cover_key, borrowed_on, due_on)
          SELECT connection_id, activity_id, their_item_id, item_title, cover_key, ?2, ?3 FROM borrow_requests
-         WHERE id = ?1 AND incoming = 0 AND their_item_id IS NOT NULL AND status IN ('pending', 'withdrawn')
+         WHERE id = ?1 AND incoming = 0 AND their_item_id IS NOT NULL AND status IN ${from}
          ON CONFLICT (request_activity_id) DO NOTHING`,
       )
       .bind(requestId, loanedOn, dueOn),
     d1
       .prepare(
-        `UPDATE borrow_requests SET status = 'accepted', due_on = ?2, responded_at = datetime('now')
-         WHERE id = ?1 AND incoming = 0 AND status IN ('pending', 'withdrawn')
+        `UPDATE borrow_requests SET status = '${theyLent.to}', due_on = ?2, responded_at = datetime('now')
+         WHERE id = ?1 AND incoming = 0 AND status IN ${from}
          RETURNING id`,
       )
       .bind(requestId, dueOn),
@@ -1985,7 +1997,7 @@ export async function acceptOwnRequest(
       notifyIfStatement(
         d1,
         notice,
-        sql`EXISTS (SELECT 1 FROM borrow_requests WHERE id = ${requestId} AND incoming = 0 AND status IN ('pending', 'withdrawn'))`,
+        sql`EXISTS (SELECT 1 FROM borrow_requests WHERE id = ${requestId} AND incoming = 0 AND status IN ${sql.raw(from)})`,
       ),
     );
   }
@@ -2360,12 +2372,18 @@ export async function recommendedToday(d1: D1Database, connectionId: number): Pr
   return row?.n ?? 0;
 }
 
-/** Marks a recommendation of ours refused, from open only. */
+/** Marks a recommendation of ours refused (RECOMMENDATION.moves.refuse), from open only. */
 const refuseOwnRecommendation = (dbi: ReturnType<typeof db>, activityId: string) =>
   dbi
     .update(s.recommendations)
-    .set({ status: 'refused', handledAt: sql`(datetime('now'))` })
-    .where(and(eq(s.recommendations.activityId, activityId), eq(s.recommendations.incoming, false), eq(s.recommendations.status, 'open')));
+    .set({ status: RECOMMENDATION.moves.refuse.to, handledAt: sql`(datetime('now'))` })
+    .where(
+      and(
+        eq(s.recommendations.activityId, activityId),
+        eq(s.recommendations.incoming, false),
+        inArray(s.recommendations.status, [...RECOMMENDATION.moves.refuse.from]),
+      ),
+    );
 
 export type NewIncomingRecommendation = {
   activityId: string;
@@ -2478,8 +2496,14 @@ export async function getRecommendation(d1: D1Database, id: number): Promise<Rec
 export async function dismissRecommendation(d1: D1Database, id: number, userId: number): Promise<boolean> {
   const rows = await db(d1)
     .update(s.recommendations)
-    .set({ status: 'dismissed', handledBy: userId, handledAt: sql`(datetime('now'))` })
-    .where(and(eq(s.recommendations.id, id), eq(s.recommendations.incoming, true), eq(s.recommendations.status, 'open')))
+    .set({ status: RECOMMENDATION.moves.dismiss.to, handledBy: userId, handledAt: sql`(datetime('now'))` })
+    .where(
+      and(
+        eq(s.recommendations.id, id),
+        eq(s.recommendations.incoming, true),
+        inArray(s.recommendations.status, [...RECOMMENDATION.moves.dismiss.from]),
+      ),
+    )
     .returning({ id: s.recommendations.id });
   return rows.length === 1;
 }
@@ -2492,11 +2516,12 @@ export async function dismissRecommendation(d1: D1Database, id: number, userId: 
  * `itemId`: the item it goes onto, when that is known before the batch.
  */
 export function claimRecommendation(d1: D1Database, id: number, userId: number, itemId: number | null): D1PreparedStatement[] {
+  const want = RECOMMENDATION.moves.want;
   return [
     d1
       .prepare(
-        `UPDATE recommendations SET status = 'wanted', handled_by = ?2, handled_at = datetime('now'), wanted_item_id = ?3
-         WHERE id = ?1 AND incoming = 1 AND status = 'open'`,
+        `UPDATE recommendations SET status = '${want.to}', handled_by = ?2, handled_at = datetime('now'), wanted_item_id = ?3
+         WHERE id = ?1 AND incoming = 1 AND status IN ${fromSql(want)}`,
       )
       .bind(id, userId, itemId),
     d1.prepare(

@@ -215,14 +215,25 @@ window.nalandaScanBatch = (() => {
     refresh();
   }
 
-  /** Lists what the device holds — an entry for each barcode not shown yet. Nothing is looked up. */
+  /**
+   * Lists what the device holds — an entry for each barcode not shown yet. Nothing is looked up. Idle, loading, or
+   * loading with another load asked for meanwhile: a barcode held while the queue was being read (scanning fast with
+   * "Keep scanning" on) is read by one more pass straight after, rather than left off the list until the next scan.
+   */
+  let reloadAsked = false;
   async function load() {
-    if (loading) return;
+    if (loading) {
+      reloadAsked = true;
+      return;
+    }
     loading = true;
     try {
-      const scans = await queue.list();
-      const shown = new Set([...list.querySelectorAll('.review-entry[data-barcode]')].map((e) => e.dataset.barcode));
-      list.append(...scans.filter((scan) => !shown.has(scan.barcode)).map(held));
+      do {
+        reloadAsked = false;
+        const scans = await queue.list();
+        const shown = new Set([...list.querySelectorAll('.review-entry[data-barcode]')].map((e) => e.dataset.barcode));
+        list.append(...scans.filter((scan) => !shown.has(scan.barcode)).map(held));
+      } while (reloadAsked);
     } catch {
       // the queue couldn't be read (storage blocked): nothing to show
     } finally {
