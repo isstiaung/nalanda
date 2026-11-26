@@ -17,26 +17,60 @@
   const holdOnly = document.body.dataset.scanMode === 'hold';
   const queue = window.nalandaScanQueue;
 
+  // The camera is a small state machine, held here and nowhere else, and mirrored on the scan section as
+  // data-scanner (for the stylesheet, the tests and anyone reading the page):
+  //
+  //   idle ──Start──▶ starting ──camera answers──▶ live ──Stop, a lookup, leaving the page──▶ idle
+  //                      └──refused, timed out, Stop, leaving──▶ idle
+  //
+  // Start does nothing unless idle, so a second tap while the permission prompt is up can't open a second camera.
+  // Every Start is an attempt with its own number; Stop and leaving the page end the current one. A camera that
+  // answers for an attempt that has ended — after the 8-second timeout gave up on it, or after Stop — is closed the
+  // moment it arrives, so the camera light never stays on with nothing on screen.
+  let state = 'idle';
+  let attempt = 0;
   let stream = null;
   let timer = null;
-  let detector = null; // { kind: 'native' | 'zxing', impl }
+  const section = startBtn.closest('section, main') || document.body;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
   const say = (msg) => { if (status) status.textContent = msg; };
 
-  async function getDetector() {
-    if (detector) return detector;
+  function enter(next) {
+    state = next;
+    section.dataset.scanner = next;
+    // aria-, not `disabled`: a disabled button drops keyboard focus, which wouldn't come back when the camera is
+    // refused. start() itself does nothing unless idle.
+    if (next === 'starting') {
+      startBtn.setAttribute('aria-busy', 'true');
+      startBtn.setAttribute('aria-disabled', 'true');
+    } else {
+      startBtn.removeAttribute('aria-busy');
+      startBtn.removeAttribute('aria-disabled');
+    }
+    startBtn.hidden = next === 'live';
+    if (stopBtn) stopBtn.hidden = next !== 'live';
+  }
+  const current = (mine) => mine === attempt && state !== 'idle';
+  const close = (s) => s?.getTracks().forEach((t) => t.stop());
+
+  // The decoder, loaded once: one promise every frame waits on, so a slow connection fetching ZXing's 1 MB of WASM
+  // gets one download and one set-up — not one per frame while it arrives. A failed load is said once and tried again
+  // at most every RETRY_MS, quietly, so the status line (a live region) isn't rewritten on every frame.
+  const RETRY_MS = 5000;
+  let decoder = null; // Promise<{ kind: 'native' | 'zxing', impl }>
+  let failedAt = 0; // when the last load failed; 0 while none has
+  async function loadDetector() {
     if ('BarcodeDetector' in window) {
       try {
         const formats = await window.BarcodeDetector.getSupportedFormats();
         if (formats.includes('ean_13')) {
-          detector = { kind: 'native', impl: new window.BarcodeDetector({ formats: ['ean_13', 'upc_a', 'ean_8'] }) };
-          return detector;
+          return { kind: 'native', impl: new window.BarcodeDetector({ formats: ['ean_13', 'upc_a', 'ean_8'] }) };
         }
       } catch { /* fall through to zxing */ }
     }
-    say('Loading barcode decoder…');
+    if (!failedAt) say('Loading barcode decoder…');
     const zxing = await import('/vendor/zxing/reader/index.js');
     zxing.prepareZXingModule({
       overrides: {
@@ -45,12 +79,28 @@
           path.endsWith('.wasm') ? '/vendor/zxing/zxing_reader.wasm' : prefix + path,
       },
     });
-    detector = { kind: 'zxing', impl: zxing };
-    return detector;
+    if (state === 'live') say(hint()); // the loading line was news; the camera's own line comes back
+    return { kind: 'zxing', impl: zxing };
+  }
+  function getDetector() {
+    if (!decoder && failedAt && Date.now() - failedAt < RETRY_MS) return Promise.reject(new Error('decoder unavailable'));
+    decoder ??= loadDetector().then(
+      (d) => {
+        failedAt = 0;
+        return d;
+      },
+      (err) => {
+        decoder = null;
+        if (!failedAt && state === 'live') say('Couldn’t load the barcode decoder — check the connection, or type the barcode below.');
+        failedAt = Date.now();
+        throw err;
+      },
+    );
+    return decoder;
   }
 
   async function detectFrame() {
-    if (!stream || video.readyState < 2) return null;
+    if (state !== 'live' || !stream || video.readyState < 2) return null;
     const d = await getDetector();
     if (d.kind === 'native') {
       const codes = await d.impl.detect(video);
@@ -81,7 +131,7 @@
       try {
         localStorage.setItem(KEEP_KEY, keepBox.checked ? '1' : '0');
       } catch { /* not remembered, still on for this page */ }
-      if (stream) say(hint());
+      if (state === 'live') say(hint());
     });
   }
   const keeping = () => !!keepBox?.checked;
@@ -188,51 +238,80 @@
     e.preventDefault(); // the scanner's own status says what became of it, not the page's message region (§16 #65)
   });
 
+  // why the camera didn't start, in words someone can act on
+  function refusal(err) {
+    if (!window.isSecureContext) return 'Camera needs HTTPS. Type the barcode below instead.';
+    if (err?.name === 'NotAllowedError') return 'Camera permission was refused — allow it in the browser’s settings, or type the barcode below.';
+    if (err?.name === 'TimeoutError') return 'The camera didn’t start within 8 seconds. Try again, or type the barcode below.';
+    return `Camera unavailable (${err?.name || 'unknown'}). Type the barcode below instead.`;
+  }
+
   async function start() {
+    if (state !== 'idle') return; // a second tap while the camera is starting, or already on
+    const mine = ++attempt;
+    enter('starting');
+    say('Starting the camera…');
     tune(); // inside the click, so the beep is allowed
-    const request = navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1280 } },
-      audio: false,
+    const request = navigator.mediaDevices?.getUserMedia
+      ? navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false })
+      : Promise.reject(Object.assign(new Error('no camera API'), { name: 'NotSupportedError' }));
+    // A camera that answers for an attempt that has ended is closed at once. Registered first, so when it answers in
+    // time this sees the attempt still current and leaves it be.
+    request.then((late) => { if (!current(mine) || state !== 'starting') close(late); }, () => {});
+    // A timeout race, not just try/catch: getUserMedia can hang indefinitely rather than reject (a permission prompt
+    // nobody answers) — without this, "nothing visibly happens" is indistinguishable from "still waiting."
+    let giveUp = 0;
+    const timeout = new Promise((_, reject) => {
+      giveUp = setTimeout(() => reject(Object.assign(new Error('timed out after 8s'), { name: 'TimeoutError' })), 8000);
     });
-    // A timeout race, not just try/catch: getUserMedia can hang indefinitely rather
-    // than reject (e.g. a permission prompt the user never responds to) — without
-    // this, "nothing visibly happens" is indistinguishable from "still waiting."
-    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('timed out after 8s')), 8000));
+    let opened;
     try {
-      stream = await Promise.race([request, timeout]);
+      opened = await Promise.race([request, timeout]);
     } catch (err) {
-      say(
-        location.protocol === 'http:' && location.hostname !== 'localhost'
-          ? 'Camera needs HTTPS. Type the barcode below instead.'
-          : `Camera unavailable (${err.name ?? 'timed out'}). Type the barcode below instead.`,
-      );
+      if (mine === attempt) {
+        enter('idle');
+        say(refusal(err));
+      }
       return;
+    } finally {
+      clearTimeout(giveUp);
     }
+    if (!current(mine)) return close(opened); // stopped while it was starting: the handler above closed it
+    stream = opened;
     video.srcObject = stream;
     video.classList.add('live');
-    await video.play();
-    startBtn.hidden = true;
-    stopBtn.hidden = false;
+    try {
+      await video.play();
+    } catch { /* autoplay refused or interrupted: frames still arrive for a muted inline video */ }
+    if (!current(mine)) return;
+    enter('live');
     say(hint());
-    timer = setInterval(async () => {
-      try {
-        const code = await detectFrame();
-        if (code && /^\d{8,14}$/.test(code)) found(code);
-      } catch { /* keep scanning */ }
-    }, 350);
+    tick(mine);
+  }
+
+  // One frame at a time: the next read is scheduled only once this one has finished, so a slow decoder (ZXing on an
+  // old phone, or still loading) never has reads piling up behind it.
+  async function tick(mine) {
+    if (!current(mine) || state !== 'live') return;
+    try {
+      const code = await detectFrame();
+      if (current(mine) && state === 'live' && code && /^\d{8,14}$/.test(code)) found(code);
+    } catch { /* keep scanning */ }
+    if (current(mine) && state === 'live') timer = setTimeout(() => tick(mine), 350);
   }
 
   function stop() {
-    if (timer) clearInterval(timer);
+    attempt++; // ends whatever attempt was running, starting or live
+    clearTimeout(timer);
     timer = null;
-    if (stream) stream.getTracks().forEach((t) => t.stop());
+    close(stream);
     stream = null;
     video.classList.remove('live');
     video.srcObject = null;
-    startBtn.hidden = false;
-    stopBtn.hidden = true;
+    enter('idle');
   }
 
+  enter('idle');
   startBtn.addEventListener('click', start);
   stopBtn?.addEventListener('click', () => { stop(); say(''); });
   window.addEventListener('pagehide', stop);
