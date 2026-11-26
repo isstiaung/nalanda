@@ -412,6 +412,67 @@ document.addEventListener('htmx:afterSettle', (e) => {
   });
 })();
 
+// ── a request on its way (ARCH.md §16 #105) ──
+// Whatever sends something is idle or pending, and the page shows which: the form or button a request went out from
+// carries aria-busy="true" until its answer is in, and the stylesheet draws a moving sheen across its button. On a
+// slow connection a tap otherwise looks like nothing for seconds, and gets tapped again. One state, one attribute,
+// read the same way by the stylesheet, a screen reader, a test and an agent driving the page.
+// - htmx: from htmx:beforeRequest to htmx:afterRequest. htmx already drops a second request from the same element while
+//   one is out, so this only shows it; an answer that swaps the element out takes the attribute with it.
+// - a plain POST form: from its submit until the next page arrives, and a second submit meanwhile is refused — a
+//   double tap on Save must not send two. Only submits nothing else has cancelled (the logout form posts itself after
+//   emptying the scan queue; htmx cancels its own). Back from the page cache, every form is idle again; and after
+//   PLAIN_WAIT a form still waiting may go again, in case its answer never replaced the page.
+(() => {
+  const PLAIN_WAIT = 20000;
+  const busy = (el, on) => {
+    if (!el) return;
+    if (on) el.setAttribute('aria-busy', 'true');
+    else el.removeAttribute('aria-busy');
+  };
+  // what someone pressed — never a poll (the pairing page asks every 2 s), whose busy flag would only hold back the
+  // live region beside it
+  const sender = (e) => {
+    const elt = e.detail && e.detail.elt;
+    if (!elt || !elt.matches || !elt.matches('form, button, a')) return null;
+    return /\bevery\b/.test(elt.getAttribute('hx-trigger') || '') ? null : elt;
+  };
+  const release = (el) => {
+    busy(el, false);
+    el.querySelectorAll('[aria-busy]').forEach((b) => busy(b, false));
+  };
+  document.addEventListener('htmx:beforeRequest', (e) => {
+    const elt = sender(e);
+    if (!elt) return;
+    busy(elt, true);
+    // a form's request shows on the button pressed, when there was one
+    const pressed = e.detail.requestConfig && e.detail.requestConfig.triggeringEvent && e.detail.requestConfig.triggeringEvent.submitter;
+    if (pressed && elt.contains(pressed)) busy(pressed, true);
+  });
+  document.addEventListener('htmx:afterRequest', (e) => {
+    const elt = sender(e);
+    if (elt) release(elt);
+  });
+
+  window.addEventListener('submit', (e) => {
+    const form = e.target;
+    if (e.defaultPrevented || !(form instanceof HTMLFormElement)) return;
+    if ((form.getAttribute('method') || '').toLowerCase() !== 'post') return;
+    const target = form.getAttribute('target'); // the attribute: a field named `target` shadows form.target
+    if (target && target !== '_self') return;
+    if (form.getAttribute('aria-busy') === 'true') {
+      e.preventDefault(); // already on its way
+      return;
+    }
+    busy(form, true);
+    busy(e.submitter, true);
+    setTimeout(() => release(form), PLAIN_WAIT);
+  });
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted) document.querySelectorAll('form[aria-busy]').forEach(release);
+  });
+})();
+
 // ── a cover from the camera (ARCH.md §16 #73): shrink the picture here, before it's sent ──
 // The Worker never resizes an image (10 ms CPU), and a phone's photo is 3–12 MB. So a file picked into a
 // [data-resize="cover"] field is redrawn at most 1200 px on its long side as a JPEG and put back into the field, which

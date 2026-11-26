@@ -1150,8 +1150,38 @@ html.js .toolbar-filters:not(.open) { display: none; }
   #nav-toggle { display: none; }
 }
 
+/* A request on its way (§16 #105): the button that sent it, or the one in the form that did, says so with a sheen
+   moving across it — after 150 ms, so a quick answer never flickers. The state is aria-busy, set by app.js (and by the
+   scanner's Start while the camera starts); a busy button keeps its colours, so nothing reads as disabled or failed. */
+/* !important on the background longhands alone: a tapped button on a phone stays :hover, and every button's hover
+   rule (and the want toggle's, at 0,3,1) sets the `background` shorthand, which would wipe the sheen out from under
+   the finger that pressed it. Not on the position, which the animation moves (an animation can't move an !important
+   value) and which outranks the shorthand anyway. Two rules, not one list: a browser without :has() drops only the
+   second. */
+:is(button, .btn, .pill)[aria-busy='true'] {
+  cursor: progress;
+  background-image: linear-gradient(100deg, transparent 0 30%, color-mix(in srgb, currentColor 22%, transparent) 50%, transparent 70% 100%) !important;
+  background-size: 250% 100% !important;
+  background-repeat: no-repeat !important;
+  animation: pending 1.2s linear 150ms infinite backwards; /* the animation places the sheen: offscreen through the delay */
+}
+form[aria-busy='true']:not(:has([aria-busy='true'])) :is(button[type='submit'], button:not([type])) {
+  cursor: progress;
+  background-image: linear-gradient(100deg, transparent 0 30%, color-mix(in srgb, currentColor 22%, transparent) 50%, transparent 70% 100%) !important;
+  background-size: 250% 100% !important;
+  background-repeat: no-repeat !important;
+  animation: pending 1.2s linear 150ms infinite backwards; /* the animation places the sheen: offscreen through the delay */
+}
+@keyframes pending {
+  from { background-position: 160% 0; }
+  to { background-position: -60% 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
+  /* no sheen to move: a still one, in the middle, says the same */
+  :is(button, .btn, .pill)[aria-busy='true'] { background-position: 50% 0 !important; }
+  form[aria-busy='true']:not(:has([aria-busy='true'])) :is(button[type='submit'], button:not([type])) { background-position: 50% 0 !important; }
 }
 
 /* ── connections ──────────────────────────────────────────────────────────── */
