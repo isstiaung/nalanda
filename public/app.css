@@ -1150,8 +1150,49 @@ html.js .toolbar-filters:not(.open) { display: none; }
   #nav-toggle { display: none; }
 }
 
+/* A request on its way (§16 #105): the button that sent it, or the one in the form that did, says so with a sheen
+   moving across it — after 150 ms, so a quick answer never flickers. The state is aria-busy, set by app.js (and by the
+   scanner's Start while the camera starts); a busy button keeps its colours, so nothing reads as disabled or failed. */
+/* !important on the background longhands alone: a tapped button on a phone stays :hover, and every button's hover
+   rule (and the want toggle's, at 0,3,1) sets the `background` shorthand, which would wipe the sheen out from under
+   the finger that pressed it. Not on the position, which the animation moves (an animation can't move an !important
+   value) and which outranks the shorthand anyway. Two rules, not one list: a browser without :has() drops only the
+   second. */
+:is(button, .btn, .pill)[aria-busy='true'] {
+  cursor: progress;
+  background-image: linear-gradient(100deg, transparent 0 30%, color-mix(in srgb, currentColor 14%, transparent) 50%, transparent 70% 100%) !important;
+  background-size: 250% 100% !important;
+  background-repeat: no-repeat !important;
+  animation: pending 1.2s linear 150ms infinite backwards; /* the animation places the sheen: offscreen through the delay */
+}
+form[aria-busy='true']:not(:has([aria-busy='true'])) :is(button[type='submit'], button:not([type])) {
+  cursor: progress;
+  background-image: linear-gradient(100deg, transparent 0 30%, color-mix(in srgb, currentColor 14%, transparent) 50%, transparent 70% 100%) !important;
+  background-size: 250% 100% !important;
+  background-repeat: no-repeat !important;
+  animation: pending 1.2s linear 150ms infinite backwards; /* the animation places the sheen: offscreen through the delay */
+}
+@keyframes pending {
+  from { background-position: 160% 0; }
+  to { background-position: -60% 0; }
+}
+
+/* On a touchscreen a disclosure's summary — a read's Edit, Add a past read, Add a cover, History — is a finger's
+   height to hit, not its 19px line of text. :where() keeps this at no weight, so a summary with its own size (the
+   sidebar's sections, a filter menu) keeps it. */
+@media (pointer: coarse) {
+  :where(details > summary) { padding-block: 0.6rem; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
+  /* no sheen to move — and a still one would sit behind the words for the whole wait — so a dotted ring instead */
+  :is(button, .btn, .pill)[aria-busy='true'] { background-image: none !important; outline: 2px dotted currentColor; outline-offset: 2px; }
+  form[aria-busy='true']:not(:has([aria-busy='true'])) :is(button[type='submit'], button:not([type])) {
+    background-image: none !important;
+    outline: 2px dotted currentColor;
+    outline-offset: 2px;
+  }
 }
 
 /* ── connections ──────────────────────────────────────────────────────────── */
@@ -1291,6 +1332,7 @@ details.read-edit > summary::-webkit-details-marker { display: none; }
 details.read-edit > summary:hover { color: var(--accent); }
 details.read-edit[open] { flex-basis: 100%; padding: 0.3rem 0 0.5rem; }
 details.read-edit[open] > summary { margin-bottom: 0.45rem; }
+.inline-form label.read-date { gap: 0.35rem; font-size: 12px; color: var(--ink-2); } /* a read's Began and Ended, named beside each field */
 /* each form an edit holds (a review's Save, then Delete, then Move) sits clear of the one above */
 details.read-edit form + form { margin-top: 0.4rem; }
 details.read-add { margin-top: 0.7rem; }
