@@ -256,6 +256,10 @@ Long forms in [docs/conventions.md](docs/conventions.md).
   **and** Completed, pill "Re-reading"). One open read per person per item; a finished book takes no
   page until "Read again". `reviewed_at` moves only when the text changes; a write that can remove
   a review carries `redateReviewActivity()`. Only an admin's import keeps a file's names.
+- **State machines** (ARCH.md §16 #105, [docs/state-machines.md](docs/state-machines.md)): a status column that moves
+  declares its moves in `src/lib/lifecycles.ts`, and `src/db` takes `to`/`from` from there — never a status literal
+  written by hand (a test refuses one). A new move goes in the table first. In the browser, a request in flight is
+  `aria-busy` (app.js); a script's own states live in one variable, mirrored as a `data-*` attribute.
 - Members change only their own reads, pages and review; admins anyone's, and only admins move one
   to another member — checked in the route (403 with a reason) *and* the writing statement
   (`Actor` guards).
